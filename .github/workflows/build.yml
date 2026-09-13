@@ -1,0 +1,210 @@
+name: build
+
+# The gate is build.sh: JSON validation, the Power-of-Ten rules and the compile with every
+# warning as an error. What passes here is packed as the zip that gets released.
+on:
+  push:
+    # workflow_dispatch only shows its "Run workflow" button for workflows that exist on the
+    # default branch, so main carrying this file is what makes manual runs possible at all.
+    branches: [main, nightly]
+    paths-ignore: ['docs/**', 'README.md']
+  pull_request:
+  workflow_dispatch:
+
+# A second push onto the same branch makes the first run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      # The game assemblies Komet.csproj compiles against, in the layout the csproj expects
+      # (see .github/vintagestory/README.md). MSBuild picks the variable up as $(VsInstall).
+      VsInstall: ${{ github.workspace }}/.github/vintagestory
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # No version here on purpose: global.json pins it, so the runner and a developer's
+      # machine compile with the same SDK.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+
+      # Fails with the missing file names rather than with a wall of CS0246 "type or
+      # namespace not found" from the first reference that could not be resolved.
+      - name: Check the game assemblies are present
+        run: |
+          missing=()
+          for f in VintagestoryAPI.dll VintagestoryLib.dll \
+                   Lib/0Harmony.dll Lib/cairo-sharp.dll Lib/Newtonsoft.Json.dll Lib/OpenTK.Graphics.dll; do
+            [[ -f "$VsInstall/$f" ]] || missing+=("$f")
+          done
+          if (( ${#missing[@]} )); then
+            printf 'missing in .github/vintagestory:\n'
+            printf '  %s\n' "${missing[@]}"
+            printf 'see .github/vintagestory/README.md for the expected layout\n'
+            exit 1
+          fi
+          echo "all 6 game assemblies present"
+
+      # build.sh is the single source of truth for what a release is: it validates the
+      # assets, runs the rules, publishes and only then packs Releases/komet_<version>.zip.
+      - name: Build, check and pack
+        run: ./build.sh
+
+      - name: Test
+        run: dotnet test Komet.Test/Komet.Test.csproj --configuration Release
+
+      # Into the run summary, so the checksum of a build can be read (and pasted onto the
+      # ModDB page) without downloading the artifact first.
+      - name: Report checksums
+        run: |
+          cd Releases
+          sha256sum komet_*.zip > komet.sha256
+          {
+            echo '### sha256'
+            echo
+            echo '```'
+            cat komet.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat komet.sha256
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: komet
+          path: |
+            Releases/komet_*.zip
+            Releases/komet.sha256
+          if-no-files-found: error
+
+  # Everything that is built lands under Releases, but not as the same kind of thing:
+  #
+  #   main            -> a DRAFT tagged v<version>. The real release; a human looks at it and
+  #                      presses publish. An existing tag is never moved - a version is
+  #                      published once.
+  #   nightly, manual run
+  #                   -> a PRERELEASE tagged preview-<sha>, visible in the tab right away and
+  #                      never marked "latest". One per commit, so a preview and the sha256 in
+  #                      its notes belong together permanently.
+  #
+  # Pull requests publish nothing (a fork must not be able to tag this repository).
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: komet
+          path: dist
+
+      # modinfo.json is what the game reads and what build.sh named the zip after.
+      - name: Work out what this is
+        id: what
+        run: |
+          version=$(jq -r '.version // empty' Komet/modinfo.json)
+          [[ -n "$version" ]] || { echo "no version in Komet/modinfo.json"; exit 1; }
+          sha=$(git rev-parse --short=7 HEAD)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha"         >> "$GITHUB_OUTPUT"
+
+          if [[ '${{ github.ref }}' == 'refs/heads/main' ]]; then
+            echo "preview=false"                >> "$GITHUB_OUTPUT"
+            echo "tag=v$version"                >> "$GITHUB_OUTPUT"
+            echo "name=Komet $version"          >> "$GITHUB_OUTPUT"
+            echo "draft=true"                   >> "$GITHUB_OUTPUT"
+            # 2.0.0-pre.2 is not a release; anything without a dash is
+            [[ "$version" == *-* ]] && echo "prerelease=true"  >> "$GITHUB_OUTPUT" \
+                                    || echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "preview=true"                          >> "$GITHUB_OUTPUT"
+            echo "tag=preview-$sha"                      >> "$GITHUB_OUTPUT"
+            echo "name=Komet $version preview ($sha)"    >> "$GITHUB_OUTPUT"
+            echo "draft=false"                           >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"                       >> "$GITHUB_OUTPUT"
+          fi
+
+      # A version is published once. If the tag is already there, the release that belongs to
+      # it was built from another commit; nothing is published then - bump the version in
+      # modinfo.json to publish again. (Previews carry the commit in their tag, so they never
+      # land here.)
+      - name: Tag the commit
+        id: tag
+        run: |
+          tag='${{ steps.what.outputs.tag }}'
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag exists already - not moving it, and not replacing its release"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$tag" -m "Komet $tag"
+          git push origin "$tag"
+
+      - name: Build the release notes
+        if: steps.tag.outputs.publish == 'true'
+        run: |
+          {
+            if [[ '${{ steps.what.outputs.preview }}' == 'true' ]]; then
+              echo 'Preview build from `${{ github.ref_name }}`, commit `${{ github.sha }}`.'
+              echo 'Not a release: it has passed the checks, nothing more.'
+            else
+              echo 'Built from `${{ github.sha }}`.'
+            fi
+            echo
+            echo 'Check out `${{ steps.what.outputs.tag }}` and run `./build.sh` to rebuild it.'
+            echo
+            echo '```'
+            cat dist/komet.sha256
+            echo '```'
+          } > notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v3
+        if: steps.tag.outputs.publish == 'true'
+        with:
+          tag_name: ${{ steps.what.outputs.tag }}
+          name: ${{ steps.what.outputs.name }}
+          body_path: notes.md
+          draft: ${{ steps.what.outputs.draft }}
+          prerelease: ${{ steps.what.outputs.prerelease }}
+          # a preview must never displace the real release at the top of the tab
+          make_latest: ${{ steps.what.outputs.preview == 'true' && 'false' || 'legacy' }}
+          files: |
+            dist/komet_*.zip
+            dist/komet.sha256
+          fail_on_unmatched_files: true
+
+      # One preview per commit means the tab would grow without end. Keep the newest few;
+      # tags go with them. Version tags (v*) are never touched.
+      - name: Prune old previews
+        if: steps.what.outputs.preview == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: 3
+        run: |
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("preview-"))]
+                  | sort_by(.createdAt) | reverse | .[].tagName' \
+            | tail -n "+$((KEEP + 1))" \
+            | while read -r tag; do
+                [[ -n "$tag" ]] || continue
+                echo "deleting $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
+          echo "kept the newest $KEEP preview(s)"

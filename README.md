@@ -21,6 +21,12 @@ als MSBuild-Property gesetzt werden: `dotnet build -p:VsInstall=C:\Games\Vintage
 Das Ergebnis liegt unter `Releases/komet_<version>.zip`. Der Build validiert vorher die JSON-Assets
 und die Power-of-Ten-Regeln (siehe `CakeBuild/Program.cs`); ein Verstoß bricht den Build ab.
 
+## CI
+
+Jeder Push auf `main` oder `nightly` baut über `.github/workflows/build.yml`. Die Spiel-DLLs dafür
+liegen in `.github/vintagestory/` (siehe dortige README). `main` erzeugt einen Release-Entwurf
+`v<version>`, `nightly` und manuelle Läufe ein Prerelease `preview-<sha>`.
+
 ## Tests
 
 ```bash

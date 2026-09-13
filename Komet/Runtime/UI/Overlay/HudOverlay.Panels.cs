@@ -9,16 +9,28 @@ internal sealed partial class HudOverlay
 {
     private const int PanelCount = 8;
 
+    private static string Metadata(Assembly assembly, string key)
+        => !NotNull(assembly) || !Assert(key.Length > 0) ? "" : assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Take(64).FirstOrDefault(a => a.Key == key)?.Value ?? "";
+
     private void BuildPanels()
     {
         if (!Assert(_panels.Count == 0) || !NotNull(_capi.ModLoader)) return;
         var mod = _capi.ModLoader.GetMod("komet");
         var version = NotNull(mod) ? mod.Info.Version : "?";
-        var debug = typeof(HudOverlay).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
-        var edition = debug ? (HudSettings.Translate("hud-edition-dev"), HudCanvas.Accent) : (HudSettings.Translate("hud-edition-release"), new Rgba(0.20, 0.60, 0.30, 1));
+        var assembly = typeof(HudOverlay).Assembly;
+        var debug = assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
+        var preview = Metadata(assembly, "Channel") == "preview";
+        var commit = Metadata(assembly, "Commit");
+        var edition = (debug, preview) switch
+        {
+            (true, _) => (HudSettings.Translate("hud-edition-dev"), HudCanvas.Accent),
+            (_, true) => (HudSettings.Translate("hud-edition-preview"), new Rgba(0.80, 0.50, 0.15, 1)),
+            _ => (HudSettings.Translate("hud-edition-release"), new Rgba(0.20, 0.60, 0.30, 1)),
+        };
+        var build = commit.Length == 0 ? HudSettings.Translate("hud-build", version) : HudSettings.Translate("hud-build-commit", version, commit);
 
         _ = Panel(column: 0)
-            .Title("title", edition, (HudSettings.Translate("hud-build", version), HudCanvas.Neutral))
+            .Title("title", edition, (build, HudCanvas.Neutral))
             .Value("fps",             () => _frames.Fps)
             .Value("low1",            () => _frames.Low1Fps)
             .Value("low01",           () => _frames.Low01Fps)

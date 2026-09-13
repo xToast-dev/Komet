@@ -27,6 +27,9 @@ jobs:
       # The game assemblies Komet.csproj compiles against, in the layout the csproj expects
       # (see .github/vintagestory/README.md). MSBuild picks the variable up as $(VsInstall).
       VsInstall: ${{ github.workspace }}/.github/vintagestory
+      # Stamped into the assembly (Komet.csproj); the HUD shows "Preview" instead of "Release"
+      # and the commit next to the version, so a preview zip can never pass for a release.
+      KometChannel: ${{ github.ref == 'refs/heads/main' && 'release' || 'preview' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -35,6 +38,9 @@ jobs:
       # machine compile with the same SDK.
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
+
+      - name: Stamp the commit
+        run: echo "KometCommit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       # Fails with the missing file names rather than with a wall of CS0246 "type or
       # namespace not found" from the first reference that could not be resolved.

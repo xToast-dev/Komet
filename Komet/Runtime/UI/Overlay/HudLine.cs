@@ -8,7 +8,7 @@ internal readonly record struct HudColumns(double RowWidth, double BarX, double 
 
 internal sealed class HudLine
 {
-    public const double UnitGap = 3, BadgeGap = 6;
+    public const double UnitGap = 3, BadgeGap = 6, TitleGap = 6;   // TitleGap: extra room between the title and its first badge
     public const int MaxBadges = 4;
     private const double Indent = 12, GraphWidth = 320, GraphHeight = 90;
 
@@ -54,7 +54,7 @@ internal sealed class HudLine
         };
         if (!Assert(Height > 0)) { Height = 0; return; }
         var indent = Sub ? scaled(Indent) : 0;
-        LabelWidth = Kind == HudLineKind.Graph ? scaled(GraphWidth) : indent + HudCanvas.TextWidth(font, _label);
+        LabelWidth = Kind switch { HudLineKind.Graph => scaled(GraphWidth), HudLineKind.Title => scaled(TitleGap) + HudCanvas.TextWidth(font, _label), _ => indent + HudCanvas.TextWidth(font, _label) };
         foreach (var (text, _) in Badges.Bounded(MaxBadges)) LabelWidth += scaled(BadgeGap) + HudCanvas.BadgeWidth(settings.Header, text);
         if (Kind != HudLineKind.Text || !Assert(LabelWidth >= 0)) return;
 
@@ -128,7 +128,7 @@ internal sealed class HudLine
                 break;
             case HudLineKind.Title:
                 canvas.Text(x, y, h, settings.Title, _label);
-                x += HudCanvas.TextWidth(settings.Title, _label);
+                x += HudCanvas.TextWidth(settings.Title, _label) + scaled(TitleGap);
                 foreach (var (text, color) in Badges.Bounded(MaxBadges)) x += scaled(BadgeGap) + canvas.Badge(x, y, h, settings.Header, text, color);
                 break;
             case HudLineKind.Graph:

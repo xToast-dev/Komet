@@ -27,6 +27,12 @@
         <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false" />
     </ItemGroup>
 
+    <!-- Stamped by CI (see .github/workflows/build.yml); a local build carries neither and the HUD shows plain Release -->
+    <ItemGroup>
+        <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''" />
+        <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''" />
+    </ItemGroup>
+
     <ItemGroup>
         <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="modicon.png" Condition="Exists('modicon.png')" CopyToOutputDirectory="PreserveNewest" />

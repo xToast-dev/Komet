@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <OutputPath>bin\$(Configuration)\Mods\mod</OutputPath>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- for the generated LibraryImport stubs only -->
+        <VsInstall Condition="'$(VsInstall)' == ''">/opt/vintagestory</VsInstall>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Using Include="Vintagestory.API.Client" />
+        <Using Include="Vintagestory.API.Common" />
+        <Using Include="Vintagestory.API.Config" />
+        <Using Include="Vintagestory.API.Client.GuiElement" Static="true" />
+        <Using Include="Komet.Contracts" Static="true" />
+        <InternalsVisibleTo Include="Komet.Test" />
+    </ItemGroup>
+
+    <!-- Supplied by the game at runtime, never copied into the mod output -->
+    <ItemGroup>
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false" />
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false" />
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false" />
+        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll" Private="false" />
+        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false" />
+        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Include="bin\Debug\Mods\mod\Komet.deps.json" />
+        <Content Include="bin\Debug\Mods\mod\Komet.dll" />
+        <Content Include="bin\Debug\Mods\mod\Komet.pdb" />
+        <Content Include="bin\Debug\Mods\mod\modinfo.json" />
+        <Content Include="bin\Release\Mods\mod\Komet.deps.json" />
+        <Content Include="bin\Release\Mods\mod\Komet.dll" />
+        <Content Include="bin\Release\Mods\mod\Komet.pdb" />
+        <Content Include="bin\Release\Mods\mod\modinfo.json" />
+        <Content Include="bin\Release\Mods\mod\publish\Komet.deps.json" />
+        <Content Include="bin\Release\Mods\mod\publish\Komet.dll" />
+        <Content Include="bin\Release\Mods\mod\publish\Komet.pdb" />
+        <Content Include="bin\Release\Mods\mod\publish\modinfo.json" />
+        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="modicon.png" Condition="Exists('modicon.png')" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Core\" />
+      <Folder Include="ShaderAPI\" />
+    </ItemGroup>
+
+</Project>

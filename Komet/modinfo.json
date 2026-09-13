@@ -1,0 +1,14 @@
+{
+    "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
+    "type": "Code",
+    "modid": "komet",
+    "name": "Komet",
+    "authors": [
+        "xToast"
+    ],
+    "description": "-",
+    "version": "2.0.0",
+    "dependencies": {
+        "game": "1.22.0"
+    }
+}

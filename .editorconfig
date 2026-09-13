@@ -1,0 +1,19 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true
+
+# A discarded return value must be discarded explicitly (`_ = f()`)
+dotnet_diagnostic.IDE0058.severity = warning
+csharp_style_unused_value_expression_statement_preference = discard_variable
+
+# Contracts.NotNull is the mod's argument check; CA1062 accepts it as a null guard
+dotnet_code_quality.null_check_validation_methods = NotNull
+
+# Frosting tasks and NUnit fixtures are found by reflection and have to stay public
+[{CakeBuild,Komet.Test}/**.cs]
+dotnet_diagnostic.CA1515.severity = none

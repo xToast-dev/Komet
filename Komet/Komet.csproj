@@ -28,25 +28,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="bin\Debug\Mods\mod\Komet.deps.json" />
-        <Content Include="bin\Debug\Mods\mod\Komet.dll" />
-        <Content Include="bin\Debug\Mods\mod\Komet.pdb" />
-        <Content Include="bin\Debug\Mods\mod\modinfo.json" />
-        <Content Include="bin\Release\Mods\mod\Komet.deps.json" />
-        <Content Include="bin\Release\Mods\mod\Komet.dll" />
-        <Content Include="bin\Release\Mods\mod\Komet.pdb" />
-        <Content Include="bin\Release\Mods\mod\modinfo.json" />
-        <Content Include="bin\Release\Mods\mod\publish\Komet.deps.json" />
-        <Content Include="bin\Release\Mods\mod\publish\Komet.dll" />
-        <Content Include="bin\Release\Mods\mod\publish\Komet.pdb" />
-        <Content Include="bin\Release\Mods\mod\publish\modinfo.json" />
         <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="modicon.png" Condition="Exists('modicon.png')" CopyToOutputDirectory="PreserveNewest" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="Core\" />
-      <Folder Include="ShaderAPI\" />
     </ItemGroup>
 
 </Project>

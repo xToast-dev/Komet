@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+Releases/
+publish/
+
+# IDE / user state
+.idea/
+.vs/
+*.user
+*.DotSettings.user
+.vscode/
+
+# Local game / run config
+/Komet/config/
+/CakeBuild/config/
+/Komet/Properties/launchSettings.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -14,7 +14,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
     public const int GraphFrames = 240;
     public static readonly Rgba PanelBackground = new(0.05, 0.06, 0.09, 1), Accent = new(0.16, 0.45, 0.85, 1), Neutral = new(0.35, 0.35, 0.35, 1);
     public static readonly Rgba Warning = new(1.0, 0.72, 0.25, 1), Error = new(1.0, 0.38, 0.35, 1), Dim = Rgba.White(0.5);
-    private const int SizeStep = 32, MaxSize = 16384, MaxGridLines = MaxSize / 8;
+    private const int SizeStep = 32, MaxSize = 16384, MaxGridLines = MaxSize / 8, MaxGuides = 4;
     private const double BarW = 120, BarH = 6, BadgePad = 3, HeaderPad = 2, RuleH = 9, GraphMinScaleMs = 20, GraphHeadroom = 1.1;
     private static readonly (double Ms, string Label)[] GraphGuides = [(1000.0 / 60, "60 fps"), (1000.0 / 120, "120 fps")];
     private static readonly Rgba BarTrack = Rgba.White(0.12), BarMarker = Rgba.White(0.8), HeaderBackground = Rgba.White(0.08), RuleLine = Rgba.White(0.3);
@@ -137,7 +137,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         if (!Assert(scaleMs > 0)) return;   // NaN fails too
 
         double textHeight = LineHeight(font), lastTextTop = double.MaxValue;
-        foreach (var (guideMs, label) in GraphGuides)
+        foreach (var (guideMs, label) in GraphGuides.Bounded(MaxGuides))
         {
             var lineY = ToY(guideMs);
             Fill(x, lineY, w, 1, GuideLine);

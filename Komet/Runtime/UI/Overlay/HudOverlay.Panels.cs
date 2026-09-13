@@ -12,6 +12,29 @@ internal sealed partial class HudOverlay
     private static string Metadata(Assembly assembly, string key)
         => !NotNull(assembly) || !Assert(key.Length > 0) ? "" : assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Take(64).FirstOrDefault(a => a.Key == key)?.Value ?? "";
 
+    private string UpdateText()
+    {
+        if (!NotNull(_update)) return "";
+        var key = _update.State switch
+        {
+            UpdateState.Checking => "hud-update-checking",
+            UpdateState.Verified => "hud-update-verified",
+            UpdateState.Mismatch => "hud-update-mismatch",
+            UpdateState.Outdated => "hud-update-outdated",
+            UpdateState.Unverified => "hud-update-unverified",
+            _ => "hud-update-failed",
+        };
+        return Assert(key.Length > 0) ? HudSettings.Translate(key, _update.Detail) : "";
+    }
+
+    private Rgba? UpdateColor() => !NotNull(_update) || !Assert(_panels.Count > 0) ? null : _update.State switch
+    {
+        UpdateState.Verified => new Rgba(0.35, 0.75, 0.45, 1),
+        UpdateState.Mismatch => new Rgba(0.90, 0.30, 0.30, 1),
+        UpdateState.Outdated => new Rgba(0.95, 0.65, 0.25, 1),
+        _ => null,
+    };
+
     private void BuildPanels()
     {
         if (!Assert(_panels.Count == 0) || !NotNull(_capi.ModLoader)) return;
@@ -29,8 +52,11 @@ internal sealed partial class HudOverlay
         };
         var build = commit.Length == 0 ? HudSettings.Translate("hud-build", version) : HudSettings.Translate("hud-build-commit", version, commit);
 
+        _update = new UpdateCheck(_capi.Logger, version, preview, commit, mod?.SourcePath ?? "");
+
         _ = Panel(column: 0)
             .Title("title", edition, (build, HudCanvas.Neutral))
+            .Line(UpdateText, sub: true, color: UpdateColor)
             .Value("fps",             () => _frames.Fps)
             .Value("low1",            () => _frames.Low1Fps)
             .Value("low01",           () => _frames.Low01Fps)

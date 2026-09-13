@@ -27,6 +27,7 @@ internal sealed partial class HudOverlay : IRenderer
     private float _scrollRemainder;
     private HudCanvas? _grid;
     private Task? _sampling;
+    private UpdateCheck? _update;
     private bool _disposed;
 
     public HudOverlay(ICoreClientAPI capi)
@@ -280,6 +281,7 @@ internal sealed partial class HudOverlay : IRenderer
         _capi.Event.MouseUp -= OnMouseUp;
         _capi.Event.MouseWheelMove -= OnMouseWheel;
         _capi.Event.UnregisterCallback(_saveCallback);
+        _update?.Dispose();
         _settings.Save(_capi);
         _dialog.Dispose();
         _grid?.Dispose();

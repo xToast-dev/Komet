@@ -14,7 +14,7 @@ internal sealed partial class HudOverlay
 
     private string UpdateText()
     {
-        if (!NotNull(_update)) return "";
+        if (!_settings.UpdateCheck || !NotNull(_update)) return "";
         var key = _update.State switch
         {
             UpdateState.Checking => "hud-update-checking",
@@ -27,7 +27,7 @@ internal sealed partial class HudOverlay
         return Assert(key.Length > 0) ? HudSettings.Translate(key, _update.Detail) : "";
     }
 
-    private Rgba? UpdateColor() => !NotNull(_update) || !Assert(_panels.Count > 0) ? null : _update.State switch
+    private Rgba? UpdateColor() => !_settings.UpdateCheck || !NotNull(_update) || !Assert(_panels.Count > 0) ? null : _update.State switch
     {
         UpdateState.Verified => new Rgba(0.35, 0.75, 0.45, 1),
         UpdateState.Mismatch => new Rgba(0.90, 0.30, 0.30, 1),
@@ -52,7 +52,7 @@ internal sealed partial class HudOverlay
         };
         var build = commit.Length == 0 ? HudSettings.Translate("hud-build", version) : HudSettings.Translate("hud-build-commit", version, commit);
 
-        _update = new UpdateCheck(_capi.Logger, version, preview, commit, mod?.SourcePath ?? "");
+        _build = (version, preview, commit, mod?.SourcePath ?? "");
 
         _ = Panel(column: 0)
             .Title("title", edition, (build, HudCanvas.Neutral))

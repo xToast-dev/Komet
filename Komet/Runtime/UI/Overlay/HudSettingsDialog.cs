@@ -133,6 +133,7 @@ internal sealed class HudSettingsDialog : GuiDialog
             Setting("corner", y => Segments(y, cornerNames, s.Pinned.Count > 0 ? Custom : (int)s.Corner, i => s.SetCorner((HudCorner)i), passive: Custom));
             Setting("opacity", y => Slider(y, s.Opacity, HudSettings.OpacityRange, v => s.Opacity = v));
             Setting("scale", y => Slider(y, s.FontScale, HudSettings.ScaleRange, v => s.FontScale = v));
+            Setting("updates", y => Switch(y, s.UpdateCheck, on => { s.UpdateAsked = true; s.UpdateCheck = on; }));
             Header("panels");
             Setting("graph", y => Switch(y, s.ShowGraph, on => s.ShowGraph = on));
             Setting("system", y => Switch(y, s.ShowSystem, on => s.ShowSystem = on));

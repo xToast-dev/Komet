@@ -37,6 +37,8 @@ internal sealed class HudSettings
     public bool ShowLog { get; set => Set(ref field, value); }
     public bool ShowDebugLog { get; set => Set(ref field, value); }
     public bool ShaderUseCache { get; set { Set(ref field, value); Features.ShaderUseCache.Enabled = value; } } = true;
+    public bool UpdateCheck { get; set => Set(ref field, value); }    // asks GitHub once per start, opt-in
+    public bool UpdateAsked { get; set => Set(ref field, value); }    // the opt-in dialog is shown until answered
     public Dictionary<int, double[]> Pinned { get; } = [];
     public event Action? Changed;
 

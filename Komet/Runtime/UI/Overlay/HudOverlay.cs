@@ -28,6 +28,8 @@ internal sealed partial class HudOverlay : IRenderer
     private HudCanvas? _grid;
     private Task? _sampling;
     private UpdateCheck? _update;
+    private GuiDialogConfirm? _ask;
+    private (string Version, bool Preview, string Commit, string SourcePath) _build;
     private bool _disposed;
 
     public HudOverlay(ICoreClientAPI capi)
@@ -45,12 +47,24 @@ internal sealed partial class HudOverlay : IRenderer
         capi.Event.MouseMove += OnMouseMove;
         capi.Event.MouseUp += OnMouseUp;
         capi.Event.MouseWheelMove += OnMouseWheel;
+        capi.Event.LevelFinalize += AskForUpdateCheck;
+    }
+
+    // Once, after the world is up: the check calls api.github.com, so nobody's client talks to GitHub without a yes.
+    private void AskForUpdateCheck()
+    {
+        _capi.Event.LevelFinalize -= AskForUpdateCheck;
+        if (_settings.UpdateAsked || !Assert(_build.Version.Length > 0)) return;
+        _ask = new GuiDialogConfirm(_capi, HudSettings.Translate("update-ask"), yes => { _settings.UpdateAsked = true; _settings.UpdateCheck = yes; });
+        if (!_ask.TryOpen()) _capi.Logger.Warning("Komet: update opt-in dialog could not be opened, update notices stay off");
     }
 
     private void OnSettingsChanged()
     {
         if (!Assert(_settings.Interval > 0)) return;
         ShaderUseCache.Stats = _settings is { Visible: true, ShowMods: true };
+        if (_settings.UpdateCheck && _update is null && Assert(_build.Version.Length > 0))
+            _update = new UpdateCheck(_capi.Logger, _build.Version, _build.Preview, _build.Commit, _build.SourcePath);
         (_sinceInterval, _interval) = ((float)_settings.Interval, 0);
         UpdateProfiler();
         _capi.Event.UnregisterCallback(_saveCallback);   // coalesces slider drags and hotkey bursts into one write
@@ -281,7 +295,9 @@ internal sealed partial class HudOverlay : IRenderer
         _capi.Event.MouseUp -= OnMouseUp;
         _capi.Event.MouseWheelMove -= OnMouseWheel;
         _capi.Event.UnregisterCallback(_saveCallback);
+        _capi.Event.LevelFinalize -= AskForUpdateCheck;
         _update?.Dispose();
+        _ask?.Dispose();
         _settings.Save(_capi);
         _dialog.Dispose();
         _grid?.Dispose();

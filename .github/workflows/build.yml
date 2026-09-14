@@ -6,8 +6,9 @@ on:
   push:
     # workflow_dispatch only shows its "Run workflow" button for workflows that exist on the
     # default branch, so main carrying this file is what makes manual runs possible at all.
+    # No path filter: with one, a push whose diff is empty (a merge of identical commits, say) gets no run and
+    # therefore no preview tag, which looks like a broken release pipeline.
     branches: [main, nightly]
-    paths-ignore: ['docs/**', 'README.md']
   pull_request:
   workflow_dispatch:
 

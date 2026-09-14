@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
+using Komet.Runtime.UI.Overlay;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -99,12 +100,13 @@ internal sealed class UpdateCheck : IDisposable
         }
     }
 
-    // ISO 8601 UTC (what CI stamps and what GitHub reports) as local time, minute precision; "" when absent or unreadable.
+    // ISO 8601 UTC (what CI stamps and what GitHub reports) as local time in the language's format, minute precision; "" when absent or unreadable.
     public static string LocalTime(string iso)
     {
         if (iso.Length == 0 || !Assert(iso.Length <= 40)) return "";
         var ok = DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var time);
-        return Assert(!ok || time.Year > 2000) && ok ? time.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "";
+        var format = HudSettings.Translate("time-format");
+        return Assert(!ok || time.Year > 2000) && ok && Assert(format.Length > 0) ? time.ToLocalTime().ToString(format, CultureInfo.InvariantCulture) : "";
     }
 
     private static string Tag(JObject release) => NotNull(release) ? (string?)release["tag_name"] ?? "" : "";

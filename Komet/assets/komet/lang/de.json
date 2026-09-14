@@ -9,6 +9,7 @@
     "hud-edition-dev": "Development Edition",
     "hud-edition-release": "Release",
     "hud-edition-preview": "Preview",
+    "time-format": "dd.MM.yyyy HH:mm",
     "hud-build": "Build {0}",
     "hud-build-commit": "Build {0} ({1})",
     "hud-build-stamped": "Build {0} ({1}) · {2}",

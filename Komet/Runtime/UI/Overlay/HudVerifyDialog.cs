@@ -18,6 +18,9 @@ internal sealed class HudVerifyDialog : GuiDialog
     private readonly Action _recheck;
     private readonly List<HitBox> _hits = [];
     private UpdateReport? _shown;
+    private HudCanvas? _grid;
+    private (double X, double Y)? _pinned;
+    private double _grabX, _grabY;
 
     public HudVerifyDialog(ICoreClientAPI capi, HudSettings settings, Func<UpdateCheck?> update, Action recheck) : base(capi)
     {
@@ -29,27 +32,49 @@ internal sealed class HudVerifyDialog : GuiDialog
     public override string? ToggleKeyCombinationCode => null;
     public bool Contains(double px, double py) => IsOpened() && _canvas.Contains(px, py);
     public override void OnGuiOpened() => _shown = null;
+    public override void OnGuiClosed() => Release();
 
     public override void OnRenderGUI(float deltaTime)
     {
         var report = _update()?.Report;
         if (!Finite(deltaTime) || !Assert(capi.Render.FrameWidth > 0)) return;
         if (!ReferenceEquals(report, _shown) || _shown is null) Render(report);
-        _canvas.Draw(Math.Round((capi.Render.FrameWidth - _canvas.Width) / 2), Math.Round((capi.Render.FrameHeight - _canvas.Height) / 2));
+        var (x, y) = _pinned ?? ((capi.Render.FrameWidth - _canvas.Width) / 2, (capi.Render.FrameHeight - _canvas.Height) / 2);
+        _grid?.Draw(0, 0);
+        _canvas.Draw(Math.Round(x), Math.Round(y));
     }
 
     public override void OnMouseDown(MouseEvent args)
     {
         if (!Contains(args.X, args.Y)) return;
         args.Handled = true;
-        if (args.Button != EnumMouseButton.Left || !Assert(_canvas.Width > 0) || !Assert(_canvas.Height > 0)) return;
+        if (args.Button != EnumMouseButton.Left || !Assert(_canvas.Width > 0) || !Assert(_grid is null)) return;   // a mouse up went missing
         double x = args.X - _canvas.X, y = args.Y - _canvas.Y;
-        _hits.Find(h => x >= h.X && x < h.X + h.W && y >= h.Y && y < h.Y + h.H)?.Click();
+        if (_hits.Find(h => x >= h.X && x < h.X + h.W && y >= h.Y && y < h.Y + h.H) is { } hit) { hit.Click(); return; }
+        (_grabX, _grabY) = (x, y);
+        _grid = HudCanvas.Grid(capi, scaled(HudSettings.SnapGrid));
+    }
+
+    public override void OnMouseMove(MouseEvent args)
+    {
+        var step = scaled(HudSettings.SnapGrid);
+        if (_grid is null || !Assert(step > 0) || !Assert(_canvas.Width > 0)) return;
+        _pinned = (Math.Round((args.X - _grabX) / step) * step, Math.Round((args.Y - _grabY) / step) * step);
+        args.Handled = true;
+    }
+
+    public override void OnMouseUp(MouseEvent args) => Release();
+
+    private void Release()
+    {
+        _grid?.Dispose();
+        _grid = null;
     }
 
     public override void Dispose()
     {
         base.Dispose();
+        _grid?.Dispose();
         _canvas.Dispose();
     }
 
@@ -129,7 +154,7 @@ internal sealed class HudVerifyDialog : GuiDialog
         if (!Assert(rows.Count <= MaxRows) || !Assert(height > 0)) return;
         _canvas.Begin(width, height);
         if (!Assert(_canvas.Width >= width)) return;
-        _canvas.Fill(0, 0, width, height, HudCanvas.PanelBackground with { A = Math.Max(s.Opacity, 0.9) }, scaled(4));
+        _canvas.Fill(0, 0, width, height, HudCanvas.PanelBackground with { A = s.Opacity }, scaled(4));
         var top = pad;
         foreach (var (rowHeight, draw) in rows.Bounded(MaxRows))
         {

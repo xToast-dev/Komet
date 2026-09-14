@@ -39,10 +39,10 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, int in
 
     // key = lang key without "hud-", label = final text
     public HudPanel Title(string key, params (string Text, Rgba Color)[] badges)
-        => Assert(key.Length > 0) && Assert(badges.Length <= HudLine.MaxBadges) ? Add(new() { Kind = HudLineKind.Title, Label = Translate(key), Badges = badges }) : this;
+        => Assert(key.Length > 0) && Assert(badges.Length <= HudLine.MaxBadges) ? Add(new() { Kind = HudLineKind.Title, Label = () => HudSettings.Translate("hud-" + key), Badges = badges }) : this;
     public HudPanel Graph(FrameStats frames) => Assert(frames.HistoryLength >= HudCanvas.GraphFrames) ? Add(new HudLine { Kind = HudLineKind.Graph, Graph = frames }) : this;
-    public HudPanel Bar(string key, Func<double> percent, Func<double>? value = null, string unit = "") => Assert(key.Length > 0) ? Line(Translate(key), value, unit, percent) : this;
-    public HudPanel Value(string key, Func<double> value, string unit = "", bool sub = false, bool detail = false) => Assert(key.Length > 0) ? Line(Translate(key), value, unit, sub: sub, detail: detail) : this;
+    public HudPanel Bar(string key, Func<double> percent, Func<double>? value = null, string unit = "") => Assert(key.Length > 0) ? Line(() => HudSettings.Translate("hud-" + key), value, unit, percent) : this;
+    public HudPanel Value(string key, Func<double> value, string unit = "", bool sub = false, bool detail = false) => Assert(key.Length > 0) ? Line(() => HudSettings.Translate("hud-" + key), value, unit, sub: sub, detail: detail) : this;
     public HudPanel Line(Func<string> label, Func<double>? value = null, string unit = "", Func<double>? percent = null, Func<double>? marker = null, bool sub = false, bool detail = false, Func<Rgba?>? color = null)
         => Assert(unit.Length <= 2) && Assert(marker == null || percent != null) ? Add(new() { Label = label, Value = value, Unit = unit, Percent = percent, Marker = marker, Sub = sub, Detail = detail, Color = color }) : this;
 
@@ -50,7 +50,7 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, int in
     {
         if (!Assert(key.Length > 0)) return this;
         if (_lines.Count > 0) _ = Add(new() { Kind = HudLineKind.Rule });
-        return Add(new() { Kind = HudLineKind.Header, Label = Translate(key, args) });
+        return Add(new() { Kind = HudLineKind.Header, Label = () => HudSettings.Translate("hud-" + key, args) });
     }
 
     public HudPanel Rows(int count, Action<int> add)
@@ -59,14 +59,6 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, int in
         for (var i = 0; i < Math.Min(count, MaxRows); i++) add(i);
         return this;
     }
-
-    // Lang.Get hands the key back when the translation is missing
-    private static Func<string> Translate(string key, params object[] args) => () =>
-    {
-        var full = "komet:hud-" + key;
-        var text = Lang.Get(full, args);
-        return Assert(text != full) && Assert(text.Length > 0) ? text : key;
-    };
 
     private HudPanel Add(HudLine line)
     {

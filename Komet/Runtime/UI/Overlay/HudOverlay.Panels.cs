@@ -35,33 +35,38 @@ internal sealed partial class HudOverlay
         _ => null,
     };
 
-    private void BuildPanels()
+    // Edition (dev build, CI preview or release) and build (version, plus commit and time when CI stamped them); keeps what the update check needs
+    private (string Text, Rgba Color)[] TitleBadges()
     {
-        if (!Assert(_panels.Count == 0) || !NotNull(_capi.ModLoader)) return;
         var mod = _capi.ModLoader.GetMod("komet");
-        var version = NotNull(mod) ? mod.Info.Version : "?";
         var assembly = typeof(HudOverlay).Assembly;
+        var version = NotNull(mod) ? mod.Info.Version : "?";
         var debug = assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
         var preview = Metadata(assembly, "Channel") == "preview";
         var commit = Metadata(assembly, "Commit");
+        var built = UpdateCheck.LocalTime(Metadata(assembly, "Built"));
+        _build = (version, preview, commit, mod?.SourcePath ?? "");
+        if (!Assert(version.Length > 0)) return [];
         var edition = (debug, preview) switch
         {
             (true, _) => (HudSettings.Translate("hud-edition-dev"), HudCanvas.Accent),
             (_, true) => (HudSettings.Translate("hud-edition-preview"), new Rgba(0.80, 0.50, 0.15, 1)),
             _ => (HudSettings.Translate("hud-edition-release"), new Rgba(0.20, 0.60, 0.30, 1)),
         };
-        var built = UpdateCheck.LocalTime(Metadata(assembly, "Built"));
         var build = (commit.Length > 0, built.Length > 0) switch
         {
             (true, true) => HudSettings.Translate("hud-build-stamped", version, commit, built),
             (true, false) => HudSettings.Translate("hud-build-commit", version, commit),
             _ => HudSettings.Translate("hud-build", version),
         };
+        return [edition, (build, HudCanvas.Neutral)];
+    }
 
-        _build = (version, preview, commit, mod?.SourcePath ?? "");
-
+    private void BuildPanels()
+    {
+        if (!Assert(_panels.Count == 0) || !NotNull(_capi.ModLoader)) return;
         _ = Panel(column: 0)
-            .Title("title", edition, (build, HudCanvas.Neutral))
+            .Title("title", TitleBadges())
             .Line(UpdateText, sub: true, color: UpdateColor)
             .Value("fps",             () => _frames.Fps)
             .Value("low1",            () => _frames.Low1Fps)
@@ -99,7 +104,13 @@ internal sealed partial class HudOverlay
             .Value("vram-total",     () => _gpu.VramTotalMb, "MB")
             .Value("gc0", () => _resources.Gen0PerSec, "/s")
             .Value("gc2", () => _resources.Gen2PerSec, "/s");
+        BuildProfilingPanels();
+    }
 
+    // Render passes, mod timings, both logs and mods & patches. After the three stats panels: the index is the key of a pinned position.
+    private void BuildProfilingPanels()
+    {
+        if (!Assert(_panels.Count == 3)) return;
         var passes = Panel(column: 1, enabled: () => _settings.ShowPasses).Section("passes");
         _ = passes.Rows(RenderPassStats.Count, i => passes
             .Line(() => HudSettings.Translate("hud-pass-" + _passes.Key(i)), () => _passes.AverageMs(i), "ms", percent: () => _passes.Percent(i), marker: () => _passes.WorstPercent(i))
@@ -140,7 +151,7 @@ internal sealed partial class HudOverlay
         var panel = Panel(column: 2, refreshEvery: HudSettings.SlowEvery, enabled: enabled, log: log)
             .Section(key)
             .Line(() => log.Offset == 0 ? "" : HudSettings.Translate("hud-log-scrolled", log.Offset));
-        _ = panel.Rows(LogStats.MaxRows, i => panel.Line(() => log.Line(i), sub: true, color: () => log.Level(i) switch
+        _ = panel.Rows(LogStats.MaxRows, i => panel.Line(() => log.Row(i).Text, sub: true, color: () => log.Row(i).Level switch
         {
             LogLevel.Warning => HudCanvas.Warning,
             LogLevel.Error => HudCanvas.Error,

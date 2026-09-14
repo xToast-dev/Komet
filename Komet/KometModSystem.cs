@@ -14,7 +14,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
     {
         if (!NotNull(api) || !NotNull(Mod.Logger)) return;
         Contracts.Attach(Mod.Logger);
-        if (!Assert(_harmony is null && _overlay is null) || !Assert(Mod.Info.ModID == "komet")) return;   // the id is hardcoded in the stats   // the game starts a mod system once
+        if (!Assert(_harmony is null && _overlay is null) || !Assert(Mod.Info.ModID == "komet")) return;   // started once; the id is hardcoded in the stats
         _harmony = new Harmony(Mod.Info.ModID);
         _overlay = new HudOverlay(api);
         ShaderUseCache.Install(_harmony);

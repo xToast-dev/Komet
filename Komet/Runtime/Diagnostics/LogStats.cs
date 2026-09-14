@@ -23,15 +23,14 @@ internal sealed class LogStats
     public bool Expanded { get; set { field = value; Scroll(0); } }
     public int Visible => Expanded ? MaxRows : CompactRows;
     public int Offset { get; private set; }   // rows scrolled back from the newest
-    public string Line(int row) => Index(row, MaxRows) ? At(row).Text : "";
-    public LogLevel Level(int row) => Index(row, MaxRows) ? At(row).Level : LogLevel.Info;
 
-    private (string Text, LogLevel Level) At(int row)
+    // Rows count from the top of the window; past the window or the file, an empty row
+    public (string Text, LogLevel Level) Row(int row)
     {
         var lines = _lines;
-        if (!Index(row, MaxRows)) return ("", LogLevel.Info);
-        var first = Math.Max(0, lines.Length - Visible - Math.Min(Offset, Math.Max(0, lines.Length - Visible)));
-        return row < Visible && first + row < lines.Length ? lines[first + row] : ("", LogLevel.Info);
+        var maxOffset = Math.Max(0, lines.Length - Visible);
+        var first = maxOffset - Math.Min(Offset, maxOffset);
+        return Index(row, MaxRows) && row < Visible && first + row < lines.Length ? lines[first + row] : ("", LogLevel.Info);
     }
 
     public void Scroll(int rows)

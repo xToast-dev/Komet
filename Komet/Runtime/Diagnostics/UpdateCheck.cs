@@ -104,9 +104,9 @@ internal sealed class UpdateCheck : IDisposable
     public static string LocalTime(string iso)
     {
         if (iso.Length == 0 || !Assert(iso.Length <= 40)) return "";
-        var ok = DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var time);
         var format = HudSettings.Translate("time-format");
-        return Assert(!ok || time.Year > 2000) && ok && Assert(format.Length > 0) ? time.ToLocalTime().ToString(format, CultureInfo.InvariantCulture) : "";
+        var ok = DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var time);
+        return ok && Assert(time.Year > 2000) && Assert(format.Length > 0) ? time.ToLocalTime().ToString(format, CultureInfo.InvariantCulture) : "";
     }
 
     private static string Tag(JObject release) => NotNull(release) ? (string?)release["tag_name"] ?? "" : "";

@@ -19,13 +19,15 @@ internal static class ShaderUseCache
     public static int Skips { get; private set; }
     public static void ResetStats() => (Calls, Uploads, Skips) = (0, 0, 0);
 
-    private static readonly string[] Includes =
+    // Which uniforms a program takes follows from the shader includes it was built with; the GUI program gets its own light
+    private const int FogLightF = 1, FogLightV = 2, ShadowCoords = 4, VertexWarp = 8, SkyColor = 16, ColorMap = 32, Underwater = 64, Gui = 128;
+    private static readonly (string File, int Bit)[] Includes =
     [
-        "fogandlight.fsh", "fogandlight.vsh", "shadowcoords.vsh", "vertexwarp.vsh",
-        "skycolor.fsh", "colormap.vsh", "underwatereffects.fsh"
+        ("fogandlight.fsh", FogLightF), ("fogandlight.vsh", FogLightV), ("shadowcoords.vsh", ShadowCoords), ("vertexwarp.vsh", VertexWarp),
+        ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap), ("underwatereffects.fsh", Underwater)
     ];
     private static readonly Vec3f GuiLight = new(0.7071068f, -0.7071068f, 0f);
-    private const int MaxSlots = 64, MaxUbos = 16;
+    private const int MaxSlots = 64, MaxUbos = 16, MaxIncludes = 8;
     private static readonly State?[] States = new State[128];
     private static int _frame;
 
@@ -44,6 +46,8 @@ internal static class ShaderUseCache
         public bool Dirty;
     }
 
+    // Fill runs twice per program: first with a layout list, recording location, kind, offset and reserved floats of every slot;
+    // afterwards without one, writing the frame's values into Cur at those offsets and flagging slots whose element count changed.
     private ref struct Writer(State state, ShaderProgramBase program, List<Slot>? layout)
     {
         private int _i;
@@ -92,11 +96,10 @@ internal static class ShaderUseCache
 
     private static void NextFrame() => _frame++;
 
-    // ReSharper disable once InconsistentNaming
-    private static bool Use(ShaderProgramBase __instance) => Activate(__instance);
-
-    private static bool Activate(ShaderProgramBase p)
+    // ReSharper disable once InconsistentNaming – Harmony injects the instance by name
+    private static bool Use(ShaderProgramBase __instance)
     {
+        var p = __instance;
         if (!Enabled || (uint)p.PassId >= (uint)States.Length) return true;
         if (!Assert(p.ProgramId > 0) || !NotNull(p.uniformLocations)) return true;
         if (ShaderProgramBase.CurrentShaderProgram is { } active && active != p)
@@ -125,8 +128,8 @@ internal static class ShaderUseCache
 
     private static State Build(ShaderProgramBase p)
     {
-        var mask = p == ShaderPrograms.Gui ? 1 << Includes.Length : 0;
-        for (var i = 0; i < Includes.Length; i++) if (p.includes.Contains(Includes[i])) mask |= 1 << i;
+        var mask = p == ShaderPrograms.Gui ? Gui : 0;
+        foreach (var (file, bit) in Includes.Bounded(MaxIncludes)) if (p.includes.Contains(file)) mask |= bit;
         var s = new State { Program = p, ProgramId = p.ProgramId, ShadowQuality = ShaderProgramBase.shadowmapQuality, Mask = mask };
         var layout = new List<Slot>();
         var w = new Writer(s, p, layout);
@@ -145,7 +148,7 @@ internal static class ShaderUseCache
         if (!NotNull(u) || !Index(mask, 256) || !Assert(platform.FrameBuffers.Count > 12)) { w.Overflow = true; return; }
         var viewDistance = (float)ClientSettings.ViewDistance;
         var viewDistanceLod0 = Math.Min(640, ClientSettings.ViewDistance) * ClientSettings.LodBias;
-        if ((mask & 1) != 0)
+        if ((mask & FogLightF) != 0)
         {
             w.F("zNear", u.ZNear);
             w.F("zFar", u.ZFar);
@@ -164,7 +167,7 @@ internal static class ShaderUseCache
                 w.F("viewDistanceLod0", viewDistanceLod0);
             }
         }
-        if ((mask & 2) != 0)
+        if ((mask & FogLightV) != 0)
         {
             w.I("fogSphereQuantity", u.FogSphereQuantity);
             w.Arr("fogSpheres", 1, u.FogSpheres, u.FogSphereQuantity * 8);
@@ -178,14 +181,20 @@ internal static class ShaderUseCache
             w.F("viewDistanceLod0", viewDistanceLod0);
             w.F("nightVisionStrength", u.NightVisionStrength);
         }
-        if ((mask & 4) != 0)
+        if ((mask & ShadowCoords) != 0)
         {
             w.F("shadowRangeNear", u.ShadowRangeNear);
             w.F("shadowRangeFar", u.ShadowRangeFar);
             w.Arr("toShadowMapSpaceMatrixNear", 16, u.ToShadowMapSpaceMatrixNear, 1);
             w.Arr("toShadowMapSpaceMatrixFar", 16, u.ToShadowMapSpaceMatrixFar, 1);
         }
-        if ((mask & 8) != 0)
+        FillWorld(ref w, u, platform, mask);
+    }
+
+    private static void FillWorld(ref Writer w, DefaultShaderUniforms u, ClientPlatformAbstract platform, int mask)
+    {
+        if (!NotNull(u) || !NotNull(platform) || !Index(mask, 256)) { w.Overflow = true; return; }
+        if ((mask & VertexWarp) != 0)
         {
             w.F("timeCounter", u.TimeCounter);
             w.F("windWaveCounter", u.WindWaveCounter);
@@ -200,7 +209,7 @@ internal static class ShaderUseCache
             w.I("perceptionEffectId", u.PerceptionEffectId);
             w.F("perceptionEffectIntensity", u.PerceptionEffectIntensity);
         }
-        if ((mask & 16) != 0)
+        if ((mask & SkyColor) != 0)
         {
             w.F("fogWaveCounter", u.FogWaveCounter);
             w.Tex("sky", u.SkyTextureId);
@@ -210,7 +219,7 @@ internal static class ShaderUseCache
             w.I("horizontalResolution", u.FrameWidth);
             w.F("playerToSealevelOffset", u.PlayerToSealevelOffset);
         }
-        if ((mask & 32) != 0)
+        if ((mask & ColorMap) != 0)
         {
             w.Arr("colorMapRects", 4, u.ColorMapRects4, 40);
             w.F("seasonRel", u.SeasonRel);
@@ -218,7 +227,7 @@ internal static class ShaderUseCache
             w.F("atlasHeight", u.BlockAtlasHeight);
             w.F("seasonTemperature", u.SeasonTemperature);
         }
-        if ((mask & 64) != 0)
+        if ((mask & Underwater) != 0)
         {
             w.Tex("liquidDepth", platform.FrameBuffers[5].DepthTextureId);
             w.F("cameraUnderwater", u.CameraUnderwater);
@@ -226,7 +235,7 @@ internal static class ShaderUseCache
             var primary = platform.FrameBuffers[0];
             w.V2("frameSize", primary.Width, primary.Height);
         }
-        if ((mask & 128) != 0) w.V3("lightPosition", GuiLight);
+        if ((mask & Gui) != 0) w.V3("lightPosition", GuiLight);
     }
 
     private static void Upload(State s, bool force)

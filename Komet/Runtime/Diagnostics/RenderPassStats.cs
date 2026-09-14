@@ -21,7 +21,7 @@ internal sealed class RenderPassStats
 
     private readonly double[] _smoothMs = new double[Keys.Length];
     private readonly int[] _order = new int[Keys.Length];
-    private readonly (string Name, double Ms)[][] _topMarks = Array.ConvertAll(Keys, _ => new (string, double)[DetailCount]);
+    private readonly (string? Name, double Ms)[][] _topMarks = Array.ConvertAll(Keys, _ => new (string?, double)[DetailCount]);
     private int _updates;
 
     public static int Count => Keys.Length;
@@ -132,17 +132,20 @@ internal sealed class RenderPassStats
         if (!Index(_order[0], Count)) return;
         for (var pass = 0; pass < Keys.Length; pass++)
         {
-            var top = _topMarks[pass];
-            Array.Clear(top);
-            foreach (var (name, ms) in _marks[pass].Bounded(MaxMarks))   // insertion into the top-N slots, sorted descending
-            {
-                var slot = 0;
-                for (; slot < DetailCount; slot++) if (top[slot].Name is null || top[slot].Ms < ms) break;
-                if (slot == DetailCount) continue;
-                Array.Copy(top, slot, top, slot + 1, DetailCount - slot - 1);
-                top[slot] = (name, ms);
-            }
+            Array.Clear(_topMarks[pass]);
+            foreach (var (name, ms) in _marks[pass].Bounded(MaxMarks)) Rank(_topMarks[pass], name, ms);
         }
+    }
+
+    // Insertion into the top-N slots, sorted descending: a new item enters at its rank and the last one falls off
+    public static void Rank<T>(Span<(T? Item, double Ms)> top, T item, double ms) where T : class
+    {
+        if (!Assert(top.Length is > 0 and <= DetailCount) || !Assert(ms >= 0)) return;
+        var slot = 0;
+        for (; slot < DetailCount && slot < top.Length; slot++) if (top[slot].Item is null || top[slot].Ms < ms) break;
+        if (slot == top.Length) return;
+        top[slot..^1].CopyTo(top[(slot + 1)..]);
+        top[slot] = (item, ms);
     }
 
     public void Reset()

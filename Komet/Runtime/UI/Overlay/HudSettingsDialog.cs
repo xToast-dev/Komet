@@ -6,7 +6,7 @@ internal sealed class HudSettingsDialog : GuiDialog
     private const double RowGap = 4, SegmentGap = 4, KnobSize = 12, MinSliderWidth = 160;
     private const int Custom = 4, MaxSegments = 8, MaxRows = 32;   // fifth corner segment, display only: panels were dragged
     private static readonly Rgba Knob = Rgba.White(0.9), Passive = new(0.85, 0.55, 0.15, 1);
-    private static readonly string[] Corners = ["topleft", "Copyright", "bottomleft", "bottomright", "custom"];
+    private static readonly string[] Corners = ["topleft", "topright", "bottomleft", "bottomright", "custom"];
     private static readonly string[] Labels = ["visible", "corner", "opacity", "scale", "graph", "system", "passes", "modtimes", "log", "debuglog", "detail", "interval", "bench", "positions", "values", "benchmark", "defaults", "shadercache", "mods", "checksum"];
     private static readonly HudRange[] Ranges = [HudSettings.OpacityRange, HudSettings.ScaleRange, HudSettings.IntervalRange, HudSettings.BenchRange];
 

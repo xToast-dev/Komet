@@ -31,6 +31,7 @@
     <ItemGroup>
         <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''" />
         <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''" />
+        <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''" />
     </ItemGroup>
 
     <ItemGroup>

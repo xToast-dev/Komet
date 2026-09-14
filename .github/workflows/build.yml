@@ -40,8 +40,10 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
 
-      - name: Stamp the commit
-        run: echo "KometCommit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+      - name: Stamp the commit and the build time
+        run: |
+          echo "KometCommit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "KometBuilt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       # Fails with the missing file names rather than with a wall of CS0246 "type or
       # namespace not found" from the first reference that could not be resolved.

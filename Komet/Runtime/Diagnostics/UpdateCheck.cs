@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -10,9 +11,10 @@ internal enum UpdateState { Checking, Verified, Mismatch, Outdated, Unverified, 
 // Everything one check found out, replaced as a whole so readers on the render thread never see a half-written result.
 // Tag: the release this build belongs to ("" when GitHub has none). Newest: the newest build of the channel.
 // Installed / Published: full sha256 hex of the installed zip and of the file CI published with the release ("" when unknown).
-internal sealed record UpdateReport(UpdateState State, string Detail, string Tag, string Newest, string Installed, string Published)
+// Released: when GitHub published the release of this build, as local time text ("" when unknown).
+internal sealed record UpdateReport(UpdateState State, string Detail, string Tag, string Newest, string Installed, string Published, string Released)
 {
-    public static readonly UpdateReport Pending = new(UpdateState.Checking, "", "", "", "", "");
+    public static readonly UpdateReport Pending = new(UpdateState.Checking, "", "", "", "", "", "");
     public bool Match => Installed.Length > 0 && Installed == Published;
 }
 
@@ -64,7 +66,8 @@ internal sealed class UpdateCheck : IDisposable
             var newest = releases.Find(r => _preview ? Tag(r).StartsWith("preview-", StringComparison.Ordinal) : (bool?)r["prerelease"] == false && Tag(r).StartsWith('v'));
             var installed = File.Exists(_sourcePath) ? await Hash(_sourcePath).ConfigureAwait(false) : "";
             var published = same is null ? "" : await Published(same).ConfigureAwait(false);
-            var report = new UpdateReport(UpdateState.Unverified, _tag, same is null ? "" : _tag, newest is null ? "" : Tag(newest), installed, published);
+            var released = same is null ? "" : LocalTime((string?)same["published_at"] ?? "");
+            var report = new UpdateReport(UpdateState.Unverified, _tag, same is null ? "" : _tag, newest is null ? "" : Tag(newest), installed, published, released);
             if (same is null && newest is null) report = report with { State = UpdateState.Failed, Detail = "no release on GitHub" };
             else if (installed.Length > 0 && published.Length > 0) report = report with { State = report.Match ? UpdateState.Verified : UpdateState.Mismatch, Detail = installed[..ShortHash] };
             if (report.State != UpdateState.Mismatch && newest is not null && Tag(newest) != _tag) report = report with { State = UpdateState.Outdated, Detail = Tag(newest) };
@@ -94,6 +97,14 @@ internal sealed class UpdateCheck : IDisposable
             var hash = Convert.ToHexStringLower(await SHA256.HashDataAsync(stream).ConfigureAwait(false));
             return Assert(hash.Length == SHA256.HashSizeInBytes * 2) && Assert(path.Length > 0) ? hash : "";
         }
+    }
+
+    // ISO 8601 UTC (what CI stamps and what GitHub reports) as local time, minute precision; "" when absent or unreadable.
+    public static string LocalTime(string iso)
+    {
+        if (iso.Length == 0 || !Assert(iso.Length <= 40)) return "";
+        var ok = DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var time);
+        return Assert(!ok || time.Year > 2000) && ok ? time.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : "";
     }
 
     private static string Tag(JObject release) => NotNull(release) ? (string?)release["tag_name"] ?? "" : "";

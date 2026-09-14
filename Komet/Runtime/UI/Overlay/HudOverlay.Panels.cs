@@ -50,7 +50,13 @@ internal sealed partial class HudOverlay
             (_, true) => (HudSettings.Translate("hud-edition-preview"), new Rgba(0.80, 0.50, 0.15, 1)),
             _ => (HudSettings.Translate("hud-edition-release"), new Rgba(0.20, 0.60, 0.30, 1)),
         };
-        var build = commit.Length == 0 ? HudSettings.Translate("hud-build", version) : HudSettings.Translate("hud-build-commit", version, commit);
+        var built = UpdateCheck.LocalTime(Metadata(assembly, "Built"));
+        var build = (commit.Length > 0, built.Length > 0) switch
+        {
+            (true, true) => HudSettings.Translate("hud-build-stamped", version, commit, built),
+            (true, false) => HudSettings.Translate("hud-build-commit", version, commit),
+            _ => HudSettings.Translate("hud-build", version),
+        };
 
         _build = (version, preview, commit, mod?.SourcePath ?? "");
 

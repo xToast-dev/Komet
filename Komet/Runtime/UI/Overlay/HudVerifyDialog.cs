@@ -63,7 +63,7 @@ internal sealed class HudVerifyDialog : GuiDialog
         double rowH = HudCanvas.BadgeHeight(s.Header) + scaled(RowGap), headerRow = HudCanvas.HeaderHeight(s.Header);
         var titleRow = Math.Max(HudCanvas.LineHeight(s.Title), HudCanvas.BadgeHeight(s.Header)) + scaled(RowGap);
         if (!Assert(rowH > 0) || !Assert(headerRow > 0) || !Assert(titleRow > 0)) return;
-        string[] labels = ["file", "build", "release", "installed", "github", "newest"];
+        string[] labels = ["file", "build", "release", "released", "installed", "github", "newest"];
         string[] buttons = [HudSettings.Translate("verify-recheck"), HudSettings.Translate("verify-close")];
         var none = HudSettings.Translate("verify-none");
         double labelW = 0, cell = 0, buttonW = 0;
@@ -101,6 +101,7 @@ internal sealed class HudVerifyDialog : GuiDialog
         Row("file", y => _canvas.Text(valueX, y, rowH, s.Text, check?.FileName is { Length: > 0 } file ? file : none));
         Row("build", y => _canvas.Text(valueX, y, rowH, s.Text, HudSettings.Translate("verify-build-text", check is null ? none : tag)));
         Row("release", y => _canvas.Text(valueX, y, rowH, s.Text, tag, _shown.Tag.Length > 0 ? null : HudCanvas.Dim));
+        Row("released", y => _canvas.Text(valueX, y, rowH, s.Text, _shown.Released.Length > 0 ? _shown.Released : none, _shown.Released.Length > 0 ? null : HudCanvas.Dim));
         Header("sha256");
         Row("installed", y => Hash(y, _shown.Installed, _shown.Published));
         Row("github", y => Hash(y, _shown.Published, null));

@@ -198,16 +198,17 @@ jobs:
           fail_on_unmatched_files: true
 
       # One preview per commit means the tab would grow without end. Keep the newest few;
-      # tags go with them. Version tags (v*) are never touched.
+      # tags go with them. Version tags (v*) are never touched. Newest by publish date: createdAt
+      # is the tagged commit's date, which rebases and cherry-picks scramble.
       - name: Prune old previews
         if: steps.what.outputs.preview == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP: 3
         run: |
-          gh release list --limit 200 --json tagName,createdAt \
+          gh release list --limit 200 --json tagName,publishedAt \
             --jq '[.[] | select(.tagName | startswith("preview-"))]
-                  | sort_by(.createdAt) | reverse | .[].tagName' \
+                  | sort_by(.publishedAt) | reverse | .[].tagName' \
             | tail -n "+$((KEEP + 1))" \
             | while read -r tag; do
                 [[ -n "$tag" ]] || continue

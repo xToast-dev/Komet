@@ -56,7 +56,9 @@ internal sealed class UpdateCheck : IDisposable
     {
         try
         {
-            var releases = JArray.Parse(await _http.GetStringAsync(Feed).ConfigureAwait(false)).Take(MaxReleases).OfType<JObject>().ToList();
+            // GitHub orders the feed by the tagged commit's date, which rebases and cherry-picks scramble; the newest build is the one published last.
+            var releases = JArray.Parse(await _http.GetStringAsync(Feed).ConfigureAwait(false)).Take(MaxReleases).OfType<JObject>()
+                .OrderByDescending(r => (string?)r["published_at"] ?? "", StringComparer.Ordinal).ToList();
             if (!Assert(releases.Count <= MaxReleases) || !Assert(_tag.Length > 1)) { _report = UpdateReport.Pending with { State = UpdateState.Failed, Detail = "bad feed" }; return; }
             var same = releases.Find(r => Tag(r) == _tag);
             var newest = releases.Find(r => _preview ? Tag(r).StartsWith("preview-", StringComparison.Ordinal) : (bool?)r["prerelease"] == false && Tag(r).StartsWith('v'));

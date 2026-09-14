@@ -37,7 +37,7 @@ internal sealed class HudVerifyDialog : GuiDialog
     public override void OnRenderGUI(float deltaTime)
     {
         var report = _update()?.Report;
-        if (!Finite(deltaTime) || !Assert(capi.Render.FrameWidth > 0)) return;
+        if (!Finite(deltaTime) || !Assert(capi.Render.FrameWidth > 0) || !Assert(capi.Render.FrameHeight > 0)) return;
         if (!ReferenceEquals(report, _shown) || _shown is null) Render(report);
         var (x, y) = _pinned ?? ((capi.Render.FrameWidth - _canvas.Width) / 2, (capi.Render.FrameHeight - _canvas.Height) / 2);
         _grid?.Draw(0, 0);
@@ -48,7 +48,7 @@ internal sealed class HudVerifyDialog : GuiDialog
     {
         if (!Contains(args.X, args.Y)) return;
         args.Handled = true;
-        if (args.Button != EnumMouseButton.Left || !Assert(_canvas.Width > 0) || !Assert(_grid is null)) return;   // a mouse up went missing
+        if (args.Button != EnumMouseButton.Left || !Assert(_canvas.Width > 0) || !Assert(_canvas.Height > 0) || !Assert(_grid is null)) return;   // a mouse up went missing
         double x = args.X - _canvas.X, y = args.Y - _canvas.Y;
         if (_hits.Find(h => x >= h.X && x < h.X + h.W && y >= h.Y && y < h.Y + h.H) is { } hit) { hit.Click(); return; }
         (_grabX, _grabY) = (x, y);
@@ -63,7 +63,7 @@ internal sealed class HudVerifyDialog : GuiDialog
         args.Handled = true;
     }
 
-    public override void OnMouseUp(MouseEvent args) => Release();
+    public override void OnMouseUp(MouseEvent args) { if (NotNull(args)) Release(); }
 
     private void Release()
     {

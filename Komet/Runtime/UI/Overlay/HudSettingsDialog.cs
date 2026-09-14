@@ -7,14 +7,14 @@ internal sealed class HudSettingsDialog : GuiDialog
     private const int Custom = 4, MaxSegments = 8, MaxRows = 32;   // fifth corner segment, display only: panels were dragged
     private static readonly Rgba Knob = Rgba.White(0.9), Passive = new(0.85, 0.55, 0.15, 1);
     private static readonly string[] Corners = ["topleft", "Copyright", "bottomleft", "bottomright", "custom"];
-    private static readonly string[] Labels = ["visible", "corner", "opacity", "scale", "graph", "system", "passes", "modtimes", "log", "debuglog", "detail", "interval", "bench", "positions", "values", "benchmark", "defaults", "shadercache", "mods"];
+    private static readonly string[] Labels = ["visible", "corner", "opacity", "scale", "graph", "system", "passes", "modtimes", "log", "debuglog", "detail", "interval", "bench", "positions", "values", "benchmark", "defaults", "shadercache", "mods", "checksum"];
     private static readonly HudRange[] Ranges = [HudSettings.OpacityRange, HudSettings.ScaleRange, HudSettings.IntervalRange, HudSettings.BenchRange];
 
     private sealed record HitBox(double X, double Y, double W, double H, Action<double> Click, bool Drag = false);
 
     private readonly HudSettings _settings;
     private readonly HudCanvas _canvas;
-    private readonly Action _dump;
+    private readonly Action _dump, _verify;
     private readonly Action<float> _bench;
     private readonly List<HitBox> _hits = [];
     private HitBox? _drag;
@@ -24,10 +24,10 @@ internal sealed class HudSettingsDialog : GuiDialog
     private double _grabX, _grabY;
     private bool _dirty;
 
-    public HudSettingsDialog(ICoreClientAPI capi, HudSettings settings, Action dump, Action<float> bench) : base(capi)
+    public HudSettingsDialog(ICoreClientAPI capi, HudSettings settings, Action dump, Action<float> bench, Action verify) : base(capi)
     {
         _settings = settings;
-        _dump = dump;
+        (_dump, _verify) = (dump, verify);
         _bench = bench;
         _canvas = new HudCanvas(capi);
         settings.Changed += () => _dirty = true;
@@ -104,7 +104,7 @@ internal sealed class HudSettingsDialog : GuiDialog
         var titleRow = Math.Max(HudCanvas.LineHeight(s.Title), HudCanvas.BadgeHeight(s.Header)) + scaled(RowGap);
         if (!Assert(rowH > 0) || !Assert(headerRow > 0) || !Assert(titleRow > 0) || !Index(_page, 2)) return;
         string[] onOff = [HudSettings.Translate("settings-on"), HudSettings.Translate("settings-off")], cornerNames = Names("corner", Corners), pages = Names("page", ["hud", "ab"]);
-        string[] buttons = [HudSettings.Translate("settings-do-reset"), HudSettings.Translate("settings-do-copy"), HudSettings.Translate("settings-do-bench", s.BenchSeconds)];
+        string[] buttons = [HudSettings.Translate("settings-do-reset"), HudSettings.Translate("settings-do-copy"), HudSettings.Translate("settings-do-bench", s.BenchSeconds), HudSettings.Translate("settings-do-verify")];
 
         double labelW = 0, valueW = 0, buttonW = 0;
         for (var i = 0; i < Labels.Length; i++) labelW = Math.Max(labelW, HudCanvas.TextWidth(s.Text, HudSettings.Translate("settings-" + Labels[i])));
@@ -150,6 +150,7 @@ internal sealed class HudSettingsDialog : GuiDialog
             Setting("positions", y => Button(y, buttons[0], s.ResetPositions));
             Setting("values", y => Button(y, buttons[1], _dump));
             Setting("benchmark", y => Button(y, buttons[2], () => _bench((float)s.BenchSeconds)));
+            Setting("checksum", y => Button(y, buttons[3], _verify));
             Setting("defaults", y => Button(y, buttons[0], s.ResetDefaults));
         }
         else

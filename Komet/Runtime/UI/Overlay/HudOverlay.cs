@@ -9,6 +9,7 @@ internal sealed partial class HudOverlay : IRenderer
     private readonly ICoreClientAPI _capi;
     private readonly HudSettings _settings;
     private readonly HudSettingsDialog _dialog;
+    private readonly HudVerifyDialog _verify;
     private readonly FrameStats _frames = new(HudSettings.HistoryFrames);
     private readonly GpuStats _gpu = new();
     private readonly RenderPassStats _passes = new();
@@ -38,7 +39,8 @@ internal sealed partial class HudOverlay : IRenderer
         _settings = HudSettings.Load(capi);
         BuildPanels();
         foreach (var panel in _panels.Bounded(PanelCount)) _columns = Math.Max(_columns, panel.Column + 1);
-        _dialog = new HudSettingsDialog(capi, _settings, () => Report(mean: false, "hud-dumped"), StartBench);
+        _dialog = new HudSettingsDialog(capi, _settings, () => Report(mean: false, "hud-dumped"), StartBench, OpenVerify);
+        _verify = new HudVerifyDialog(capi, _settings, () => _update, RunUpdateCheck);
         if (!Assert(_panels.Count > 0) || !Index(_columns - 1, MaxColumns)) return;
         _settings.RegisterHotkeys(capi);
         _settings.Changed += OnSettingsChanged;
@@ -48,6 +50,21 @@ internal sealed partial class HudOverlay : IRenderer
         capi.Event.MouseUp += OnMouseUp;
         capi.Event.MouseWheelMove += OnMouseWheel;
         capi.Event.LevelFinalize += AskForUpdateCheck;
+    }
+
+    // A click on "check" or "check again" is consent for that one check, whatever the update-notice setting says.
+    private void RunUpdateCheck()
+    {
+        if (!Assert(_build.Version.Length > 0) || !Assert(!_disposed)) return;
+        if (_update is null) _update = new UpdateCheck(_capi.Logger, _build.Version, _build.Preview, _build.Commit, _build.SourcePath);
+        else _update.Start();
+    }
+
+    private void OpenVerify()
+    {
+        if (!Assert(!_disposed) || !Assert(_panels.Count > 0)) return;
+        if (_update is null) RunUpdateCheck();
+        if (!_verify.IsOpened() && !_verify.TryOpen()) _capi.Logger.Warning("Komet: checksum window could not be opened");
     }
 
     // Once, after the world is up: the check calls api.github.com, so nobody's client talks to GitHub without a yes.
@@ -63,8 +80,7 @@ internal sealed partial class HudOverlay : IRenderer
     {
         if (!Assert(_settings.Interval > 0)) return;
         ShaderUseCache.Stats = _settings is { Visible: true, ShowMods: true };
-        if (_settings.UpdateCheck && _update is null && Assert(_build.Version.Length > 0))
-            _update = new UpdateCheck(_capi.Logger, _build.Version, _build.Preview, _build.Commit, _build.SourcePath);
+        if (_settings.UpdateCheck && _update is null) RunUpdateCheck();
         (_sinceInterval, _interval) = ((float)_settings.Interval, 0);
         UpdateProfiler();
         _capi.Event.UnregisterCallback(_saveCallback);   // coalesces slider drags and hotkey bursts into one write
@@ -120,7 +136,7 @@ internal sealed partial class HudOverlay : IRenderer
     // Only while the cursor is free (chat, inventory or menu open)
     private void OnMouseDown(MouseEvent e)
     {
-        if (!_settings.Visible || _capi.Input.MouseGrabbed || e.Button != EnumMouseButton.Left || _dialog.Contains(e.X, e.Y)) return;
+        if (!_settings.Visible || _capi.Input.MouseGrabbed || e.Button != EnumMouseButton.Left || _dialog.Contains(e.X, e.Y) || _verify.Contains(e.X, e.Y)) return;
         if (!Assert(_dragging < 0) || !Assert(_grid is null)) { _dragging = -1; return; }   // a mouse up went missing
         var index = _panels.FindIndex(p => p.Visible && p.Contains(e.X, e.Y));
         if (index < 0) return;
@@ -300,6 +316,7 @@ internal sealed partial class HudOverlay : IRenderer
         _ask?.Dispose();
         _settings.Save(_capi);
         _dialog.Dispose();
+        _verify.Dispose();
         _grid?.Dispose();
         _gpu.Dispose();
         foreach (var panel in _panels.Bounded(PanelCount)) panel.Dispose();

@@ -15,7 +15,7 @@ internal sealed partial class HudOverlay
     private string UpdateText()
     {
         if (!_settings.UpdateCheck || !NotNull(_update)) return "";
-        var key = _update.State switch
+        var key = _update.Report.State switch
         {
             UpdateState.Checking => "hud-update-checking",
             UpdateState.Verified => "hud-update-verified",
@@ -24,10 +24,10 @@ internal sealed partial class HudOverlay
             UpdateState.Unverified => "hud-update-unverified",
             _ => "hud-update-failed",
         };
-        return Assert(key.Length > 0) ? HudSettings.Translate(key, _update.Detail) : "";
+        return Assert(key.Length > 0) ? HudSettings.Translate(key, _update.Report.Detail) : "";
     }
 
-    private Rgba? UpdateColor() => !_settings.UpdateCheck || !NotNull(_update) || !Assert(_panels.Count > 0) ? null : _update.State switch
+    private Rgba? UpdateColor() => !_settings.UpdateCheck || !NotNull(_update) || !Assert(_panels.Count > 0) ? null : _update.Report.State switch
     {
         UpdateState.Verified => new Rgba(0.35, 0.75, 0.45, 1),
         UpdateState.Mismatch => new Rgba(0.90, 0.30, 0.30, 1),

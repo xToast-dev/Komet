@@ -24,7 +24,7 @@ internal sealed class HudSettings
     private const double BaseFontSize = 14, BaseTitleSize = 16;
 
     public bool Visible { get; set => Set(ref field, value); }
-    public HudCorner Corner { get; private set { if (Assert(Enum.IsDefined(value))) Set(ref field, value); } }
+    [JsonProperty] public HudCorner Corner { get; private set { if (Assert(Enum.IsDefined(value))) Set(ref field, value); } }   // private setter: Json.NET writes it only with the attribute
     public double Opacity { get; set { if (Assert(OpacityRange.Contains(value))) Set(ref field, value); } } = 0.6;
     public double Interval { get; set { if (Assert(IntervalRange.Contains(value))) Set(ref field, value); } } = 0.25;
     public double BenchSeconds { get; set { if (Assert(BenchRange.Contains(value))) Set(ref field, value); } } = 30;

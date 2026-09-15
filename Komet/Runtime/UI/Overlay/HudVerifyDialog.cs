@@ -60,7 +60,7 @@ internal sealed class HudVerifyDialog : HudDialog
         Row("released", y => Canvas.Text(valueX, y, RowH, s.Text, r.Released.Length > 0 ? r.Released : none, r.Released.Length > 0 ? null : HudCanvas.Dim));
         Header("sha256");
         Row("installed", y => Hash(y, r.Installed, r.Published));
-        Row("github", y => Hash(y, r.Published, null));
+        Row("github", y => Hash(y, r.Published, ""));
         Header("result");
         Rows.Add((RowH, y => Canvas.Text(Pad, y, RowH, s.Text, Translate(verdictKey, r.State == UpdateState.Failed ? r.Detail : r.Tag), verdictColor)));
         Row("newest", y =>
@@ -81,15 +81,15 @@ internal sealed class HudVerifyDialog : HudDialog
         }));
         return width;
 
-        // One cell per hex digit so both hashes line up; with a reference, each digit is green or red by whether it matches
-        void Hash(double y, string hash, string? reference)
+        // One cell per hex digit so both hashes line up; with a reference to compare with, each digit is green or red by whether it matches
+        void Hash(double y, string hash, string reference)
         {
             if (hash.Length == 0) { Canvas.Text(valueX, y, RowH, s.Text, none, HudCanvas.Dim); return; }
-            if (!Assert(hash.Length == HashLength) || !Assert(reference is null || reference.Length == HashLength)) return;
+            if (!Assert(hash.Length == HashLength) || !Assert(reference.Length is 0 or HashLength)) return;
             for (var i = 0; i < Math.Min(hash.Length, HashLength); i++)
             {
                 Rgba? color = null;
-                if (reference is not null) color = hash[i] == reference[i] ? Good : Bad;
+                if (reference.Length > 0) color = hash[i] == reference[i] ? Good : Bad;
                 Canvas.Text(valueX + (i * cell), y, RowH, s.Text, hash[i..(i + 1)], color);
             }
         }

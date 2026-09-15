@@ -116,7 +116,8 @@ internal sealed partial class HudOverlay : IRenderer
 
     private void StartBench(float seconds)
     {
-        if (!Assert(seconds is > 0 and <= 3600) || !Assert(_benchLeft <= 0)) return;
+        if (!Assert(seconds is > 0 and <= 3600) || !Assert(_panels.Count > 0)) return;
+        if (_benchLeft > 0) { _capi.ShowChatMessage(HudSettings.Translate("hud-bench-start", MathF.Ceiling(_benchLeft))); return; }   // already running
         foreach (var panel in _panels.Bounded(PanelCount)) panel.ResetBench();
         _benchLeft = seconds;
         UpdateProfiler();
@@ -138,14 +139,15 @@ internal sealed partial class HudOverlay : IRenderer
     {
         if (!_settings.Visible || _capi.Input.MouseGrabbed || e.Button != EnumMouseButton.Left || _dialog.Contains(e.X, e.Y) || _verify.Contains(e.X, e.Y)) return;
         if (!Assert(_dragging < 0) || !Assert(_grid is null)) { _dragging = -1; return; }   // a mouse up went missing
-        var index = _panels.FindIndex(p => p.Visible && p.Contains(e.X, e.Y));
+        var index = _panels.FindIndex(p => p is { Visible: true, Pinned: null } && p.Contains(e.X, e.Y));   // column panels are drawn over pinned ones
+        if (index < 0) index = _panels.FindIndex(p => p.Visible && p.Contains(e.X, e.Y));
         if (index < 0) return;
         var panel = _panels[index];
         var now = Environment.TickCount64;
         if (panel.Log is { } log && index == _lastClick && now - _lastClickTime < HudSettings.DoubleClickMs)   // double click grows / shrinks a log panel
         {
             log.Expanded = !log.Expanded;
-            Refresh(panel, 0);
+            Refresh(panel);
             (_lastClick, e.Handled) = (-1, true);
             return;
         }
@@ -202,7 +204,7 @@ internal sealed partial class HudOverlay : IRenderer
         if (lines != 0)
         {
             hit.Log.Scroll(lines);
-            Refresh(hit, 0);
+            Refresh(hit);
         }
         e.SetHandled();
     }
@@ -253,7 +255,7 @@ internal sealed partial class HudOverlay : IRenderer
                     if (panel is { Visible: true, Log: { } log }) log.Sample();
             });
         if (_settings is { Visible: true, ShowMods: true } && _interval % HudSettings.ModsEvery == 0) _mods.Sample(_capi, "komet");
-        if (_settings.Visible) foreach (var panel in _panels.Bounded(PanelCount)) Refresh(panel, _interval);
+        if (_settings.Visible) RefreshPanels(_interval);
         if (_benchLeft > 0) Bench(_sinceInterval);
         _frames.Reset();
         _passes.Reset();
@@ -261,11 +263,26 @@ internal sealed partial class HudOverlay : IRenderer
         (_sinceInterval, _interval) = (0, _interval + 1);
     }
 
-    // Interval 0 redraws right away, not at the next tick of the panel's own cadence
-    private void Refresh(HudPanel panel, int interval)
+    // Every due panel is measured before any is drawn, so all of them see the column's final width; a panel that its column
+    // has outgrown is redrawn even when not due. Pinned panels keep their own width.
+    private void RefreshPanels(int interval)
     {
-        if (!Assert(interval >= 0) || !Index(panel.Column, _columns)) return;
-        panel.Refresh(interval, _settings.Detail, panel.Pinned == null ? ColumnWidth(panel.Column, natural: true) : panel.Width);
+        if (!Assert(interval >= 0) || !Assert(_panels.Count == PanelCount)) return;
+        Span<bool> due = stackalloc bool[PanelCount];
+        for (var i = 0; i < Math.Min(_panels.Count, PanelCount); i++) due[i] = _panels[i].Measure(interval, _settings.Detail);
+        for (var i = 0; i < Math.Min(_panels.Count, PanelCount); i++)
+        {
+            var panel = _panels[i];
+            var width = panel.Pinned == null ? ColumnWidth(panel.Column, natural: true) : panel.Width;
+            if (due[i] || (panel.Visible && panel.Width < width)) panel.Render(width);
+        }
+    }
+
+    // One panel right away (log scroll, double click), not at the next tick of its own cadence
+    private void Refresh(HudPanel panel)
+    {
+        if (!Index(panel.Column, _columns) || !Assert(panel.Visible) || !panel.Measure(0, _settings.Detail)) return;
+        panel.Render(panel.Pinned == null ? ColumnWidth(panel.Column, natural: true) : panel.Width);
     }
 
     private double ColumnWidth(int column, bool natural)

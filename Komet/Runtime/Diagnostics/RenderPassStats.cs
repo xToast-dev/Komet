@@ -44,14 +44,13 @@ internal sealed class RenderPassStats
     {
         if (frame?.Marks == null) return;
         var total = ToMs(frame.ElapsedTicks);
-        if (!Assert(total >= 0)) return;
+        if (!Assert(total >= 0) || !Assert(frame.Marks.Count <= MaxMarks)) return;
         _frames++;
         _sumTotalMs += total;
         Array.Clear(_frameMs);
 
         var assigned = 0.0;
         var current = Pass.Other;
-        if (!Assert(frame.Marks.Count <= MaxMarks)) return;
         using var marks = frame.Marks.GetEnumerator();   // struct enumerator: no allocation per frame, order = order within the frame
         for (var i = 0; i < MaxMarks && marks.MoveNext(); i++)
         {

@@ -74,12 +74,15 @@ internal sealed class UpdateCheck : IDisposable
             if (report.State != UpdateState.Mismatch && newest is not null && Tag(newest) != _tag) report = report with { State = UpdateState.Outdated, Detail = Tag(newest) };
             _report = report;
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or JsonException or ObjectDisposedException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or JsonException or ObjectDisposedException or InvalidCastException)
         {
             _report = UpdateReport.Pending with { State = UpdateState.Failed, Detail = e.Message };
         }
-        _logger.Notification("Komet update check: {0} {1}", _report.State, _report.Detail);
-        _running = 0;
+        finally
+        {
+            _logger.Notification("Komet update check: {0} {1}", _report.State, _report.Detail);
+            _running = 0;
+        }
     }
 
     private async Task<string> Published(JObject release)

@@ -11,6 +11,7 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, int in
     private readonly HudCanvas _canvas = new(capi);
     private readonly List<HudLine> _lines = [];
     private double _labelW, _percentW, _valueW, _unitW;   // grow only, otherwise the layout jumps
+    private double _linesHeight, _barBlock, _valueBlock;       // from the last Measure()
     private bool _lastDetail;
 
     public int Column => column;
@@ -82,42 +83,47 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, int in
         }
     }
 
-    public void Refresh(int interval, bool detail, double minWidth)
+    // Measures the lines when the panel is due this interval; true when it then needs Render()
+    public bool Measure(int interval, bool detail)
     {
-        if (!Assert(interval >= 0) || !Assert(minWidth >= 0) || !Assert(refreshEvery > 0) || !Assert(_lines.Count > 0)) return;
-        if (interval % refreshEvery != 0 || !Visible) return;
+        if (!Assert(interval >= 0) || !Assert(refreshEvery > 0) || !Assert(_lines.Count > 0)) return false;
+        if (interval % refreshEvery != 0 || !Visible) return false;
         if (detail != _lastDetail) _labelW = _percentW = _valueW = _unitW = 0;
         _lastDetail = detail;
         var font = settings.Text;
-        double height = 0;
+        _linesHeight = 0;
         foreach (var line in _lines.Bounded(MaxLines))
         {
             if (line.Detail && !detail) continue;
             line.Measure(settings);
             if (line.Empty) continue;
-            height += line.Height;
+            _linesHeight += line.Height;
             _labelW = Math.Max(_labelW, line.LabelWidth);
             _percentW = Math.Max(_percentW, line.PercentWidth);
             _valueW = Math.Max(_valueW, line.ValueWidth);
             _unitW = Math.Max(_unitW, HudCanvas.TextWidth(font, line.Unit));
         }
-        if (!Assert(height > 0) || !Assert(_labelW > 0)) return;   // every panel starts with a title or a section header
+        double gap = scaled(Gap), unitGap = scaled(HudLine.UnitGap);
+        _barBlock = _percentW > 0 ? gap + HudCanvas.BarWidth + gap + _percentW + unitGap + HudCanvas.TextWidth(font, "%") : 0;
+        _valueBlock = _valueW > 0 ? gap + _valueW + unitGap + _unitW : 0;
+        NaturalWidth = _labelW + _barBlock + _valueBlock + (2 * scaled(Padding));
+        return Assert(_linesHeight > 0) && Assert(_labelW > 0);   // every panel starts with a title or a section header
+    }
 
-        double gap = scaled(Gap), unitGap = scaled(HudLine.UnitGap), pad = scaled(Padding);
-        var barBlock = _percentW > 0 ? gap + HudCanvas.BarWidth + gap + _percentW + unitGap + HudCanvas.TextWidth(font, "%") : 0;
-        var valueBlock = _valueW > 0 ? gap + _valueW + unitGap + _unitW : 0;
-        NaturalWidth = _labelW + barBlock + valueBlock + 2 * pad;
+    // Draws the lines as last measured, at least minWidth wide: the column's width, so the panels of a column line up
+    public void Render(double minWidth)
+    {
+        double gap = scaled(Gap), pad = scaled(Padding);
+        if (!Assert(minWidth >= 0) || !Assert(_linesHeight > 0) || !Assert(NaturalWidth > 0)) return;   // Measure() first
         var start = _labelW + Math.Max(0, minWidth - NaturalWidth);
-        var columns = new HudColumns(start + barBlock + valueBlock, start + gap, start + gap + HudCanvas.BarWidth + gap + _percentW, start + barBlock + gap + _valueW);
-        if (!Assert(columns.RowWidth > 0)) return;
-
-        _canvas.Begin(columns.RowWidth + (2 * pad), height + (2 * pad));
+        var columns = new HudColumns(start + _barBlock + _valueBlock, start + gap, start + gap + HudCanvas.BarWidth + gap + _percentW, start + _barBlock + gap + _valueW);
+        _canvas.Begin(columns.RowWidth + (2 * pad), _linesHeight + (2 * pad));
         if (!Assert(_canvas.Width >= NaturalWidth)) return;   // Begin() refused the size
         _canvas.Fill(0, 0, _canvas.Width, _canvas.Height, HudCanvas.PanelBackground with { A = settings.Opacity }, scaled(4));
         var y = pad;
         foreach (var line in _lines.Bounded(MaxLines))
         {
-            if (line.Detail && !detail || line.Empty) continue;
+            if (line.Detail && !_lastDetail || line.Empty) continue;
             line.Draw(_canvas, settings, pad, y, columns);
             y += line.Height;
         }

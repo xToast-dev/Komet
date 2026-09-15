@@ -97,7 +97,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         double h = scaled(BarH), top = y + (rowHeight - h) / 2, tick = Math.Max(1, scaled(1));
         Fill(x, top, w, h, BarTrack);
         if (fraction > 0 && Assert(fraction <= 1)) Fill(x, top, w * fraction, h, fill ?? new Rgba(Math.Min(1, fraction * 2), Math.Min(1, (1 - fraction) * 2), 0.15, 0.9));
-        if (marker > 0) Fill(x + w * marker - tick, top - tick, tick, h + 2 * tick, BarMarker);
+        if (marker > 0) Fill(x + (w * marker) - tick, top - tick, tick, h + 2 * tick, BarMarker);
     }
 
     public double Badge(double x, double y, double rowHeight, CairoFont font, string text, Rgba color, double? width = null)

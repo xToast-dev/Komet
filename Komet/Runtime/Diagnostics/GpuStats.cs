@@ -15,7 +15,7 @@ internal sealed class GpuStats : IDisposable
 
     public void Begin()
     {
-        if (!Assert(!_open)) return;   // End() of the previous frame was skipped
+        if (!Assert(!_open)) GL.EndQuery(QueryTarget.TimeElapsed);   // End() of the previous frame was skipped
         if (_queries[0] == 0) GL.GenQueries(2, _queries);
         if (!Assert(_queries[0] != 0) || !Assert(_queries[1] != 0)) return;
         GL.BeginQuery(QueryTarget.TimeElapsed, _queries[_frame & 1]);

@@ -6,22 +6,18 @@ internal enum LogLevel { Info, Debug, Warning, Error }
 
 // Tails a log file: reads the last few KB off the main thread, drops timestamps and wraps long lines.
 // The panel shows a window of Visible rows; the wheel moves it back from the end, a double click grows it.
-internal sealed class LogStats
+internal sealed class LogStats(string fileName)
 {
-    public const int MaxRows = 45, CompactRows = 20;
+    public const int MaxRows = 45;
+    private const int CompactRows = 20;
     private const int WrapChars = 100, TailBytes = 64 * 1024, KeepLines = 600, MaxWrap = 64;
     private const string Continuation = "    ";
-    private readonly string _path;
+    private readonly string _path = Assert(fileName.Length > 0) ? Path.Combine(GamePaths.Logs, fileName) : "";
 
     private (string Text, LogLevel Level)[] _lines = [];   // replaced wholesale, so readers never see a half-written snapshot
 
-    public LogStats(string fileName)
-    {
-        _path = Assert(fileName.Length > 0) ? Path.Combine(GamePaths.Logs, fileName) : "";
-    }
-
     public bool Expanded { get; set { field = value; Scroll(0); } }
-    public int Visible => Expanded ? MaxRows : CompactRows;
+    private int Visible => Expanded ? MaxRows : CompactRows;
     public int Offset { get; private set; }   // rows scrolled back from the newest
 
     // Rows count from the top of the window; past the window or the file, an empty row
@@ -84,7 +80,7 @@ internal sealed class LogStats
         {
             var cut = line.LastIndexOf(' ', WrapChars);
             if (cut < WrapChars / 2) cut = WrapChars;
-            if (!Assert(cut > 0) || !Assert(cut < line.Length)) break;
+            if (!Assert(true) || !Assert(cut < line.Length)) break;
             into.Add((indent + line[..cut], level));
             line = line[cut..].TrimStart();
             indent = Continuation;

@@ -111,12 +111,11 @@ internal sealed class HudSettings
     public static string Format(double value, string format)
         => double.IsNaN(value) || !Assert(format.Length is 2 or 3) ? "" : value.ToString(format, CultureInfo.InvariantCulture);
 
-    // Lang.Get hands the key back when the translation is missing
+    // Komet's lang JSON uses unqualified keys; prefixing them makes Lang.Get miss every entry.
     public static string Translate(string key, params object[] args)
     {
-        var full = "komet:" + key;
-        var text = Lang.Get(full, args);
-        return Assert(key.Length > 0) && Assert(text != full) ? text : key;
+        if (!Assert(key.Length > 0)) return "";
+        return Lang.Get(key, args);
     }
 
     public void RegisterHotkeys(ICoreClientAPI capi)

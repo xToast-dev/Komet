@@ -1,4 +1,4 @@
-# Komet
+# Komet 2.0.0 Nightlybuild - PRERELEASE!
 
 Performance-Mod für den Client von Vintage Story 1.22 (C#, .NET 10). Komet ersetzt teure Stellen der Engine durch Wege mit
 demselben Ergebnis, misst sich im Spiel selbst und zeigt ein HUD mit Frametimes, Lows, Spikes und den Zählern seiner Features.

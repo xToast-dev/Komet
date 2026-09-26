@@ -2,13 +2,7 @@ namespace Komet.Diagnostics;
 
 // One spike frame as the ring keeps it; its dearest marks sit in the ledger's parallel mark array
 internal readonly record struct Spike(
-    double AtSeconds,
-    double DtMs,
-    string Cause,
-    double GcMs,
-    double OutsideMs,
-    double JitMs,
-    double RunQueueMs);
+    double AtSeconds, double DtMs, string Cause, double GcMs, double OutsideMs, double JitMs, double RunQueueMs);
 
 // What the 1 % and 0.1 % lows are made of: every steady frame over max(MinMs, MeanFactor × running mean) is booked to its dominant
 // cause (count, sum, max), and the latest ones are kept whole for the text dump.
@@ -18,12 +12,8 @@ internal sealed class SpikeLedger
     public const int Shown = 5, Recent = 8, TopMarks = RenderPassStats.DetailCount, MaxCauses = 256;
 
     // Pseudo causes, next to real mark names; '~' never starts an engine mark
-    public const string Outside = RenderPassStats.Outside,
-        Gc = "~gc",
-        Jit = "~jit",
-        RunQueue = "~runqueue",
-        Unprofiled = "~unprofiled",
-        Other = "~other";
+    public const string Outside = RenderPassStats.Outside, Gc = "~gc", Jit = "~jit", RunQueue = "~runqueue",
+        Unprofiled = "~unprofiled", Other = "~other";
 
     private const double MeanFrames = 128;
     private readonly Dictionary<string, Cause> _causes = [];

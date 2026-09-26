@@ -12,7 +12,6 @@ internal sealed partial class HudOverlay
     private const int PanelCount = 10;
     private const string Gen0Size = "DOTNET_GCgen0size";
     private const double Mebibyte = 1.0 / 1024 / 1024;
-    private static readonly double TickMs = 1000.0 / Stopwatch.Frequency;
 
     // Assertions do not inline without the optimizer, so every Komet timing below is inflated several times over
     private static readonly bool DebugBuild =
@@ -29,38 +28,23 @@ internal sealed partial class HudOverlay
                 ?.Value ?? "";
     }
 
-    // The update line under the title and its colour
-    private static (string Key, Rgba? Color) Notice(UpdateState state)
-    {
-        return state switch
-        {
-            UpdateState.Checking => ("hud-update-checking", null),
-            UpdateState.Verified => ("hud-update-verified", HudCanvas.Good),
-            UpdateState.Mismatch => ("hud-update-mismatch", HudCanvas.Error),
-            UpdateState.Outdated => ("hud-update-outdated", HudCanvas.Warning),
-            UpdateState.Unverified => ("hud-update-unverified", null),
-            UpdateState.Failed => ("hud-update-failed", null),
-            _ => ("hud-update-norelease", null)
-        };
-    }
-
     // "" and no colour while notices are off or nothing has been checked
     private string UpdateText()
     {
         return _settings.UpdateCheck && _update is { } check
-            ? HudText.Translate(Notice(check.Report.State).Key, check.Report.Detail)
+            ? HudText.Translate(check.Report.Notice().Key, check.Report.Detail)
             : "";
     }
 
     private Rgba? UpdateColor()
     {
-        return _settings.UpdateCheck && _update is { } check ? Notice(check.Report.State).Color : null;
+        return _settings.UpdateCheck && _update is { } check ? check.Report.Notice().Color : null;
     }
 
     // Version, channel and commit as CI stamped them, and the zip the mod was loaded from: what the title badges and the update check need
     private static (string Version, bool Preview, string Commit, string SourcePath) ReadBuild(ICoreClientAPI capi)
     {
-        var mod = capi.ModLoader.GetMod("komet");
+        var mod = capi.ModLoader.GetMod(KometModSystem.ModId);
         var assembly = typeof(HudOverlay).Assembly;
         if (!NotNull(mod) || !Assert(mod.Info.Version.Length > 0)) return ("", false, "", "");
         return (mod.Info.Version, Metadata(assembly, "Channel") == "preview", Metadata(assembly, "Commit"),
@@ -73,8 +57,8 @@ internal sealed partial class HudOverlay
         var assembly = typeof(HudOverlay).Assembly;
         var built = HudText.LocalTime(Metadata(assembly, "Built"));
         var (version, preview, commit, _) = _build;
-        if (!Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0))
-            return []; // CI stamps channel and commit together
+        // CI stamps channel and commit together
+        if (!Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0)) return [];
         var edition = (DebugBuild, preview) switch
         {
             (true, _) => (HudText.Translate("hud-edition-dev"), HudCanvas.Accent),
@@ -165,14 +149,13 @@ internal sealed partial class HudOverlay
                 if (_spikes.LatestMark(age, rank) is not { Name: { } mark } entry) continue;
                 _ = marks.Append(marks.Length > 0 ? ", " : "").Append(Describe(mark)).Append(' ')
                     .Append(Millis(entry.Ms)).Append(" ms");
-                if (entry.Calls > 1)
-                    _ = marks.Append(" ×").Append(entry.Calls); // one mark summed over its calls, e.g. nine entities
+                // one mark summed over its calls, e.g. nine entities
+                if (entry.Calls > 1) _ = marks.Append(" ×").Append(entry.Calls);
             }
 
             _ = text.Append('\n').Append(HudText.Translate("hud-spike-line", HudText.Format(spike.AtSeconds, "F1"),
                 Millis(spike.DtMs), Describe(spike.Cause), Millis(spike.GcMs), Millis(spike.OutsideMs),
-                Millis(spike.JitMs),
-                Millis(spike.RunQueueMs), marks.ToString()));
+                Millis(spike.JitMs), Millis(spike.RunQueueMs), marks.ToString()));
         }
     }
 
@@ -313,8 +296,7 @@ internal sealed partial class HudOverlay
         var passes = Panel(1, enabled: () => _settings.ShowPasses).Section("passes");
         _ = passes.Rows(RenderPassStats.Count, i => passes
                 .Line(() => HudText.Cached("hud-pass-", _passes.Key(i)), () => _passes.AverageMs(i), "ms",
-                    () => _passes.Percent(i),
-                    () => _passes.WorstPercent(i))
+                    () => _passes.Percent(i), () => _passes.WorstPercent(i))
                 .Rows(RenderPassStats.DetailCount,
                     j => passes.Line(() => Describe(_passes.DetailName(i, j)), () => _passes.DetailMs(i, j), "ms",
                         sub: true, detail: true)))
@@ -364,7 +346,7 @@ internal sealed partial class HudOverlay
             .Value("mods-loaded", () => _mods.Snapshot.Mods)
             .Rows(ModStats.MaxMods, i => mods.Line(() => _mods.Snapshot.ModNames[i] ?? "", sub: true))
             .Section("harmony")
-            .Line(() => LocalServer.Present ? ServerLocal() : ServerRemote())
+            .Line(() => KometModSystem.LocalServer ? ServerLocal() : ServerRemote())
             .Value("harmony-methods", () => _mods.Snapshot.PatchedMethods)
             .Value("harmony-owners", () => _mods.Snapshot.Owners)
             .Rows(ModStats.MaxOwners,
@@ -372,7 +354,11 @@ internal sealed partial class HudOverlay
                     sub: true))
             .Section("conflicts")
             .Value("conflicts-count", () => _mods.Snapshot.Conflicts)
-            .Rows(ModStats.MaxConflicts, i => mods.Line(() => _mods.Snapshot.ConflictNames[i] ?? "", sub: true));
+            .Rows(ModStats.MaxConflicts, i => mods.Line(() => _mods.Snapshot.ConflictNames[i] ?? "", sub: true))
+            .Section("features")
+            .Value("features-off", () => Features.NotActive)
+            .Rows(Features.MaxShown, i => mods.Line(() => Features.Shown(i), sub: true, color: () =>
+                Features.ShownState(i) is FeatureState.HeldOff or FeatureState.StoodDown ? HudCanvas.Warning : null));
     }
 
     // Komet's feature counters on the GPU side. Each section shows its headline row; the rest wait for the detail lines.
@@ -387,10 +373,9 @@ internal sealed partial class HudOverlay
             .Value("use-uploads", PerFrame(() => ShaderUseCache.Uploads), detail: true)
             .Section("frustumsweep")
             .Warn("debug-timings", () => DebugBuild)
-            .Value("cull-time", PerFrame(() => FrustumSweep.Ticks, TickMs), "ms")
+            .Value("cull-time", PerFrame(() => FrustumSweep.Ticks, FrameClock.TickMs), "ms")
             .Bar("cull-skipped", Ratio(() => FrustumSweep.Skipped, () => FrustumSweep.Tested, 100),
-                PerFrame(() => FrustumSweep.Skipped),
-                good: true)
+                PerFrame(() => FrustumSweep.Skipped), good: true)
             .Value("cull-tested", PerFrame(() => FrustumSweep.Tested), detail: true)
             .Value("cull-visible", PerFrame(() => FrustumSweep.Visible), detail: true)
             .Value("cull-rebuilt", PerFrame(() => FrustumSweep.Rebuilds), detail: true)
@@ -410,14 +395,13 @@ internal sealed partial class HudOverlay
     {
         if (!Assert(_panels.Count == PanelCount - 1)) return;
         _ = panel.Section("meshpool")
-            .Value("pool-time", PerFrame(() => MeshPool.Ticks, TickMs), "ms")
+            .Value("pool-time", PerFrame(() => MeshPool.Ticks, FrameClock.TickMs), "ms")
             .Value("pool-models", PerFrame(() => MeshPool.Models), detail: true)
             .Value("pool-vertices", PerFrame(() => MeshPool.Vertices), detail: true)
             .Value("pool-skipped", PerFrame(() => MeshPool.Skipped), detail: true)
             .Value("frag-removed", PerFrame(() => MeshPool.Removed), detail: true)
             .Bar("frag-squeeze-skipped", Ratio(() => MeshPool.Skips, () => MeshPool.Squeezes, 100),
-                PerFrame(() => MeshPool.Skips),
-                good: true, detail: true)
+                PerFrame(() => MeshPool.Skips), good: true, detail: true)
             .Value("frag-recounts", PerFrame(() => MeshPool.Recounts), detail: true)
             .Section("meshrecycle")
             .Value("recycle-saved", PerFrame(() => MeshRecycle.Saved, 4 * Mebibyte), "MB")
@@ -454,8 +438,7 @@ internal sealed partial class HudOverlay
         PoolCounters(panel);
         _ = panel
             .Bar("tess-edge", Ratio(() => TessAccounting.Totals().Edge, passes, 100),
-                PerSecond(() => TessAccounting.Totals().Edge),
-                detail: true)
+                PerSecond(() => TessAccounting.Totals().Edge), detail: true)
             .Bar("tess-zero", Ratio(() => TessAccounting.ZeroMs, passMs, 100),
                 PerSecond(() => TessAccounting.ZeroPasses), detail: true)
             .Value("tess-priority",
@@ -492,8 +475,7 @@ internal sealed partial class HudOverlay
             .Warn("pool-frame-off", () => WorkerPool.FrameOff)
             .Value("pool-threads", () => WorkerPool.Running)
             .Line(() => HudText.Translate(TessWorkers.Boosted ? "hud-pool-tess-boost" : "hud-pool-tess-limit",
-                WorkerPool.BackgroundLimit,
-                WorkerPool.InBackground), sub: true)
+                WorkerPool.BackgroundLimit, WorkerPool.InBackground), sub: true)
             .Bar("pool-frame", () => Share(frame()))
             .Bar("pool-tess", () => Share(tess()))
             .Bar("pool-idle", () => Share(100 * WorkerPool.Running - frame() - tess()), detail: true);
@@ -547,7 +529,7 @@ internal sealed partial class HudOverlay
                     : HudText.Translate("hud-entitytess-unpatched", EntityTessBudget.Millis), sub: true,
                 color: () => HudCanvas.Warning)
             .Warn("shapememo-blocked", () => ShapeInitMemo.Blocked)
-            .Value("entitytess-time", PerFrame(() => EntityTessBudget.Ticks, TickMs), "ms")
+            .Value("entitytess-time", PerFrame(() => EntityTessBudget.Ticks, FrameClock.TickMs), "ms")
             .Value("entitytess-worst", () => EntityTessBudget.WorstFrameMs, "ms")
             .Line(() => EntityTessBudget.SlowestCode.Length == 0
                     ? ""
@@ -582,8 +564,8 @@ internal sealed partial class HudOverlay
     private HudPanel Panel(int column, int refreshEvery = 1, Func<bool>? enabled = null, LogStats? log = null)
     {
         var every = Assert(refreshEvery > 0) ? refreshEvery : 1;
-        var phase = _panels.Count(p =>
-            p.RefreshEvery == every); // one panel of a cadence per interval, not all of them at once
+        // one panel of a cadence per interval, not all of them at once
+        var phase = _panels.Count(p => p.RefreshEvery == every);
         var panel = new HudPanel(_capi, _settings, _fonts, _panels.Count, Index(column, Columns) ? column : 0, every,
             phase, enabled, log);
         _ = Assert(_panels.Count < PanelCount);

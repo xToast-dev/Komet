@@ -35,16 +35,11 @@ internal static class EngineShape
         All = Replacing | Postfix | Finalizer
     }
 
-    public const int MaxMethods = 64;
+    public const int MaxMethods = 64, MaxSeams = 64;
 
-    private const int MaxIl = 1 << 16,
-        MaxLocals = 256,
-        MaxClauses = 64,
-        MaxCases = 4096,
-        MaxParameters = 64,
+    private const int MaxIl = 1 << 16, MaxLocals = 256, MaxClauses = 64, MaxCases = 4096, MaxParameters = 64,
         MaxOpCodes = 512;
-
-    private const int TwoByte = 0xFE, MaxSeams = 64, MaxPatches = 64, MaxOwn = 8, MaxNameSteps = 4096;
+    private const int TwoByte = 0xFE, MaxPatches = 64, MaxOwn = 8, MaxNameSteps = 4096;
     private const ulong Basis = 14695981039346656037UL, Prime = 1099511628211UL;
 
     // OpCodes by their byte: the one-byte codes, and the second byte of the 0xFE codes
@@ -64,15 +59,24 @@ internal static class EngineShape
         return (one, two);
     }
 
-    // Whether the methods are the bodies a replacement was written against; logged once, with what was found, when not
-    public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger)
+    // Whether the methods are the bodies a replacement was written against; logged once, with what was found, when not. pinnedBy:
+    // the mod that pinned them, for another mod's feature (Komet's own are pinned to Vintage Story 1.22.7).
+    public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger,
+        string? pinnedBy = null)
     {
         if (!NotNull(feature) || !Assert(methods.Length > 0)) return false;
         var found = Of(methods);
         if (found == expected) return true;
-        logger?.Warning(
-            "Komet {0}: the engine methods it replaces are not the Vintage Story 1.22.7 bodies it was tested against " +
-            "(fingerprint {1:X16}, expected {2:X16}); the engine keeps running them", feature, found, expected);
+        if (pinnedBy is null)
+            logger?.Warning(
+                "Komet {0}: the engine methods it replaces are not the Vintage Story 1.22.7 bodies it was tested " +
+                "against (fingerprint {1:X16}, expected {2:X16}); the engine keeps running them", feature, found,
+                expected);
+        else
+            logger?.Warning(
+                "Komet: {0} is not installed, the engine methods it replaces are not the bodies {1} pinned " +
+                "(fingerprint {2:X16}, expected {3:X16}); the engine keeps running them", feature, pinnedBy, found,
+                expected);
         return false;
     }
 
@@ -98,6 +102,16 @@ internal static class EngineShape
         }
 
         return false;
+    }
+
+    // The first seam another mod patches, or that is missing; -1 for none, seams.Length when the check itself fails
+    public static int FirstForeign(ReadOnlySpan<MethodBase?> seams, string owner)
+    {
+        if (!NotNull(owner) || !Assert(seams.Length <= MaxSeams)) return seams.Length;
+        for (var i = 0; i < Math.Min(seams.Length, MaxSeams); i++)
+            if (Foreign(seams.Slice(i, 1), Kinds.All, owner))
+                return i;
+        return -1;
     }
 
     // A feature's stand-down for another mod's patch, logged when it changes; returns foreign
@@ -153,7 +167,8 @@ internal static class EngineShape
         if (method is null) return 0;
         try
         {
-            var body = method.GetMethodBody(); // throws for locals of a type whose assembly does not load
+            // throws for locals of a type whose assembly does not load
+            var body = method.GetMethodBody();
             var il = body?.GetILAsByteArray();
             if (body is null || il is null || !Assert(il.Length <= MaxIl)) return 0;
             var (locals, clauses) = (body.LocalVariables, body.ExceptionHandlingClauses);
@@ -165,8 +180,8 @@ internal static class EngineShape
             return hash == 0 ? 1 : hash;
         }
         catch (Exception e) when (e is ArgumentException or BadImageFormatException or TypeLoadException
-                                      or FileNotFoundException
-                                      or FileLoadException or MissingMemberException or InvalidOperationException)
+                                      or FileNotFoundException or FileLoadException or MissingMemberException
+                                      or InvalidOperationException)
         {
             return 0; // a token the runtime cannot resolve: not a body this can vouch for
         }
@@ -178,7 +193,8 @@ internal static class EngineShape
     {
         if (!NotNull(method) || !Assert(il.Length <= MaxIl)) return 0;
         var (at, end) = (0, 0);
-        for (var n = 0; n < MaxIl && at < il.Length; n++) // an instruction takes at least one byte
+        // an instruction takes at least one byte
+        for (var n = 0; n < MaxIl && at < il.Length; n++)
         {
             int value = il[at++];
             if (value == TwoByte && at < il.Length) value = (TwoByte << 8) | il[at++];

@@ -25,13 +25,7 @@ namespace Komet.Tessellation;
 // reads only the shell it writes itself.
 internal static class OccludedChunks
 {
-    private const int Words = Size * Size,
-        MaxBits = 15,
-        MaxIndices = 1 << MaxBits,
-        MaxBad = 32,
-        Up = 4,
-        Down = 5,
-        AllSides = -1;
+    private const int Words = Size * Size, MaxBits = 15, MaxIndices = 1 << MaxBits, MaxBad = 32, AllSides = -1;
 
     private const float Start = 32f, End = 0f;
 
@@ -75,7 +69,7 @@ internal static class OccludedChunks
         }
 
         _skipped = shaped;
-        _ = NotNull(harmony.Patch(shaped[0], new HarmonyMethod(typeof(OccludedChunks), nameof(Prefix))));
+        _ = NotNull(harmony.Patch(shaped[0], new HarmonyMethod(Prefix)));
         Installed = true;
         Recheck();
     }
@@ -86,9 +80,8 @@ internal static class OccludedChunks
         if (!Installed || !Assert(_skipped.Length > 1)) return;
         var foreign = EngineShape.Foreign(_skipped.AsSpan(0, 1), EngineShape.Kinds.Body, null) ||
                       EngineShape.Foreign(_skipped.AsSpan(1), EngineShape.Kinds.All, null, typeof(ExtendedRows),
-                          typeof(VisibleFaces),
-                          typeof(TessSafety));
-        StoodDown = Report(nameof(OccludedChunks), StoodDown, foreign);
+                          typeof(VisibleFaces), typeof(TessSafety));
+        StoodDown = EngineShape.Report(Logger, nameof(OccludedChunks), StoodDown, foreign);
     }
 
     // NowProcessChunk first, then the bodies whose result it hands back: BeginProcessChunk (the state Leave reproduces), the extended
@@ -121,8 +114,8 @@ internal static class OccludedChunks
     }
 
     // Harmony injects the instance, the arguments and the result by name
-    private static bool Prefix(ChunkTesselator __instance, int chunkX, int chunkY, int chunkZ, TesselatedChunk tessChunk,
-        bool skipChunkCenter, ref int __result)
+    private static bool Prefix(ChunkTesselator __instance, int chunkX, int chunkY, int chunkZ,
+        TesselatedChunk tessChunk, bool skipChunkCenter, ref int __result)
     {
         if (!Enabled || StoodDown || !NotNull(__instance) || !NotNull(tessChunk)) return true;
         if (!Enclosed(__instance, chunkX, chunkY, chunkZ, tessChunk)) return true;
@@ -139,8 +132,8 @@ internal static class OccludedChunks
         if (!NotNull(empty) || !Assert(empty.Length == 0)) empty = [];
         if (!skipChunkCenter) CenterParts(tessChunk) = empty;
         EdgeParts(tessChunk) = empty;
-        SetBounds(tessChunk, Start, End, Start, End, Start,
-            End); // BeginProcessChunk's start values, which no tesselator moved
+        // BeginProcessChunk's start values, which no tesselator moved
+        SetBounds(tessChunk, Start, End, Start, End, Start, End);
         Leave(tesselator, x, y, z);
         return 0;
     }
@@ -174,12 +167,11 @@ internal static class OccludedChunks
         if (chunk is not { Empty: false } || !NoDecors(chunk) ||
             !ReferenceEquals(map.GetChunk(x, y, z), chunk)) return false;
         if (chunk.Data is not ChunkData data || !Fits(data.blocksLayer, blocks, count, AllSides) ||
-            !FluidFree(data.fluidsLayer, blocks))
-            return false;
+            !FluidFree(data.fluidsLayer, blocks)) return false;
         for (var side = 0; side < Faces; side++)
         {
-            if (side == Down && y == 0)
-                continue; // BuildBlockPolygons clears the down faces of the world's bottom layer
+            // BuildBlockPolygons clears the down faces of the world's bottom layer
+            if (side == Down && y == 0) continue;
             var (dx, dy, dz) = Offsets[side];
             if (map.GetChunk(x + dx, y + dy, z + dz) is not ClientChunk { Empty: false } neighbour) return false;
             _ = neighbour.Unpack_ReadOnly(); // the engine unpacks it too, and 26 more
@@ -203,8 +195,8 @@ internal static class OccludedChunks
     // a palette index whose block fails Good
     internal static bool Fits(ChunkDataLayer? layer, Block[] blocks, int count, int side)
     {
-        if (layer?.palette is not { } palette || !Assert(side is >= AllSides and < Faces))
-            return false; // no layer: air
+        // No layer: air
+        if (layer?.palette is not { } palette || !Assert(side is >= AllSides and < Faces)) return false;
         Span<int> bad = stackalloc int[MaxBad];
         layer.readWriteLock.AcquireReadLock();
         try
@@ -292,8 +284,7 @@ internal static class OccludedChunks
     {
         if (planes is null || !Assert(bits is > 0 and <= MaxBits) || planes.Length < bits) return false;
         for (var l = 0; l < Math.Min(bits, MaxBits); l++)
-            if (planes[l] is not { Length: >= Words })
-                return false;
+            if (planes[l] is not { Length: >= Words }) return false;
         return true;
     }
 
@@ -316,9 +307,6 @@ internal static class OccludedChunks
 
         return false;
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "started")]
-    private static extern ref bool Started(ChunkTesselator tesselator);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "reloadTesselatorOnTesselationThread")]
     private static extern ref bool Reload(ChunkTesselator tesselator);

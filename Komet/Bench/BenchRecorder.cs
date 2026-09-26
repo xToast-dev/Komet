@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Vintagestory.Client;
 
 namespace Komet.Bench;
@@ -19,37 +18,14 @@ internal enum BenchFrameTags : byte
 // TessSchedule.NearRadius columns still waiting (TessNear), the received count and the tessellation passes as they stood when the
 // next frame began.
 internal readonly record struct BenchFrame(
-    float DtMs,
-    float GcMs,
-    float JitMs,
-    float RunQueueMs,
-    int AllocKb,
-    int MainAllocKb,
-    byte Gen0,
-    byte Gen1,
-    byte Gen2,
-    BenchFrameTags Flags,
-    short Segment,
-    int TessQ,
-    int TessNear,
-    int UploadQ,
-    int Received,
-    int TessPasses,
-    float TessMs,
-    float X,
-    float Z,
-    float Yaw);
+    float DtMs, float GcMs, float JitMs, float RunQueueMs, int AllocKb, int MainAllocKb, byte Gen0, byte Gen1,
+    byte Gen2, BenchFrameTags Flags, short Segment, int TessQ, int TessNear, int UploadQ, int Received, int TessPasses,
+    float TessMs, float X, float Z, float Yaw);
 
 // The latest collection when a spike frame ends (GC.GetGCMemoryInfo): its frame's generation counts say how many there were, this
 // says what the last one was. Valid false: the frame collected nothing.
 internal readonly record struct BenchGc(
-    bool Valid,
-    long Index,
-    int Generation,
-    float PauseMs,
-    bool Compacted,
-    bool Concurrent,
-    long PromotedKb);
+    bool Valid, long Index, int Generation, float PauseMs, bool Compacted, bool Concurrent, long PromotedKb);
 
 internal readonly record struct BenchSpike(int Frame, float Ms, BenchGc Gc);
 
@@ -66,7 +42,7 @@ internal readonly record struct BenchSpikeMark(string? Range, string? Name, floa
 // The one exception is GetGCMemoryInfo (288 B), only for a spike frame that collected.
 internal sealed class BenchRecorder : IFrameSink
 {
-    public const int MaxFrames = 1_000_000, MaxSpikes = 32, MarksPerSpike = 8, MaxRanges = 64;
+    public const int MaxFrames = 1_000_000, MaxSpikes = 32, MarksPerSpike = 8;
     public const BenchFrameTags Excluded = BenchFrameTags.Paused | BenchFrameTags.Discard | BenchFrameTags.NoStamp;
 
     private readonly BenchFrame[] _frames;
@@ -101,12 +77,11 @@ internal sealed class BenchRecorder : IFrameSink
 
     public void Frame(in FrameRecord frame, in FrameCounters counters)
     {
-        if (!Assert(Recording) || !Assert(frame.DtMs >= 0) || !Finite(frame.GcMs))
-            return; // NaN dt fails the first test too
+        // NaN dt fails the first test too
+        if (!Assert(Recording) || !Assert(frame.DtMs >= 0) || !Finite(frame.GcMs)) return;
         var (chunks, tess) = (RuntimeStats.chunksReceived, TessAccounting.Totals());
-        var done = tess.Passes >= _tess.Passes && tess.Ticks >= _tess.Ticks
-            ? tess.Since(_tess)
-            : tess; // Clear() at a world change
+        // tess itself after Clear() at a world change
+        var done = tess.Passes >= _tess.Passes && tess.Ticks >= _tess.Ticks ? tess.Since(_tess) : tess;
         var received = chunks >= _chunks ? chunks - _chunks : chunks; // RuntimeStats.Reset zeroes the count
         var flags = _stamped ? _stampFlags : _stampFlags | BenchFrameTags.NoStamp;
         (_chunks, _tess, _stamped) = (chunks, tess, false);
@@ -118,12 +93,10 @@ internal sealed class BenchRecorder : IFrameSink
 
         var (i, ms) = (Count++, (float)frame.DtMs);
         _frames[i] = new BenchFrame(ms, (float)frame.GcMs, (float)frame.JitMs, (float)frame.RunQueueMs,
-            Kb(counters.Allocated),
-            Kb(counters.MainAllocated), Collections(counters.Gen0), Collections(counters.Gen1),
-            Collections(counters.Gen2), flags,
-            (short)_stampSegment, RuntimeStats.chunksAwaitingTesselation, TessSchedule.NearWaiting,
-            RuntimeStats.chunksAwaitingPooling,
-            received, (int)Math.Min(done.Passes, int.MaxValue), (float)done.Ms, _stampX, _stampZ, _stampYaw);
+            Kb(counters.Allocated), Kb(counters.MainAllocated), Collections(counters.Gen0), Collections(counters.Gen1),
+            Collections(counters.Gen2), flags, (short)_stampSegment, RuntimeStats.chunksAwaitingTesselation,
+            TessSchedule.NearWaiting, RuntimeStats.chunksAwaitingPooling, received,
+            (int)Math.Min(done.Passes, int.MaxValue), (float)done.Ms, _stampX, _stampZ, _stampYaw);
         if ((flags & Excluded) == 0 && _stampSegment >= 0)
             Spike(i, ms, frame.Root, counters.Gen0 > 0); // gen1 and gen2 count in Gen0 too
     }
@@ -211,11 +184,11 @@ internal sealed class BenchRecorder : IFrameSink
         Rank(top, null, root.Marks);
         if (root.ChildRanges == null) return;
         using var ranges = root.ChildRanges.GetEnumerator(); // struct enumerator: nothing allocated
-        for (var i = 0; i < MaxRanges && ranges.MoveNext(); i++)
+        for (var i = 0; i < RenderPassStats.MaxRanges && ranges.MoveNext(); i++)
         {
             var (code, range) = ranges.Current;
             if (!NotNull(range)) continue;
-            Insert(top, new BenchSpikeMark(code, null, ToMs(range.ElapsedTicks), range.CallCount));
+            Insert(top, new BenchSpikeMark(code, null, (float)FrameClock.ToMs(range.ElapsedTicks), range.CallCount));
             if (range.Marks != null) Rank(top, code, range.Marks);
         }
     }
@@ -226,9 +199,9 @@ internal sealed class BenchRecorder : IFrameSink
         using var entries = marks.GetEnumerator();
         for (var i = 0; i < RenderPassStats.MaxMarks && entries.MoveNext(); i++)
         {
-            var entry = entries.Current.Value;
-            if (NotNull(entry))
-                Insert(top, new BenchSpikeMark(range, entries.Current.Key, ToMs(entry.ElapsedTicks), entry.CallCount));
+            var (code, entry) = entries.Current;
+            if (!NotNull(entry)) continue;
+            Insert(top, new BenchSpikeMark(range, code, (float)FrameClock.ToMs(entry.ElapsedTicks), entry.CallCount));
         }
     }
 
@@ -247,12 +220,5 @@ internal sealed class BenchRecorder : IFrameSink
         if (slot >= top.Length) return;
         top[slot..^1].CopyTo(top[(slot + 1)..]);
         top[slot] = mark;
-    }
-
-    private static float ToMs(long ticks)
-    {
-        return Assert(ticks >= 0) && Assert(Stopwatch.Frequency > 0)
-            ? (float)(ticks * 1000.0 / Stopwatch.Frequency)
-            : 0f;
     }
 }

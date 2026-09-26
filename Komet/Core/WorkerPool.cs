@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.Client.NoObf;
@@ -34,12 +33,7 @@ internal static class WorkerPool
 
     public const int MaxThreads = 8, MaxItems = 1 << 16, MaxFrameFailures = 2;
 
-    private const int IdleMs = 50,
-        Spins = 32,
-        SignalSpins = 8,
-        JoinMs = 2000,
-        FrameCounter = 0,
-        BackgroundCounter = 1,
+    private const int IdleMs = 50, Spins = 32, SignalSpins = 8, JoinMs = 2000, FrameCounter = 0, BackgroundCounter = 1,
         MaxRetired = 64;
 
     private const long MaxRounds = long.MaxValue; // a worker runs until its world or generation ends
@@ -62,13 +56,13 @@ internal static class WorkerPool
     private static Exception? _error;
     [ThreadStatic] private static int _number; // this thread's worker number + 1; 0 on every other thread
 
-    public static int Wanted { get; set; } =
-        DefaultThreads; // 0: no pool, culling and tessellation stay on the game's threads
+    // 0: no pool, culling and tessellation stay on the game's threads
+    public static int Wanted { get; set; } = DefaultThreads;
 
     public static Func<bool>? Background { get; set; } // one background job, true when it ran one; must not throw
 
-    public static bool FrameOff =>
-        Volatile.Read(ref _frameFailures) >= MaxFrameFailures; // frame jobs threw again: no more for now
+    // Frame jobs threw again: no more for now
+    public static bool FrameOff => Volatile.Read(ref _frameFailures) >= MaxFrameFailures;
 
     public static bool BackgroundOff { get; private set; } // a background job threw past its own handler
     public static Exception? LastError { get; private set; }
@@ -249,8 +243,6 @@ internal static class WorkerPool
         return Assert(ran <= MaxItems) ? ran : 0;
     }
 
-    [SuppressMessage("Design", "CA1031",
-        Justification = "the item's exception is the batch's result; the caller falls back")]
     private static void Item(int at, int count)
     {
         try
@@ -363,23 +355,8 @@ internal static class WorkerPool
             }
 
             _ = Assert(InBackground <= MaxThreads);
-            try
-            {
-                return Run(job);
-            }
-            finally
-            {
-                _ = Assert(Interlocked.Decrement(ref _inBackground) >= 0);
-            }
-        }
-
-        [SuppressMessage("Design", "CA1031",
-            Justification = "an exception on a pool thread would end the game; background jobs stop instead")]
-        private static bool Run(Func<bool> job)
-        {
-            var start = Counting.On ? Stopwatch.GetTimestamp() : 0;
-            var ran = false;
             _ = Assert(_number > 0); // a pool thread's own
+            var (start, ran) = (Counting.On ? Stopwatch.GetTimestamp() : 0, false);
             try
             {
                 ran = job();
@@ -388,8 +365,12 @@ internal static class WorkerPool
             {
                 (LastError, BackgroundOff) = (e, true);
             }
+            finally
+            {
+                if (start != 0 && ran) Busy.Add(BackgroundCounter, Stopwatch.GetTimestamp() - start);
+                _ = Assert(Interlocked.Decrement(ref _inBackground) >= 0);
+            }
 
-            if (start != 0 && ran) Busy.Add(BackgroundCounter, Stopwatch.GetTimestamp() - start);
             return ran;
         }
     }

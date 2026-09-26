@@ -15,12 +15,9 @@ internal sealed partial class HudOverlay
     private static readonly Type[] Warmed =
     [
         typeof(HudOverlay), typeof(HudPanel), typeof(HudLine), typeof(HudCanvas), typeof(PanelQueue),
-        typeof(FrameStats),
-        typeof(RenderPassStats), typeof(SpikeLedger), typeof(GpuStats), typeof(ModTimes), typeof(HudSettings),
-        typeof(FrameClock),
-        typeof(HudDialog), typeof(HudSettingsDialog), typeof(HudVerifyDialog), typeof(HudFonts), typeof(HudText),
-        typeof(PanelLayout),
-        typeof(Growth)
+        typeof(FrameStats), typeof(RenderPassStats), typeof(SpikeLedger), typeof(GpuStats), typeof(ModTimes),
+        typeof(HudSettings), typeof(FrameClock), typeof(OptionsScreen), typeof(HudVerifyDialog), typeof(HudFonts),
+        typeof(HudText), typeof(PanelLayout), typeof(Growth), typeof(Features)
     ];
 
     private static void Warm(ILogger logger, HudFonts fonts)

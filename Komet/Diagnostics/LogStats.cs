@@ -20,8 +20,8 @@ internal sealed class LogStats(string fileName)
     private const string Continuation = "    ";
     private readonly string _path = Assert(fileName.Length > 0) ? Path.Combine(GamePaths.Logs, fileName) : "";
 
-    private (string Text, LogLevel Level)[]
-        _lines = []; // replaced wholesale, so readers never see a half-written snapshot
+    // Replaced wholesale, so readers never see a half-written snapshot
+    private (string Text, LogLevel Level)[] _lines = [];
 
     public bool Expanded
     {
@@ -67,8 +67,8 @@ internal sealed class LogStats(string fileName)
             var raw = Encoding.UTF8.GetString(buffer)
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var lines = new List<(string, LogLevel)>();
-            for (var i = 1; i < Math.Min(raw.Length, TailBytes); i++)
-                Tidy(raw[i], lines); // the first line is likely cut in the middle
+            // from 1: the first line is likely cut in the middle
+            for (var i = 1; i < Math.Min(raw.Length, TailBytes); i++) Tidy(raw[i], lines);
             _lines = [.. lines.TakeLast(KeepLines)];
         }
         catch (IOException)
@@ -97,9 +97,8 @@ internal sealed class LogStats(string fileName)
         }
 
         var indent = "";
-        for (var part = 0;
-             part < MaxWrap && line.Length > WrapChars;
-             part++) // break at the last space, hard when there is none
+        // break at the last space, hard when there is none
+        for (var part = 0; part < MaxWrap && line.Length > WrapChars; part++)
         {
             var cut = line.LastIndexOf(' ', WrapChars);
             if (cut < WrapChars / 2) cut = WrapChars;

@@ -16,14 +16,8 @@ namespace Komet.Rendering;
 internal static class ShaderUseCache
 {
     // Which uniforms a program takes follows from the shader includes it was built with; the GUI program gets its own light
-    private const int FogLightF = 1,
-        FogLightV = 2,
-        ShadowCoords = 4,
-        VertexWarp = 8,
-        SkyColor = 16,
-        ColorMap = 32,
-        Underwater = 64,
-        Gui = 128;
+    private const int FogLightF = 1, FogLightV = 2, ShadowCoords = 4, VertexWarp = 8, SkyColor = 16, ColorMap = 32;
+    private const int Underwater = 64, Gui = 128;
 
     private const int MaxSlots = 64, MaxUbos = 16, MaxIncludes = 8;
     private const bool External = true;
@@ -31,8 +25,8 @@ internal static class ShaderUseCache
     private static readonly (string File, int Bit)[] Includes =
     [
         ("fogandlight.fsh", FogLightF), ("fogandlight.vsh", FogLightV), ("shadowcoords.vsh", ShadowCoords),
-        ("vertexwarp.vsh", VertexWarp),
-        ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap), ("underwatereffects.fsh", Underwater)
+        ("vertexwarp.vsh", VertexWarp), ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap),
+        ("underwatereffects.fsh", Underwater)
     ];
 
     private static readonly Vec3f GuiLight = new(0.7071068f, -0.7071068f, 0f);
@@ -79,8 +73,8 @@ internal static class ShaderUseCache
         var distance = ClientSettings.ViewDistance;
         (_viewDistance, _viewDistanceLod0, _settingsFrame) =
             (distance, Math.Min(640, distance) * ClientSettings.LodBias, _frame);
-        _ = Assert(distance > 0) &&
-            Finite(_viewDistanceLod0); // reported once; the engine uploads whatever the setting holds
+        // reported once; the engine uploads whatever the setting holds
+        _ = Assert(distance > 0) && Finite(_viewDistanceLod0);
     }
 
     private static bool Use(ShaderProgramBase __instance)
@@ -213,8 +207,8 @@ internal static class ShaderUseCache
             w.V3("playerpos", u.PlayerPos);
             w.F("globalWarpIntensity", u.GlobalWorldWarp, External); // AnimatableRenderer
             w.F("glitchWaviness", u.GlitchWaviness, External); // AnimatableRenderer
-            w.F("windWaveIntensity", u.WindWaveIntensity,
-                External); // AnimatableRenderer, EntityShapeRenderer, EchoChamberRenderer
+            // AnimatableRenderer, EntityShapeRenderer, EchoChamberRenderer
+            w.F("windWaveIntensity", u.WindWaveIntensity, External);
             w.F("waterWaveIntensity", u.WaterWaveIntensity);
             w.I("perceptionEffectId", u.PerceptionEffectId);
             w.F("perceptionEffectIntensity", u.PerceptionEffectIntensity);
@@ -228,8 +222,8 @@ internal static class ShaderUseCache
             w.F("sunsetMod", u.SunsetMod);
             w.I("ditherSeed", u.DitherSeed, External); // SystemRenderSunMoon, one seed on from the sky's
             w.I("horizontalResolution", u.FrameWidth);
-            w.F("playerToSealevelOffset", u.PlayerToSealevelOffset,
-                External); // SystemRenderSkyColor/SunMoon, after player physics
+            // SystemRenderSkyColor/SunMoon, after player physics
+            w.F("playerToSealevelOffset", u.PlayerToSealevelOffset, External);
         }
 
         if ((mask & ColorMap) != 0)
@@ -344,23 +338,18 @@ internal static class ShaderUseCache
                 return false;
             }
 
-            if (!Assert(_i < state.Slots.Length))
+            if (Assert(_i < state.Slots.Length))
             {
-                Overflow = true;
-                return false;
+                ref var slot = ref state.Slots[_i++];
+                if (count * Math.Max(kind, 1) <= slot.Reserved)
+                {
+                    (slot.Dirty, slot.Count, offset) = (slot.Count != count, count, slot.Offset);
+                    return true;
+                }
             }
 
-            ref var slot = ref state.Slots[_i++];
-            if (count * Math.Max(kind, 1) > slot.Reserved)
-            {
-                Overflow = true;
-                return false;
-            }
-
-            slot.Dirty = slot.Count != count;
-            slot.Count = count;
-            offset = slot.Offset;
-            return true;
+            Overflow = true;
+            return false;
         }
 
         public void F(string name, float v, bool external = false)

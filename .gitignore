@@ -4,15 +4,9 @@ obj/
 Releases/
 TestResults/
 
-# IDE / user state
-.idea/
-.vs/
+# Editor / user state
 *.user
-*.DotSettings.user
 .vscode/
-
-# Local run config
-/Komet/Properties/launchSettings.json
 
 # OS
 .DS_Store

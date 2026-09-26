@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace Komet.Shapes;
@@ -67,14 +66,12 @@ internal ref struct ElementWalk
     }
 
     [InlineArray(MaxDepth + 1)]
-    [SuppressMessage("Major Code Smell", "S1144", Justification = "an [InlineArray] element, used through the indexer")]
     private struct Levels
     {
         private ShapeElement[]? _level;
     }
 
     [InlineArray(MaxDepth + 1)]
-    [SuppressMessage("Major Code Smell", "S1144", Justification = "an [InlineArray] element, used through the indexer")]
     private struct Numbers
     {
         private int _number;

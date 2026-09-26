@@ -16,11 +16,8 @@ internal sealed class HudLine
     public const double UnitGap = 3, BadgeGap = 6;
     public const int MaxBadges = 4, MaxUnit = 2;
 
-    private const double
-        Indent = 12,
-        GraphWidth = 320,
-        GraphHeight = 90,
-        TitleGap = 6; // extra room between the title and its first badge
+    // TitleGap: extra room between the title and its first badge
+    private const double Indent = 12, GraphWidth = 320, GraphHeight = 90, TitleGap = 6;
 
     private Rgba? _color;
     private double _fraction, _marker, _valueSum, _percentSum;
@@ -242,5 +239,21 @@ internal sealed class HudLine
 
         canvas.Text(x + columns.ValueRight - ValueWidth, y, h, fonts.Text, _value);
         if (_value.Length > 0) canvas.Text(x + columns.ValueRight + unitGap, y, h, fonts.Text, Unit);
+    }
+}
+
+// A total's growth since this instance last read it. Each HUD row owns its instances, so a row covers the span since its own last
+// read. NaN on the first read, across a pause of counting (Counting.Epoch) and when the total fell (a new world started from zero).
+internal sealed class Growth(Func<double> total)
+{
+    private int _epoch = -1;
+    private double _last = double.NaN;
+
+    public double Next()
+    {
+        var now = total();
+        var grown = _epoch == Counting.Epoch && now >= _last ? now - _last : double.NaN;
+        (_last, _epoch) = (now, Counting.Epoch);
+        return Finite(now) && Assert(_epoch >= 0) ? grown : double.NaN;
     }
 }

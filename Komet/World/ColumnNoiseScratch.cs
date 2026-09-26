@@ -36,21 +36,14 @@ internal static class ColumnNoiseScratch
 {
     private const string Terra = "Vintagestory.ServerMods.GenTerra", Body = "<generate>";
 
-    private const int MaxInstructions = 2048,
-        MaxLength = 64,
-        MaxNested = 64,
-        MaxMethods = 64,
-        MaxReach = 6,
-        MaxParameters = 8,
-        MaxFields = 16,
-        Arrays = 4;
-
+    private const int MaxInstructions = 2048, MaxLength = 64, MaxNested = 64, MaxMethods = 64, MaxReach = 6;
+    private const int MaxParameters = 8, MaxFields = 16, Arrays = 4;
     private const int ArrayHeader = 24; // object header, method table and length of an array on 64 bit
 
     [ThreadStatic] private static bool _armed;
 
-    [ThreadStatic]
-    private static Array?[]? _arrays; // the thread's arrays: for each of the constructor's four, one per length
+    // The thread's arrays: for each of the constructor's four, one per length
+    [ThreadStatic] private static Array?[]? _arrays;
 
     private static long _saved;
     private static int _rewritten; // 1 constructor, 2 column body, 4 ForColumn watched
@@ -59,9 +52,10 @@ internal static class ColumnNoiseScratch
 
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => _rewritten == 7 && !_foreign;
+    public static bool StoodDown => _foreign; // another mod patches a seam, or a member is missing
 
-    public static long Saved =>
-        Interlocked.Read(ref _saved); // bytes the constructor would have allocated, a total while Counting.Hud
+    // Bytes the constructor would have allocated, a total while Counting.Hud
+    public static long Saved => Interlocked.Read(ref _saved);
 
     // ForColumn and the constructor first, the body last: an arm nobody listens for is only cleared again
     public static void Install(Harmony harmony, ILogger? logger = null)
@@ -71,13 +65,10 @@ internal static class ColumnNoiseScratch
         if (!NotNull(harmony) || !NotNull(ctor) || !NotNull(body) || !NotNull(forColumn)) return;
         MethodBase?[] seams = [forColumn, ctor, body, .. Members()];
         if (Foreign(seams, harmony.Id, logger)) return;
-        _ = NotNull(harmony.Patch(forColumn,
-            transpiler: new HarmonyMethod(typeof(ColumnNoiseScratch), nameof(WatchForColumn))));
-        _ = NotNull(harmony.Patch(ctor,
-            transpiler: new HarmonyMethod(typeof(ColumnNoiseScratch), nameof(RewriteConstructor))));
+        _ = NotNull(harmony.Patch(forColumn, transpiler: new HarmonyMethod(WatchForColumn)));
+        _ = NotNull(harmony.Patch(ctor, transpiler: new HarmonyMethod(RewriteConstructor)));
         if ((_rewritten & 5) != 5) return;
-        _ = NotNull(harmony.Patch(body,
-            transpiler: new HarmonyMethod(typeof(ColumnNoiseScratch), nameof(RewriteBody))));
+        _ = NotNull(harmony.Patch(body, transpiler: new HarmonyMethod(RewriteBody)));
         Volatile.Write(ref _installed, true);
         // A patch another thread added between the check above and here reran the transpilers before _installed said so, but it is
         // on record now: Harmony holds its lock from the transpilers to the record, and GetPatchInfo takes the same lock
@@ -87,18 +78,14 @@ internal static class ColumnNoiseScratch
     // Whether another mod patches one of the seams, or one is missing; the first one found is logged
     private static bool Foreign(ReadOnlySpan<MethodBase?> seams, string owner, ILogger? logger)
     {
-        if (!NotNull(owner) || !Assert(seams.Length <= MaxMethods)) return true;
-        for (var i = 0; i < Math.Min(seams.Length, MaxMethods); i++)
-        {
-            if (!EngineShape.Foreign(seams.Slice(i, 1), EngineShape.Kinds.All, owner)) continue;
+        var at = EngineShape.FirstForeign(seams, owner);
+        if (at < 0) return false;
+        if (at < seams.Length)
             logger?.Notification("Komet ColumnNoiseScratch stands down: {0}; terrain columns allocate as shipped",
-                seams[i] is { } seam
+                seams[at] is { } seam
                     ? $"another mod patches {seam.DeclaringType?.Name}.{seam.Name}"
                     : "a ColumnNoise member is missing");
-            return true;
-        }
-
-        return false;
+        return true;
     }
 
     internal static ConstructorInfo? Constructor()
@@ -143,7 +130,8 @@ internal static class ColumnNoiseScratch
         {
             foreach (var method in AccessTools.GetDeclaredMethods(nested).Bounded(MaxMethods))
             {
-                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) || !CallsForColumn(method, forColumn)) continue;
+                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) || !CallsForColumn(method, forColumn))
+                    continue;
                 if (found != null) return null; // two candidates: not the engine this was verified against
                 found = method;
             }
@@ -169,9 +157,8 @@ internal static class ColumnNoiseScratch
         _rewritten &= ~bit;
         if (!Assert(bit is 1 or 2 or 4) || !Volatile.Read(ref _installed) || Volatile.Read(ref _foreign)) return;
         Volatile.Write(ref _foreign, true); // read by the generation threads
-        _logger?.Notification(
-            "Komet ColumnNoiseScratch stands down: another mod patched {0} after install; terrain columns allocate as shipped",
-            bit switch
+        _logger?.Notification("Komet ColumnNoiseScratch stands down: another mod patched {0} after install; " +
+                              "terrain columns allocate as shipped", bit switch
             {
                 4 => "NewNormalizedSimplexFractalNoise.ForColumn",
                 1 => "the ColumnNoise constructor",
@@ -199,15 +186,12 @@ internal static class ColumnNoiseScratch
         ILGenerator generator)
     {
         Rerun(1);
-        var (entries, past) =
-            (AccessTools.Field(typeof(ColumnNoise), "orderedOctaveEntries"),
-                AccessTools.Field(typeof(ColumnNoise), "pastEvaluations"));
-        var (take, rent) =
-            (AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Take)),
-                AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Rent)));
+        var (entries, past) = (AccessTools.Field(typeof(ColumnNoise), "orderedOctaveEntries"),
+            AccessTools.Field(typeof(ColumnNoise), "pastEvaluations"));
+        var (take, rent) = (AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Take)),
+            AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Rent)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(generator) || !NotNull(entries) ||
-            !NotNull(past) ||
-            !NotNull(take) || !NotNull(rent)) return code;
+            !NotNull(past) || !NotNull(take) || !NotNull(rent)) return code;
         if (!Assert(code.Count > 0) || code[0].labels.Count > 0 || code[0].blocks.Count > 0) return code;
         Type?[] expected =
             [typeof(double), typeof(int), entries.FieldType.GetElementType(), past.FieldType.GetElementType()];
@@ -215,22 +199,20 @@ internal static class ColumnNoiseScratch
         var at = new int[Arrays];
         var found = 0;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
             if (code[i].opcode == OpCodes.Newarr)
             {
                 if (found >= Arrays || !Equals(code[i].operand, expected[found]) ||
                     !Held(code, i, found, entries, past)) return code;
                 at[found++] = i;
+                continue;
             }
-            else if (found > 2 && code[i].operand is MethodInfo { IsStatic: false })
-            {
-                return code;
-            }
-            // `this` holds an array from here on
-            else if (!Allowed(code[i]) && !(i > 0 && code[i - 1].opcode == OpCodes.Newarr))
-            {
-                return code;
-            }
-        // the store Held checked
+
+            // `this` holds an array from here on: no instance call
+            if (found > 2 && code[i].operand is MethodInfo { IsStatic: false }) return code;
+            // the instruction after a newarr is the store Held checked
+            if (!Allowed(code[i]) && !(i > 0 && code[i - 1].opcode == OpCodes.Newarr)) return code;
+        }
 
         if (!Assert(found == Arrays)) return code;
         var scratch = generator.DeclareLocal(typeof(Array[]));
@@ -238,8 +220,8 @@ internal static class ColumnNoiseScratch
         {
             var i = at[Arrays - 1 - j]; // from the last: the inserts shift only what comes after them
             if (!Index(i, code.Count) || code[i].operand is not Type element) return code;
-            (code[i].opcode, code[i].operand) =
-                (OpCodes.Ldloc, scratch); // in place: labels and exception blocks stay on it
+            // in place: labels and exception blocks stay on it
+            (code[i].opcode, code[i].operand) = (OpCodes.Ldloc, scratch);
             code.InsertRange(i + 1,
             [
                 new CodeInstruction(OpCodes.Ldc_I4, Arrays - 1 - j),
@@ -287,10 +269,8 @@ internal static class ColumnNoiseScratch
                name.StartsWith("ldc.", StringComparison.Ordinal) ||
                name.StartsWith("conv.", StringComparison.Ordinal) ||
                name is "ldfld" or "ldlen" or "ldnull" or "dup" or "pop" or "nop" or "add" or "sub" or "mul" or "div"
-                   or "div.un" or "rem" or
-                   "rem.un" or "neg" or "and" or "or" or "xor" or "not" or "shl" or "shr" or "shr.un" or "ceq" or "cgt"
-                   or "cgt.un" or "clt" or
-                   "clt.un";
+                   or "div.un" or "rem" or "rem.un" or "neg" or "and" or "or" or "xor" or "not" or "shl" or "shr"
+                   or "shr.un" or "ceq" or "cgt" or "cgt.un" or "clt" or "clt.un";
     }
 
     // Static, or one of ColumnNoise's bound setters on `this`, and nothing but numbers in or out
@@ -312,8 +292,7 @@ internal static class ColumnNoiseScratch
     private static bool Setter(MethodInfo method)
     {
         if (!NotNull(method) || !Assert(!method.IsStatic) || method.DeclaringType != typeof(ColumnNoise) ||
-            method.GetMethodBody() == null)
-            return false;
+            method.GetMethodBody() == null) return false;
         var code = PatchProcessor.GetOriginalInstructions(method);
         return code.Count == 4 && code[0].IsLdarg(0) && code[1].IsLdarg(1) && code[3].opcode == OpCodes.Ret &&
                code[2].opcode == OpCodes.Stfld &&
@@ -343,8 +322,8 @@ internal static class ColumnNoiseScratch
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(forColumn) || !NotNull(ctor) ||
             !NotNull(mine)) return code;
         var at = Il.Single(code, c => c.Calls(forColumn));
-        var built = Il.Count(code,
-            c => c.operand is MethodBase method && method == ctor); // a column the arm would not cover
+        // a column the arm would not cover
+        var built = Il.Count(code, c => c.operand is MethodBase method && method == ctor);
         if (!Assert(at >= 0) || built != 0 || !Index(at + 1, code.Count) || !code[at + 1].IsStloc()) return code;
         if (!Il.Confined(code, at + 1, Member, Il.Uses.Address, MaxReach)) return code;
         if (Assert(Il.Substitute(code, at, mine))) _rewritten |= 2;
@@ -363,8 +342,7 @@ internal static class ColumnNoiseScratch
     // Stands in for the body's terrainNoise.ForColumn(...): the same call, with this thread armed for the one constructor it runs.
     // A null noise throws in ForColumn as the engine's callvirt would, and the finally disarms the thread whatever throws.
     internal static ColumnNoise Column(NewNormalizedSimplexFractalNoise noise, double relativeYFrequency,
-        double[] amplitudes,
-        double[] thresholds, double noiseX, double noiseZ)
+        double[] amplitudes, double[] thresholds, double noiseX, double noiseZ)
     {
         if (!Enabled || Volatile.Read(ref _foreign) || !Assert(!_armed))
             return noise.ForColumn(relativeYFrequency, amplitudes, thresholds, noiseX, noiseZ);
@@ -396,8 +374,8 @@ internal static class ColumnNoiseScratch
         if (arrays is null || (uint)length >= MaxLength || !Index(slot, Arrays)) return new T[length];
         var at = slot * MaxLength + length;
         var cached = arrays[at];
-        if (cached?.GetType() !=
-            typeof(T[])) // exactly T[], one compare: a cast to int[] would also take a uint[], in a helper call
+        // exactly T[], one compare: a cast to int[] would also take a uint[], in a helper call
+        if (cached?.GetType() != typeof(T[]))
         {
             var fresh = new T[length];
             arrays[at] = fresh;

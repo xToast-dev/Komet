@@ -62,9 +62,7 @@ internal static class MeshPool
         var insert = AccessTools.Method(typeof(MeshDataPool), "InsertAt");
         var remove = AccessTools.Method(typeof(MeshDataPool), nameof(MeshDataPool.RemoveLocation));
         var squeeze = AccessTools.Method(typeof(MeshDataPool), "TrySqueezeInbetween");
-        HarmonyMethod onInsert = new(typeof(MeshPool), nameof(InsertAt)),
-            onRemove = new(typeof(MeshPool), nameof(RemoveLocation)),
-            onSqueeze = new(typeof(MeshPool), nameof(TrySqueezeInbetween));
+        HarmonyMethod onInsert = new(InsertAt), onRemove = new(RemoveLocation), onSqueeze = new(TrySqueezeInbetween);
         if (!NotNull(harmony) || !NotNull(insert) || !NotNull(remove) || !NotNull(squeeze) || !Seams() ||
             !Assert(AccessTools.Field(typeof(MeshDataPool), "modelRef") != null) ||
             !Assert(Vector<float>.Count is >= 4 and <= MaxLanes) || !Assert(Il.Binds(insert, onInsert.method)) ||
@@ -161,14 +159,10 @@ internal static class MeshPool
             (vertexPosition * 12, vertexPosition * 4, vertexPosition * 4, vertexPosition * 4);
         (modeldata.UvOffset, modeldata.FlagsOffset, modeldata.IndicesOffset) =
             (vertexPosition * 8, vertexPosition * 4, indexPosition * 4);
-        if (modeldata.CustomFloats != null)
-            modeldata.CustomFloats.BaseOffset = vertexPosition * modeldata.CustomFloats.InterleaveStride;
-        if (modeldata.CustomShorts != null)
-            modeldata.CustomShorts.BaseOffset = vertexPosition * modeldata.CustomShorts.InterleaveStride;
-        if (modeldata.CustomBytes != null)
-            modeldata.CustomBytes.BaseOffset = vertexPosition * modeldata.CustomBytes.InterleaveStride;
-        if (modeldata.CustomInts != null)
-            modeldata.CustomInts.BaseOffset = vertexPosition * modeldata.CustomInts.InterleaveStride;
+        if (modeldata.CustomFloats is { } floats) floats.BaseOffset = vertexPosition * floats.InterleaveStride;
+        if (modeldata.CustomShorts is { } shorts) shorts.BaseOffset = vertexPosition * shorts.InterleaveStride;
+        if (modeldata.CustomBytes is { } bytes) bytes.BaseOffset = vertexPosition * bytes.InterleaveStride;
+        if (modeldata.CustomInts is { } ints) ints.BaseOffset = vertexPosition * ints.InterleaveStride;
     }
 
     internal static void Shift(int[] values, int count, int delta)

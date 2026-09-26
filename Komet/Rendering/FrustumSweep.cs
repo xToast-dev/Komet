@@ -181,8 +181,7 @@ internal static class FrustumSweep
     {
         var planes = Planes(culler);
         var known = mode is EnumFrustumCullMode.CullNormal or EnumFrustumCullMode.CullInstant
-            or EnumFrustumCullMode.CullInstantShadowPassNear or
-            EnumFrustumCullMode.CullInstantShadowPassFar;
+            or EnumFrustumCullMode.CullInstantShadowPassNear or EnumFrustumCullMode.CullInstantShadowPassFar;
         return NotNull(planes) && Assert(planes.Length == PlaneCount) && known &&
                (mode == EnumFrustumCullMode.CullInstant || NotNull(PlayerPos(culler)));
     }
@@ -217,8 +216,8 @@ internal static class FrustumSweep
         var rows = Collect(pools);
         if (rows < ParallelRows || _jobCount < 2) return; // the engine's loop culls pool by pool as before
         (_jobCuller, _jobMode) = (culler, frustumCullMode);
-        var result =
-            WorkerPool.RunFrame(Job, _jobCount, rows / RowsPerHelper - 1); // the main thread takes a share itself
+        // the main thread takes a share itself
+        var result = WorkerPool.RunFrame(Job, _jobCount, rows / RowsPerHelper - 1);
         if (result == WorkerPool.FrameResult.Done)
         {
             ParallelCalls++;
@@ -377,8 +376,8 @@ internal static class FrustumSweep
     private static int Find(Mirror m, ModelDataPoolLocation? target, int j, ref long budget)
     {
         var old = m.Length;
-        if (!NotNull(target) || !Assert(old <= m.Refs.Length))
-            return Lost; // the engine throws on it, and Rebuild lets it
+        // the engine throws on a null one, and Rebuild lets it
+        if (!NotNull(target) || !Assert(old <= m.Refs.Length)) return Lost;
         var near = Math.Min(old, j + Window);
         for (var p = j; p < Math.Min(near, MaxLocations); p++)
             if (ReferenceEquals(m.Refs[p].Loc, target))
@@ -456,8 +455,8 @@ internal static class FrustumSweep
 
     private static bool NewRow(Mirror m, ModelDataPoolLocation loc, int i, int slot, ref int allocated)
     {
-        if (!NotNull(loc.CullVisible) || !Index(i, m.NRefs.Length))
-            return false; // Rebuild hands the pool to the engine
+        // Rebuild hands the pool to the engine
+        if (!NotNull(loc.CullVisible) || !Index(i, m.NRefs.Length)) return false;
         m.NRefs[i] = new LocRef(loc, loc.CullVisible);
         (m.NStart[i], m.NCount[i]) = (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart);
         (m.NLod[i], m.NSlot[i]) = (loc.LodLevel, slot);
@@ -608,10 +607,11 @@ internal static class FrustumSweep
         (m.Base, m.Used) = (m.Slots, m.Slots);
     }
 
-    private static void Blank(Mirror m, int slot)
+    // A row no location holds: a zero-sized box, at the origin unless a cell's padding puts it at the cell's centre
+    private static void Blank(Mirror m, int slot, float x = 0, float y = 0, float z = 0)
     {
         if (!Index(slot, m.Cx.Length) || !Index(slot, m.Inv.Length)) return;
-        (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = (0, 0, 0);
+        (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = (x, y, z);
         (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (0, 0, 0);
         m.Inv[slot] = Gone;
     }
@@ -633,8 +633,8 @@ internal static class FrustumSweep
         if (!Assert(shift < MaxShift)) return false;
         var (wide, deep) = (Span(minX, maxX, shift), Span(minZ, maxZ, shift));
         var cells = wide * deep;
-        if (cells <= 1 || cells > MaxCells)
-            return false; // one cell is no grid, and the sweep would only pay for the box
+        // one cell is no grid, and the sweep would only pay for the box
+        if (cells <= 1 || cells > MaxCells) return false;
         (m.Shift, m.OriginX, m.OriginZ, m.Wide) = (shift, minX >> shift, minZ >> shift, (int)wide);
         return Bin(m, n, w, (int)cells);
     }
@@ -747,7 +747,9 @@ internal static class FrustumSweep
             (m.BCy[b], m.BHy[b]) = ((m.LoY[c] + m.HiY[c]) / 2, (m.HiY[c] - m.LoY[c]) / 2 + Slack);
             (m.BCz[b], m.BHz[b]) = ((m.LoZ[c] + m.HiZ[c]) / 2, (m.HiZ[c] - m.LoZ[c]) / 2 + Slack);
             var padded = (count + w - 1) / w * w;
-            for (var i = at + count; i < Math.Min(at + padded, MaxSlots); i++) Pad(m, b, i);
+            // at its cell's centre a padding lane costs at most the vector it sits in
+            for (var i = at + count; i < Math.Min(at + padded, MaxSlots); i++)
+                Blank(m, i, (float)m.BCx[b], (float)m.BCy[b], (float)m.BCz[b]);
             (at, b) = (at + padded, b + 1);
         }
 
@@ -762,15 +764,6 @@ internal static class FrustumSweep
         (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (s.radius / Sqrt3, s.radiusY / Sqrt3, s.radiusZ / Sqrt3);
     }
 
-    // At its cell's centre a padding lane costs at most the vector it sits in
-    private static void Pad(Mirror m, int b, int slot)
-    {
-        if (!Index(slot, m.Cx.Length) || !Index(b, m.Cells)) return;
-        (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = ((float)m.BCx[b], (float)m.BCy[b], (float)m.BCz[b]);
-        (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (0, 0, 0);
-        m.Inv[slot] = Gone;
-    }
-
     // InFrustumShadowPass's range test, in its float operations, ahead of any plane
     private static void Range(Mirror m, FrustumCulling culler, int from, int to)
     {
@@ -780,8 +773,7 @@ internal static class FrustumSweep
         for (var i = from; i < Math.Min(to, MaxSlots); i++)
             m.Outside[i] = Math.Abs(px - m.Cx[i]) >= culler.shadowRangeX ||
                            Math.Abs(pz - m.Cz[i]) >= culler.shadowRangeZ
-                ? -1
-                : 0;
+                ? -1 : 0;
     }
 
     // Plane.AABBisOutside a vector at a time, the normal's sign picking the corner; rows Diff added since the grid sit behind it
@@ -1056,8 +1048,7 @@ internal static class FrustumSweep
     {
         public readonly Vector<double> Nx = new(p.normalX), Ny = new(p.normalY), Nz = new(p.normalZ), D = new(p.D);
 
-        public readonly Vector<double> Sx = new(p.normalX > 0 ? 1.0 : -1.0),
-            Sy = new(p.normalY > 0 ? 1.0 : -1.0),
+        public readonly Vector<double> Sx = new(p.normalX > 0 ? 1.0 : -1.0), Sy = new(p.normalY > 0 ? 1.0 : -1.0),
             Sz = new(p.normalZ > 0 ? 1.0 : -1.0);
     }
 }

@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using HarmonyLib;
@@ -14,7 +13,7 @@ namespace Komet.Rendering;
 // frame allocates nothing; without that extension every draw orphans a fresh store.
 internal static class IndirectDraw
 {
-    private const int MaxRanges = 65536, MaxExtensions = 4096, CommandBytes = 20, MaxErrors = 64;
+    private const int MaxRanges = 65536, CommandBytes = 20, MaxErrors = 64;
     private const long SyncTimeoutNs = 1_000_000_000; // the GPU is wedged long before this
 
     // A segment takes the largest draw there can be
@@ -44,7 +43,6 @@ internal static class IndirectDraw
     }
 
     // Harmony binds the arguments by name, useSSBOs included
-    // ReSharper disable once InconsistentNaming
     private static bool RenderMesh(MeshRef modelRef, int[] indices, int[] indicesSizes, int groupCount, bool useSSBOs)
     {
         if (!Enabled || modelRef is not VAO vao) return true;
@@ -75,7 +73,7 @@ internal static class IndirectDraw
 
     // The ranges as indirect commands at the returned byte offset in the bound indirect buffer, -1 for the engine path. The engine's
     // starts are byte offsets of uint indices, in every other int.
-    private static int Upload(int[] indices, int[] indicesSizes, int groupCount)
+    private static unsafe int Upload(int[] indices, int[] indicesSizes, int groupCount)
     {
         var bytes = groupCount * CommandBytes;
         if (!Assert(bytes <= SegmentBytes)) return -1;
@@ -83,29 +81,16 @@ internal static class IndirectDraw
             _commands = new Command[Math.Min(MaxRanges, Math.Max(groupCount, 2 * _commands.Length))];
         var staged = _commands.AsSpan(0, groupCount);
         // staged in cached memory: the mapping is write combined, where partial line stores of 20-byte commands are the slow path
-        Write(staged, indices, indicesSizes);
+        for (var i = 0; i < Math.Min(staged.Length, MaxRanges); i++)
+            staged[i] = new Command { Count = indicesSizes[i], InstanceCount = 1, FirstIndex = indices[2 * i] / 4 };
         if (_mapped == IntPtr.Zero) return Orphan(groupCount);
         if (_used + bytes > SegmentBytes) Lap();
         var at = _segment * SegmentBytes + _used;
-        staged.CopyTo(Mapped(at, groupCount));
+        // the mapping is coherent: the commands are written straight through and never read back
+        staged.CopyTo(new Span<Command>((void*)(_mapped + at), groupCount));
         _used += bytes;
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
         return at;
-    }
-
-    // The mapping is coherent and write combined: the commands are written straight through and never read back
-    [SuppressMessage("Major Code Smell", "S6640",
-        Justification =
-            "the persistent mapping is a raw pointer, and the span over it is the bounded way to write through it")]
-    private static unsafe Span<Command> Mapped(int at, int groupCount)
-    {
-        return new Span<Command>((void*)(_mapped + at), groupCount);
-    }
-
-    private static void Write(Span<Command> into, int[] indices, int[] indicesSizes)
-    {
-        for (var i = 0; i < Math.Min(into.Length, MaxRanges); i++)
-            into[i] = new Command { Count = indicesSizes[i], InstanceCount = 1, FirstIndex = indices[2 * i] / 4 };
     }
 
     // Fences the segment being left and waits on the one being entered; with four segments of the largest draw each, a wait means the
@@ -133,19 +118,10 @@ internal static class IndirectDraw
 
     private static bool Detect()
     {
-        var count = GL.GetInteger(GetPName.NumExtensions);
-        bool multiDraw = false, storage = false;
-        for (var i = 0; i < Math.Min(count, MaxExtensions); i++)
-        {
-            var name = GL.GetString(StringNameIndexed.Extensions, i);
-            multiDraw |= name == "GL_ARB_multi_draw_indirect";
-            storage |= name == "GL_ARB_buffer_storage";
-        }
-
-        if (!Assert(count > 0) || !multiDraw) return false;
+        if (!GpuStats.Offered("GL_ARB_multi_draw_indirect")) return false;
         _buffer = GL.GenBuffer();
         if (!Assert(_buffer != 0)) return false;
-        if (storage) Map();
+        if (GpuStats.Offered("GL_ARB_buffer_storage")) Map();
         return true;
     }
 

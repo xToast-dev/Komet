@@ -24,14 +24,14 @@ internal static class DecompressScratch
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
 
-    public static long Saved =>
-        Interlocked.Read(ref _saved); // bytes the engine would have copied, a total while Counting.Hud
+    // Bytes the engine would have copied, a total while Counting.Hud
+    public static long Saved => Interlocked.Read(ref _saved);
 
     public static void Install(Harmony harmony)
     {
         var method = Target();
         if (!NotNull(harmony) || !NotNull(method)) return;
-        _ = NotNull(harmony.Patch(method, transpiler: new HarmonyMethod(typeof(DecompressScratch), nameof(Rewrite))));
+        _ = NotNull(harmony.Patch(method, transpiler: new HarmonyMethod(Rewrite)));
     }
 
     internal static MethodInfo? Target()
@@ -49,17 +49,15 @@ internal static class DecompressScratch
         var decompress = AccessTools.Method(typeof(ICompression), nameof(ICompression.Decompress),
             [typeof(byte[]), typeof(int), typeof(int)]);
         var consume = AccessTools.Method(typeof(ArrayConvert), nameof(ArrayConvert.ByteToIntArrays));
-        var (mine, length) =
-            (AccessTools.Method(typeof(DecompressScratch), nameof(Decompress)),
-                AccessTools.Method(typeof(DecompressScratch), nameof(Length)));
+        var (mine, length) = (AccessTools.Method(typeof(DecompressScratch), nameof(Decompress)),
+            AccessTools.Method(typeof(DecompressScratch), nameof(Length)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(decompress) ||
-            !NotNull(consume) || !NotNull(mine) ||
-            !NotNull(length)) return code;
+            !NotNull(consume) || !NotNull(mine) || !NotNull(length)) return code;
         var at = Il.Single(code, c => c.Calls(decompress));
         if (!Assert(at >= 0) || !IsLengthCheck(code, at)) return code;
         var stop = Stop(code, at + 4, consume);
-        if (!Index(stop, code.Count) || !code[stop].Calls(consume))
-            return code; // running off the body's end is logged, stopping is not
+        // Running off the body's end is logged, stopping is not
+        if (!Index(stop, code.Count) || !code[stop].Calls(consume)) return code;
         // The length first, since on its own it answers every array with its length as ldlen does; conv.i4 after it is a no-op on an int
         Rewritten = Assert(Il.Substitute(code, at + 2, length)) && Assert(Il.Substitute(code, at, mine));
         return code;
@@ -79,8 +77,7 @@ internal static class DecompressScratch
         if (!NotNull(consume) || !Assert(from > 0)) return code.Count;
         for (var i = from; i < Math.Min(code.Count, MaxInstructions); i++)
             if (code[i].Calls(consume) || (code[i].opcode.FlowControl == FlowControl.Call && !Throws(code[i])) ||
-                Keeps(code[i]))
-                return i;
+                Keeps(code[i])) return i;
         return code.Count;
     }
 
@@ -109,8 +106,8 @@ internal static class DecompressScratch
         if (!Enabled || !NotNull(compression) || compression.GetType() != typeof(CompressionZSTD))
             return compression.Decompress(data, offset, length);
         var size = compression.DecompressAndSize(data, offset, length, out var buffer);
-        if (size < 0)
-            return []; // what CompressionZSTD.Decompress returns on a zstd error; the length check then throws
+        // What CompressionZSTD.Decompress returns on a zstd error; the length check then throws
+        if (size < 0) return [];
         if (!NotNull(buffer) || !Assert(size <= buffer.Length)) return compression.Decompress(data, offset, length);
         (_buffer, _length) = (buffer, size);
         if (Counting.Hud) _ = Interlocked.Add(ref _saved, size);

@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
@@ -10,12 +9,7 @@ internal readonly record struct BenchChat(double Seconds, string Type, string Te
 
 // What the driver saw of a segment once it ended; the frames themselves are in the recorder. NaN cpu: no resource sample.
 internal readonly record struct BenchSegmentLog(
-    bool Ran,
-    double Seconds,
-    double CpuPercent,
-    double SystemCpuPercent,
-    long WorkingSetMb,
-    long ManagedMb);
+    bool Ran, double Seconds, double CpuPercent, double SystemCpuPercent, long WorkingSetMb, long ManagedMb);
 
 // Everything the result is written from, apart from the frames
 internal sealed class BenchRun
@@ -98,8 +92,7 @@ internal sealed class BenchDriver : IRenderer
     private static readonly string[] Commands =
     [
         LapCommand, "/weather setprecip -1", "/weather acp off", "/weather set clearsky", "/weather setw still",
-        "/weather setev noevent",
-        "/serverconfig entityspawning false"
+        "/weather setev noevent", "/serverconfig entityspawning false"
     ];
 
     private readonly ICoreClientAPI _capi;
@@ -131,9 +124,6 @@ internal sealed class BenchDriver : IRenderer
         _ = Assert(_phase != Phase.Running) && Assert(!ReferenceEquals(FrameClock.Sink, _recorder));
     }
 
-    [SuppressMessage("Design", "CA1031",
-        Justification =
-            "a benchmark bug must end the run with an error result, not take the player's game down with it")]
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
         if (_phase is Phase.Waiting or Phase.Finished || !Assert(stage == EnumRenderStage.Before) ||
@@ -150,20 +140,33 @@ internal sealed class BenchDriver : IRenderer
         }
     }
 
-    // Each arm is the player's values, or with "engine" every knob's engine value, and then the arm's own settings
-    internal static int[][] ArmValues(int[] baseline, IReadOnlyList<BenchArm> arms)
+    // Each arm is the player's values, or with "engine" every knob's engine value, and then the arm's own settings. Names resolve
+    // here, after LevelFinalize: error names the first that no registered knob has, or whose value is out of its range.
+    internal static int[][] ArmValues(int[] baseline, IReadOnlyList<BenchArm> arms, out string? error)
     {
         var values = new int[arms.Count][];
+        error = null;
         if (!Assert(baseline.Length == Knobs.Count) || !Assert(arms.Count <= BenchConfig.MaxArms)) return values;
         for (var a = 0; a < Math.Min(arms.Count, BenchConfig.MaxArms); a++)
         {
-            values[a] = arms[a].Engine ? Knobs.EngineValues() : (int[])baseline.Clone();
+            values[a] = arms[a].Engine ? Knobs.Snapshot(engine: true) : (int[])baseline.Clone();
             foreach (var setting in arms[a].Settings.Bounded(Knobs.MaxKnobs))
-                if (Index(setting.Knob, values[a].Length))
-                    values[a][setting.Knob] = setting.Value; // BenchConfig checked the range
+            {
+                var knob = Knobs.Find(setting.Key);
+                if (knob >= 0 && Knobs.InRange(knob, setting.Value) && Index(knob, values[a].Length))
+                    values[a][knob] = setting.Value;
+                else error ??= Unresolved(a, setting.Key, knob >= 0);
+            }
         }
 
         return values;
+    }
+
+    private static string Unresolved(int arm, string key, bool known)
+    {
+        if (!Index(arm, BenchConfig.MaxArms) || !Assert(key.Length > 0)) return "bench.json: an arm names no knob";
+        var at = string.Create(CultureInfo.InvariantCulture, $"bench.json: arms[{arm}].set.{key}");
+        return at + (known ? " must be a value inside the knob's range" : " names no registered knob");
     }
 
     private void Finalized()
@@ -204,12 +207,19 @@ internal sealed class BenchDriver : IRenderer
         var position = player.Entity.Pos;
         if (!Finite(position.X) || !Finite(position.Z)) return;
         Benchmark.Collect(_capi, _run);
+        _run.AddInfo("komet.holds", Features.HoldsText()); // a held knob stays at its engine value in every arm
         _run.Baseline = Knobs.Snapshot();
-        _run.ArmValues = ArmValues(_run.Baseline, _run.Config.Arms);
+        _run.ArmValues = ArmValues(_run.Baseline, _run.Config.Arms, out var unresolved);
+        if (unresolved is not null)
+        {
+            Finish(unresolved);
+            return;
+        }
+
         _home = (position.X, BenchScenario.Altitude, position.Z);
         _pose = (position.X, position.Y, position.Z, position.Yaw);
-        var profiler =
-            _capi.World.FrameProfiler; // the HUD's pattern: Begin right away, or End of this frame finds no root
+        // the HUD's pattern: Begin right away, or End of this frame finds no root
+        var profiler = _capi.World.FrameProfiler;
         if (NotNull(profiler) && !profiler.Enabled)
         {
             _profilerOwned = profiler.Enabled = true; // switched off again in Finish; one the HUD runs stays the HUD's
@@ -234,8 +244,7 @@ internal sealed class BenchDriver : IRenderer
             _resources.Sample();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException
-                                      or Win32Exception
-                                      or NotSupportedException)
+                                      or Win32Exception or NotSupportedException)
         {
             _resourcesFailed = true;
             _capi.Logger.Warning("Komet bench: resource sampling failed, segments report no cpu or memory: {0}",
@@ -378,8 +387,7 @@ internal sealed class BenchDriver : IRenderer
         {
             var s = Math.Clamp(_t / _climbSeconds, 0, 1);
             _pose = (_from.X + (_home.X - _from.X) * s, _from.Y + (_home.Y - _from.Y) * s,
-                _from.Z + (_home.Z - _from.Z) * s,
-                BenchScenario.Heading);
+                _from.Z + (_home.Z - _from.Z) * s, BenchScenario.Heading);
         }
         else
         {
@@ -388,8 +396,8 @@ internal sealed class BenchDriver : IRenderer
         }
 
         var pos = entity.Pos;
-        if (!Finite(_pose.X) || !Finite(_pose.Y) || !Finite(_pose.Z))
-            return; // a NaN position would stick to the entity
+        // a NaN position would stick to the entity
+        if (!Finite(_pose.X) || !Finite(_pose.Y) || !Finite(_pose.Z)) return;
         _ = pos.SetPos(_pose.X, _pose.Y, _pose.Z);
         (pos.Yaw, pos.Pitch) = ((float)_pose.Yaw, MathF.PI); // pitch π looks level
         _ = pos.Motion.Set(0, 0, 0);

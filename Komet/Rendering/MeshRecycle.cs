@@ -35,13 +35,13 @@ internal static class MeshRecycle
         var clone = AccessTools.Method(typeof(MeshData), "CloneExtraData");
         var dispose = AccessTools.Method(typeof(MeshData), "DisposeExtraData");
         var part = typeof(CustomMeshDataPart<float>);
-        var prefix = new HarmonyMethod(typeof(MeshRecycle), nameof(CloneExtraData));
+        var prefix = new HarmonyMethod(CloneExtraData);
         if (!NotNull(harmony) || !NotNull(clone) || !NotNull(dispose) || !Assert(Il.Binds(clone, prefix.method)) ||
             !Assert(AccessTools.Field(part, "customAllocationSize") != null) ||
             !Assert(AccessTools.Field(part, "allocationSize") != null))
             return; // the Allocation accessors would throw at first use
         _ = NotNull(harmony.Patch(clone, prefix));
-        _ = NotNull(harmony.Patch(dispose, new HarmonyMethod(typeof(MeshRecycle), nameof(DisposeExtraData))));
+        _ = NotNull(harmony.Patch(dispose, new HarmonyMethod(DisposeExtraData)));
     }
 
     // The engine copies TextureIds only along with TextureIndices, and throws when those come without ids: that case stays its own
@@ -54,9 +54,8 @@ internal static class MeshRecycle
         dest.Normals = Exact(dest.Normals, source.Normals, source.NormalsCount);
         dest.XyzFaces = Exact(dest.XyzFaces, source.XyzFaces, source.XyzFacesCount);
         dest.TextureIndices = Exact(dest.TextureIndices, source.TextureIndices, source.TextureIndicesCount);
-        dest.TextureIds = source.TextureIndices is null
-            ? []
-            : Exact(dest.TextureIds, source.TextureIds, source.TextureIds!.Length);
+        dest.TextureIds =
+            source.TextureIndices is null ? [] : Exact(dest.TextureIds, source.TextureIds, source.TextureIds!.Length);
         dest.ClimateColorMapIds = Exact(dest.ClimateColorMapIds, source.ClimateColorMapIds, source.ColorMapIdsCount);
         dest.SeasonColorMapIds = Exact(dest.SeasonColorMapIds, source.SeasonColorMapIds, source.ColorMapIdsCount);
         dest.RenderPassesAndExtraBits = Exact(dest.RenderPassesAndExtraBits, source.RenderPassesAndExtraBits,
@@ -79,10 +78,10 @@ internal static class MeshRecycle
         _kept = true;
         (mesh.NormalsCount, mesh.XyzFacesCount, mesh.TextureIndicesCount) = (0, 0, 0);
         (mesh.ColorMapIdsCount, mesh.RenderPassCount) = (0, 0);
-        Clear(mesh.CustomFloats);
-        Clear(mesh.CustomShorts);
-        Clear(mesh.CustomBytes);
-        Clear(mesh.CustomInts);
+        if (mesh.CustomFloats is { } floats) floats.Count = 0;
+        if (mesh.CustomShorts is { } shorts) shorts.Count = 0;
+        if (mesh.CustomBytes is { } bytes) bytes.Count = 0;
+        if (mesh.CustomInts is { } ints) ints.Count = 0;
         return false;
     }
 
@@ -103,8 +102,7 @@ internal static class MeshRecycle
         if (source is null) return null;
         if (!Assert(count >= 0 && count <= source.Length)) return (T[])source.Clone();
         var target = existing is not null && existing.Length == count
-            ? existing
-            : GC.AllocateUninitializedArray<T>(count);
+            ? existing : GC.AllocateUninitializedArray<T>(count);
         Array.Copy(source, target, count);
         if (Counting.Hud && ReferenceEquals(target, existing)) Reuse(count);
         return target;
@@ -140,8 +138,7 @@ internal static class MeshRecycle
     {
         if (!NotNull(source.Values) || !Assert(source.Count <= source.Values.Length)) return dest;
         var values = dest.Values is { } kept && kept.Length >= source.Count
-            ? kept
-            : GC.AllocateUninitializedArray<T>(Capacity(source.Count));
+            ? kept : GC.AllocateUninitializedArray<T>(Capacity(source.Count));
         var reuse = ReferenceEquals(values, dest.Values);
         Array.Copy(source.Values, values, source.Count);
         (dest.Values, dest.Count) = (values, source.Count);
@@ -160,12 +157,6 @@ internal static class MeshRecycle
     private static int Capacity(int count)
     {
         return Assert(count >= 0) ? Math.Max(4, count + count / 4) : 4;
-    }
-
-    private static void Clear<T>(CustomMeshDataPart<T>? part) where T : unmanaged
-    {
-        if (part is null) return;
-        part.Count = 0;
     }
 
     // The fields SetFrom copies behind AllocationSize, the GL buffer size of the part

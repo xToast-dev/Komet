@@ -48,23 +48,15 @@ internal static class ShapeInitMemo
     // Another mod patches the init or something it calls, or the engine's is not the one verified: every init runs
     public static bool Blocked { get; private set; }
 
+    public static bool Matched => _shaped; // the engine's bodies are the ones verified
+
     // Inits on the main thread answered from the memo, a total while Counting.Hud
     public static long Skipped { get; private set; }
 
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "ElementsByShapeElement")]
-    private static extern ref IDictionary<ShapeElement, AnimationKeyFrameElement> Resolved(AnimationKeyFrame key);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "Frame")]
-    private static extern ref int At(AnimationKeyFrameElement element);
-
-    private static ShapeElement[] KeysOf(ResolvedTable table)
+    private static (ShapeElement[] Keys, AnimationKeyFrameElement[] Values) ArraysOf(ResolvedTable table)
     {
-        return Arrays<ShapeElement, AnimationKeyFrameElement>.Keys(table);
-    }
-
-    private static AnimationKeyFrameElement[] ValuesOf(ResolvedTable table)
-    {
-        return Arrays<ShapeElement, AnimationKeyFrameElement>.Values(table);
+        return (Arrays<ShapeElement, AnimationKeyFrameElement>.Keys(table),
+            Arrays<ShapeElement, AnimationKeyFrameElement>.Values(table));
     }
 
     // The patch goes on whatever the memo decides, since InitOnce's skip rides on it
@@ -78,8 +70,7 @@ internal static class ShapeInitMemo
         _shaped = EngineShape.Matches(Shaped(), fingerprint, nameof(ShapeInitMemo), logger);
         var warm = _shaped && WarmUp(); // before the patch: the engine's init, never remembered
         if (_seams[0] is { } init)
-            _ = NotNull(harmony.Patch(init, new HarmonyMethod(typeof(ShapeInitMemo), nameof(Check)),
-                new HarmonyMethod(typeof(ShapeInitMemo), nameof(Done))));
+            _ = NotNull(harmony.Patch(init, new HarmonyMethod(Check), new HarmonyMethod(Done)));
         Recheck();
         _installed = warm;
     }
@@ -97,29 +88,11 @@ internal static class ShapeInitMemo
     // mod load, not in the first frame a herd comes into view. A shape of its own, never in the table.
     private static bool WarmUp()
     {
-        var child = new ShapeElement
-        { Name = "komet-child", From = [1, 0, 0], To = [2, 1, 1], RotationOrigin = [1, 0, 0] };
-        var parent = new ShapeElement
-        { Name = "komet-parent", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0], Children = [child] };
-        var shape = new Shape
-        {
-            Elements = [parent],
-            Animations =
-            [
-                new Animation
-                {
-                    Code = "komet-warmup", QuantityFrames = 2,
-                    KeyFrames =
-                    [
-                        new AnimationKeyFrame
-                        {
-                            Frame = 0,
-                            Elements = new Dictionary<string, AnimationKeyFrameElement> { ["komet-child"] = new() }
-                        }
-                    ]
-                }
-            ]
-        };
+        var (parent, child) = AnimationFrames.WarmTree();
+        var key = new AnimationKeyFrame
+        { Frame = 0, Elements = new Dictionary<string, AnimationKeyFrameElement> { ["komet-child"] = new() } };
+        var animation = new Animation { Code = "komet-warmup", QuantityFrames = 2, KeyFrames = [key] };
+        var shape = new Shape { Elements = [parent], Animations = [animation] };
         string[] joints = ["komet-parent"];
         shape.ResolveReferences(null, "komet-warmup");
         shape.InitForAnimations(null, "komet-warmup", null, joints);
@@ -184,11 +157,7 @@ internal static class ShapeInitMemo
     // whose keys and values arrays the memo reads
     internal static MethodBase?[] Shaped()
     {
-        MethodBase?[] shaped =
-        [
-            .. Seams(),
-            AccessTools.PropertySetter(typeof(ResolvedTable), "Item")
-        ];
+        MethodBase?[] shaped = [.. Seams(), AccessTools.PropertySetter(typeof(ResolvedTable), "Item")];
         return Assert(shaped.Length <= EngineShape.MaxMethods) ? shaped : [];
     }
 
@@ -206,7 +175,8 @@ internal static class ShapeInitMemo
             Memos.AddOrUpdate(__instance, memo);
         }
 
-        var same = Enabled && !Blocked && memo.Valid && Same(memo, __instance, disableElements, requireJointsForElements);
+        var same = Enabled && !Blocked && memo.Valid &&
+                   Same(memo, __instance, disableElements, requireJointsForElements);
         memo.Valid = false; // until the engine's init is seen to complete, or the skip below has put everything back
         if (!same)
         {
@@ -227,7 +197,8 @@ internal static class ShapeInitMemo
         if (__state is not { } memo || !__runOriginal || !NotNull(__instance)) return;
         memo.Inits = Math.Min(memo.Inits + 1, Repeats);
         // Blocked: nothing will be skipped, so nothing is worth remembering
-        if (Enabled && !Blocked && memo.Inits >= Repeats) memo.Valid = Record(memo, __instance, requireJointsForElements);
+        if (Enabled && !Blocked && memo.Inits >= Repeats)
+            memo.Valid = Record(memo, __instance, requireJointsForElements);
     }
 
     // A clone is inited once and thrown away, so a shape gets a memo only on its second init: the first leaves its identity hash
@@ -258,10 +229,7 @@ internal static class ShapeInitMemo
     private static bool SameArguments(Memo memo, string[]? disable, string[]? joints)
     {
         if (joints is null || !Assert(memo.Required.Length <= MaxNames) ||
-            joints.Length != memo.Required.Length) return false;
-        for (var i = 0; i < Math.Min(joints.Length, MaxNames); i++)
-            if (!string.Equals(joints[i], memo.Required[i], StringComparison.Ordinal))
-                return false;
+            !joints.AsSpan().SequenceEqual(memo.Required)) return false;
         if (disable is null || memo.Unresolved.Length == 0) return true;
         if (!Assert(memo.Unresolved.Length <= MaxNames)) return false;
         for (var i = 0; i < Math.Min(memo.Unresolved.Length, MaxNames); i++)
@@ -322,8 +290,7 @@ internal static class ShapeInitMemo
         if (!ReferenceEquals(element, node.Element) || depth != node.Depth ||
             element.JointId != node.JointId) return false;
         if (!ReferenceEquals(element.ParentElement, node.Parent) ||
-            !string.Equals(element.Name, node.Name, StringComparison.Ordinal))
-            return false;
+            !string.Equals(element.Name, node.Name, StringComparison.Ordinal)) return false;
         if (!ReferenceEquals(element.AttachmentPoints, node.Points)) return false;
         if (node.Points is null) return true;
         if (!Assert(points + node.Points.Length <= memo.Points.Count)) return false;
@@ -390,15 +357,12 @@ internal static class ShapeInitMemo
     {
         var table = key.Item.Elements;
         if (!ReferenceEquals(table, key.Table) || table is null || table.Count != entries.Length) return false;
-        var resolved = Resolved(key.Item);
+        var resolved = AnimationFrames.Resolved(key.Item);
         if (!ReferenceEquals(resolved, key.Fast)) return false;
         if (resolved is not ResolvedTable fast || fast.Count != key.ResolvedCount) return false;
-        var (elements, values) = (KeysOf(fast), ValuesOf(fast));
+        var (elements, values) = ArraysOf(fast);
         if (elements is null || values is null || elements.Length < key.ResolvedCount ||
-            values.Length < key.ResolvedCount)
-        {
-            return false;
-        }
+            values.Length < key.ResolvedCount) return false;
 
         using var live = table.GetEnumerator();
         var j = 0;
@@ -410,8 +374,7 @@ internal static class ShapeInitMemo
                 !string.Equals(live.Current.Key, entry.Name, StringComparison.Ordinal)) return false;
             if (entry.Element is null) continue;
             if (j >= key.ResolvedCount || !ReferenceEquals(elements[j], entry.Element) ||
-                !ReferenceEquals(values[j], entry.Value))
-                return false;
+                !ReferenceEquals(values[j], entry.Value)) return false;
             j++;
         }
 
@@ -456,7 +419,7 @@ internal static class ShapeInitMemo
             {
                 ref readonly var entry = ref entries[e];
                 if (entry.Element is not null) entry.Value.ForElement = entry.Element;
-                At(entry.Value) = frame;
+                AnimationFrames.At(entry.Value) = frame;
             }
         }
 
@@ -527,29 +490,26 @@ internal static class ShapeInitMemo
         return Assert(memo.Anims.Count > 0);
     }
 
-    // The entries as the engine resolved them, and a check that its table holds exactly the resolved ones in that order: were
-    // it not so (a mod's element type with its own Equals, say), the memo would not know what the engine does. The write-back
-    // resolves ForElement by the memo's own name lookup, so the engine's init that has just completed must have left exactly that
-    // on every resolved entry, and this keyframe's Frame on every entry: were it not so – an entry object two keys share, a
-    // patch on the per-keyframe resolve applied after the recheck – the memo would not write what the engine does.
+    // The entries as the engine resolved them, kept only where the memo knows what the engine does: its table holds exactly the
+    // resolved ones in that order (not so for a mod's element type with its own Equals, say), and since the write-back resolves
+    // ForElement by the memo's own name lookup, the init that has just completed left exactly that on every resolved entry and this
+    // keyframe's Frame on every entry (not so for an entry object two keys share, or a patch on the per-keyframe resolve applied
+    // after the recheck).
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool KeepKey(Memo memo, AnimationKeyFrame? key, Dictionary<string, ShapeElement> names,
         HashSet<string> unresolved)
     {
-        if (key?.Elements is not { } table || Resolved(key) is not ResolvedTable fast ||
-            fast.GetType() != typeof(ResolvedTable))
-        {
-            return false;
-        }
+        if (key?.Elements is not { } table || AnimationFrames.Resolved(key) is not ResolvedTable fast ||
+            fast.GetType() != typeof(ResolvedTable)) return false;
 
         if (table.Count > MaxPerKey || memo.Entries.Count + table.Count > MaxEntries || !NotNull(names)) return false;
         var (first, resolved) = (memo.Entries.Count, 0);
-        var (elements, values) = (KeysOf(fast), ValuesOf(fast));
+        var (elements, values) = ArraysOf(fast);
         using var entries = table.GetEnumerator();
         for (var i = 0; i < MaxPerKey && entries.MoveNext(); i++)
         {
             var (name, entry) = entries.Current;
-            if (name is null || entry is null || At(entry) != key.Frame) return false;
+            if (name is null || entry is null || AnimationFrames.At(entry) != key.Frame) return false;
             var element = names.GetValueOrDefault(name);
             if (element is not null && !ReferenceEquals(entry.ForElement, element)) return false;
             memo.Entries.Add(new Entry(name, entry, element));
@@ -560,8 +520,7 @@ internal static class ShapeInitMemo
             }
 
             if (resolved >= fast.Count || !ReferenceEquals(elements[resolved], element) ||
-                !ReferenceEquals(values[resolved], entry))
-                return false;
+                !ReferenceEquals(values[resolved], entry)) return false;
             resolved++;
         }
 
@@ -593,31 +552,16 @@ internal static class ShapeInitMemo
         Check // before an init: is it the one remembered
     }
 
-    private readonly record struct Node(
-        ShapeElement Element,
-        int Depth,
-        string Name,
-        ShapeElement? Parent,
-        int JointId,
+    private readonly record struct Node(ShapeElement Element, int Depth, string Name, ShapeElement? Parent, int JointId,
         AttachmentPoint[]? Points);
 
     private readonly record struct Point(AttachmentPoint Item, ShapeElement? Parent);
 
-    private readonly record struct Anim(
-        Animation Item,
-        string Code,
-        int Version,
-        uint Crc,
-        Animation Winner,
-        AnimationKeyFrame[] Keys,
-        int FirstKey);
+    private readonly record struct Anim(Animation Item, string Code, int Version, uint Crc, Animation Winner,
+        AnimationKeyFrame[] Keys, int FirstKey);
 
-    private readonly record struct Key(
-        AnimationKeyFrame Item,
-        Dictionary<string, AnimationKeyFrameElement> Table,
-        ResolvedTable Fast,
-        int ResolvedCount,
-        int FirstEntry);
+    private readonly record struct Key(AnimationKeyFrame Item, Dictionary<string, AnimationKeyFrameElement> Table,
+        ResolvedTable Fast, int ResolvedCount, int FirstEntry);
 
     private readonly record struct Entry(string Name, AnimationKeyFrameElement Value, ShapeElement? Element);
 

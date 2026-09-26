@@ -80,8 +80,8 @@ internal static class Il
         var op = code.opcode;
         var use = Uses.None;
         if (code.IsStloc()) use = Uses.Store;
-        else if (code.IsLdloc())
-            use = op == OpCodes.Ldloca || op == OpCodes.Ldloca_S ? Uses.Address : Uses.Load; // IsLdloc takes both
+        // IsLdloc takes both
+        else if (code.IsLdloc()) use = op == OpCodes.Ldloca || op == OpCodes.Ldloca_S ? Uses.Address : Uses.Load;
         if ((use & uses) == Uses.None) return -1;
         if (op == OpCodes.Ldloc_0 || op == OpCodes.Stloc_0) return 0;
         if (op == OpCodes.Ldloc_1 || op == OpCodes.Stloc_1) return 1;
@@ -137,17 +137,15 @@ internal static class Il
             StackBehaviour.Pop0 => 0,
             StackBehaviour.Pop1 or StackBehaviour.Popi or StackBehaviour.Popref => 1,
             StackBehaviour.Pop1_pop1 or StackBehaviour.Popi_pop1 or StackBehaviour.Popi_popi
-                or StackBehaviour.Popi_popi8 or
-                StackBehaviour.Popi_popr4 or StackBehaviour.Popi_popr8 or StackBehaviour.Popref_pop1
-                or StackBehaviour.Popref_popi => 2,
+                or StackBehaviour.Popi_popi8 or StackBehaviour.Popi_popr4 or StackBehaviour.Popi_popr8
+                or StackBehaviour.Popref_pop1 or StackBehaviour.Popref_popi => 2,
             _ => -1
         };
         var pushed = op.StackBehaviourPush switch
         {
             StackBehaviour.Push0 => 0,
             StackBehaviour.Push1 or StackBehaviour.Pushi or StackBehaviour.Pushi8 or StackBehaviour.Pushr4
-                or StackBehaviour.Pushr8 or
-                StackBehaviour.Pushref => 1,
+                or StackBehaviour.Pushr8 or StackBehaviour.Pushref => 1,
             StackBehaviour.Push1_push1 => 2,
             _ => -1
         };
@@ -158,11 +156,10 @@ internal static class Il
     // loads, or addresses for a struct whose members are called) and hands it, as Consumer follows it, to an instruction `allowed` takes
     // as that operand. A second store, a use of another kind or one Consumer cannot follow is an escape.
     public static bool Confined(List<CodeInstruction> code, int store, System.Func<CodeInstruction, int, bool> allowed,
-        Uses uses = Uses.Load,
-        int reach = MaxReach)
+        Uses uses = Uses.Load, int reach = MaxReach)
     {
-        if (!NotNull(code) || !NotNull(allowed) || !Index(store, code.Count) ||
-            !Assert(code[store].IsStloc())) return false;
+        if (!NotNull(code) || !NotNull(allowed) || !Index(store, code.Count) || !Assert(code[store].IsStloc()))
+            return false;
         var local = Local(code[store]);
         if (local < 0 || !Assert(uses is Uses.Load or Uses.Address or (Uses.Load | Uses.Address)) ||
             !Assert(code.Count <= MaxInstructions))
@@ -191,18 +188,10 @@ internal static class Il
             var name = wanted[i].Name ?? "";
             var bound = name.StartsWith("___", StringComparison.Ordinal)
                 ? AccessTools.Field(original.DeclaringType, name[3..]) is not null
-                : Array.IndexOf(Injected, name) >= 0 || Named(given, name);
+                : Array.IndexOf(Injected, name) >= 0 || Array.Exists(given, parameter => parameter.Name == name);
             if (!bound) return false;
         }
 
         return true;
-    }
-
-    private static bool Named(ParameterInfo[] parameters, string name)
-    {
-        for (var i = 0; i < Math.Min(parameters.Length, MaxParameters); i++)
-            if (parameters[i].Name == name)
-                return true;
-        return false;
     }
 }

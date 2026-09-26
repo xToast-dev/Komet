@@ -7,13 +7,7 @@ namespace Komet.Bench;
 // Frame times of one set of frames, sorted: nearest-rank p99, FrameStats' lows (the HUD's own definition, over the same FrameClock
 // dt), and the frames above 25 ms
 internal readonly record struct BenchSummary(
-    int N,
-    double TotalMs,
-    float P99Ms,
-    float MaxMs,
-    float Low1Fps,
-    float Low01Fps,
-    int Over25)
+    int N, double TotalMs, float P99Ms, float MaxMs, float Low1Fps, float Low01Fps, int Over25)
 {
     public double AvgMs => N > 0 ? TotalMs / N : double.NaN;
     public double Over25PerMin => TotalMs > 0 ? Over25 * 60_000.0 / TotalMs : double.NaN;
@@ -22,27 +16,9 @@ internal readonly record struct BenchSummary(
 // A segment's frames added up in one pass: every frame for the queues and the tessellation, which run on through paused and
 // discarded frames; the counted frames (not Excluded) for the GC
 internal record struct BenchSums(
-    int Frames,
-    int Paused,
-    int Discarded,
-    int Focused,
-    double Ms,
-    double GcMs,
-    float MaxGcMs,
-    int Gen0,
-    int Gen1,
-    int Gen2,
-    long AllocKb,
-    long MainAllocKb,
-    long TessQ,
-    int TessQMax,
-    long TessNear,
-    int TessNearMax,
-    long UploadQ,
-    int UploadQMax,
-    long Received,
-    long TessPasses,
-    double TessMs);
+    int Frames, int Paused, int Discarded, int Focused, double Ms, double GcMs, float MaxGcMs, int Gen0, int Gen1,
+    int Gen2, long AllocKb, long MainAllocKb, long TessQ, int TessQMax, long TessNear, int TessNearMax, long UploadQ,
+    int UploadQMax, long Received, long TessPasses, double TessMs);
 
 // result.json and frames.csv, written once after the last segment. A segment's frame times cover its frames minus the Excluded
 // ones, an arm's pool covers its measured segments of the measured laps. Deltas pair each arm with arm 0 inside the same mirrored
@@ -133,8 +109,7 @@ internal static class BenchReport
         if (!NotNull(json) || !Assert(run.Segments.Length == run.Logs.Length)) return;
         json.WriteString("schema", Schema);
         json.WriteBoolean("complete", run.Complete && run.Error is null);
-        if (run.Error is null) json.WriteNull("error");
-        else json.WriteString("error", run.Error);
+        json.WriteString("error", run.Error); // null when the run had none
         json.WriteString("name", run.Config.Name);
         json.WriteString("startedUtc", run.Started.ToString("O", CultureInfo.InvariantCulture));
         json.WriteString("finishedUtc", run.Finished.ToString("O", CultureInfo.InvariantCulture));
@@ -224,8 +199,7 @@ internal static class BenchReport
     }
 
     private static void Segment(Utf8JsonWriter json, BenchRun run, BenchRecorder recorder, int s,
-        (int From, int To) range,
-        float[] scratch)
+        (int From, int To) range, float[] scratch)
     {
         if (!Index(s, run.Segments.Length) || !NotNull(json)) return;
         var (segment, log) = (run.Segments[s], run.Logs[s]);
@@ -302,8 +276,7 @@ internal static class BenchReport
         ms.Sort();
         if (!Finite(total) || !Assert(ms[0] <= ms[^1])) total = double.NaN;
         return new BenchSummary(ms.Length, total, Percentile(ms, 990), ms[^1], FrameStats.LowFps(ms, 100),
-            FrameStats.LowFps(ms, 1000),
-            over);
+            FrameStats.LowFps(ms, 1000), over);
     }
 
     // Nearest rank: the smallest frame with at least that share of all frames at or below it
@@ -345,8 +318,8 @@ internal static class BenchReport
         LastGc(json, spike.Gc);
         json.WriteNumber("allocKB", f.AllocKb);
         Number(json, "jitMs", f.JitMs);
-        Number(json, "runQueueMs",
-            f.RunQueueMs); // the main thread runnable but waiting for a core: another process's load
+        // the main thread runnable but waiting for a core: another process's load
+        Number(json, "runQueueMs", f.RunQueueMs);
         json.WriteStartArray("marks");
         for (var m = 0; m < Math.Min(marks.Length, BenchRecorder.MarksPerSpike); m++)
         {
@@ -402,17 +375,14 @@ internal static class BenchReport
             var summary = Summarize(scratch.AsSpan(0, n));
             var perPass = passes > 0 ? ms / passes : double.NaN;
             laps[lap] =
-            [
-                summary.AvgMs, summary.P99Ms, summary.Low1Fps, summary.Low01Fps, summary.Over25PerMin, perPass
-            ];
+                [summary.AvgMs, summary.P99Ms, summary.Low1Fps, summary.Low01Fps, summary.Over25PerMin, perPass];
         }
 
         return laps;
     }
 
     private static void Arm(Utf8JsonWriter json, BenchRun run, ReadOnlySpan<BenchFrame> frames, int arm,
-        (int From, int To)[] ranges,
-        double[][] laps, float[] scratch)
+        (int From, int To)[] ranges, double[][] laps, float[] scratch)
     {
         if (!Index(arm, run.Config.Arms.Count) || !Assert(ranges.Length >= run.Segments.Length)) return;
         json.WriteStartObject();

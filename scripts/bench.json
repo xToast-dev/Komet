@@ -1,10 +1,9 @@
 {
   "_comment": [
     "Komet benchmark profiles for scripts/bench.sh. The script merges world + profiles.<name>, adds output, modDir, revision and",
-    "env, and hands the result to the game as KOMET_BENCH. Only overrides belong here: the defaults live in BenchConfig.cs",
-    "(settle 150 s and 10 s per lap, still 10, rotate 20, leg 40, turn 2 s, speed 11 blocks/s, 8 laps, one warm-up lap per arm).",
-    "Arm knobs are the names in Komet/Core/Knobs.cs; flags take true/false, UploadCap 0..20 (0 = engine), WorkerThreads 0..8 and TessJobs 0..8 (0 = engine), EntityTessBudget",
-    "0..50 (0 = engine); \"engine\": true starts the arm from every knob's engine value. Laps must be a multiple of the arm count.",
+    "env, and hands the result to the game as KOMET_BENCH. Only overrides belong here: the defaults and ranges live in",
+    "Komet/Bench/BenchConfig.cs. Arm knobs are the names in Komet/Core/Knobs.cs, with their ranges; flags take true/false.",
+    "\"engine\": true starts the arm from every knob's engine value. Laps must be a multiple of the arm count.",
     "sandbox is read by the script only: window size, windowMode (0 windowed, 1 fullscreen), vsync, fps cap, view distance,",
     "boot timeout, extra environment for the game process, and hud: keys merged into komet-hud.json (e.g. Visible)."
   ],

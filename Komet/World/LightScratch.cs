@@ -35,20 +35,10 @@ namespace Komet.World;
 // the engine alone; one added later goes unseen.
 internal static class LightScratch
 {
-    private const string Update = "UpdateLightAt",
-        Collect = "CollectLightValuesForLightSource",
-        Darkness = "SpreadDarkness",
-        Recalc = "RecalcBlockLightAtPos",
-        Visited = "VisitedNodes";
-
-    private const int MaxInstructions = 2048,
-        MaxMembers = 512,
-        MaxIl = 1 << 20,
-        MaxDepth = 4,
-        FirstArena = 256,
-        MaxNodes = 1 << 15,
-        MaxSeams = 8;
-
+    private const string Update = "UpdateLightAt", Collect = "CollectLightValuesForLightSource";
+    private const string Darkness = "SpreadDarkness", Recalc = "RecalcBlockLightAtPos", Visited = "VisitedNodes";
+    private const int MaxInstructions = 2048, MaxMembers = 512, MaxIl = 1 << 20, MaxDepth = 4, FirstArena = 256;
+    private const int MaxNodes = 1 << 15;
     private const int HsvBytes = 45, LookupLength = 18, UpdateBit = 1, CollectBit = 2, DarknessBit = 4, AllBits = 7;
 
     [ThreadStatic] private static Visit? _visit;
@@ -58,9 +48,10 @@ internal static class LightScratch
 
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => _confined && _rewritten == AllBits;
+    public static bool StoodDown { get; private set; } // another mod patches a seam, or one is missing
 
-    public static long Avoided =>
-        Interlocked.Read(ref _avoided); // allocations the engine would have made, a total while Counting.Hud
+    // Allocations the engine would have made, a total while Counting.Hud
+    public static long Avoided => Interlocked.Read(ref _avoided);
 
     // Keys and nodes stay in VisitedNodes after their walk, so they are only reused when install proved that nothing reads them there
     private static bool Reuse => Enabled && _confined && (_rewritten & UpdateBit) != 0;
@@ -69,36 +60,27 @@ internal static class LightScratch
     // the rewritten callee instead of inlining the engine's
     public static void Install(Harmony harmony, ILogger? logger = null)
     {
-        (_rewritten, _confined) = (0, false);
+        (_rewritten, _confined, StoodDown) = (0, false, false);
         var visited = AccessTools.Field(typeof(ChunkIlluminator), Visited);
         var (update, collect, darkness, recalc) = (Method(Update), Method(Collect), Method(Darkness), Method(Recalc));
         if (!NotNull(harmony) || !NotNull(visited) || !NotNull(update) || !NotNull(collect) || !NotNull(darkness) ||
             !NotNull(recalc)) return;
-        if (Foreign([update, collect, darkness, recalc], harmony.Id, logger)) return;
-        _confined = Confined(visited, collect, update) && OnlyRead(PatchProcessor.GetOriginalInstructions(recalc));
-        var self = typeof(LightScratch);
-        HarmonyMethod enter = new(self, nameof(Enter)), leave = new(self, nameof(Leave));
-        _ = NotNull(harmony.Patch(collect, transpiler: new HarmonyMethod(self, nameof(RewriteCollect))));
-        _ = NotNull(harmony.Patch(update, enter, transpiler: new HarmonyMethod(self, nameof(CheckUpdate)),
-            finalizer: leave));
-        _ = NotNull(harmony.Patch(darkness, enter, transpiler: new HarmonyMethod(self, nameof(RewriteDarkness)),
-            finalizer: leave));
-    }
-
-    // Whether another mod patches one of the seams; the first one found is logged
-    private static bool Foreign(ReadOnlySpan<MethodBase?> seams, string owner, ILogger? logger)
-    {
-        if (!NotNull(owner) || !Assert(seams.Length <= MaxSeams)) return true;
-        for (var i = 0; i < Math.Min(seams.Length, MaxSeams); i++)
+        MethodBase?[] seams = [update, collect, darkness, recalc];
+        var at = EngineShape.FirstForeign(seams, harmony.Id);
+        if (at >= 0)
         {
-            if (!EngineShape.Foreign(seams.Slice(i, 1), EngineShape.Kinds.All, owner)) continue;
-            logger?.Notification(
-                "Komet LightScratch stands down: another mod patches ChunkIlluminator.{0}; light updates allocate as shipped",
-                seams[i]?.Name);
-            return true;
+            StoodDown = true;
+            if (at < seams.Length)
+                logger?.Notification("Komet LightScratch stands down: another mod patches ChunkIlluminator.{0}; " +
+                                     "light updates allocate as shipped", seams[at]?.Name);
+            return;
         }
 
-        return false;
+        _confined = Confined(visited, collect, update) && OnlyRead(PatchProcessor.GetOriginalInstructions(recalc));
+        HarmonyMethod enter = new(Enter), leave = new(Leave);
+        _ = NotNull(harmony.Patch(collect, transpiler: new HarmonyMethod(RewriteCollect)));
+        _ = NotNull(harmony.Patch(update, enter, transpiler: new HarmonyMethod(CheckUpdate), finalizer: leave));
+        _ = NotNull(harmony.Patch(darkness, enter, transpiler: new HarmonyMethod(RewriteDarkness), finalizer: leave));
     }
 
     // Declared on ChunkIlluminator and named with its parameters: without them an overload added by an update would throw
@@ -125,8 +107,7 @@ internal static class LightScratch
     private static bool Confined(FieldInfo visited, MethodInfo collect, MethodInfo update)
     {
         if (!NotNull(visited) || !NotNull(collect) || !NotNull(update) ||
-            !Assert(visited.DeclaringType == typeof(ChunkIlluminator)))
-            return false;
+            !Assert(visited.DeclaringType == typeof(ChunkIlluminator))) return false;
         Type[] types = [typeof(ChunkIlluminator), .. AccessTools.InnerTypes(typeof(ChunkIlluminator))];
         foreach (var type in types.Bounded(MaxMembers))
         {
@@ -140,8 +121,7 @@ internal static class LightScratch
                 var (isCollect, isUpdate) = (engine && member.MetadataToken == collect.MetadataToken,
                     engine && member.MetadataToken == update.MetadataToken);
                 if (Mentions(il, visited.MetadataToken) && !(engine && member is ConstructorInfo { IsStatic: false }) &&
-                    !isCollect &&
-                    !isUpdate) return false;
+                    !isCollect && !isUpdate) return false;
                 if (Mentions(il, collect.MetadataToken) && !isUpdate) return false;
             }
         }
@@ -168,16 +148,12 @@ internal static class LightScratch
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(visited) ||
             !Assert(code.Count > 3)) return code;
         if (!code[0].IsLdarg(0) || !code[1].LoadsField(visited) || !IsNodesCall(code[2], "Clear") ||
-            code[1].labels.Count > 0 ||
-            code[2].labels.Count > 0) return code;
+            code[1].labels.Count > 0 || code[2].labels.Count > 0) return code;
         var reads = Il.Count(code, c => c.LoadsField(visited) || c.LoadsField(visited, true) || c.StoresField(visited));
         var enumerations = 0;
         for (var i = 2; i < Math.Min(code.Count, MaxInstructions); i++)
-            enumerations += code[i].opcode == OpCodes.Ldfld && code[i].LoadsField(visited) &&
-                            Index(i + 1, code.Count) &&
-                            IsNodesCall(code[i + 1], "GetEnumerator")
-                ? 1
-                : 0;
+            if (code[i].opcode == OpCodes.Ldfld && code[i].LoadsField(visited) && Index(i + 1, code.Count) &&
+                IsNodesCall(code[i + 1], "GetEnumerator")) enumerations++;
         if (Assert(reads == 2 && enumerations == 1) && EntriesOnlyRead(code)) _rewritten |= UpdateBit;
         return code;
     }
@@ -190,8 +166,7 @@ internal static class LightScratch
         var (key, node, insert, queue) = (Helper(nameof(Key)), Helper(nameof(Node)), Helper(nameof(Insert)),
             Helper(nameof(Queue)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(visited) || !NotNull(key) ||
-            !NotNull(node) ||
-            !NotNull(insert) || !NotNull(queue)) return code;
+            !NotNull(node) || !NotNull(insert) || !NotNull(queue)) return code;
         List<int> lookups = [];
         int keyLocal = -1, nodeLocal = -1;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
@@ -240,12 +215,10 @@ internal static class LightScratch
         key = Il.Local(code[at + 1], Il.Uses.Store);
         node = Il.Local(code[at + 5], Il.Uses.Address);
         var shape = code[at + 2].IsLdarg(0) && code[at + 3].LoadsField(visited) && IsLoad(code[at + 4], key) &&
-                    IsNodesCall(code[at + 6], "TryGetValue") &&
-                    code[at + 7].opcode == OpCodes.Pop && IsLoad(code[at + 8], node) &&
-                    code[at + 9].operand is Label target &&
+                    IsNodesCall(code[at + 6], "TryGetValue") && code[at + 7].opcode == OpCodes.Pop &&
+                    IsLoad(code[at + 8], node) && code[at + 9].operand is Label target &&
                     (code[at + 9].opcode == OpCodes.Brtrue_S || code[at + 9].opcode == OpCodes.Brtrue) &&
-                    code[at + 10].IsLdarg(0) &&
-                    code[at + 11].LoadsField(visited) && IsLoad(code[at + 12], key) &&
+                    code[at + 10].IsLdarg(0) && code[at + 11].LoadsField(visited) && IsLoad(code[at + 12], key) &&
                     Creates(code[at + 13], typeof(LightSourcesAtBlock), 0) &&
                     code[at + 14].opcode == OpCodes.Dup && Il.Local(code[at + 15], Il.Uses.Store) == node &&
                     IsNodesCall(code[at + 16], "set_Item") && code[at + 17].labels.Contains(target) &&
@@ -399,16 +372,14 @@ internal static class LightScratch
     {
         if (!NotNull(code) || !Assert(name.Length > 0)) return false;
         return code.opcode == OpCodes.Callvirt && code.operand is MethodInfo { Name: var n, DeclaringType: var t } &&
-               n == name &&
-               t == typeof(Dictionary<Vec3i, LightSourcesAtBlock>);
+               n == name && t == typeof(Dictionary<Vec3i, LightSourcesAtBlock>);
     }
 
     // newobj of `type` with `parameters` int parameters
     private static bool Creates(CodeInstruction code, Type type, int parameters)
     {
         if (!NotNull(code) || !NotNull(type) || code.opcode != OpCodes.Newobj ||
-            code.operand is not ConstructorInfo { DeclaringType: var t } c ||
-            t != type) return false;
+            code.operand is not ConstructorInfo { DeclaringType: var t } c || t != type) return false;
         var p = c.GetParameters();
         return p.Length == parameters && Array.TrueForAll(p, q => q.ParameterType == typeof(int));
     }

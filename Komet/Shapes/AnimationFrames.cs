@@ -48,6 +48,8 @@ internal static partial class AnimationFrames
     // Another mod patches the compile, or the engine's is not the one reproduced here: the engine compiles everything
     public static bool Blocked { get; private set; }
 
+    public static bool Matched => _shaped; // the engine's bodies are the ones reproduced
+
     public static long Hits { get; private set; } // totals while Counting.Hud, under Gate
     public static long Misses { get; private set; }
     public static double WorstMs { get; private set; } // the slowest compile on the render thread since ResetPeaks
@@ -80,15 +82,13 @@ internal static partial class AnimationFrames
         (_installed, _shaped, Blocked, _seams, _logger, _foreign) = (false, false, true, Seams(), logger, false);
         var clone = AccessTools.Method(typeof(Animation), nameof(Animation.Clone), []);
         if (!NotNull(harmony) || !NotNull(clone) || !Assert(_seams.Length == SeamCount)) return;
-        var self = typeof(AnimationFrames);
-        if (Assert(AccessTools.Field(typeof(Animation), "jointsDone")?.FieldType ==
-                   typeof(HashSet<int>))) // JointsDone throws otherwise
-            _ = NotNull(harmony.Patch(clone, postfix: new HarmonyMethod(self, nameof(Cloned))));
+        // JointsDone throws otherwise
+        if (Assert(AccessTools.Field(typeof(Animation), "jointsDone")?.FieldType == typeof(HashSet<int>)))
+            _ = NotNull(harmony.Patch(clone, postfix: new HarmonyMethod(Cloned)));
         _shaped = EngineShape.Matches(Shaped(), fingerprint, nameof(AnimationFrames), logger);
-        if (!_shaped)
-            return; // the compile's accessors name fields of those bodies: on a changed engine they could throw
-        _ = NotNull(harmony.Patch(_seams[0], new HarmonyMethod(self, nameof(Generate)),
-            new HarmonyMethod(self, nameof(Generated))));
+        // the compile's accessors name fields of those bodies: on a changed engine they could throw
+        if (!_shaped) return;
+        _ = NotNull(harmony.Patch(_seams[0], new HarmonyMethod(Generate), new HarmonyMethod(Generated)));
         Recheck();
         _installed = WarmUp();
     }
@@ -117,13 +117,11 @@ internal static partial class AnimationFrames
     }
 
     private static bool Generate(Animation __instance, ShapeElement[] rootElements,
-        Dictionary<int, AnimationJoint> jointsById,
-        bool recursive, out object? __state)
+        Dictionary<int, AnimationJoint> jointsById, bool recursive, out object? __state)
     {
         __state = null;
         var start = Counting.Hud && Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId
-            ? Stopwatch.GetTimestamp()
-            : 0;
+            ? Stopwatch.GetTimestamp() : 0;
         Snapshot? key = null;
         if (Enabled && !Blocked && _installed && Compilable(__instance, rootElements, jointsById))
         {
@@ -166,10 +164,9 @@ internal static partial class AnimationFrames
         {
             if (!Describe(animation, roots, recursive)) return false;
             var hash = Hash();
-            found = Find(hash);
+            found = Find(hash, _buffer.AsSpan(0, _at));
             if (found is null) key = Take(hash);
-            if (Counting.Hud && found is null) Misses++;
-            if (Counting.Hud && found is not null) Hits++;
+            if (Counting.Hud) (Hits, Misses) = found is null ? (Hits, Misses + 1) : (Hits + 1, Misses);
         }
 
         if (found is null) return false;
@@ -323,12 +320,13 @@ internal static partial class AnimationFrames
         return hash;
     }
 
-    private static AnimationFrame[][]? Find(ulong hash)
+    // The compiled set stored under exactly these descriptor bytes, under Gate
+    private static AnimationFrame[][]? Find(ulong hash, ReadOnlySpan<byte> bytes)
     {
-        if (!Assert(_at >= 0) || !Assert(_at <= _buffer.Length)) return null;
+        if (!Assert(bytes.Length <= MaxDescriptor) || !Assert(_entries <= MaxEntries)) return null;
         if (!Cache.TryGetValue(hash, out var bucket) || !NotNull(bucket)) return null;
         foreach (var entry in bucket.Bounded(MaxBucket))
-            if (entry.Bytes.AsSpan().SequenceEqual(_buffer.AsSpan(0, _at)))
+            if (entry.Bytes.AsSpan().SequenceEqual(bytes))
                 return entry.Compiled;
         return null;
     }
@@ -349,11 +347,10 @@ internal static partial class AnimationFrames
             _entries = 0;
         }
 
+        // two threads missed on the same descriptor and both compiled
+        if (Find(key.Code, key.Bytes) is not null) return;
         if (!Cache.TryGetValue(key.Code, out var bucket)) Cache[key.Code] = bucket = [];
-        if (!Assert(bucket.Count < MaxBucket)) return; // 64 descriptors under one 64-bit hash
-        foreach (var entry in bucket.Bounded(MaxBucket))
-            if (entry.Bytes.AsSpan().SequenceEqual(key.Bytes))
-                return; // two threads missed on the same descriptor and both compiled
+        if (!Assert(bucket.Count < MaxBucket) || !Assert(_entries < MaxEntries)) return; // 64 under one 64-bit hash
         bucket.Add(new Entry(key.Bytes, frames));
         _entries++;
     }

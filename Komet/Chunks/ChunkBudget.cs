@@ -16,9 +16,8 @@ namespace Komet.Chunks;
 // fills in seconds instead of dribbling out 3 ms a frame.
 internal static class ChunkBudget
 {
-    public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3, BoostMillis = 8;
-    private const int BoostAbove = 400, BoostBelow = 100;
-    private const int MaxLookahead = 16;
+    public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3;
+    private const int BoostMillis = 8, BoostAbove = 400, BoostBelow = 100, MaxLookahead = 16;
     private static long _deadline;
     private static bool _admitted, _fired;
 
@@ -35,8 +34,7 @@ internal static class ChunkBudget
         var frame = AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager),
             nameof(ChunkTesselatorManager.OnBeforeFrame));
         if (!NotNull(harmony) || !NotNull(frame)) return;
-        _ = NotNull(harmony.Patch(frame, new HarmonyMethod(typeof(ChunkBudget), nameof(Begin)),
-            transpiler: new HarmonyMethod(typeof(ChunkBudget), nameof(Rewrite))));
+        _ = NotNull(harmony.Patch(frame, new HarmonyMethod(Begin), transpiler: new HarmonyMethod(Rewrite)));
     }
 
     // Prefix: the frame's deadline. Whatever the priority queue takes counts against it, but that queue is never cut.
@@ -80,8 +78,7 @@ internal static class ChunkBudget
         var sort = AccessTools.Method(typeof(SortableQueue<TesselatedChunk>), nameof(SortableQueue<>.Sort));
         var cap = AccessTools.Method(typeof(ChunkBudget), nameof(Cap));
         if (!Assert(Il.Take(instructions, Il.MaxInstructions, out var code)) || !NotNull(limiter) || !NotNull(sort) ||
-            !NotNull(cap))
-            return code;
+            !NotNull(cap)) return code;
         int read = Il.Single(code, c => c.Calls(limiter)), sorted = Il.Single(code, c => c.Calls(sort));
         if (!Assert(read >= 0) || !Assert(sorted > read)) return code;
         var site = Site(code, sorted, Budget(code, read));
@@ -96,8 +93,7 @@ internal static class ChunkBudget
     {
         if (!Index(read, code.Count)) return -1;
         for (var step = 1; step < Math.Min(code.Count - read, MaxLookahead); step++)
-            if (Il.Local(code[read + step], Il.Uses.Store) is var local and >= 0)
-                return local;
+            if (Il.Local(code[read + step], Il.Uses.Store) is var local and >= 0) return local;
         return -1;
     }
 

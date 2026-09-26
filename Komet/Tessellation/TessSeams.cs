@@ -12,28 +12,26 @@ namespace Komet.Tessellation;
 // the first tesselation pass and every RecheckMs after (another mod's patch added at runtime is honoured within that time)
 internal static class TessSeams
 {
-    public const int Size = 32,
-        Ext = 34,
-        Plane = Ext * Ext,
-        ExtCells = Ext * Ext * Ext,
-        Cells = Size * Size * Size,
-        Faces = 6;
+    public const int Size = 32, Ext = 34, Plane = Ext * Ext, ExtCells = Ext * Ext * Ext, Cells = Size * Size * Size;
+    public const int Faces = 6, RecheckMs = 2000;
 
-    public const int RecheckMs = 2000;
+    // TileSideEnum's sides, and the halo index of the chunk's first cell
+    public const int North = 0, East = 1, South = 2, West = 3, Up = 4, Down = 5, Origin = Plane + Ext + 1;
 
     // TileSideEnum.MoveIndex as ChunkTesselator.Start sets it: north, east, south, west, up, down
     public static readonly int[] Moves = [-Ext, 1, Ext, -1, Plane, -Plane];
 
-    private static ILogger? _logger;
     private static long _nextCheck;
+
+    // The mod's logger, for the features' stand-down notes (EngineShape.Report)
+    internal static ILogger? Logger { get; private set; }
 
     public static void Install(Harmony harmony, ILogger? logger)
     {
-        (_logger, _nextCheck) = (logger, 0);
+        (Logger, _nextCheck) = (logger, 0);
         var pass = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.NowProcessChunk));
         if (!NotNull(harmony) || !NotNull(pass)) return; // the features keep what they found at install
-        _ = NotNull(harmony.Patch(pass,
-            new HarmonyMethod(typeof(TessSeams), nameof(Pass)) { priority = Priority.First }));
+        _ = NotNull(harmony.Patch(pass, new HarmonyMethod(Pass) { priority = Priority.First }));
     }
 
     // Before any prefix that may skip the pass (OccludedChunks), on every tessellation thread; the one that moves the time on rechecks,
@@ -53,17 +51,6 @@ internal static class TessSeams
         VisibleFaces.Recheck();
         FaceLight.Recheck();
         OccludedChunks.Recheck();
-    }
-
-    // A feature's stand-down for another mod's patch, logged when it changes
-    public static bool Report(string feature, bool was, bool foreign)
-    {
-        if (!NotNull(feature) || was == foreign) return foreign;
-        if (foreign)
-            _logger?.Notification("Komet {0}: another mod patches a method it would bypass, the engine's version runs",
-                feature);
-        else _logger?.Notification("Komet {0}: no other mod patches its methods any more, back on", feature);
-        return foreign;
     }
 
     public static bool Standard(int[]? moves)
@@ -123,6 +110,9 @@ internal static class TessSeams
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
     internal static extern ref ClientMain? Game(ChunkTesselator tesselator);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "started")]
+    internal static extern ref bool Started(ChunkTesselator tesselator);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "dataBits")]
     internal static extern ref int[]?[]? DataBits(ChunkDataLayer layer);

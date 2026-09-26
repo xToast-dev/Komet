@@ -26,8 +26,7 @@ internal static class Contracts
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Assert(bool condition, [CallerArgumentExpression(nameof(condition))] string expression = "",
-        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (condition) return true;
         Report(expression, file, member, line);
@@ -36,10 +35,8 @@ internal static class Contracts
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool NotNull<T>([NotNullWhen(true)] T? value,
-        [CallerArgumentExpression(nameof(value))]
-        string expression = "", [CallerMemberName] string member = "",
-        [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "") where T : class
+        [CallerArgumentExpression(nameof(value))] string expression = "", [CallerMemberName] string member = "",
+        [CallerLineNumber] int line = 0, [CallerFilePath] string file = "") where T : class
     {
         if (value is not null) return true;
         Report(expression + " is null", file, member, line);
@@ -48,8 +45,7 @@ internal static class Contracts
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Finite(double value, [CallerArgumentExpression(nameof(value))] string expression = "",
-        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (double.IsFinite(value)) return true;
         Report(expression + " is not finite", file, member, line);
@@ -59,8 +55,7 @@ internal static class Contracts
     // 0 <= value < count
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool Index(int value, int count, [CallerArgumentExpression(nameof(value))] string expression = "",
-        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerMemberName] string member = "", [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if ((uint)value < (uint)count) return true;
         Report(expression + " out of range", file, member, line);
@@ -70,30 +65,24 @@ internal static class Contracts
     // Bounded iteration: at most max items, reported when the source holds more. Lists and arrays enumerate as spans without allocating;
     // the IEnumerable version is an iterator and stays out of per-frame code (dictionaries there use a struct enumerator in a bounded for).
     public static ReadOnlySpan<T> Bounded<T>(this List<T> items, int max,
-        [CallerArgumentExpression(nameof(items))]
-        string expression = "", [CallerMemberName] string member = "",
-        [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerArgumentExpression(nameof(items))] string expression = "", [CallerMemberName] string member = "",
+        [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Count > max) Report($"{expression} exceeds {max}", file, member, line);
         return CollectionsMarshal.AsSpan(items)[..Math.Min(items.Count, max)];
     }
 
     public static ReadOnlySpan<T> Bounded<T>(this T[] items, int max,
-        [CallerArgumentExpression(nameof(items))]
-        string expression = "", [CallerMemberName] string member = "",
-        [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerArgumentExpression(nameof(items))] string expression = "", [CallerMemberName] string member = "",
+        [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Length > max) Report($"{expression} exceeds {max}", file, member, line);
         return items.AsSpan(0, Math.Min(items.Length, max));
     }
 
     public static IEnumerable<T> Bounded<T>(this IEnumerable<T> items, int max,
-        [CallerArgumentExpression(nameof(items))]
-        string expression = "", [CallerMemberName] string member = "",
-        [CallerLineNumber] int line = 0,
-        [CallerFilePath] string file = "")
+        [CallerArgumentExpression(nameof(items))] string expression = "", [CallerMemberName] string member = "",
+        [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         using var e = items.GetEnumerator();
         for (var i = 0; i < max; i++)

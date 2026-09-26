@@ -13,7 +13,6 @@ internal sealed partial class HudOverlay : IRenderer
     private readonly PanelBox[] _boxes = new PanelBox[PanelCount];
     private readonly (string Version, bool Preview, string Commit, string SourcePath) _build;
     private readonly ICoreClientAPI _capi;
-    private readonly HudSettingsDialog _dialog;
     private readonly HudFonts _fonts = new();
     private readonly FrameStats _frames = new();
     private readonly (string Mode, string Budget) _gc = GcConfig();
@@ -31,7 +30,7 @@ internal sealed partial class HudOverlay : IRenderer
     private readonly HudVerifyDialog _verify;
     private GuiDialogConfirm? _ask;
     private long _consumed; // FrameClock records taken
-    private bool _disposed;
+    private bool _disposed, _modsShown, _wasVisible, _profilerOwned, _resumed, _settled;
     private int _dragging = -1, _lastClick = -1; // panel indices
     private double _elapsedTotal;
     private long _frameTotal; // frames and seconds since the HUD began, what the rows divide counter growth by
@@ -41,31 +40,31 @@ internal sealed partial class HudOverlay : IRenderer
     private bool _intervalFrame; // the previous frame ran EndInterval
     private long _lastClickTime, _saveCallback;
     private bool _levelReady; // LevelFinalize has run: every mod has started and patched
-    private bool _modsShown, _wasVisible;
-    private bool _profilerOwned;
     private long _quietUntil;
-    private bool _resumed, _settled;
     private Task? _sampling;
     private float _scrollRemainder;
     private float _sinceInterval, _benchLeft;
     private UpdateCheck? _update;
+
+    // The options window, which GraphicsMenu opens in place of the game's graphics tab
+    internal OptionsScreen Options { get; }
 
     public HudOverlay(ICoreClientAPI capi)
     {
         _capi = capi;
         _settings = HudSettings.Load(capi);
         _build = ReadBuild(capi);
-        _ = _fonts.Update(_settings.FontScale);
+        _fonts.Update(_settings.FontScale);
         _snap = new SnapGrid(capi, Quiet);
         BuildPanels();
-        _dialog = new HudSettingsDialog(capi, _settings, _fonts, _snap, Dump, StartBench, OpenVerify);
+        Options = new OptionsScreen(capi, _settings, Dump, StartBench, OpenVerify);
         _verify = new HudVerifyDialog(capi, _settings, _fonts, _snap, () => _update, RunUpdateCheck);
         if (!Assert(_panels.Count == PanelCount) || !NotNull(capi.Event)) return;
-        _dialog.OnOpened += SettingsToggled;
-        _dialog.OnClosed += SettingsToggled;
+        Options.OnOpened += SettingsToggled;
+        Options.OnClosed += SettingsToggled;
         _verify.OnOpened += Quiet;
         _verify.OnClosed += Quiet;
-        _dialog.Composing += Quiet;
+        Options.Composing += Quiet;
         _verify.Composing += Quiet;
         _settings.RegisterHotkeys(capi);
         _settings.Changed += OnSettingsChanged;
@@ -82,8 +81,8 @@ internal sealed partial class HudOverlay : IRenderer
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
         if (!_settings.Visible && _benchLeft <= 0) return;
-        if (!Assert(stage is EnumRenderStage.Before or EnumRenderStage.Ortho or EnumRenderStage.Done))
-            return; // registered for exactly these
+        // registered for exactly these
+        if (!Assert(stage is EnumRenderStage.Before or EnumRenderStage.Ortho or EnumRenderStage.Done)) return;
         if (stage == EnumRenderStage.Before) _gpu.Begin();
         else if (stage == EnumRenderStage.Done) _gpu.End();
         else Render(deltaTime);
@@ -101,16 +100,16 @@ internal sealed partial class HudOverlay : IRenderer
         _capi.Event.UnregisterCallback(_saveCallback);
         _capi.Event.LevelFinalize -= AskForUpdateCheck;
         _capi.Event.LevelFinalize -= LevelReady;
-        _dialog.OnOpened -= SettingsToggled;
-        _dialog.OnClosed -= SettingsToggled;
+        Options.OnOpened -= SettingsToggled;
+        Options.OnClosed -= SettingsToggled;
         _verify.OnOpened -= Quiet;
         _verify.OnClosed -= Quiet;
-        _dialog.Composing -= Quiet;
+        Options.Composing -= Quiet;
         _verify.Composing -= Quiet;
         _update?.Dispose();
         _ask?.Dispose();
         _settings.Save(_capi);
-        _dialog.Dispose();
+        Options.Dispose();
         _verify.Dispose();
         _snap.Dispose();
         _gpu.Dispose();
@@ -168,20 +167,20 @@ internal sealed partial class HudOverlay : IRenderer
     {
         if (!Assert(!_disposed)) return; // Dispose() unsubscribes before it disposes the dialog
         Quiet();
-        _frozen = _dialog.IsOpened() && _settings.Visible && ShownText() is { Length: > 0 } shown ? shown : null;
-        _ = Assert(_frozen is null || _dialog.IsOpened());
+        _frozen = Options.IsOpened() && _settings.Visible && Report(false) is { Length: > 0 } shown ? shown : null;
+        _ = Assert(_frozen is null || Options.IsOpened());
     }
 
     // What the panels showed: every row as its panel measured it at the end of its last interval. Read live instead, a window opened by
     // '.komet' (a key event, before the frame renders) on the frame after an interval's end saw a window of 0 frames, about 1 open in
-    // 12 at 50 fps: FPS 0, every pass 0 ms, mod shares at Infinity %.
-    private string ShownText()
+    // 12 at 50 fps: FPS 0, every pass 0 ms, mod shares at Infinity %. means: the bench's means per row, the final rows as they stand.
+    // Then the ledger's latest frames: kept across intervals, and the opening frame is quiet.
+    private string Report(bool means)
     {
         if (!Assert(_panels.Count == PanelCount)) return "";
         var text = new StringBuilder();
-        foreach (var panel in _panels.Bounded(PanelCount)) panel.AppendShown(text);
-        if (text.Length > 0)
-            AppendSpikes(text); // the ledger's latest frames: kept across intervals, and the opening frame is quiet
+        foreach (var panel in _panels.Bounded(PanelCount)) panel.AppendShown(text, means);
+        if (text.Length > 0) AppendSpikes(text);
         return text.ToString();
     }
 
@@ -206,13 +205,12 @@ internal sealed partial class HudOverlay : IRenderer
         var measuring = _benchLeft > 0 || _settings.Visible;
         var (patched, epoch) = (ModTimes.Patched, Counting.Epoch);
         Counting.Hud = _benchLeft > 0 || _settings is { Visible: true, ShowCounters: true };
-        if (Counting.Epoch !=
-            epoch) // counting starts: the first refresh covers the span since, not a NaN across the pause
-            foreach (var panel in _panels.Bounded(PanelCount))
-                panel.Prime();
+        // counting starts: the first refresh covers the span since, not a NaN across the pause
+        if (Counting.Epoch != epoch)
+            foreach (var panel in _panels.Bounded(PanelCount)) panel.Prime();
         ModTimes.Enabled = _benchLeft > 0 || _settings is { Visible: true, ShowModTimes: true };
-        if (ModTimes.Patched != patched)
-            Quiet(); // the first switch-on patches the engine on this frame: 3-29 ms of Harmony in tests
+        // the first switch-on patches the engine on this frame: 3-29 ms of Harmony in tests
+        if (ModTimes.Patched != patched) Quiet();
         FrameClock.Stats = measuring;
         var profiler = _capi.World.FrameProfiler;
         if (!NotNull(profiler) || !Finite(_benchLeft)) return;
@@ -226,20 +224,9 @@ internal sealed partial class HudOverlay : IRenderer
     // What the panels show, frozen when this window opened, or now when the HUD was hidden then; hidden, nothing is measured to quote
     private void Dump()
     {
-        var shown = _frozen ?? (_settings.Visible ? ShownText() : "");
+        var shown = _frozen ?? (_settings.Visible ? Report(false) : "");
         if (shown.Length > 0) Copy(shown, "hud-dumped");
         else _capi.ShowChatMessage(HudText.Translate("hud-dump-hidden"));
-    }
-
-    // The bench's means per row, the final rows as they stand
-    private string BenchText()
-    {
-        if (!Assert(_panels.Count > 0)) return "";
-        var text = new StringBuilder();
-        foreach (var panel in _panels.Bounded(PanelCount))
-            panel.AppendMeans(text.Length == 0 ? text : text.Append("\n\n"));
-        AppendSpikes(text);
-        return text.ToString();
     }
 
     private void Copy(string report, string message)
@@ -275,7 +262,7 @@ internal sealed partial class HudOverlay : IRenderer
         _benchLeft -= elapsed;
         if (_benchLeft > 0) return;
         _spikes.Rank(); // the report reads the ledger's rows, which otherwise wait for the next interval
-        Copy(BenchText(), "hud-bench-done");
+        Copy(Report(true), "hud-bench-done");
         UpdateProfiler();
     }
 
@@ -283,15 +270,15 @@ internal sealed partial class HudOverlay : IRenderer
     private void OnMouseDown(MouseEvent e)
     {
         if (!_settings.Visible || _capi.Input.MouseGrabbed || e.Button != EnumMouseButton.Left ||
-            _dialog.Contains(e.X, e.Y) || _verify.Contains(e.X, e.Y)) return;
-        if (_dragging >= 0)
-            EndDrag(); // its mouse up went elsewhere: GuiManager and the event API stop at the first handler
+            Options.Contains(e.X, e.Y) || _verify.Contains(e.X, e.Y)) return;
+        // its mouse up went elsewhere: GuiManager and the event API stop at the first handler
+        if (_dragging >= 0) EndDrag();
         var index = _layout.Topmost(e.X, e.Y);
         if (index < 0 || !Index(index, _panels.Count)) return;
         var panel = _panels[index];
         var now = Environment.TickCount64;
-        if (panel.Log is { } log && index == _lastClick &&
-            now - _lastClickTime < HudSettings.DoubleClickMs) // double click grows / shrinks a log panel
+        // double click grows / shrinks a log panel
+        if (panel.Log is { } log && index == _lastClick && now - _lastClickTime < HudSettings.DoubleClickMs)
         {
             log.Expanded = !log.Expanded;
             Refresh(panel);
@@ -316,7 +303,7 @@ internal sealed partial class HudOverlay : IRenderer
         }
 
         var (panel, frame) = (_panels[_dragging], Frame());
-        double step = scaled(HudSettings.SnapGrid), distance = scaled(HudSettings.SnapDistance);
+        double step = scaled(HudSettings.SnapStep), distance = scaled(HudSettings.SnapDistance);
         panel.Pin(_layout.Snap(e.X - _grabX, panel.Width, true, frame, step, distance),
             _layout.Snap(e.Y - _grabY, panel.Height, false, frame, step, distance));
         e.Handled = true;
@@ -366,10 +353,9 @@ internal sealed partial class HudOverlay : IRenderer
         if (!Assert(deltaTime is >= 0 and < 10)) return; // NaN fails too
         var profiler = _capi.World.FrameProfiler;
         var steady = Steady();
+        // otherwise the clock's first frame, or its patch is missing: the engine's dt alone
         if (FrameClock.Completed != _consumed) Record(FrameClock.Last, profiler, steady);
-        else
-            _frames.Record(deltaTime, float.NaN,
-                steady); // the clock's first frame, or its patch is missing: the engine's dt alone
+        else _frames.Record(deltaTime, float.NaN, steady);
 
         (_sinceInterval, _frameTotal, _elapsedTotal) =
             (_sinceInterval + deltaTime, _frameTotal + 1, _elapsedTotal + deltaTime);
@@ -406,8 +392,8 @@ internal sealed partial class HudOverlay : IRenderer
             return false;
         }
 
-        if (Environment.TickCount64 < _quietUntil || _mods is { Walking: true, Walked: false })
-            return false; // Komet's own warm-up; the first mod walk runs on a pool thread but competes for the cores
+        // Komet's own warm-up; the first mod walk runs on a pool thread but competes for the cores
+        if (Environment.TickCount64 < _quietUntil || _mods is { Walking: true, Walked: false }) return false;
         if (!_resumed) return true;
         _resumed = false;
         return false;
@@ -435,7 +421,7 @@ internal sealed partial class HudOverlay : IRenderer
             if (_sampling?.IsCompleted != false) _sampling = Task.Run(SampleSlow);
         }
 
-        if (_settings.Visible) RefreshPanels(_interval);
+        if (_settings.Visible) RefreshPanels();
         if (_benchLeft > 0) Bench(_sinceInterval);
         foreach (var panel in _panels.Bounded(PanelCount)) panel.ResetPeaks();
         _frames.Reset();
@@ -447,10 +433,9 @@ internal sealed partial class HudOverlay : IRenderer
     private void RequestMods()
     {
         if (!_levelReady || _modsShown || _settings is not { Visible: true, ShowMods: true } ||
-            !NotNull(_capi.ModLoader))
-            return;
+            !NotNull(_capi.ModLoader)) return;
         _modsShown = true; // Harmony's registry rarely changes after load
-        _mods.Request(_capi, "komet");
+        _mods.Request(_capi, KometModSystem.ModId);
     }
 
     private void LevelReady()
@@ -475,18 +460,18 @@ internal sealed partial class HudOverlay : IRenderer
     // Every due panel is measured before any is drawn, so all of them see the column's final width; a panel that its column has
     // outgrown is redrawn even when not due, and one never drawn is due at once. The drawing itself is queued, one panel per frame.
     // Pinned panels keep their own width.
-    private void RefreshPanels(int interval)
+    private void RefreshPanels()
     {
+        var interval = _interval;
         if (!Assert(interval >= 0) || !Assert(_panels.Count == PanelCount)) return;
-        _ = _fonts.Update(_settings.FontScale);
+        _fonts.Update(_settings.FontScale);
         Span<bool> due = stackalloc bool[PanelCount];
         for (var i = 0; i < Math.Min(_panels.Count, PanelCount); i++)
             due[i] = _panels[i].Measure(interval, _settings.Detail, _panels[i] is { Visible: true, Ready: false });
         for (var i = 0; i < Math.Min(_panels.Count, PanelCount); i++)
         {
             var panel = _panels[i];
-            if (!due[i] && (!panel.Visible || panel.Width >= Width(panel))) continue;
-            _queue.Add(i);
+            if (due[i] || (panel.Visible && panel.Width < Width(panel))) _queue.Add(i);
         }
     }
 
@@ -535,22 +520,18 @@ internal sealed partial class HudOverlay : IRenderer
         if (_dragging >= 0) _snap.Draw();
         for (var i = 0; i < PanelCount; i++)
             _boxes[i] = new PanelBox(_panels[i] is { Visible: true, Ready: true }, _panels[i].Column, _panels[i].Width,
-                _panels[i].Height,
-                _panels[i].Pinned);
+                _panels[i].Height, _panels[i].Pinned);
         _ = _layout.Update(_boxes, frame);
         for (var layer = 0; layer < PanelLayout.Layers; layer++)
-        {
             for (var i = 0; i < PanelCount; i++)
                 if (_layout.Layer(i) == layer && _layout.Drawn(i) is var at)
                     _panels[i].Draw(at.X, at.Y);
-        }
     }
 
     private LayoutFrame Frame()
     {
+        // the slack is the padding: an overlap within it hides no text
         return new LayoutFrame(_capi.Render.FrameWidth, _capi.Render.FrameHeight, _settings.Corner,
-            scaled(HudSettings.PanelGap),
-            scaled(HudSettings.ScreenMargin), scaled(HudPanel.Padding),
-            _dragging); // an overlap within the padding hides no text
+            scaled(HudSettings.PanelGap), scaled(HudSettings.ScreenMargin), scaled(HudPanel.Padding), _dragging);
     }
 }

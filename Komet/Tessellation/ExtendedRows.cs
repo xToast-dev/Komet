@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -34,20 +33,9 @@ namespace Komet.Tessellation;
 // just the same.
 internal static class ExtendedRows
 {
-    private const int RowLength = 32,
-        RowCount = 1024,
-        Cells = RowLength * RowCount,
-        MaxPlanes = 15,
-        FasterSites = 4,
-        RangeSites = 1;
-
-    private const int LightLevels = 32,
-        Hues = 64,
-        Saturations = 8,
-        FieldPlanes = 4,
-        BytePlanes = 8,
-        SpreadEntries = 256,
-        MaxDecoders = 16;
+    private const int RowLength = 32, RowCount = 1024, Cells = RowLength * RowCount, MaxPlanes = 15, FieldPlanes = 4;
+    private const int FasterSites = 4, RangeSites = 1, MaxDecoders = 16;
+    private const int LightLevels = 32, Hues = 64, Saturations = 8, BytePlanes = 8, SpreadEntries = 256;
 
     private const string ClientData = "Vintagestory.Client.NoObf.ClientChunkData, VintagestoryLib";
 
@@ -65,9 +53,8 @@ internal static class ExtendedRows
     // Totals while Counting.Hud, every tessellation thread
     private static readonly Tally Counts = new(FallbacksCounter + 1);
 
-    [ThreadStatic]
-    private static ColorUtil.LightUtil?
-        _converter; // per tesselator, so per thread: the last one whose tables were long enough
+    // Per tesselator, so per thread: the last one whose tables were long enough
+    [ThreadStatic] private static ColorUtil.LightUtil? _converter;
 
     private static MethodBase?[] _bypassed = [];
 
@@ -88,7 +75,7 @@ internal static class ExtendedRows
         if (!NotNull(harmony) || !NotNull(target) || !TessSeams.Accessible(nameof(ExtendedRows), logger) ||
             !EngineShape.Matches(Shaped(), shape, nameof(ExtendedRows), logger)) return;
         _bypassed = [.. EngineMethods(), .. Seams()];
-        _ = NotNull(harmony.Patch(target, transpiler: new HarmonyMethod(typeof(ExtendedRows), nameof(Rewrite))));
+        _ = NotNull(harmony.Patch(target, transpiler: new HarmonyMethod(Rewrite)));
         Recheck();
     }
 
@@ -98,14 +85,13 @@ internal static class ExtendedRows
         if (!Rewritten) return;
         var foreign = EngineShape.Foreign(_bypassed, EngineShape.Kinds.All, null, typeof(ExtendedRows),
             typeof(TessSafety));
-        Blocked = TessSeams.Report(nameof(ExtendedRows), Blocked, foreign);
+        Blocked = EngineShape.Report(TessSeams.Logger, nameof(ExtendedRows), Blocked, foreign);
     }
 
     internal static MethodInfo? Target()
     {
         var method = TessSeams.Method(typeof(ChunkTesselator), "BuildExtendedChunkData", typeof(ClientChunk),
-            typeof(int), typeof(int),
-            typeof(int), typeof(bool), typeof(bool));
+            typeof(int), typeof(int), typeof(int), typeof(bool), typeof(bool));
         return NotNull(method) && Assert(method.ReturnType == typeof(void)) ? method : null;
     }
 
@@ -192,31 +178,27 @@ internal static class ExtendedRows
             if (code[i].Calls(engineFaster) && Assert(Il.Substitute(code, i, faster))) sites++;
             else if (code[i].Calls(engineRange) && Assert(Il.Substitute(code, i, range))) sites++;
 
-        _ = Assert(sites is 0 or FasterSites +
-                                 RangeSites); // all or none: every site has the stack effect of Faster and Range
+        // All or none: every site has the stack effect of Faster and Range
+        _ = Assert(sites is 0 or FasterSites + RangeSites);
         Rewritten = sites > 0; // rows run from any substituted site, so Recheck has to guard them
         return code;
     }
 
     // Stands in for data.GetRange_Faster(...): 32 or 2 cells of one row of the chunk
     internal static void Faster(ChunkData data, Block[] blocksExt, Block[] fluidsExt, int[] rgbsExt, int extIndex3D,
-        int index3D,
-        int index3DEnd, Block[] blocksFast, ColorUtil.LightUtil lightConverter)
+        int index3D, int index3DEnd, Block[] blocksFast, ColorUtil.LightUtil lightConverter)
     {
-        _ = Assert(index3DEnd - index3D <= RowLength) &&
-            NotNull(data); // an empty range is the engine's (it writes one cell)
+        // An empty range is the engine's (it writes one cell)
+        _ = Assert(index3DEnd - index3D <= RowLength) && NotNull(data);
         if (!Row(data, false, blocksExt, fluidsExt, rgbsExt, extIndex3D, index3D, index3DEnd, blocksFast,
                 lightConverter))
-        {
             EngineFaster(data, blocksExt, fluidsExt, rgbsExt, extIndex3D, index3D, index3DEnd, blocksFast,
                 lightConverter);
-        }
     }
 
     // Stands in for data.GetRange(...): whole rows of the neighbours' shell
     internal static void Range(ChunkData data, Block[] blocksExt, Block[] fluidsExt, int[] rgbsExt, int extIndex3D,
-        int index3D,
-        int index3DEnd, Block[] blocksFast, ColorUtil.LightUtil lightConverter)
+        int index3D, int index3DEnd, Block[] blocksFast, ColorUtil.LightUtil lightConverter)
     {
         _ = Assert(index3DEnd - index3D <= RowLength) && NotNull(data);
         if (!Row(data, true, blocksExt, fluidsExt, rgbsExt, extIndex3D, index3D, index3DEnd, blocksFast,
@@ -227,15 +209,13 @@ internal static class ExtendedRows
 
     // True when the row was decoded into the arrays; false leaves them unwritten for the engine's method
     private static bool Row(ChunkData data, bool range, Block[] blocksExt, Block[] fluidsExt, int[] rgbsExt, int ext,
-        int index3D,
-        int end, Block[] blocksFast, ColorUtil.LightUtil converter)
+        int index3D, int end, Block[] blocksFast, ColorUtil.LightUtil converter)
     {
         if (!Enabled || Blocked) return false;
         var n = end - index3D;
         if (!Callable(data, blocksExt, fluidsExt, rgbsExt, ext, index3D, end, blocksFast, converter) ||
             !Decode(data, range, index3D, blocksExt.AsSpan(ext + 1, n), fluidsExt.AsSpan(ext + 1, n),
-                rgbsExt.AsSpan(ext + 1, n),
-                blocksFast, converter))
+                rgbsExt.AsSpan(ext + 1, n), blocksFast, converter))
         {
             if (Counting.Hud) Counts.Add(FallbacksCounter, 1);
             return false;
@@ -249,8 +229,7 @@ internal static class ExtendedRows
 
     // A row inside one row of the chunk, 1 to 32 cells, arrays of exactly their declared type and long enough for every store
     private static bool Callable(ChunkData? data, Block[]? blocksExt, Block[]? fluidsExt, int[]? rgbsExt, int ext,
-        int index3D, int end,
-        Block[]? blocksFast, ColorUtil.LightUtil? converter)
+        int index3D, int end, Block[]? blocksFast, ColorUtil.LightUtil? converter)
     {
         if (data is null || data.GetType() != ClientType || blocksFast is null || !Converts(converter)) return false;
         if (blocksExt?.GetType() != typeof(Block[]) || fluidsExt?.GetType() != typeof(Block[]) ||
@@ -279,8 +258,7 @@ internal static class ExtendedRows
     // written. Nothing is written unless every cell decoded.
     [SkipLocalsInit]
     private static bool Decode(ChunkData data, bool range, int index3D, Span<Block> blocks, Span<Block> fluids,
-        Span<int> rgbs,
-        Block[] blocksFast, ColorUtil.LightUtil converter)
+        Span<int> rgbs, Block[] blocksFast, ColorUtil.LightUtil converter)
     {
         var n = blocks.Length;
         if (!Assert(n is > 0 and <= RowLength) || !Assert(fluids.Length == n && rgbs.Length == n)) return false;
@@ -319,8 +297,7 @@ internal static class ExtendedRows
         }
 
         if (!ok || !Fits(mode, table, blocksFast, solid, solidSame) ||
-            !Fits(SolidMode.Values, null, blocksFast, fluid, fluidSame))
-            return false;
+            !Fits(SolidMode.Values, null, blocksFast, fluid, fluidSame)) return false;
         // Built on the stack and copied in one move: the copy marks the cards of the range once instead of once per cell
         var (solidRow, fluidRow) = (new BlockRow(), new BlockRow());
         Span<Block> solidCells = solidRow, fluidCells = fluidRow;
@@ -351,15 +328,7 @@ internal static class ExtendedRows
             mode = SolidMode.Values;
             var bits = TessSeams.Bitsize(layer);
             if (bits == 0) return Zero(solid, out same); // GetUnsafe: 0 without looking at the palette
-            var kind = bits switch
-            {
-                1 => Decoder.One,
-                2 => Decoder.Two,
-                3 => Decoder.Three,
-                4 => Decoder.Four,
-                5 => Decoder.Five,
-                _ => Decoder.UnsafeGeneral
-            };
+            var kind = bits is > 0 and <= 5 ? Decoder.Zero + (byte)bits : Decoder.UnsafeGeneral;
             return Words(layer, kind, row, words, out var count) &&
                    Lookup(layer.palette, words[..count], x0, solid, out same);
         }
@@ -417,23 +386,17 @@ internal static class ExtendedRows
         int count;
         bool read;
         int[]? palette;
-        if (kind == Decoder.One)
+        // GetFromBits2..5 and GetGeneralCase read the words and the palette under the lock
+        var locked = kind != Decoder.One;
+        if (locked) layer.readWriteLock.AcquireReadLock();
+        try
         {
             read = Words(layer, kind, row, words, out count);
             palette = layer.palette;
         }
-        else
+        finally
         {
-            layer.readWriteLock.AcquireReadLock();
-            try
-            {
-                read = Words(layer, kind, row, words, out count);
-                palette = layer.palette; // GetFromBits2..5 and GetGeneralCase read it under the lock as well
-            }
-            finally
-            {
-                layer.readWriteLock.ReleaseReadLock();
-            }
+            if (locked) layer.readWriteLock.ReleaseReadLock();
         }
 
         return read && Lookup(palette, words[..count], x0, values, out same);
@@ -452,11 +415,7 @@ internal static class ExtendedRows
     {
         count = kind switch
         {
-            Decoder.One => 1,
-            Decoder.Two => 2,
-            Decoder.Three => 3,
-            Decoder.Four => 4,
-            Decoder.Five => 5,
+            >= Decoder.One and <= Decoder.Five => kind - Decoder.Zero,
             Decoder.General or Decoder.UnsafeGeneral => TessSeams.Bitsize(layer),
             _ => -1
         };
@@ -508,8 +467,7 @@ internal static class ExtendedRows
 
         if (!Assert(words.Length <= MaxPlanes) || palette.Length < 1 << words.Length)
             for (var x = 0; x < Math.Min(values.Length, RowLength); x++)
-                if ((uint)values[x] >= (uint)palette.Length)
-                    return false;
+                if ((uint)values[x] >= (uint)palette.Length) return false;
         for (var x = 0; x < Math.Min(values.Length, RowLength); x++) values[x] = palette[values[x]];
         return true;
     }
@@ -587,11 +545,8 @@ internal static class ExtendedRows
     {
         var table = new ulong[SpreadEntries];
         for (var value = 0; value < SpreadEntries; value++)
-        {
             for (var bit = 0; bit < BytePlanes; bit++)
-                if ((value & (1 << bit)) != 0)
-                    table[value] |= 1UL << (8 * bit);
-        }
+                if ((value & (1 << bit)) != 0) table[value] |= 1UL << (8 * bit);
         return Assert(table[255] == ulong.MaxValue / 255) && Assert(table[1] == 1) ? table : new ulong[SpreadEntries];
     }
 
@@ -602,40 +557,25 @@ internal static class ExtendedRows
         var limit = (uint)(mode == SolidMode.Table ? table?.Length ?? 0 : blocksFast.Length);
         if (same) return (uint)values[0] < limit;
         for (var x = 0; x < Math.Min(values.Length, RowLength); x++)
-            if ((uint)values[x] >= limit)
-                return false;
+            if ((uint)values[x] >= limit) return false;
         return Assert(limit > 0);
     }
 
     private static void WriteSolid(SolidMode mode, Block? air, Block[]? table, Block[] blocksFast,
-        ReadOnlySpan<int> solid, bool same,
-        Span<Block> blocks)
+        ReadOnlySpan<int> solid, bool same, Span<Block> blocks)
     {
-        if (mode == SolidMode.Air)
-        {
-            blocks.Fill(air!);
-            return;
-        }
-
-        if (mode == SolidMode.Values || !NotNull(table))
-        {
-            WriteBlocks(blocksFast, solid, same, blocks);
-            return;
-        }
-
-        if (same) blocks.Fill(table[solid[0]]);
-        else
-            for (var x = 0; x < Math.Min(blocks.Length, RowLength); x++)
-                blocks[x] = table[solid[x]];
+        if (mode == SolidMode.Air) blocks.Fill(air!);
+        else WriteBlocks(mode == SolidMode.Values || !NotNull(table) ? blocksFast : table, solid, same, blocks);
     }
 
-    private static void WriteBlocks(Block[] blocksFast, ReadOnlySpan<int> values, bool same, Span<Block> blocks)
+    // lookup[value] per cell: blocksFast or the palette table
+    private static void WriteBlocks(Block[] lookup, ReadOnlySpan<int> values, bool same, Span<Block> blocks)
     {
         if (!Assert(values.Length == blocks.Length)) return;
-        if (same) blocks.Fill(blocksFast[values[0]]);
+        if (same) blocks.Fill(lookup[values[0]]);
         else
             for (var x = 0; x < Math.Min(blocks.Length, RowLength); x++)
-                blocks[x] = blocksFast[values[x]];
+                blocks[x] = lookup[values[x]];
     }
 
     // ToRgba((ushort)light, (light >> 16) & 7) per cell, once per run of equal light values: ToRgba is a pure function of its arguments
@@ -669,21 +609,18 @@ internal static class ExtendedRows
         var method = get.Method;
         var decoders = Decoders;
         for (var k = 0; k < Math.Min(decoders.Length, MaxDecoders); k++)
-            if (ReferenceEquals(decoders[k].Method, method))
-                return decoders[k].Kind;
+            if (ReferenceEquals(decoders[k].Method, method)) return decoders[k].Kind;
         return Decoder.Unknown;
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "GetRange_Faster")]
     private static extern void EngineFaster([UnsafeAccessorType(ClientData)] object data, Block[] blocksExt,
-        Block[] fluidsExt,
-        int[] rgbsExt, int extIndex3D, int index3D, int index3DEnd, Block[] blocksFast,
+        Block[] fluidsExt, int[] rgbsExt, int extIndex3D, int index3D, int index3DEnd, Block[] blocksFast,
         ColorUtil.LightUtil lightConverter);
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "GetRange")]
     private static extern void EngineRange([UnsafeAccessorType(ClientData)] object data, Block[] blocksExt,
-        Block[] fluidsExt,
-        int[] rgbsExt, int extIndex3D, int index3D, int index3DEnd, Block[] blocksFast,
+        Block[] fluidsExt, int[] rgbsExt, int extIndex3D, int index3D, int index3DEnd, Block[] blocksFast,
         ColorUtil.LightUtil lightConverter);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "light2")]
@@ -725,6 +662,7 @@ internal static class ExtendedRows
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "satLevels")]
     private static extern ref byte[]? SatLevels(ColorUtil.LightUtil converter);
 
+    // One..Five follow Zero in order: Solid and Words count planes by their distance from Zero
     private enum Decoder : byte
     {
         Unknown,
@@ -747,8 +685,6 @@ internal static class ExtendedRows
     }
 
     [InlineArray(RowLength)]
-    [SuppressMessage("Major Code Smell", "S1144",
-        Justification = "the inline array's element, reached through its span")]
     private struct BlockRow
     {
         private Block _cell;

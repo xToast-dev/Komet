@@ -8,20 +8,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Using Include="Vintagestory.API.Client"/>
-        <Using Include="Vintagestory.API.Common"/>
-        <Using Include="Vintagestory.API.Config"/>
         <Using Include="Vintagestory.API.Client.GuiElement" Static="true"/>
         <Using Include="Komet.Contracts" Static="true"/>
-        <Using Include="Komet.Core"/>
-        <Using Include="Komet.Rendering"/>
-        <Using Include="Komet.Chunks"/>
-        <Using Include="Komet.Tessellation"/>
-        <Using Include="Komet.Shapes"/>
-        <Using Include="Komet.World"/>
-        <Using Include="Komet.Hud"/>
-        <Using Include="Komet.Diagnostics"/>
-        <Using Include="Komet.Bench"/>
         <InternalsVisibleTo Include="Komet.Test"/>
     </ItemGroup>
 
@@ -47,6 +35,7 @@
 
     <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build of this project; the lang files are their input -->
     <ItemGroup>
+        <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
         <AdditionalFiles Include="assets/**/lang/*.json"/>
     </ItemGroup>
 

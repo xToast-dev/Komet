@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Diagnostics;
 
@@ -48,8 +49,7 @@ internal sealed partial class ResourceStats
             Measure();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException
-                                      or Win32Exception
-                                      or NotSupportedException)
+                                      or Win32Exception or NotSupportedException)
         {
             _failed = true;
             throw;
@@ -108,15 +108,14 @@ internal sealed partial class ResourceStats
         if (!Assert(TotalRamMb > 0) || !Assert(AvailableRamMb <= TotalRamMb)) return;
 
         using var stat = File.OpenText("/proc/stat");
-        var fields =
-            (stat.ReadLine() ?? "").Split(' ',
-                StringSplitOptions.RemoveEmptyEntries); // cpu user nice system idle iowait …
+        // cpu user nice system idle iowait …
+        var fields = (stat.ReadLine() ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (!Assert(fields.Length >= 8) || !Assert(fields[0] == "cpu")) return;
         ulong total = 0, idle = 0;
         for (var i = 1; i < Math.Min(fields.Length, MaxStatFields); i++)
         {
-            if (!Assert(ulong.TryParse(fields[i], NumberStyles.Integer, CultureInfo.InvariantCulture,
-                    out var value))) return;
+            if (!Assert(ulong.TryParse(fields[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)))
+                return;
             total += value;
             if (i is 4 or 5) idle += value; // idle and iowait
         }
@@ -147,14 +146,8 @@ internal sealed partial class ResourceStats
     private void UpdateSystemCpu(ulong busy, ulong total)
     {
         if (!Assert(busy <= total)) return;
-        if (!Assert(total >= _lastTotal) || !Assert(busy >= _lastBusy))
-        {
-            (_lastBusy, _lastTotal) = (busy, total);
-            return;
-        }
-
-        var dTotal = total - _lastTotal;
-        if (_lastTotal != 0 && dTotal > 0) SystemCpuPercent = 100.0 * (busy - _lastBusy) / dTotal;
+        if (Assert(total >= _lastTotal) && Assert(busy >= _lastBusy) && _lastTotal != 0 && total > _lastTotal)
+            SystemCpuPercent = 100.0 * (busy - _lastBusy) / (total - _lastTotal);
         (_lastBusy, _lastTotal) = (busy, total);
     }
 
@@ -173,12 +166,106 @@ internal sealed partial class ResourceStats
     {
         public uint dwLength, dwMemoryLoad;
 
-        public ulong ullTotalPhys,
-            ullAvailPhys,
-            ullTotalPageFile,
-            ullAvailPageFile,
-            ullTotalVirtual,
-            ullAvailVirtual,
+        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual,
             ullAvailExtendedVirtual;
+    }
+}
+
+// Timer query around the whole frame; time the GPU spends waiting for the CPU counts too. Begin/EndQuery run every frame and cost
+// nothing to wait for, but every glGet* returns a value, which Mesa's glthread can only give after its driver thread has drained
+// the queue: a sync of ~10 µs. So the result is read once per HUD interval, from the oldest of four queries: three frames old,
+// flushed by the swaps since and long complete, so radeonsi answers it without flushing or waiting on the GPU.
+internal sealed class GpuStats : IDisposable
+{
+    private const int Ring = 4, MaxExtensions = 4096;
+
+    // GL_NVX_gpu_memory_info, KB. NVIDIA and Mesa both give the card's own VRAM as DEDICATED; TOTAL_AVAILABLE adds the GTT on Mesa,
+    // which made "used" look like 21 GB on a 16 GB card. CURRENT_AVAILABLE is what the whole device leaves free, other processes included.
+    private const GetPName Dedicated = (GetPName)0x9047, Available = (GetPName)0x9049, Evictions = (GetPName)0x904A;
+    private readonly int[] _queries = new int[Ring];
+    private int _frame, _lastEvictions = -1;
+    private long _lastVramSample;
+    private bool _open;
+    private bool? _vram; // GL_NVX_gpu_memory_info is offered, looked up once
+
+    public double Ms { get; private set; }
+    public double VramUsedMb { get; private set; } = double.NaN;
+    public double VramTotalMb { get; private set; } = double.NaN;
+
+    // The driver moved buffers out of VRAM: a stall class of its own
+    public double EvictionsPerSec { get; private set; } = double.NaN;
+
+    public void Dispose()
+    {
+        if (_queries[0] != 0) GL.DeleteQueries(Ring, _queries);
+        Array.Clear(_queries);
+        _open = false;
+    }
+
+    public void Begin()
+    {
+        if (!Assert(!_open)) GL.EndQuery(QueryTarget.TimeElapsed); // End() of the previous frame was skipped
+        if (_queries[0] == 0) GL.GenQueries(Ring, _queries);
+        if (!Assert(_queries[0] != 0) || !Assert(_queries[Ring - 1] != 0)) return;
+        GL.BeginQuery(QueryTarget.TimeElapsed, _queries[_frame % Ring]);
+        _open = true;
+    }
+
+    public void End()
+    {
+        if (!_open) return;
+        GL.EndQuery(QueryTarget.TimeElapsed);
+        _open = false;
+        _frame++;
+        _ = Assert(_frame > 0);
+    }
+
+    // Once per interval. The frame in flight owns slot _frame % Ring; the oldest ended one is the slot the next Begin reuses.
+    public void Sample()
+    {
+        if (_frame < Ring) return; // not three ended frames yet
+        var oldest = _queries[(_frame + 1) % Ring];
+        if (!Assert(oldest != 0)) return;
+        GL.GetQueryObject(oldest, GetQueryObjectParam.QueryResultAvailable, out int ready);
+        // After a stall the GPU is the slow side and the read would block the main thread
+        if (!Assert(ready is 0 or 1) || ready == 0) return;
+        GL.GetQueryObject(oldest, GetQueryObjectParam.QueryResult, out long nanoseconds);
+        if (!Assert(nanoseconds is >= 0 and < 60_000_000_000)) return; // a frame never takes a minute
+        Ms = nanoseconds / 1e6;
+    }
+
+    // Three more syncs, so only while the system panel shows the values (or a bench records them). Hidden, they are dropped: the
+    // panel or a bench then starts from a fresh sample, not from stale values and an eviction rate across the gap.
+    public void SampleVram(bool shown)
+    {
+        if (!shown)
+        {
+            (VramUsedMb, VramTotalMb, EvictionsPerSec, _lastEvictions) = (double.NaN, double.NaN, double.NaN, -1);
+            return;
+        }
+
+        _vram ??= Offered("GL_NVX_gpu_memory_info");
+        if (_vram == false) return;
+        GL.GetInteger(Dedicated, out var totalKb);
+        GL.GetInteger(Available, out var freeKb);
+        GL.GetInteger(Evictions, out var evictions); // cumulative since the device came up
+        if (!Assert(totalKb > 0) || !Assert(freeKb >= 0) || !Assert(freeKb <= totalKb)) return;
+        (VramTotalMb, VramUsedMb) = (totalKb / 1024.0, (totalKb - freeKb) / 1024.0);
+        var now = Stopwatch.GetTimestamp();
+        var seconds = (now - _lastVramSample) / (double)Stopwatch.Frequency;
+        if (_lastEvictions >= 0 && evictions >= _lastEvictions && seconds > 0)
+            EvictionsPerSec = (evictions - _lastEvictions) / seconds;
+        (_lastEvictions, _lastVramSample) = (Math.Max(0, evictions), now); // a wrap starts the count over
+    }
+
+    // The way ClientPlatformWindows tests its extensions; glGetError would take an error the engine left for its own CheckGlError
+    internal static bool Offered(string extension)
+    {
+        var count = GL.GetInteger(GetPName.NumExtensions);
+        if (!Assert(count > 0)) return false;
+        for (var i = 0; i < Math.Min(count, MaxExtensions); i++)
+            if (GL.GetString(StringNameIndexed.Extensions, i) == extension)
+                return true;
+        return false;
     }
 }

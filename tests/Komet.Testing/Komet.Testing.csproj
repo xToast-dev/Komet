@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Test rigs for Vintage Story mods: the engine's chunk tesselator, lighting and shapes without a running game, stand-ins for the
+         client API, Harmony and loggers. Independent of Komet: any mod's NUnit tests can reference it. -->
+    <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <IsTestProject>false</IsTestProject>
+        <CopyDocumentationFileToOutputDirectory>true</CopyDocumentationFileToOutputDirectory>   <!-- dotnet pack takes it from there -->
+        <Version>2.0.0</Version>
+        <Authors>xToast</Authors>
+        <Description>NUnit test rigs for Vintage Story mods: chunk tesselator, lighting and shapes without a running game.</Description>
+        <RepositoryUrl>https://github.com/xtoast-dev/Komet</RepositoryUrl>
+    </PropertyGroup>
+
+    <!-- The game's assemblies come from the installation the tests run against, never from this library's output -->
+    <ItemGroup>
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false"/>
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false"/>
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false"/>
+        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false"/>
+    </ItemGroup>
+
+    <!-- The installation this library was built against: GameInstall's fallback when VINTAGE_STORY is not set -->
+    <ItemGroup>
+        <AssemblyMetadata Include="VsInstall" Value="$(VsInstall)"/>
+    </ItemGroup>
+
+</Project>

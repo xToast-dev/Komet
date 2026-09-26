@@ -1,23 +1,12 @@
 # Game assemblies for the CI build
 
-`Komet.csproj` compiles against Vintage Story's own assemblies. They are not on a public NuGet
-feed, so the ones the build needs live here, with the kind permission of Anego Studios.
+Vintage Story's assemblies are not on NuGet, so the ones `Komet.csproj` references live here (with the kind permission of Anego
+Studios), copied byte-identical from a 1.22.7 installation. CI points `VsInstall` at this folder and checks `SHA256SUMS` first;
+locally `VsInstall` defaults to `/opt/vintagestory`.
 
-`.github/workflows/build.yml` points `VsInstall` at this folder; the csproj resolves its
-references from `$(VsInstall)`. Locally nothing changes: `VsInstall` defaults to
-`/opt/vintagestory`, i.e. a normal game installation.
-
-Only what `Komet.csproj` references is here, in the layout of the game folder. `SHA256SUMS`
-lists every file with its hash; CI checks it before the build, so a missing or changed file
-fails by name. Copied from a 1.22.7 installation, byte-identical to the source.
-
-To check the files here, or a fresh game drop before copying it in, run from inside this folder
-or the game folder:
+After a game update or a new reference: replace or add the dlls, regenerate `SHA256SUMS`, update the `game` dependency in
+`Komet/modinfo.json`, and commit together.
 
 ```bash
-sha256sum --check --strict /path/to/.github/vintagestory/SHA256SUMS
+sha256sum --check --strict SHA256SUMS
 ```
-
-A new reference in `Komet.csproj` needs its dll added here and a line in `SHA256SUMS`. After a
-game update: replace the files, regenerate `SHA256SUMS`, update the `game` dependency in
-`Komet/modinfo.json`, and commit together.

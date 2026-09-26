@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -13,14 +12,13 @@ internal sealed class RenderPassStats
     // The time between frames, ranked in with the marks; '~' never starts an engine mark
     public const string Outside = "~outside";
 
-    private const int MaxRanges = 64;
+    // Child ranges read per frame, here and in the bench's spike marks
+    internal const int MaxRanges = 64;
+
     private const string StagePrefix = "beginrenderstage-";
 
-    private static readonly string[] Keys =
-    [
-        "gametick", "before", "shadows", "opaque", "transparent", "postprocess", "gui", "done", "mainthread", "swap",
-        "sleep", "outside", "other"
-    ];
+    // The passes' names in lower case, the suffixes of their hud-pass- lang keys
+    private static readonly string[] Keys = Array.ConvertAll(Enum.GetNames<Pass>(), pass => pass.ToLowerInvariant());
 
     private readonly Comparison<int> _byCost;
 
@@ -32,8 +30,7 @@ internal sealed class RenderPassStats
 
     private readonly int[] _order = new int[Keys.Length];
 
-    private readonly double[] _sumMs = new double[Keys.Length],
-        _worstMs = new double[Keys.Length],
+    private readonly double[] _sumMs = new double[Keys.Length], _worstMs = new double[Keys.Length],
         _frameMs = new double[Keys.Length];
 
     private readonly (string? Name, double Ms)[][] _topMarks =
@@ -118,7 +115,7 @@ internal sealed class RenderPassStats
     {
         _hasFrame = false;
         if (frame?.Marks == null) return;
-        var profiled = ToMs(frame.ElapsedTicks);
+        var profiled = FrameClock.ToMs(frame.ElapsedTicks);
         var outside = outsideMs > 0 ? outsideMs : 0; // NaN: not measured
         var total = dtMs > 0 ? Math.Max(dtMs, profiled + outside) : profiled + outside;
         if (!Assert(profiled >= 0) || !Finite(total)) return;
@@ -151,7 +148,7 @@ internal sealed class RenderPassStats
         {
             var (code, entry) = entries.Current;
             if (!NotNull(entry)) continue;
-            var ms = ToMs(entry.ElapsedTicks);
+            var ms = FrameClock.ToMs(entry.ElapsedTicks);
             var pass = Classify(code, ref current);
             _frameMs[(int)pass] += ms;
             AddMark(pass, code, ms);
@@ -180,14 +177,14 @@ internal sealed class RenderPassStats
                 "behaviors" => Pass.GameTick,
                 _ => Pass.Other
             };
-            var ms = ToMs(range.ElapsedTicks);
+            var ms = FrameClock.ToMs(range.ElapsedTicks);
             _frameMs[(int)pass] += ms;
             TopN.Rank(_frameTop, code, ms);
             sum += ms;
             if (range.Marks == null) continue;
             using var marks = range.Marks.GetEnumerator();
             for (var j = 0; j < MaxMarks && marks.MoveNext(); j++)
-                AddMark(pass, marks.Current.Key, ToMs(marks.Current.Value.ElapsedTicks));
+                AddMark(pass, marks.Current.Key, FrameClock.ToMs(marks.Current.Value.ElapsedTicks));
         }
 
         return sum;
@@ -268,11 +265,6 @@ internal sealed class RenderPassStats
         Array.Clear(_worstTop);
     }
 
-    private static double ToMs(long ticks)
-    {
-        return Assert(ticks >= 0) ? ticks * 1000.0 / Stopwatch.Frequency : 0;
-    }
-
     private enum Pass
     {
         GameTick,
@@ -288,5 +280,27 @@ internal sealed class RenderPassStats
         Sleep,
         Outside,
         Other
+    }
+}
+
+internal static class TopN
+{
+    public const int MaxRank = 8;
+
+    // Insertion into top-N slots sorted descending: a new item enters at its rank, the last one falls off, an equal one stays behind
+    public static void Rank<T>(Span<(T? Item, double Ms)> top, T item, double ms) where T : class
+    {
+        if (!Assert(top.Length is > 0 and <= MaxRank) || !Assert(ms >= 0) || !NotNull(item)) return;
+        var slot = Math.Min(top.Length, MaxRank);
+        for (var i = 0; i < Math.Min(top.Length, MaxRank); i++)
+            if (top[i].Item is null || top[i].Ms < ms)
+            {
+                slot = i;
+                break;
+            }
+
+        if (slot == top.Length) return;
+        top[slot..^1].CopyTo(top[(slot + 1)..]);
+        top[slot] = (item, ms);
     }
 }

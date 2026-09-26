@@ -1,8 +1,9 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
+using ResolvedTable = Vintagestory.API.Datastructures.FastSmallDictionary<Vintagestory.API.Common.ShapeElement,
+    Vintagestory.API.Common.AnimationKeyFrameElement>;
 
 namespace Komet.Shapes;
 
@@ -24,16 +25,17 @@ internal static partial class AnimationFrames
     internal const ulong Fingerprint = 0xB8270BD36EBB9B8EUL;
     private const int MaxKeys = 4096, MaxPairs = 4096, MaxFrames = 1 << 16, Flags = 3, WarmUps = 3, SeamCount = 10;
 
+    // A keyframe's resolved table and the Frame AnimationKeyFrame.Resolve stamps on an element; ShapeInitMemo reads them too
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "ElementsByShapeElement")]
-    private static extern ref IDictionary<ShapeElement, AnimationKeyFrameElement> Resolved(AnimationKeyFrame key);
+    internal static extern ref IDictionary<ShapeElement, AnimationKeyFrameElement> Resolved(AnimationKeyFrame key);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "Frame")]
-    private static extern ref int At(AnimationKeyFrameElement element);
+    internal static extern ref int At(AnimationKeyFrameElement element);
 
     // Animation.GenerateAllFrames, or false where the engine has to. A shape past one of the limits is declined, not cut short.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    internal static bool Compile(Animation animation, ShapeElement[]? roots, Dictionary<int, AnimationJoint>? jointsById,
-        bool recursive = true)
+    internal static bool Compile(Animation animation, ShapeElement[]? roots,
+        Dictionary<int, AnimationJoint>? jointsById, bool recursive = true)
     {
         if (!NotNull(animation) || roots is null || jointsById is null ||
             roots.Length > ElementWalk.MaxElements) return false;
@@ -58,17 +60,15 @@ internal static partial class AnimationFrames
     // GetKeyFrameElement on one never resolved. Anything but the FastSmallDictionary AnimationKeyFrame.Resolve builds is a table
     // whose lookup this cannot vouch for.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>[]? Tables(AnimationKeyFrame[] keys,
-        int q)
+    private static ResolvedTable[]? Tables(AnimationKeyFrame[] keys, int q)
     {
         if (!NotNull(keys) || !Assert(keys.Length <= MaxKeys)) return null;
-        var tables = new FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>[keys.Length];
+        var tables = new ResolvedTable[keys.Length];
         for (var ki = 0; ki < Math.Min(keys.Length, MaxKeys); ki++)
         {
             var key = keys[ki];
             if (key is null || key.Frame >= q) return null;
-            if (Resolved(key) is not FastSmallDictionary<ShapeElement, AnimationKeyFrameElement> table) return null;
-            if (table.Count > MaxPairs) return null;
+            if (Resolved(key) is not ResolvedTable table || table.Count > MaxPairs) return null;
             tables[ki] = table;
         }
 
@@ -112,8 +112,8 @@ internal static partial class AnimationFrames
     // twice shares a slot. rows[slot][keyframe] is what GetKeyFrameElement would return there: the first entry for the element, since
     // TryGetValue scans in insertion order. A null value is one AnimationKeyFrame.Resolve cannot have made.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static bool Rows(FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>[] tables, ShapeElement[] order,
-        out int[] slotAt, out AnimationKeyFrameElement?[]?[] rows)
+    private static bool Rows(ResolvedTable[] tables, ShapeElement[] order, out int[] slotAt,
+        out AnimationKeyFrameElement?[]?[] rows)
     {
         (slotAt, rows) = ([], []);
         if (!NotNull(tables) || !NotNull(order) || !Assert(order.Length <= ElementWalk.MaxElements)) return false;
@@ -146,8 +146,8 @@ internal static partial class AnimationFrames
     private static bool Sets(AnimationKeyFrameElement?[]?[] rows, int k, out int[]?[] sets)
     {
         sets = [];
-        if (!NotNull(rows) || !Assert(k is > 0 and <= MaxKeys) ||
-            !Assert(rows.Length <= ElementWalk.MaxElements)) return false;
+        if (!NotNull(rows) || !Assert(k is > 0 and <= MaxKeys) || !Assert(rows.Length <= ElementWalk.MaxElements))
+            return false;
         sets = new int[]?[rows.Length * Flags];
         var scratch = new int[k];
         for (var slot = 0; slot < Math.Min(rows.Length, ElementWalk.MaxElements); slot++)
@@ -231,8 +231,8 @@ internal static partial class AnimationFrames
         {
             var set = sets[at + flag];
             if (set is null) continue;
-            var
-                right = 0; // seekRightKeyFrame: the first set keyframe past the frame, else the first set keyframe at all
+            // seekRightKeyFrame: the first set keyframe past the frame, else the first set keyframe at all
+            var right = 0;
             for (var j = 0; j < Math.Min(set.Length, MaxKeys); j++)
             {
                 if (keys[set[j]].Frame <= frameNumber) continue;
@@ -343,12 +343,8 @@ internal static partial class AnimationFrames
     // The bodies reproduced: the seams and the table lookup GetKeyFrameElement delegates to
     internal static MethodBase?[] Shaped()
     {
-        MethodBase?[] shaped =
-        [
-            .. Seams(),
-            AccessTools.Method(typeof(FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>), "TryGetValue",
-                [typeof(ShapeElement), typeof(AnimationKeyFrameElement).MakeByRefType()])
-        ];
+        MethodBase?[] shaped = [.. Seams(), AccessTools.Method(typeof(ResolvedTable), "TryGetValue",
+            [typeof(ShapeElement), typeof(AnimationKeyFrameElement).MakeByRefType()])];
         return Assert(shaped.Length <= EngineShape.MaxMethods) ? shaped : [];
     }
 
@@ -356,11 +352,7 @@ internal static partial class AnimationFrames
     // shape with every flag set, built from public API only, move the JIT out of the first frame that compiles an animation.
     private static bool WarmUp()
     {
-        var child = new ShapeElement
-        { Name = "komet-child", From = [1, 0, 0], To = [2, 1, 1], RotationOrigin = [1, 0, 0] };
-        var parent = new ShapeElement
-        { Name = "komet-parent", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0], Children = [child] };
-        child.ParentElement = parent;
+        var (parent, child) = WarmTree();
         var byName = new Dictionary<string, ShapeElement> { ["komet-parent"] = parent, ["komet-child"] = child };
         var animation = new Animation
         { Code = "komet-warmup", QuantityFrames = 4, KeyFrames = [WarmKey(0, 10), WarmKey(2, -10)] };
@@ -369,6 +361,18 @@ internal static partial class AnimationFrames
         for (var i = 0; i < WarmUps; i++) compiled &= Compile(animation, [parent], []);
         return Assert(compiled) && NotNull(animation.PrevNextKeyFrameByFrame) &&
                Assert(animation.PrevNextKeyFrameByFrame.Length == 4);
+    }
+
+    // The two-element tree of every warm-up, ShapeInitMemo's too: a parent and one child, linked as ResolveReferences links them
+    internal static (ShapeElement Parent, ShapeElement Child) WarmTree()
+    {
+        var child = new ShapeElement
+        { Name = "komet-child", From = [1, 0, 0], To = [2, 1, 1], RotationOrigin = [1, 0, 0] };
+        var parent = new ShapeElement
+        { Name = "komet-parent", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0], Children = [child] };
+        child.ParentElement = parent;
+        _ = Assert(parent.Children.Length == 1) && Assert(ReferenceEquals(child.ParentElement, parent));
+        return (parent, child);
     }
 
     private static AnimationKeyFrame WarmKey(int frame, double degrees)

@@ -18,28 +18,17 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
 
     private const double BarW = 120, BarH = 6, GraphMinScaleMs = 20, GraphHeadroom = 1.1;
 
-    public static readonly Rgba PanelBackground = new(0.05, 0.06, 0.09, 1),
-        Accent = new(0.16, 0.45, 0.85, 1),
-        Neutral = new(0.35, 0.35, 0.35, 1);
-
-    public static readonly Rgba Warning = new(1.0, 0.72, 0.25, 1),
-        Error = new(1.0, 0.38, 0.35, 1),
-        Good = new(0.35, 0.75, 0.45, 1),
-        Dim = Rgba.White(0.5);
+    public static readonly Rgba Accent = new(0.16, 0.45, 0.85, 1), Neutral = new(0.35, 0.35, 0.35, 1),
+        Disabled = Neutral with { A = 0.4 }, Warning = new(1.0, 0.72, 0.25, 1), Error = new(1.0, 0.38, 0.35, 1),
+        Good = new(0.35, 0.75, 0.45, 1), Dim = Rgba.White(0.5);
 
     private static readonly (double Ms, string Label)[] GraphGuides =
         [(1000.0 / 60, "60 fps"), (1000.0 / 120, "120 fps")];
 
-    private static readonly Rgba BarTrack = Rgba.White(0.12),
-        BarMarker = Rgba.White(0.8),
-        HeaderBackground = Rgba.White(0.08),
-        RuleLine = Rgba.White(0.3);
-
-    private static readonly Rgba GridLine = Rgba.White(0.07),
-        GridMajor = Rgba.White(0.18),
-        GraphBackground = Rgba.White(0.06);
-
-    private static readonly Rgba GuideLine = Rgba.White(0.25), GuideText = Rgba.White(0.6), Plot = Rgba.White(0.9);
+    private static readonly Rgba PanelBackground = new(0.05, 0.06, 0.09, 1), BarTrack = Rgba.White(0.12),
+        BarMarker = Rgba.White(0.8), HeaderBackground = Rgba.White(0.08), RuleLine = Rgba.White(0.3),
+        GridLine = Rgba.White(0.07), GridMajor = Rgba.White(0.18), GraphBackground = Rgba.White(0.06),
+        GuideLine = Rgba.White(0.25), GuideText = Rgba.White(0.6), Plot = Rgba.White(0.9);
     private Context? _ctx;
     private CairoFont? _font; // set up on _ctx since Begin() or BeginMeasure()
 
@@ -76,8 +65,8 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _font = null;
     }
 
-    // On this canvas's context, with the font drawing sets up. CairoFont.GetTextExtents runs SetupContext on every call; a measure pass
-    // of panel 9 with its detail lines took 144 us and 24.4 KB that way, 119 us and 22.0 KB here (same process, alternating).
+    // On this canvas's context, with the font drawing sets up: CairoFont.GetTextExtents runs SetupContext on every call, which is slower
+    // and allocates more.
     public double TextWidth(CairoFont font, string text)
     {
         if (text.Length == 0 || !NotNull(_ctx) || !Assert(font.UnscaledFontsize > 0)) return 0;
@@ -109,6 +98,15 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Operator = Operator.Over;
     }
 
+    // A panel's or dialog's surface: cleared, with the translucent rounded background. False when Begin() refused the size
+    public bool BeginPanel(double width, double height, double opacity)
+    {
+        Begin(width, height);
+        if (!Assert(Width >= width) || !Assert(opacity is >= 0 and <= 1)) return false;
+        Fill(0, 0, Width, Height, PanelBackground with { A = opacity }, scaled(4));
+        return true;
+    }
+
     public void Text(double x, double y, double rowHeight, CairoFont font, string text, Rgba? color = null)
     {
         if (text.Length == 0 || !NotNull(_ctx) || !Finite(x) || !Finite(y) || !Assert(rowHeight > 0)) return;
@@ -128,6 +126,35 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Fill();
     }
 
+    // A cleared surface of the size, for a subclass that paints its own background; false when Begin() refused the size
+    public bool Blank(double width, double height)
+    {
+        Begin(width, height);
+        return Assert(Width >= width) && Assert(Height >= height);
+    }
+
+    // Drawing outside the rectangle is dropped until Unclip(): a scrolled list stays in its viewport
+    public void Clip(double x, double y, double width, double height)
+    {
+        if (!NotNull(_ctx) || !Assert(width >= 0) || !Assert(height >= 0)) return;
+        _ctx.Rectangle(x, y, width, height);
+        _ctx.Clip();
+    }
+
+    public void Unclip()
+    {
+        if (NotNull(_ctx)) _ctx.ResetClip();
+    }
+
+    // A one-pixel line around the rectangle
+    public void Outline(double x, double y, double width, double height, Rgba color)
+    {
+        if (!Finite(x) || !Finite(y) || !Assert(width > 1) || !Assert(height > 1) || !Source(color)) return;
+        RoundRectangle(_ctx, x + 0.5, y + 0.5, width - 1, height - 1, 0);
+        _ctx.LineWidth = 1;
+        _ctx.Stroke();
+    }
+
     public void Header(double x, double y, double width, double rowHeight, HudFonts fonts, string text)
     {
         if (!Finite(x) || !Finite(y) || !Assert(width > 0) || !Assert(rowHeight > 0)) return;
@@ -144,8 +171,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
     }
 
     // fraction and marker are 0..1; good: a full bar is the good outcome (a hit rate), so the green-to-red ramp runs the other way
-    public void Bar(double x, double y, double rowHeight, double w, double fraction, double marker, Rgba? fill = null,
-        bool good = false)
+    public void Bar(double x, double y, double rowHeight, double w, double fraction, double marker, bool good)
     {
         if (!Finite(x) || !Finite(y) || !Assert(w > 0) || !Assert(rowHeight > 0) ||
             !Assert(marker is >= 0 and <= 1)) return;
@@ -153,8 +179,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         var tone = good ? 1 - fraction : fraction;
         Fill(x, top, w, h, BarTrack);
         if (fraction > 0 && Assert(fraction <= 1))
-            Fill(x, top, w * fraction, h,
-                fill ?? new Rgba(Math.Min(1, tone * 2), Math.Min(1, (1 - tone) * 2), 0.15, 0.9));
+            Fill(x, top, w * fraction, h, new Rgba(Math.Min(1, tone * 2), Math.Min(1, (1 - tone) * 2), 0.15, 0.9));
         if (marker > 0) Fill(x + w * marker - tick, top - tick, tick, h + 2 * tick, BarMarker);
     }
 
@@ -189,8 +214,8 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         if (!Finite(x) || !Finite(y) || !Assert(w > 0) || !Assert(h > 0) ||
             !Assert(frames.HistoryLength >= GraphFrames)) return;
         var first = frames.HistoryLength - GraphFrames;
-        var skip = GraphFrames -
-                   Math.Min(frames.Recorded, GraphFrames); // a slot the ring has not written yet is not a 0 ms frame
+        // a slot the ring has not written yet is not a 0 ms frame
+        var skip = GraphFrames - Math.Min(frames.Recorded, GraphFrames);
         double maxMs = 0;
         Fill(x, y, w, h, GraphBackground);
         for (var i = skip; i < GraphFrames; i++) maxMs = Math.Max(maxMs, frames.HistoryMs(first + i));
@@ -235,12 +260,21 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
     }
 
     // Kept on screen; the texture is a 32px-rounded superset of the logical size
-    public void Draw(double x, double y)
+    // z: the depth among the GUI's own draws (the hotbar's item stacks sit above the default)
+    public void Draw(double x, double y, float z = 50)
     {
         if (!Finite(x) || !Finite(y) || !Assert(_texture.TextureId != 0) || !Assert(_texture.Width >= Width)) return;
         X = Math.Clamp(x, 0, Math.Max(0, capi.Render.FrameWidth - Width));
         Y = Math.Clamp(y, 0, Math.Max(0, capi.Render.FrameHeight - Height));
-        capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, X, Y, _texture.Width, _texture.Height);
+        capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, X, Y, _texture.Width, _texture.Height, z);
+    }
+
+    // Where it is put, partly off the frame too: a list taller than its view, moved by its scroll under a scissor
+    public void Place(double x, double y, float z)
+    {
+        if (!Finite(x) || !Finite(y) || !Assert(_texture.TextureId != 0)) return;
+        (X, Y) = (x, y);
+        capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, X, Y, _texture.Width, _texture.Height, z);
     }
 
     // CairoFont.SetupContext sets size and face and allocates a finalizable FontOptions every call; a panel measures and draws a few
@@ -282,5 +316,81 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
     private static int RoundUp(double value)
     {
         return Assert(value is > 0 and <= MaxSize) ? (int)Math.Ceiling(value / SizeStep) * SizeStep : SizeStep;
+    }
+}
+
+// The HUD's three fonts at the settings' font scale and the row heights measured from them. Rebuilt when the font scale or the game's
+// GUI scale changed (RuntimeEnv.GUIScale changes without an event, and CairoFont scales by it); Epoch counts the rebuilds, so panels
+// and dialogs know their measurements are stale. Main thread: CairoFont measures on the engine's shared context.
+internal sealed class HudFonts
+{
+    private const double BaseFontSize = 14, BaseTitleSize = 16, HeaderPad = 2, BadgePad = 3, RuleH = 9;
+    private int _gui;
+    private long _scale = BitConverter.DoubleToInt64Bits(double.NaN);
+
+    public CairoFont Text { get; } = CairoFont.WhiteDetailText().WithLineHeightMultiplier(0.9);
+    public CairoFont Header { get; } = CairoFont.WhiteDetailText().WithWeight(FontWeight.Bold);
+    public CairoFont Title { get; } = CairoFont.WhiteSmallText().WithWeight(FontWeight.Bold);
+    public int Epoch { get; private set; }
+    public double TextRow { get; private set; }
+    public double HeaderRow { get; private set; } // a section header: the Header font on its band
+    public double BadgeRow { get; private set; } // a badge: the Header font in its box
+    public double TitleRow { get; private set; } // the Title font beside its badges
+    public double RuleRow { get; private set; }
+    public static double BadgePadding => 2 * scaled(BadgePad);
+    public static double HeaderPadding => scaled(HeaderPad);
+
+    // Checked once per measure pass and per dialog frame; a rebuild bumps Epoch
+    public void Update(double fontScale)
+    {
+        var (scale, gui) = (BitConverter.DoubleToInt64Bits(fontScale),
+            BitConverter.SingleToInt32Bits(RuntimeEnv.GUIScale));
+        if (scale == _scale && gui == _gui) return;
+        (_scale, _gui) = (scale, gui);
+        if (!Assert(HudSettings.ScaleRange.Contains(fontScale))) fontScale = 1;
+        Text.UnscaledFontsize = Header.UnscaledFontsize = BaseFontSize * fontScale;
+        Title.UnscaledFontsize = BaseTitleSize * fontScale;
+        var header = Height(Header);
+        (TextRow, HeaderRow, BadgeRow, RuleRow) =
+            (Height(Text), header + 2 * HeaderPadding, header + BadgePadding, scaled(RuleH));
+        TitleRow = Math.Max(Height(Title), BadgeRow);
+        Epoch++;
+        _ = Assert(TextRow > 0 && TitleRow > 0);
+    }
+
+    private static double Height(CairoFont font)
+    {
+        return Assert(font.UnscaledFontsize > 0) ? font.GetFontExtents().Height * font.LineHeightMultiplier : 0;
+    }
+}
+
+// The grid drawn under a drag, by the HUD and lent to its checksum window: one full-screen texture (2560x1440 is a 14.7 MB surface and a
+// TexImage2D), built on the first drag and again only when the frame size or the GUI scale changed; the surface goes once uploaded.
+// built is told of each build, a frame of its own cost.
+internal sealed class SnapGrid(ICoreClientAPI capi, Action built) : IDisposable
+{
+    private HudCanvas? _canvas;
+    private (int Width, int Height, int Scale) _key;
+
+    public void Dispose()
+    {
+        _canvas?.Dispose();
+        _canvas = null;
+    }
+
+    public void Draw()
+    {
+        var key = (capi.Render.FrameWidth, capi.Render.FrameHeight,
+            BitConverter.SingleToInt32Bits(RuntimeEnv.GUIScale));
+        if (!Assert(key.FrameWidth > 0 && key.FrameHeight > 0)) return;
+        if (_canvas is null || key != _key)
+        {
+            _canvas?.Dispose();
+            _canvas = HudCanvas.Grid(capi, scaled(HudSettings.SnapStep));
+            _key = key;
+            built();
+        }
+
+        _canvas.Draw(0, 0);
     }
 }

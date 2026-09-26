@@ -1,0 +1,25 @@
+<Project>
+
+    <!-- The repository's settings first; then what the tests and their rigs share: NUnit and the engine's namespaces -->
+    <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))"/>
+
+    <ItemGroup>
+        <PackageReference Include="NUnit" Version="4.6.1"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="NUnit.Framework"/>
+        <Using Include="System.Diagnostics"/>
+        <Using Include="System.Globalization"/>
+        <Using Include="System.Reflection"/>
+        <Using Include="System.Runtime.CompilerServices"/>
+        <Using Include="HarmonyLib"/>
+        <Using Include="Vintagestory.API.Common.Entities"/>
+        <Using Include="Vintagestory.API.Datastructures"/>
+        <Using Include="Vintagestory.API.MathTools"/>
+        <Using Include="Vintagestory.Client"/>
+        <Using Include="Vintagestory.Client.NoObf"/>
+        <Using Include="Vintagestory.Common"/>
+    </ItemGroup>
+
+</Project>

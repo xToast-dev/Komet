@@ -5,7 +5,6 @@ namespace Komet.Diagnostics;
 internal sealed class FrameStats
 {
     private const int History = 2000; // the 0.1 % low needs a thousand frames
-    private const int MaxLowFrames = 1_000_000; // the bench's recorder capacity, the most frames a caller hands LowFps
     private const float MaxFrameSeconds = 10; // a stall (world load, a debugger), not a frame time
     private readonly float[] _history = new float[History], _sorted = new float[History], _gcMs = new float[History];
     private float _elapsed;
@@ -20,8 +19,8 @@ internal sealed class FrameStats
     public float AverageMs => Frames == 0 ? float.NaN : _elapsed / Frames * 1000f;
     public float WorstMs { get; private set; } = float.NaN; // NaN until the window holds a frame
 
-    public float WorstGcMs { get; private set; } =
-        float.NaN; // how much of that worst frame the collector held every thread
+    // How much of that worst frame the collector held every thread
+    public float WorstGcMs { get; private set; } = float.NaN;
 
     public float Low1Fps { get; private set; } = float.NaN;
     public float Low01Fps { get; private set; } = float.NaN;
@@ -59,7 +58,8 @@ internal sealed class FrameStats
     }
 
     // RuntimeStats.drawCallsCount is an int the engine resets only at start and on Alt+F3, so it wraps after hours of drawing: the
-    // delta is taken unchecked, and a counter below the last reading was reset.
+    // delta is taken unchecked, and a counter below the last reading was reset. The lows are over the frames actually recorded, not
+    // the buffer's capacity, and the worst frame comes from that same window.
     public void SampleWindow()
     {
         var calls = RuntimeStats.drawCallsCount;
@@ -67,16 +67,9 @@ internal sealed class FrameStats
         if (drawn < 0) drawn = Math.Max(calls, 0);
         if (Frames > 0) DrawCallsPerFrame = drawn / Frames;
         _drawCallsAtLastSample = calls;
-        Percentiles();
-    }
-
-    // Over the frames actually recorded, not the buffer's capacity, and the worst frame comes from that same window
-    private void Percentiles()
-    {
         if (Recorded == 0 || !Assert(Recorded <= History)) return;
-        var history =
-            _history.AsSpan(0,
-                Recorded); // before the ring wraps the written slots are its prefix, afterwards it is full
+        // before the ring wraps the written slots are its prefix, afterwards it is full
+        var history = _history.AsSpan(0, Recorded);
         var worst = 0;
         for (var i = 1; i < Math.Min(Recorded, History); i++)
             if (history[i] > history[worst])
@@ -94,9 +87,9 @@ internal sealed class FrameStats
     {
         if (!Assert(share is 100 or 1000) || sorted.Length < share) return float.NaN;
         var worst = sorted[^(sorted.Length / share)..];
-        if (!Assert(worst.Length <= MaxLowFrames) || !Assert(worst[0] <= worst[^1])) return float.NaN;
+        if (!Assert(worst.Length <= BenchRecorder.MaxFrames) || !Assert(worst[0] <= worst[^1])) return float.NaN;
         float sum = 0;
-        for (var i = 0; i < Math.Min(worst.Length, MaxLowFrames); i++) sum += worst[i];
+        for (var i = 0; i < Math.Min(worst.Length, BenchRecorder.MaxFrames); i++) sum += worst[i];
         return Assert(sum >= 0) && Finite(sum) && sum > 0 ? 1000f * worst.Length / sum : 0;
     }
 

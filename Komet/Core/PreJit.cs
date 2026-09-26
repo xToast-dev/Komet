@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -62,8 +61,8 @@ internal static partial class PreJit
     // Idle again, the totals zeroed and a cancel withdrawn: the next Start or Walk runs
     internal static void Reset()
     {
-        if (!Assert(_thread is not { IsAlive: true }) || !Assert(State != PreJitState.Running))
-            return; // the walk owns them
+        // the walk owns them
+        if (!Assert(_thread is not { IsAlive: true }) || !Assert(State != PreJitState.Running)) return;
         (_cancel, State, Prepared, Failed, _skipped, JitMs, WallMs, _niced) =
             (false, PreJitState.Idle, 0, 0, 0, 0, 0, false);
     }
@@ -73,8 +72,8 @@ internal static partial class PreJit
     public static void Start(ILogger logger)
     {
         if (!NotNull(logger) || !Enabled) return;
-        if (State == PreJitState.Done || _thread is { IsAlive: true })
-            return; // compiled code outlives the world, and a cancelled walk is still winding down
+        // compiled code outlives the world, and a cancelled walk is still winding down
+        if (State == PreJitState.Done || _thread is { IsAlive: true }) return;
         Reset();
         var patched = PatchedSet(); // Harmony's registry is read here, on the thread that patches
         _thread = new Thread(() => Run(patched, logger))
@@ -89,16 +88,15 @@ internal static partial class PreJit
         _cancel = true;
     }
 
-    [SuppressMessage("Design", "CA1031",
-        Justification = "an exception leaving this thread would end the game process, and the walk is optional")]
     private static void Run(HashSet<(Guid, int)> patched, ILogger logger)
     {
-        if (!NotNull(patched) || !NotNull(logger) || !Assert(Thread.CurrentThread.IsBackground))
-            return; // a foreground walker would hold the process open after the game quits
+        // a foreground walker would hold the process open after the game quits
+        if (!NotNull(patched) || !NotNull(logger) || !Assert(Thread.CurrentThread.IsBackground)) return;
         State = PreJitState.Running;
         try
         {
-            Lower(); // inside the catch-all too: a libc that binds but misbehaves must not take the game down with this thread
+            // inside the catch-all too: a libc that binds but misbehaves must not take the game down with this thread
+            Lower();
             var wall = Stopwatch.StartNew();
             var jit = JitInfo.GetCompilationTime(true);
             foreach (var name in Targets.Bounded(MaxAssemblies))

@@ -1,6 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Emit;
-using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.Client.NoObf;
 
@@ -44,13 +42,13 @@ internal static class TessWorkers
     private static volatile ClientMain? _game; // the world the jobs belong to
     private static volatile ChunkTesselatorManager? _manager;
 
-    [ThreadStatic]
-    private static ChunkTesselator? _own; // a pool thread's instance on its thread; null on every other thread
+    // A pool thread's instance on its thread; null on every other thread
+    [ThreadStatic] private static ChunkTesselator? _own;
 
     private static int _passing, _sites;
 
-    public static int Jobs { get; set; } =
-        DefaultJobs; // pool threads that may tessellate at once without a backlog; 0 = none
+    // Pool threads that may tessellate at once without a backlog; 0 = none
+    public static int Jobs { get; set; } = DefaultJobs;
 
     public static bool Boosted { get; private set; }
 
@@ -63,31 +61,25 @@ internal static class TessWorkers
         Stop();
         var (i, b) = (typeof(int), typeof(bool));
         var pass = TessSeams.Method(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.TesselateChunk), i, i,
-            i, b, b,
-            b.MakeByRefType());
+            i, b, b, b.MakeByRefType());
         var atlas = TessSeams.Method(typeof(ChunkTesselator), nameof(ChunkTesselator.RuntimeCreateNewBlockTextureAtlas),
             i);
+        // The private engine fields the accessors reach, with their types (a missing one would throw on a game thread): game
+        // here, started with TessSchedule's install
+        var game = AccessTools.DeclaredField(typeof(ChunkTesselator), "game");
         if (!NotNull(harmony) || !NotNull(pass) || !NotNull(atlas) || !TessSafety.Installed ||
-            !TessSchedule.Installed || !Seams()) return;
+            !TessSchedule.Installed || !Assert(game?.FieldType == typeof(ClientMain))) return;
         _sites = 0;
-        _ = NotNull(harmony.Patch(pass, transpiler: new HarmonyMethod(typeof(TessWorkers), nameof(OwnTesselator))));
+        _ = NotNull(harmony.Patch(pass, transpiler: new HarmonyMethod(OwnTesselator)));
         if (!Assert(Volatile.Read(ref _sites) == TesselatorSites))
         {
             harmony.Unpatch(pass, AccessTools.Method(typeof(TessWorkers), nameof(OwnTesselator)));
             return;
         }
 
-        _ = NotNull(harmony.Patch(atlas, postfix: new HarmonyMethod(typeof(TessWorkers), nameof(Forward))));
+        _ = NotNull(harmony.Patch(atlas, postfix: new HarmonyMethod(Forward)));
         Installed = true;
         WorkerPool.Background = Job;
-    }
-
-    // Every private engine field the accessors reach, with its type: a missing one would throw on a game thread
-    private static bool Seams()
-    {
-        var tesselator = typeof(ChunkTesselator);
-        return Assert(AccessTools.DeclaredField(tesselator, "game")?.FieldType == typeof(ClientMain)) &&
-               Assert(AccessTools.DeclaredField(tesselator, "started")?.FieldType == typeof(bool));
     }
 
     // Leaving the world or the mod (its patches go next): no more jobs
@@ -107,8 +99,8 @@ internal static class TessWorkers
     {
         var field = AccessTools.DeclaredField(typeof(ClientMain), nameof(ClientMain.TerrainChunkTesselator));
         var mine = AccessTools.Method(typeof(TessWorkers), nameof(Tesselator));
-        if (!Assert(Il.Take(instructions, Il.MaxInstructions, out var code)) || !NotNull(field) ||
-            !NotNull(mine)) return code;
+        if (!Assert(Il.Take(instructions, Il.MaxInstructions, out var code)) || !NotNull(field) || !NotNull(mine))
+            return code;
         var at = Il.Single(code, c => c.opcode == OpCodes.Ldfld && Equals(c.operand, field));
         Volatile.Write(ref _sites, at >= 0 && Il.Substitute(code, at, mine) ? TesselatorSites : 0);
         return code;
@@ -118,7 +110,7 @@ internal static class TessWorkers
     {
         var own = _own;
         _ = Assert(own is null || WorkerPool.Current >= 0); // only pool threads have their own
-        return own is not null && ReferenceEquals(Game(own), game) ? own : game.TerrainChunkTesselator;
+        return own is not null && ReferenceEquals(TessSeams.Game(own), game) ? own : game.TerrainChunkTesselator;
     }
 
     // An atlas the engine's instance was told about reaches every pool thread's instance too (on the main thread, which the engine's
@@ -126,13 +118,13 @@ internal static class TessWorkers
     private static void Forward(ChunkTesselator __instance, int textureId)
     {
         if (!NotNull(__instance) || !Assert(textureId >= 0)) return;
-        var game = Game(__instance);
-        if (game is null || !ReferenceEquals(game.TerrainChunkTesselator, __instance))
-            return; // a pool thread's __instance: this loop's call
-        _ = Assert(Environment.CurrentManagedThreadId ==
-                   RuntimeEnv.MainThreadId); // BlockTextureAtlasManager.RuntimeCreateNewAtlas
+        var game = TessSeams.Game(__instance);
+        // A pool thread's __instance: this loop's call
+        if (game is null || !ReferenceEquals(game.TerrainChunkTesselator, __instance)) return;
+        // BlockTextureAtlasManager.RuntimeCreateNewAtlas
+        _ = Assert(Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId);
         foreach (var made in Made.Bounded(WorkerPool.MaxThreads))
-            if (made is not null && ReferenceEquals(Game(made), game) && Started(made))
+            if (made is not null && ReferenceEquals(TessSeams.Game(made), game) && TessSeams.Started(made))
                 _ = made.RuntimeCreateNewBlockTextureAtlas(textureId);
     }
 
@@ -165,8 +157,8 @@ internal static class TessWorkers
 
         if (!TessSafety.Parallel || Passing) return;
         TessSafety.Open(false);
-        if (Volatile.Read(ref _passing) > 0)
-            TessSafety.Open(true); // a pool thread counted itself in first: off at a later tick
+        // A pool thread counted itself in first: off at a later tick
+        if (Volatile.Read(ref _passing) > 0) TessSafety.Open(true);
     }
 
     // A new world: the old one's instances are no one's any more
@@ -179,8 +171,6 @@ internal static class TessWorkers
     }
 
     // The background job: one pass on this pool thread, true when it ran one
-    [SuppressMessage("Design", "CA1031",
-        Justification = "an exception on a pool thread would end the game; the jobs stop instead")]
     private static bool Pass()
     {
         var (game, manager) = (_game, _manager);
@@ -207,10 +197,11 @@ internal static class TessWorkers
     private static ChunkTesselator? Own(ClientMain game)
     {
         var own = _own;
-        if (own is not null && ReferenceEquals(Game(own), game)) return own;
+        if (own is not null && ReferenceEquals(TessSeams.Game(own), game)) return own;
         var slot = WorkerPool.Current;
         if (!Index(slot, Made.Length)) return null;
-        if (Volatile.Read(ref Made[slot]) is { } made && ReferenceEquals(Game(made), game) && Started(made))
+        if (Volatile.Read(ref Made[slot]) is { } made && ReferenceEquals(TessSeams.Game(made), game) &&
+            TessSeams.Started(made))
         {
             TessSafety.Guard(true); // a pool thread passes only while Parallel is on
             return _own = made;
@@ -222,8 +213,6 @@ internal static class TessWorkers
     }
 
     // On the main thread: the instance is made where the engine makes its own
-    [SuppressMessage("Design", "CA1031",
-        Justification = "an exception on the main thread would end the game; the jobs stop instead")]
     private static void Make(ClientMain game, int slot)
     {
         if (!Index(slot, Made.Length) || !ReferenceEquals(game, _game) || game.threadsShouldExit) return;
@@ -233,7 +222,7 @@ internal static class TessWorkers
             var tesselator = new ChunkTesselator(game);
             tesselator.LightlevelsReceived();
             tesselator.BlockTexturesLoaded(); // both in: Start()
-            if (Assert(Started(tesselator))) Volatile.Write(ref Made[slot], tesselator);
+            if (Assert(TessSeams.Started(tesselator))) Volatile.Write(ref Made[slot], tesselator);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -253,17 +242,10 @@ internal static class TessWorkers
 
     private static void Fail(ClientMain game, Exception e)
     {
-        if (!NotNull(e) || game.threadsShouldExit || Failed)
-            return; // an unclean exit, as the engine's own threads report it
+        // An unclean exit, as the engine's own threads report it
+        if (!NotNull(e) || game.threadsShouldExit || Failed) return;
         Failed = true;
-        game.Logger.Error(
-            "Komet: a tessellation pass on a worker thread failed, the engine's thread goes on alone for this world: {0}",
-            e);
+        game.Logger.Error("Komet: a tessellation pass on a worker thread failed, the engine's thread goes on alone " +
+                          "for this world: {0}", e);
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
-    private static extern ref ClientMain? Game(ChunkTesselator tesselator);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "started")]
-    private static extern ref bool Started(ChunkTesselator tesselator);
 }

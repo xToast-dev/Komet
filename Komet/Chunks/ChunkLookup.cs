@@ -46,16 +46,14 @@ internal static class ChunkLookup
             AccessTools.Method(map, "GetChunk", [typeof(long)]),
             AccessTools.Method(map, "GetChunk", [typeof(int), typeof(int), typeof(int)]),
             AccessTools.Method(map, "GetChunkAtBlockPos", [typeof(int), typeof(int), typeof(int)]),
-            AccessTools.Method(map, "loadChunkMT"),
-            AccessTools.Method(map, "OverloadChunkMT"),
+            AccessTools.Method(map, "loadChunkMT"), AccessTools.Method(map, "OverloadChunkMT"),
             AccessTools.Method(typeof(SystemUnloadChunks), "HandleChunkUnload")
         ];
         if (!NotNull(harmony) || !Assert(Array.TrueForAll(targets, target => target is not null))) return;
         if (!Assert(AccessTools.DeclaredField(map, "chunks")?.FieldType == typeof(Dictionary<long, ClientChunk>)) ||
             !Assert(AccessTools.DeclaredField(map, "chunksLock")?.FieldType == typeof(object))) return;
         for (var i = 0; i < Math.Min(targets.Length, Prefixes.Length); i++)
-            if (!Binds(targets[i]!, Prefixes[i]) || !Binds(targets[i]!, Postfixes[i]))
-                return;
+            if (!Binds(targets[i]!, Prefixes[i]) || !Binds(targets[i]!, Postfixes[i])) return;
         for (var i = 0; i < Math.Min(targets.Length, Prefixes.Length); i++)
             _ = NotNull(harmony.Patch(targets[i], Patch(Prefixes[i]), Patch(Postfixes[i])));
     }
@@ -129,8 +127,6 @@ internal static class ChunkLookup
         }
     }
 
-    // Harmony injects the instance, the arguments and the result by name
-    // ReSharper disable once InconsistentNaming
     private static bool ByIndex(ClientWorldMap __instance, long index3d, ref IWorldChunk __result)
     {
         if (!Hit(__instance, index3d, out var chunk)) return true;

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime;
@@ -21,11 +20,8 @@ internal static class Benchmark
 
     private const int MaxPolls = 1200, PollMs = 100; // two minutes for the server to save and stop
     private const double ClimbAllowance = 120;
-    private const string ModId = "komet";
     private static bool _ran;
 
-    [SuppressMessage("Reliability", "CA2000",
-        Justification = "the engine owns a registered renderer and disposes it with the world")]
     public static void Install(ICoreClientAPI capi)
     {
         var path = Environment.GetEnvironmentVariable(Variable);
@@ -80,9 +76,10 @@ internal static class Benchmark
         var assembly = typeof(Benchmark).Assembly;
         if (!Under(assembly.Location, config.ModDir))
             return $"Komet was loaded from {assembly.Location}, not from {config.ModDir}";
-        var mods = capi.ModLoader.Mods.Bounded(ModStats.MaxLoadedMods).Where(mod => mod.Info?.ModID == ModId).ToList();
+        var mods = capi.ModLoader.Mods.Bounded(ModStats.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometModSystem.ModId)
+            .ToList();
         if (mods.Count != 1)
-            return $"{mods.Count} enabled mods have the id {ModId}, the build under test must be the only one";
+            return $"{mods.Count} enabled mods have the id komet, the build under test must be the only one";
         if (!Under(mods[0].SourcePath, config.ModDir))
             return $"the komet mod comes from {mods[0].SourcePath}, not from {config.ModDir}";
         return JitOptimizerDisabled(assembly) ? "a Debug build of Komet is loaded; build Release (./build.sh)" : null;
@@ -106,7 +103,7 @@ internal static class Benchmark
     // world, and the client settings that change frame times
     public static void Collect(ICoreClientAPI capi, BenchRun run)
     {
-        var (assembly, mod) = (typeof(Benchmark).Assembly, capi.ModLoader.GetMod(ModId));
+        var (assembly, mod) = (typeof(Benchmark).Assembly, capi.ModLoader.GetMod(KometModSystem.ModId));
         if (!NotNull(mod) || !NotNull(run) || !NotNull(capi.Render)) return;
         run.AddInfo("komet.version", mod.Info.Version);
         run.AddInfo("komet.configuration",

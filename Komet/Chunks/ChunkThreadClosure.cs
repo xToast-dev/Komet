@@ -23,7 +23,7 @@ internal static class ChunkThreadClosure
     {
         var method = Target();
         if (!NotNull(harmony) || !NotNull(method)) return;
-        _ = NotNull(harmony.Patch(method, transpiler: new HarmonyMethod(typeof(ChunkThreadClosure), nameof(Rewrite))));
+        _ = NotNull(harmony.Patch(method, transpiler: new HarmonyMethod(Rewrite)));
     }
 
     internal static MethodInfo? Target()
@@ -63,8 +63,8 @@ internal static class ChunkThreadClosure
         for (var i = Prologue; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (Il.Local(code[i], Il.Uses.Load) != 0 || i == delegateAt) continue;
-            (code[i].opcode, code[i].operand) =
-                (OpCodes.Ldarg_1, null); // in place: labels and exception blocks stay on it
+            // In place: labels and exception blocks stay on it
+            (code[i].opcode, code[i].operand) = (OpCodes.Ldarg_1, null);
             (code[i + 1].opcode, code[i + 1].operand) = (OpCodes.Nop, null);
         }
 
@@ -86,8 +86,7 @@ internal static class ChunkThreadClosure
     {
         if (!Assert(code.Count > Prologue) || !NotNull(self)) return false;
         for (var i = 0; i < Prologue; i++)
-            if (code[i].labels.Count > 0 || code[i].blocks.Count > 0)
-                return false;
+            if (code[i].labels.Count > 0 || code[i].blocks.Count > 0) return false;
 
         return Il.Local(code[1], Il.Uses.Store) == 0 && Il.Local(code[2], Il.Uses.Load) == 0 && code[3].IsLdarg(0) &&
                code[4].StoresField(self) && Il.Local(code[5], Il.Uses.Load) == 0 && code[6].IsLdarg(1) &&
@@ -99,9 +98,7 @@ internal static class ChunkThreadClosure
     {
         if (!NotNull(code) || !Assert(code.opcode.Size > 0)) return true;
         if (code.opcode != OpCodes.Starg && code.opcode != OpCodes.Starg_S && code.opcode != OpCodes.Ldarga &&
-            code.opcode != OpCodes.Ldarga_S)
-            return false;
-
+            code.opcode != OpCodes.Ldarga_S) return false;
         return code.operand is 1 or (byte)1 or (short)1 or ParameterInfo { Position: 0 };
     }
 }

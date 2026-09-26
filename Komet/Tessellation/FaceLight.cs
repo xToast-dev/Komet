@@ -34,19 +34,9 @@ namespace Komet.Tessellation;
 // the TCTCache constructor, so none do), and so does every face without vector hardware.
 internal static class FaceLight
 {
-    private const int Samples = 8,
-        Edges = 4,
-        Up = 4,
-        Reach = TessSeams.Plane + Ext + 1,
-        Around = 27,
-        JsonLights = 25,
-        MaxBlocks = 1 << 20;
-
-    private const int MaxTypes = 1 << 16,
-        Slots = Faces * Samples,
-        AllFaces = (1 << Faces) - 1,
-        Channels = 0x00FF00FF,
-        Factors5 = 5;
+    private const int Samples = 8, Edges = 4, Reach = TessSeams.Plane + Ext + 1, Around = 27, JsonLights = 25;
+    private const int MaxBlocks = 1 << 20, MaxTypes = 1 << 16, Slots = Faces * Samples, AllFaces = (1 << Faces) - 1;
+    private const int Channels = 0x00FF00FF, Factors5 = 5;
 
     private const int AbsorbsBit = 9, FluidsBit = 11, Leaves = 1 << 8, Absorbs = 1 << AbsorbsBit, Custom = 1 << 10;
     private const int FluidsAbsorb = 1 << FluidsBit, MaxOverrides = EngineShape.MaxMethods;
@@ -73,13 +63,13 @@ internal static class FaceLight
     public static bool Installed { get; private set; }
     public static bool FusedInstalled { get; private set; }
 
-    public static bool StoodDown =>
-        _foreign || _fusedForeign; // another patch on a method: the engine lights all faces or JSON blocks
+    // Another patch on a method: the engine lights all faces or JSON blocks
+    public static bool StoodDown => _foreign || _fusedForeign;
 
     public static long FastFaces => Counts.Total(FastCounter); // AO faces lit here
 
-    public static long EngineFaces =>
-        Counts.Total(EngineCounter); // faces the prefix left to the engine: no AO, not plain
+    // Faces the prefix left to the engine: no AO, not plain
+    public static long EngineFaces => Counts.Total(EngineCounter);
 
     public static long FusedBlocks => Counts.Total(FusedCounter); // JSON blocks whose surroundings were read once
 
@@ -99,10 +89,9 @@ internal static class FaceLight
         var shaped = fused is not null &&
                      EngineShape.Matches(FusedShaped(), fusedShape, nameof(FaceLight) + " fused", logger);
         (_face, _fused, _corner, _ao) = ([face], shaped ? [fused] : [], [CornerAo()], AoMethods());
-        _ = NotNull(harmony.Patch(face, new HarmonyMethod(typeof(FaceLight), nameof(Prefix))));
+        _ = NotNull(harmony.Patch(face, new HarmonyMethod(Prefix)));
         Installed = true;
-        if (shaped)
-            FusedInstalled = NotNull(harmony.Patch(fused, new HarmonyMethod(typeof(FaceLight), nameof(FusedPrefix))));
+        if (shaped) FusedInstalled = NotNull(harmony.Patch(fused, new HarmonyMethod(FusedPrefix)));
         Recheck();
     }
 
@@ -116,8 +105,8 @@ internal static class FaceLight
         var face = EngineShape.Foreign(_face, replacing, null, own) || EngineShape.Foreign(_corner, all, null, own) ||
                    EngineShape.Foreign(_ao, all, null) || EngineShape.Foreign(overrides, all, null);
         var fused = EngineShape.Foreign(_fused, replacing, null, own) || EngineShape.Foreign(_face, all, null, own);
-        _foreign = Report(nameof(FaceLight), _foreign, face);
-        _fusedForeign = Report(nameof(FaceLight) + " fused", _fusedForeign, fused);
+        _foreign = EngineShape.Report(Logger, nameof(FaceLight), _foreign, face);
+        _fusedForeign = EngineShape.Report(Logger, nameof(FaceLight) + " fused", _fusedForeign, fused);
     }
 
     internal static MethodInfo? Target()
@@ -162,8 +151,8 @@ internal static class FaceLight
             Target(), CornerAo(), .. AoMethods(), AccessTools.DeclaredPropertyGetter(bits, "Item"),
             Method(bits, "op_Implicit", bits)
         ];
-        _ = Assert(methods.Length <= EngineShape.MaxMethods) &&
-            Assert(bits.IsValueType); // a missing one fingerprints as 0
+        // A missing one fingerprints as 0
+        _ = Assert(methods.Length <= EngineShape.MaxMethods) && Assert(bits.IsValueType);
         return methods;
     }
 
@@ -175,7 +164,6 @@ internal static class FaceLight
     }
 
     // Harmony matches the parameters to the engine's by name
-    // ReSharper disable once InconsistentNaming
     private static bool Prefix(TCTCache __instance, int tileSide, int extNeibIndex3d, ref long __result)
     {
         if (!Enabled || _foreign || !NotNull(__instance) || !NotNull(__instance.CurrentLightRGBByCorner)) return true;
@@ -208,21 +196,19 @@ internal static class FaceLight
         if (!vars.aoAndSmoothShadows || self is null || (uint)tileSide >= Faces ||
             (self.SideAo & (1 << tileSide)) == 0) return false;
         var tables = Current(vars.tct);
-        var e = vars
-            .extIndex3d; // the engine's callers pass a cell of the chunk and its neighbour: never near the halo's edge
+        // The engine's callers pass a cell of the chunk and its neighbour: never near the halo's edge
+        var e = vars.extIndex3d;
         if (tables is null || !Arrays(vars.tct, out var solid, out var fluid, out var rgb) || !Index(front, ExtCells) ||
             !Index(e - Reach, ExtCells - 2 * Reach) || !Assert(corners.Length >= Edges) ||
-            !Assert(neighbours.Length > Samples))
-            return false;
+            !Assert(neighbours.Length > Samples)) return false;
         ref var side = ref tables.Geometry.Sides[tileSide];
         var kinds = tables.Kinds;
         var facing = Front(kinds, solid[front], fluid[front]);
         if ((facing & Custom) != 0) return false;
         Cells cells = default;
         Block? known = null; // the last block found plain: neighbours repeat
-        ref var
-            solids = ref MemoryMarshal
-                .GetArrayDataReference(solid); // e is Reach away from both ends and |offset| <= Reach
+        // e is Reach away from both ends and |offset| <= Reach
+        ref var solids = ref MemoryMarshal.GetArrayDataReference(solid);
         ref var fluids = ref MemoryMarshal.GetArrayDataReference(fluid);
         ref var lights = ref MemoryMarshal.GetArrayDataReference(rgb);
         for (var k = 0; k < Samples; k++)
@@ -252,14 +238,12 @@ internal static class FaceLight
         sum = 0;
         var self = vars.block;
         if (!vars.aoAndSmoothShadows || self is null || (self.SideAo & AllFaces) == 0 ||
-            !Multipliers(vars, self, out var factors))
-            return false;
+            !Multipliers(vars, self, out var factors)) return false;
         var (tables, corners, neighbours, e) = (Current(vars.tct), vars.CurrentLightRGBByCorner, Neighbours(vars),
             vars.extIndex3d);
         if (tables is null || !Arrays(vars.tct, out var solid, out var fluid, out var rgb) ||
-            !Index(e - Reach, ExtCells - 2 * Reach) ||
-            !Assert(json.Length >= JsonLights) || !Assert(corners.Length >= Edges) ||
-            !Assert(neighbours.Length > Samples) ||
+            !Index(e - Reach, ExtCells - 2 * Reach) || !Assert(json.Length >= JsonLights) ||
+            !Assert(corners.Length >= Edges) || !Assert(neighbours.Length > Samples) ||
             !Standard(TileSideEnum.MoveIndex)) return false;
         Block27 desc = default, light = default;
         Gather(tables, solid, fluid, rgb, e, ref desc, ref light);
@@ -288,16 +272,14 @@ internal static class FaceLight
 
         json[JsonLights - 1] = rgb[e];
         sum += json[JsonLights - 1];
-        if (Counting.Hud) Count(lit);
-        return true;
-    }
+        // The engine's faces count themselves in the prefix they pass through
+        if (Counting.Hud && Assert(lit is >= 0 and <= Faces))
+        {
+            Counts.Add(FusedCounter, 1);
+            Counts.Add(FastCounter, lit);
+        }
 
-    // The engine's faces count themselves in the prefix they pass through
-    private static void Count(int lit)
-    {
-        if (!Assert(lit is >= 0 and <= Faces)) return;
-        Counts.Add(FusedCounter, 1);
-        Counts.Add(FastCounter, lit);
+        return true;
     }
 
     // The 20 cells the faces sample, each read once; a block that is not plain marks its cell
@@ -365,8 +347,7 @@ internal static class FaceLight
     // upper-or-left, sample 5 and sample 6's flag; corner 2 sample 1's lower-or-right (upper-or-left), sample 2's lower-or-right, sample
     // 6 and sample 5's flag; corner 3 the other side of sample 1, sample 3's lower-or-right, sample 7 and sample 4's flag.
     private static long Shade(ref Side side, int t, int leaves, int front, int frontLight, ref Cells cells,
-        ref Floats5 factors,
-        int[] corners, int[] neighbours)
+        ref Floats5 factors, int[] corners, int[] neighbours)
     {
         if (!Assert(corners.Length >= Edges) || !Assert(neighbours.Length > Samples)) return 0;
         var (zero, absorbs, leaf) = (Vector128<int>.Zero, Vector128.Create(Absorbs), Vector128.Create(leaves));
@@ -410,11 +391,10 @@ internal static class FaceLight
                    (Vector128.ShiftRightLogical(light1, 8) & channels & m1) +
                    (Vector128.ShiftRightLogical(light2, 8) & channels & m2) +
                    (Vector128.ShiftRightLogical(cornerLights, 8) & channels & mb);
-        var added = -(Lanes(side1) + Lanes(side2) +
-                      Lanes(open)); // lights added besides the front's, when not fully occluded
+        // Lights added besides the front's, when not fully occluded
+        var added = -(Lanes(side1) + Lanes(side2) + Lanes(open));
         var factor = Vector128.ConditionalSelect(Vector128.Equals(added, Vector128<int>.One).AsSingle(),
-            Vector128.Create(factors[1]),
-            Vector128.Create(factors[2]));
+            Vector128.Create(factors[1]), Vector128.Create(factors[2]));
         var ambient = Vector128.ConditionalSelect(Lanes(ambientOne).AsSingle(), Vector128.Create(factors[4]),
             Vector128.Create(factors[3]));
         factor = Vector128.ConditionalSelect(Lanes(side1 & side2 & open).AsSingle(), ambient, factor);
@@ -455,8 +435,7 @@ internal static class FaceLight
 
     // The tesselator's halo: 34^3 cells in all three, as its constructor makes them
     private static bool Arrays(ChunkTesselator? tesselator, [NotNullWhen(true)] out Block[]? solid,
-        [NotNullWhen(true)] out Block[]? fluid,
-        [NotNullWhen(true)] out int[]? rgb)
+        [NotNullWhen(true)] out Block[]? fluid, [NotNullWhen(true)] out int[]? rgb)
     {
         (solid, fluid, rgb) = (null, null, null);
         if (!NotNull(tesselator)) return false;
@@ -529,28 +508,22 @@ internal static class FaceLight
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "jsonLightRGB")]
     private static extern ref int[] JsonLight(JsonTesselator tesselator);
 
-    internal readonly record struct Entry(Block? Owner, bool FluidsLayer);
+    private readonly record struct Entry(Block? Owner, bool FluidsLayer);
 
     [InlineArray(Samples)]
-    [SuppressMessage("Major Code Smell", "S1144",
-        Justification = "the element of an InlineArray, used through its indexer")]
     internal struct Eight
     {
         private int _element;
     }
 
     [InlineArray(Around)]
-    [SuppressMessage("Major Code Smell", "S1144",
-        Justification = "the element of an InlineArray, used through its indexer")]
-    internal struct Block27
+    private struct Block27
     {
         private int _element;
     }
 
     [InlineArray(Factors5)]
-    [SuppressMessage("Major Code Smell", "S1144",
-        Justification = "the element of an InlineArray, used through its indexer")]
-    internal struct Floats5
+    private struct Floats5
     {
         private float _element;
     }
@@ -602,8 +575,8 @@ internal static class FaceLight
             for (var i = 0; i < Math.Min(blocks.Length, MaxBlocks); i++)
             {
                 var block = blocks[i];
-                if (block is null || block.BlockId != i)
-                    continue; // the engine indexes blocksFast by id; a stray entry stays custom
+                // The engine indexes blocksFast by id; a stray entry stays custom
+                if (block is null || block.BlockId != i) continue;
                 var type = block.GetType();
                 if (!byType.TryGetValue(type, out var kind) && byType.Count < MaxTypes)
                     byType[type] = kind = Classify(type, overrides);
@@ -670,8 +643,7 @@ internal static class FaceLight
                 if (row is not { Length: >= Rows } || !Assert(toward is > 0 and < 64)) return false;
                 Sides[t].Toward = toward;
                 for (var k = 0; k < Samples; k++)
-                    if (!Take(t, k, row[k]))
-                        return false;
+                    if (!Take(t, k, row[k])) return false;
             }
 
             return true;

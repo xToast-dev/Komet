@@ -1,22 +1,12 @@
 namespace Komet.Hud;
 
 // One panel as the layout reads it, once a frame: shown means visible and drawn at least once (a panel without a texture takes no room)
-internal readonly record struct PanelBox(
-    bool Shown,
-    int Column,
-    double Width,
-    double Height,
+internal readonly record struct PanelBox(bool Shown, int Column, double Width, double Height,
     (double X, double Y)? Pin);
 
 // The screen and the settings the layout depends on, in pixels; Dragging is the panel under the cursor, or -1
-internal readonly record struct LayoutFrame(
-    double Width,
-    double Height,
-    HudCorner Corner,
-    double Gap,
-    double Margin,
-    double Slack,
-    int Dragging);
+internal readonly record struct LayoutFrame(double Width, double Height, HudCorner Corner, double Gap, double Margin,
+    double Slack, int Dragging);
 
 // Where each panel draws and in which layer. Pinned panels stay where the player put them. The rest flow down three columns from the
 // HUD's corner, a column taller than the screen going on beside itself, and one whose slot would cover a panel already placed moves to
@@ -68,14 +58,12 @@ internal sealed class PanelLayout
         if (!Finite(x) || !Finite(y)) return Hidden;
         var count = Math.Min(_layer.Length, MaxPanels);
         for (var k = 0; k < Layers; k++)
-        {
             for (var j = 0; j < Math.Min(count, MaxPanels); j++)
             {
                 var (i, layer) = (count - 1 - j, Layers - 1 - k);
                 if (_layer[i] == layer && _drawn[i] is var r && x >= r.X && x < r.Right && y >= r.Y &&
                     y < r.Bottom) return i;
             }
-        }
 
         return Hidden;
     }
@@ -134,8 +122,6 @@ internal sealed class PanelLayout
     // under the cursor, the others' new edges would become snap targets
     private void Pinned(ReadOnlySpan<PanelBox> panels, in LayoutFrame frame)
     {
-        var (left, top) = (frame.Corner is HudCorner.TopLeft or HudCorner.BottomLeft,
-            frame.Corner is HudCorner.TopLeft or HudCorner.TopRight);
         _placer.Clear();
         for (var i = 0; i < Math.Min(panels.Length, MaxPanels); i++)
         {
@@ -144,8 +130,7 @@ internal sealed class PanelLayout
             var at = OnScreen(new PanelRect(px, py, p.Width, p.Height), frame);
             (_drawn[i], _layer[i]) = (at, 1);
             if (i == frame.Dragging) continue;
-            _placer.Take(
-                at with { X = left ? at.X : frame.Width - at.Right, Y = top ? at.Y : frame.Height - at.Bottom });
+            _placer.Take(Mirror(at, frame));
         }
 
         _ = Assert(_placer.Count <= panels.Length);
@@ -155,8 +140,6 @@ internal sealed class PanelLayout
     // Returns where the next column starts.
     private double Flow(ReadOnlySpan<PanelBox> panels, in LayoutFrame frame, int column, double x)
     {
-        var (left, top) = (frame.Corner is HudCorner.TopLeft or HudCorner.BottomLeft,
-            frame.Corner is HudCorner.TopLeft or HudCorner.TopRight);
         var (y, width) = (frame.Margin, ColumnWidth(panels, column));
         if (!Index(column, Columns) || !Finite(x)) return frame.Margin;
         for (var i = 0; i < Math.Min(panels.Length, MaxPanels); i++)
@@ -169,12 +152,7 @@ internal sealed class PanelLayout
             var (px, py, free) = _placer.Place(slot, frame.Width, frame.Height, frame.Margin, frame.Gap, frame.Slack);
             var at = slot with { X = px, Y = py };
             _placer.Take(at);
-            var screen = at with
-            {
-                X = left ? at.X : frame.Width - at.Right,
-                Y = top ? at.Y : frame.Height - at.Bottom
-            };
-            (_drawn[i], _layer[i]) = (OnScreen(screen, frame), free ? 2 : 0);
+            (_drawn[i], _layer[i]) = (OnScreen(Mirror(at, frame), frame), free ? 2 : 0);
             y += p.Height + frame.Gap;
         }
 
@@ -188,6 +166,15 @@ internal sealed class PanelLayout
             if (panels[i] is { Shown: true, Pin: null } p && p.Column == column)
                 width = Math.Max(width, p.Width);
         return Assert(width >= 0) ? width : 0;
+    }
+
+    // Screen space to corner space and back: the same flip either way
+    private static PanelRect Mirror(PanelRect r, in LayoutFrame frame)
+    {
+        var (left, top) = (frame.Corner is HudCorner.TopLeft or HudCorner.BottomLeft,
+            frame.Corner is HudCorner.TopLeft or HudCorner.TopRight);
+        _ = Assert(frame.Corner is >= HudCorner.TopLeft and <= HudCorner.BottomRight);
+        return r with { X = left ? r.X : frame.Width - r.Right, Y = top ? r.Y : frame.Height - r.Bottom };
     }
 
     // HudCanvas.Draw keeps a panel on screen: the same clamp, so clicks and snaps see where it is drawn
@@ -257,8 +244,7 @@ internal sealed class PanelPlacer(int capacity)
 
     // Free: nothing taken lies under it (beyond the slack)
     public (double X, double Y, bool Free) Place(PanelRect slot, double screenWidth, double screenHeight, double margin,
-        double gap,
-        double slack)
+        double gap, double slack)
     {
         if (!Assert(slot is { Width: >= 0, Height: >= 0 }) || !Assert(margin >= 0 && gap >= 0 && slack >= 0))
             return (slot.X, slot.Y, true);
@@ -272,7 +258,6 @@ internal sealed class PanelPlacer(int capacity)
         var (best, bestCover, bestDistance) = (slot, double.MaxValue, double.MaxValue);
         var count = FixedCandidates + 2 * Count;
         for (var i = 0; i < Math.Min(count, FixedCandidates + 2 * MaxPanels); i++)
-        {
             for (var j = 0; j < Math.Min(count, FixedCandidates + 2 * MaxPanels); j++)
             {
                 var at = slot with
@@ -285,7 +270,6 @@ internal sealed class PanelPlacer(int capacity)
                 if (cover < bestCover - Epsilon || (cover <= bestCover + Epsilon && distance < bestDistance))
                     (best, bestCover, bestDistance) = (at, cover, distance);
             }
-        }
 
         // A panel larger than the screen keeps its slot, and the canvas keeps it on screen
         return (best.X, best.Y, bestCover <= Epsilon);
@@ -309,5 +293,42 @@ internal sealed class PanelPlacer(int capacity)
             if (rect.Depth(_taken[i]) > slack)
                 cover += rect.Overlap(_taken[i]);
         return cover;
+    }
+}
+
+// Panels measured at the interval but not drawn yet. Drawing is the dear half of a refresh: every string through Cairo and the whole
+// surface through glTexSubImage2D, 0.1-1.6 ms per panel and 3-6 ms for all of them on one frame. Taken one per frame, round-robin, so
+// a panel that keeps coming due cannot starve the others.
+internal sealed class PanelQueue(int count)
+{
+    private const int MaxPanels = 31; // one bit each
+    private readonly int _capacity = Assert(count is > 0 and <= MaxPanels) ? count : 1;
+    private int _pending, _cursor;
+
+    public void Add(int panel)
+    {
+        if (Index(panel, _capacity)) _pending |= 1 << panel;
+    }
+
+    public void Remove(int panel)
+    {
+        if (Index(panel, _capacity)) _pending &= ~(1 << panel);
+    }
+
+    // The next pending panel after the last one taken, or -1
+    public int Next()
+    {
+        if (_pending == 0 || !Assert(_pending >> _capacity == 0)) return -1;
+        for (var i = 0; i < Math.Min(_capacity, MaxPanels); i++)
+        {
+            var panel = (_cursor + i) % _capacity;
+            if ((_pending & (1 << panel)) == 0) continue;
+            _pending &= ~(1 << panel);
+            _cursor = panel + 1;
+            return panel;
+        }
+
+        _ = Assert(_pending == 0); // not reached: the loop finds every pending bit below _capacity
+        return -1;
     }
 }

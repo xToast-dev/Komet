@@ -227,8 +227,7 @@ PY
 ((${#PLAN[@]} > 0)) || die "could not prepare the sandbox from $CONFIG"
 BUDGET=${TIMEOUT:-${PLAN[0]}}
 EXTRA_ENV=("${PLAN[@]:1}")
-ENV_TEXT=
-((${#EXTRA_ENV[@]} == 0)) || ENV_TEXT=", env ${EXTRA_ENV[*]}"
+ENV_TEXT=${EXTRA_ENV[*]:+, env ${EXTRA_ENV[*]}}
 
 echo "bench: run $RUN, profile $PROFILE, mod $MOD${REVISION:+ ($REVISION)}, budget ${BUDGET}s$ENV_TEXT"
 # timeout makes itself a process-group leader and signals the whole group, so run.sh's child gets the TERM too;

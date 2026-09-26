@@ -39,23 +39,20 @@ internal static class ParticleLight
     {
         Installed = false;
         var target = AccessTools.Method(typeof(BlockAccessorReadLockfree),
-            nameof(BlockAccessorReadLockfree.GetLightRGBsAsInt),
-            [typeof(int), typeof(int), typeof(int)]);
+            nameof(BlockAccessorReadLockfree.GetLightRGBsAsInt), [typeof(int), typeof(int), typeof(int)]);
         if (!NotNull(harmony) || !NotNull(target)) return;
-        _ = NotNull(harmony.Patch(target, new HarmonyMethod(typeof(ParticleLight), nameof(Prefix)),
-            finalizer: new HarmonyMethod(typeof(ParticleLight), nameof(Finalizer))));
+        _ = NotNull(harmony.Patch(target, new HarmonyMethod(Prefix), finalizer: new HarmonyMethod(Finalizer)));
         Installed = true;
     }
 
-    // Harmony matches the parameters to the engine's by name
     private static bool Prefix(BlockAccessorReadLockfree __instance, int posX, int posY, int posZ, ref int __result,
         out WorldChunk? __state)
     {
         __state = null;
         if (!Enabled || Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId) return true;
         var chunk = Chunk(__instance, posX, posY, posZ);
-        return chunk is null ||
-               Enter(chunk, ref __result, out __state); // no chunk: the engine's own fallback, no lock involved
+        // no chunk: the engine's own fallback, no lock involved
+        return chunk is null || Enter(chunk, ref __result, out __state);
     }
 
     // True: the engine reads, and state is the chunk when this took its lock. False: result is a light read before.
@@ -87,7 +84,8 @@ internal static class ParticleLight
             return Served(slot, ref result);
         }
 
-        state = chunk; // its lock is held across the original, which takes it again without waiting; the finalizer lets it go
+        // its lock is held across the original, which takes it again without waiting; the finalizer lets it go
+        state = chunk;
         return true;
     }
 
@@ -157,9 +155,8 @@ internal static class ParticleLight
         var map = WorldMapOf(accessor);
         if (!NotNull(map) || (x | y | z) < 0 || x >= map.MapSizeX || y >= map.MapSizeY || z >= map.MapSizeZ)
             return null;
-        return map.GetChunkNonLocking(x / GlobalConstants.ChunkSize, y / GlobalConstants.ChunkSize,
-                z / GlobalConstants.ChunkSize)
-            as WorldChunk;
+        const int size = GlobalConstants.ChunkSize;
+        return map.GetChunkNonLocking(x / size, y / size, z / size) as WorldChunk;
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "worldmap")]

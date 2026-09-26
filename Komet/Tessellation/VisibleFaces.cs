@@ -24,16 +24,8 @@ namespace Komet.Tessellation;
 // byte, as in the engine; the result is whether a non-air cell outside the skipped centre exists.
 internal static class VisibleFaces
 {
-    private const int Origin = TessSeams.Plane + Ext + 1,
-        Up = 4,
-        Down = 5,
-        North = 0,
-        West = 3,
-        Water = 0x40,
-        UpOpaqueDown = 32;
-
+    private const int Water = 0x40, UpOpaqueDown = 32, Engine = -1;
     private const int Snowy = 1 << 16; // a queued cell whose upper neighbour is JSONAndSnowLayer and opaque downward
-    private const int Engine = -1;
 
     // EngineShape of Shaped() in Vintage Story 1.22.7
     internal const ulong Shape = 0x03182CA4EDCC4566UL;
@@ -64,7 +56,7 @@ internal static class VisibleFaces
         if (!NotNull(harmony) || !NotNull(target) || !Accessible(nameof(VisibleFaces), logger) ||
             !EngineShape.Matches(Shaped(), shape, nameof(VisibleFaces), logger)) return;
         _target = [target];
-        _ = NotNull(harmony.Patch(target, new HarmonyMethod(typeof(VisibleFaces), nameof(Prefix))));
+        _ = NotNull(harmony.Patch(target, new HarmonyMethod(Prefix)));
         Installed = true;
         Recheck();
     }
@@ -73,15 +65,14 @@ internal static class VisibleFaces
     internal static void Recheck()
     {
         if (!Installed) return;
-        StoodDown = Report(nameof(VisibleFaces), StoodDown,
+        StoodDown = EngineShape.Report(Logger, nameof(VisibleFaces), StoodDown,
             EngineShape.Foreign(_target, EngineShape.Kinds.Replacing, null, typeof(VisibleFaces)));
     }
 
     internal static MethodInfo? Target()
     {
         var method = Method(typeof(ChunkTesselator), nameof(ChunkTesselator.CalculateVisibleFaces), typeof(bool),
-            typeof(int), typeof(int),
-            typeof(int));
+            typeof(int), typeof(int), typeof(int));
         return NotNull(method) && Assert(method.ReturnType == typeof(bool)) ? method : null;
     }
 
@@ -117,9 +108,9 @@ internal static class VisibleFaces
         if (!NotNull(tesselator)) return Engine;
         var (blocks, palette, pos, game) = (BlocksExt(tesselator), BlocksFast(tesselator), TmpPos(tesselator),
             Game(tesselator));
+        // What the engine would index or throw on, it does itself
         if (blocks is not { Length: ExtCells } || draw is not { Length: Cells } || palette is not { Length: > 0 } ||
-            pos is null ||
-            !Standard(TileSideEnum.MoveIndex)) return Engine; // what the engine would index or throw on, it does itself
+            pos is null || !Standard(TileSideEnum.MoveIndex)) return Engine;
         var deferred = _deferred ??= new int[Cells];
         if (!Sweep(blocks, palette[0], draw, skip, deferred, out var any, out var fast, out var count))
         {
@@ -135,36 +126,31 @@ internal static class VisibleFaces
             draw[d] = port.Cell((y * Ext + z) * Ext + Origin + x, d, snowy, baseX + x, baseY + y, baseZ + z);
         }
 
-        if (Counting.Hud) Count(fast, count);
-        return any ? 1 : 0;
-    }
+        if (Counting.Hud && Assert(fast >= 0) && Assert(count >= 0))
+        {
+            Counts.Add(ChunksCounter, 1);
+            Counts.Add(FastCounter, fast);
+            Counts.Add(PortedCounter, count);
+        }
 
-    private static void Count(int fast, int ported)
-    {
-        if (!Assert(fast >= 0) || !Assert(ported >= 0)) return;
-        Counts.Add(ChunksCounter, 1);
-        Counts.Add(FastCounter, fast);
-        Counts.Add(PortedCounter, ported);
+        return any ? 1 : 0;
     }
 
     // The engine's cell loop with the Default cells answered in place and the others queued for the port, in the engine's order. False
     // when the engine has to do the chunk, found before anything was called.
     private static bool Sweep(Block[] blocks, Block air, byte[] draw, bool skip, int[] deferred, out bool any,
-        out int fast,
-        out int count)
+        out int fast, out int count)
     {
         (any, fast, count) = (false, 0, 0);
         if (!Assert(blocks.Length == ExtCells) || !Assert(draw.Length == Cells) ||
             !Assert(deferred.Length == Cells)) return false;
         var row = new Row(blocks, air, draw, deferred);
         for (var y = 0; y < Size; y++)
-        {
             for (var z = 0; z < Size; z++)
             {
                 var centre = skip && y * (y ^ 31) * z * (z ^ 31) != 0; // the engine's centre test: 1 <= y, z <= 30
                 if (!row.Walk((y * Ext + z) * Ext + Origin, (y * Size + z) * Size, centre)) return false;
             }
-        }
 
         (any, fast, count) = (row.Any, row.Fast, row.Deferred);
         return Assert(fast + count <= Cells);
@@ -204,8 +190,8 @@ internal static class VisibleFaces
                 Any = true;
                 var up = Unsafe.Add(ref _blocks, e + TessSeams.Plane);
                 var above = (int)up.SideOpaque;
-                var snowy = up.DrawType == EnumDrawType.JSONAndSnowLayer &&
-                            (above & UpOpaqueDown) != 0; // AllowSnowCoverage decides
+                // AllowSnowCoverage decides
+                var snowy = up.DrawType == EnumDrawType.JSONAndSnowLayer && (above & UpOpaqueDown) != 0;
                 var mode = block.FaceCullMode;
                 if (mode == EnumFaceCullMode.Default && !snowy)
                 {
@@ -232,11 +218,10 @@ internal static class VisibleFaces
         // The modes of the engine's switch. A Default cell only reaches the port under a snowy neighbour.
         private static bool Ported(EnumFaceCullMode mode)
         {
-            return mode is EnumFaceCullMode.Default or EnumFaceCullMode.NeverCull or EnumFaceCullMode.Merge
-                or EnumFaceCullMode.Collapse or
-                EnumFaceCullMode.MergeMaterial or EnumFaceCullMode.CollapseMaterial or EnumFaceCullMode.Liquid or
-                EnumFaceCullMode.Callback or EnumFaceCullMode.MergeSnowLayer or EnumFaceCullMode.FlushExceptTop
-                or EnumFaceCullMode.Stairs;
+            return mode is EnumFaceCullMode.Default or EnumFaceCullMode.NeverCull or EnumFaceCullMode.Merge or
+                EnumFaceCullMode.Collapse or EnumFaceCullMode.MergeMaterial or EnumFaceCullMode.CollapseMaterial or
+                EnumFaceCullMode.Liquid or EnumFaceCullMode.Callback or EnumFaceCullMode.MergeSnowLayer or
+                EnumFaceCullMode.FlushExceptTop or EnumFaceCullMode.Stairs;
         }
 
         // Default: bit s is set when the neighbour on side s is not opaque toward the cell (toward: bit s is the neighbour's side
@@ -255,11 +240,11 @@ internal static class VisibleFaces
     {
         public byte Cell(int e, int d, bool snowy, int x, int y, int z)
         {
-            if (!Index(e - Origin, ExtCells - 2 * Origin) || !Index(d, Cells))
-                return 0; // Compute derives both from a cell of the chunk
+            // Compute derives both from a cell of the chunk
+            if (!Index(e - Origin, ExtCells - 2 * Origin) || !Index(d, Cells)) return 0;
             var block = blocks[e];
-            var (mode, opaque, faces) =
-                (block.FaceCullMode, block.SideOpaque, 0); // read once per cell, as the engine does
+            // Read once per cell, as the engine does
+            var (mode, opaque, faces) = (block.FaceCullMode, block.SideOpaque, 0);
             for (var n = 0; n < Faces; n++)
             {
                 var s = Faces - 1 - n;
@@ -277,8 +262,7 @@ internal static class VisibleFaces
 
         // The engine's switch on the cell's mode for side s
         private bool Drawn(EnumFaceCullMode mode, SmallBoolArray opaque, Block block, Block neighbour, bool toward,
-            int e, int d, int s,
-            int opposite, (int X, int Y, int Z) at)
+            int e, int d, int s, int opposite, (int X, int Y, int Z) at)
         {
             var same = ReferenceEquals(neighbour, block);
             return mode switch

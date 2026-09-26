@@ -11,11 +11,11 @@ internal readonly record struct TessView(int X, int Y, int Z, double Fx, double 
 // skips it when it dequeues it, ClientWorldMap does not even enqueue it then), and a full mark that arrives while the edge-only mark
 // waits turns it into a full pass.
 //
-// Several threads take from it: the tessellation thread fills it, takes and defers, Komet's worker threads (TessWorkers) take and hand passes
-// back (Home), all under one lock. A chunk is handed to one thread at a time: while it is tessellated a new mark for it waits, takeable
-// again once that pass is Done. Two passes of one chunk at once would race to the upload queue, and the older mesh finishing last
-// would replace the newer one - after a block edit, the block would come back. Count is published after every change, so the main
-// thread reads it without the lock.
+// Several threads take from it, all under one lock: the tessellation thread fills it, takes and defers, Komet's worker threads
+// (TessWorkers) take and hand passes back (Home). A chunk is handed to one thread at a time: while it is tessellated a new mark for it
+// waits, takeable again once that pass is Done. Two passes of one chunk at once would race to the upload queue, and the older mesh
+// finishing last would replace the newer one - after a block edit, the block would come back. Count is published after every change,
+// so the main thread reads it without the lock.
 internal sealed class TessQueue
 {
     public const int MaxPending = 1 << 20;

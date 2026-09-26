@@ -47,8 +47,7 @@ internal static class TessAccounting
             end = new(typeof(TessAccounting), nameof(End));
         if (!NotNull(harmony) || !NotNull(target) || !NotNull(process) || !Assert(target.ReturnType == typeof(int)) ||
             !Assert(Il.Binds(target, begin.method)) || !Assert(Il.Binds(target, end.method))) return;
-        _ = NotNull(harmony.Patch(process,
-            new HarmonyMethod(typeof(TessAccounting), nameof(Entered)) { priority = Priority.First }));
+        _ = NotNull(harmony.Patch(process, new HarmonyMethod(Entered) { priority = Priority.First }));
         _ = NotNull(harmony.Patch(target, begin, end));
         Installed = true;
     }
@@ -90,8 +89,8 @@ internal static class TessAccounting
         var ticks = Stopwatch.GetTimestamp() - __state.Start;
         if (!Counting.On || !Assert(__state.Start > 0) || !Assert(ticks >= 0)) return;
         var bucket = Classify(_entered != __state.Entries, requeue, priority, skipChunkCenter);
-        _ = Assert(__result == 0 ||
-                   bucket is not (TessBucket.Skipped or TessBucket.Requeued)); // the engine's early exits return 0
+        // The engine's early exits return 0
+        _ = Assert(__result == 0 || bucket is not (TessBucket.Skipped or TessBucket.Requeued));
         Record(bucket, ticks, __result == 0);
     }
 
@@ -123,7 +122,6 @@ internal static class TessAccounting
         return Index(b, Buckets) ? Counts.Total(b) : 0;
     }
 
-    // Harmony injects the arguments, the result and the state by name
     internal readonly record struct Pass(long Start, int Entries);
 }
 

@@ -33,14 +33,13 @@ internal static class InitOnce
     [ThreadStatic] private static Shape? _shape;
     [ThreadStatic] private static string[]? _joints, _disabled;
 
-    [ThreadStatic]
-    private static Animation[]? _animations; // the remembered init's animations and their codes as it saw them
-
+    // The remembered init's animations and their codes as it saw them
+    [ThreadStatic] private static Animation[]? _animations;
     [ThreadStatic] private static string?[]? _codes;
     [ThreadStatic] private static int _depth;
 
-    [ThreadStatic]
-    private static bool _armed; // base has returned: the next init on the remembered shape is the duplicate
+    // Base has returned: the next init on the remembered shape is the duplicate
+    [ThreadStatic] private static bool _armed;
 
     private static MethodBase?[] _seams = [];
     private static ILogger? _logger;
@@ -51,6 +50,8 @@ internal static class InitOnce
     // Another mod patches what runs between or inside the two inits, or the engine's is not the one verified: both run
     internal static bool Blocked { get; private set; }
 
+    internal static bool Matched => _shaped; // the engine's bodies are the ones verified
+
     public static long Skipped { get; private set; } // a total while Counting.Hud, main thread
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
@@ -59,10 +60,8 @@ internal static class InitOnce
         if (!NotNull(harmony) || !Assert(_seams.Length == SeamCount)) return;
         _shaped = EngineShape.Matches(Shaped(), fingerprint, nameof(InitOnce), logger);
         if (!_shaped) return;
-        var self = typeof(InitOnce);
-        _ = NotNull(harmony.Patch(_seams[0], new HarmonyMethod(self, nameof(Open)),
-            finalizer: new HarmonyMethod(self, nameof(Close))));
-        _ = NotNull(harmony.Patch(_seams[1], postfix: new HarmonyMethod(self, nameof(Based))));
+        _ = NotNull(harmony.Patch(_seams[0], new HarmonyMethod(Open), finalizer: new HarmonyMethod(Close)));
+        _ = NotNull(harmony.Patch(_seams[1], postfix: new HarmonyMethod(Based)));
         Recheck();
         _installed = true;
     }
@@ -110,21 +109,15 @@ internal static class InitOnce
             .. ShapeInitMemo.Inside()
         ];
         return Assert(seams.Length == SeamCount) &&
-               Assert(seams[0] is null || seams[0]!.DeclaringType == typeof(EntityPlayer))
-            ? seams
-            : [];
+               Assert(seams[0] is null || seams[0]!.DeclaringType == typeof(EntityPlayer)) ? seams : [];
     }
 
     // The bodies the skip's proof rests on: the seams, and AnimatorBase's constructor, the first animator's, which lower-cases every
     // Animation.Code between the two inits (see Unchanged)
     internal static MethodBase?[] Shaped()
     {
-        MethodBase?[] shaped =
-        [
-            .. Seams(),
-            AccessTools.Constructor(typeof(AnimatorBase),
-                [typeof(WalkSpeedSupplierDelegate), typeof(Animation[]), typeof(Action<string>)])
-        ];
+        MethodBase?[] shaped = [.. Seams(), AccessTools.Constructor(typeof(AnimatorBase),
+            [typeof(WalkSpeedSupplierDelegate), typeof(Animation[]), typeof(Action<string>)])];
         return Assert(shaped.Length <= EngineShape.MaxMethods) ? shaped : [];
     }
 
@@ -140,8 +133,8 @@ internal static class InitOnce
 
         // Only EntityPlayer itself: a subclass may override the protected OnTesselation and change the shape after base's init
         var player = __instance.GetType() == typeof(EntityPlayer) ? __instance : null;
-        (_player, _shape, _joints, _disabled, _armed) = (player, null, null, null, false);
-        (_animations, _codes) = (null, null);
+        (_player, _shape, _joints, _disabled, _armed, _animations, _codes) =
+            (player, null, null, null, false, null, null);
     }
 
     // Harmony's finalizer: runs however the method leaves, and a void finalizer rethrows the original exception untouched
@@ -150,8 +143,8 @@ internal static class InitOnce
         if (!Assert(_depth > 0)) return; // Open ran first
         if (--_depth > 0) return;
         _ = Assert(!_armed || _shape is not null); // armed only ever with a remembered shape
-        (_player, _shape, _joints, _disabled, _armed) = (null, null, null, null, false);
-        (_animations, _codes) = (null, null);
+        (_player, _shape, _joints, _disabled, _armed, _animations, _codes) =
+            (null, null, null, null, false, null, null);
     }
 
     // Entity.OnTesselation has returned into EntityPlayer's: whatever init it ran last is the one the second would repeat
@@ -205,8 +198,7 @@ internal static class InitOnce
         for (var i = 0; i < Math.Min(animations.Length, MaxAnimations); i++)
             (copy[i], codes[i]) = (animations[i], animations[i]?.Code);
         return Assert(copy.Length == codes.Length) && Assert(codes.Length == animations.Length)
-            ? (copy, codes)
-            : (null, null);
+            ? (copy, codes) : (null, null);
     }
 
     // The same animations under the same codes: CollectAndResolveReferences would then write AnimationsByCrc32 exactly as the
@@ -217,32 +209,21 @@ internal static class InitOnce
         if (!Assert(_codes.Length == _animations.Length) || animations.Length != _animations.Length) return false;
         if (!Assert(animations.Length <= MaxAnimations)) return false; // Codes remembers no more
         for (var i = 0; i < Math.Min(animations.Length, MaxAnimations); i++)
-        {
             if (!ReferenceEquals(animations[i], _animations[i]) ||
-                !string.Equals(animations[i]?.Code, _codes[i], StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
+                !string.Equals(animations[i]?.Code, _codes[i], StringComparison.Ordinal)) return false;
         return true;
     }
 
     private static string[]? Copy(string[]? names)
     {
         if (names is null || !Assert(names.Length <= MaxNames)) return null;
-        var copy = new string[names.Length];
-        names.AsSpan().CopyTo(copy);
+        string[] copy = [.. names];
         return Assert(copy.Length == names.Length) ? copy : null;
     }
 
     private static bool Same(string[]? names, string[]? remembered)
     {
         if (names is null || remembered is null) return names is null && remembered is null;
-        if (!Assert(remembered.Length <= MaxNames) || names.Length != remembered.Length) return false;
-        for (var i = 0; i < Math.Min(names.Length, MaxNames); i++)
-            if (!string.Equals(names[i], remembered[i], StringComparison.Ordinal))
-                return false;
-        return true;
+        return Assert(remembered.Length <= MaxNames) && names.AsSpan().SequenceEqual(remembered);
     }
 }

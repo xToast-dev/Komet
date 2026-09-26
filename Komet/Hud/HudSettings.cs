@@ -38,11 +38,12 @@ internal sealed class HudSettings
     private const int MaxPinned = 100, MaxPanels = 32;
 
     public const int SlowEvery = 4, LogScrollLines = 3, DoubleClickMs = 400;
-    public const double PanelGap = 6, ScreenMargin = 8, SnapGrid = 8, SnapDistance = 12;
+    public const double PanelGap = 6, ScreenMargin = 8, SnapStep = 8, SnapDistance = 12;
     public static readonly HudRange OpacityRange = new(0, 1, 0.05, 100, "%"), ScaleRange = new(0.5, 2, 0.1, 100, "%");
     public static readonly HudRange IntervalRange = new(0.1, 1, 0.05, 1000, "ms"), BenchRange = new(5, 120, 5, 1, "s");
 
-    private static readonly int[] KnobDefaults = Knobs.Snapshot(); // before any file is loaded: the statics' own values
+    // Before any file is loaded: the statics' own values, Komet's knobs alone
+    private static readonly int[] KnobDefaults = Knobs.Snapshot(builtIn: true);
 
     [JsonExtensionData]
     private readonly Dictionary<string, JToken> _json = []; // the knobs, as top-level keys of the file
@@ -50,11 +51,7 @@ internal sealed class HudSettings
     // What the player chose; the bench writes the statics, not these
     private readonly int[] _knobs = (int[])KnobDefaults.Clone();
 
-    public bool Visible
-    {
-        get;
-        set => Set(ref field, value);
-    }
+    public bool Visible { get; set => Set(ref field, value); }
 
     [JsonProperty]
     public HudCorner Corner
@@ -66,111 +63,24 @@ internal sealed class HudSettings
         }
     } // private setter: Json.NET writes it only with the attribute
 
-    public double Opacity
-    {
-        get;
-        set
-        {
-            if (Assert(OpacityRange.Contains(value))) Set(ref field, value);
-        }
-    } = 0.6;
-
-    public double Interval
-    {
-        get;
-        set
-        {
-            if (Assert(IntervalRange.Contains(value))) Set(ref field, value);
-        }
-    } = 0.25;
-
-    public double BenchSeconds
-    {
-        get;
-        set
-        {
-            if (Assert(BenchRange.Contains(value))) Set(ref field, value);
-        }
-    } = 30;
-
-    public bool ShowGraph
-    {
-        get;
-        set => Set(ref field, value);
-    } = true;
-
-    public bool ShowSystem
-    {
-        get;
-        set => Set(ref field, value);
-    } = true;
-
-    public bool ShowPasses
-    {
-        get;
-        set => Set(ref field, value);
-    } = true;
-
-    public bool ShowModTimes
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
+    public double Opacity { get; set { if (Assert(OpacityRange.Contains(value))) Set(ref field, value); } } = 0.6;
+    public double Interval { get; set { if (Assert(IntervalRange.Contains(value))) Set(ref field, value); } } = 0.25;
+    public double BenchSeconds { get; set { if (Assert(BenchRange.Contains(value))) Set(ref field, value); } } = 30;
+    public bool ShowGraph { get; set => Set(ref field, value); } = true;
+    public bool ShowSystem { get; set => Set(ref field, value); } = true;
+    public bool ShowPasses { get; set => Set(ref field, value); } = true;
+    public bool ShowModTimes { get; set => Set(ref field, value); }
     // The rows behind the headline of each section, in every panel
-    public bool Detail
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
-    public bool ShowMods
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
+    public bool Detail { get; set => Set(ref field, value); }
+    public bool ShowMods { get; set => Set(ref field, value); }
     // Komet's own feature counters, two panels of them: apart from the mods and patches, which are a few rows
-    public bool ShowCounters
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
-    public bool ShowLog
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
-    public bool ShowDebugLog
-    {
-        get;
-        set => Set(ref field, value);
-    }
-
-    public bool UpdateCheck
-    {
-        get;
-        set => Set(ref field, value);
-    } // asks GitHub once per start, opt-in
-
-    public bool UpdateAsked
-    {
-        get;
-        set => Set(ref field, value);
-    } // the opt-in dialog is shown until answered
-
+    public bool ShowCounters { get; set => Set(ref field, value); }
+    public bool ShowLog { get; set => Set(ref field, value); }
+    public bool ShowDebugLog { get; set => Set(ref field, value); }
+    public bool UpdateCheck { get; set => Set(ref field, value); } // asks GitHub once per start, opt-in
+    public bool UpdateAsked { get; set => Set(ref field, value); } // the opt-in dialog is shown until answered
     public Dictionary<int, double[]> Pinned { get; } = [];
-
-    public double FontScale
-    {
-        get;
-        set
-        {
-            if (Assert(ScaleRange.Contains(value))) Set(ref field, value);
-        }
-    } = 1.0;
+    public double FontScale { get; set { if (Assert(ScaleRange.Contains(value))) Set(ref field, value); } } = 1.0;
 
     public event Action? Changed;
 
@@ -219,15 +129,15 @@ internal sealed class HudSettings
 
     public int Knob(int knob)
     {
-        return Index(knob, _knobs.Length) && Assert(_knobs.Length == Knobs.Count) ? _knobs[knob] : 0;
+        return Index(knob, _knobs.Length) && Assert(_knobs.Length == Knobs.BuiltInCount) ? _knobs[knob] : 0;
     }
 
     public void SetKnob(int knob, int value)
     {
         if (!Index(knob, _knobs.Length) || !Knobs.InRange(knob, value)) return;
-        var feature = Knobs.All[knob];
-        if (feature.Get() != value) feature.Set(value);
+        _ = Knobs.Write(knob, value);
         Set(ref _knobs[knob], value);
+        Features.Poll();
     }
 
     public static HudSettings Load(ICoreClientAPI capi)
@@ -265,10 +175,10 @@ internal sealed class HudSettings
             logger.Warning("Komet HUD: {0} dropped {1} unreadable panel positions", FileName, bad.Count);
     }
 
-    // Every knob reaches its static, the file's value or the default; keys of knobs that no longer exist are dropped
+    // Every knob reaches its static (unless held), the file's value or the default; keys of knobs that no longer exist are dropped
     internal void ApplyKnobs(ILogger logger)
     {
-        var knobs = Knobs.All;
+        var knobs = Knobs.BuiltIn;
         List<string> rejected = [];
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
         {
@@ -280,7 +190,7 @@ internal sealed class HudSettings
             }
 
             _knobs[i] = value;
-            if (knobs[i].Get() != value) knobs[i].Set(value);
+            _ = Knobs.Write(i, value);
         }
 
         _json.Clear();
@@ -296,10 +206,8 @@ internal sealed class HudSettings
         value = token switch
         {
             JValue { Type: JTokenType.Boolean, Value: bool on } => on ? 1 : 0,
-            JValue
-            {
-                Type: JTokenType.Integer, Value: long number and >= int.MinValue and <= int.MaxValue
-            } => (int)number,
+            JValue { Type: JTokenType.Integer, Value: long number and >= int.MinValue and <= int.MaxValue } =>
+                (int)number,
             _ => int.MinValue
         };
         return NotNull(token) && Knobs.InRange(knob, value);
@@ -308,7 +216,7 @@ internal sealed class HudSettings
     [OnSerializing]
     private void Serializing(StreamingContext context)
     {
-        var knobs = Knobs.All;
+        var knobs = Knobs.BuiltIn;
         _json.Clear();
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
             _json[knobs[i].Persisted] = knobs[i].IsSwitch ? new JValue(_knobs[i] != 0) : new JValue(_knobs[i]);

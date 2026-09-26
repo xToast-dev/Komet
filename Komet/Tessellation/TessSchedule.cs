@@ -15,10 +15,10 @@ namespace Komet.Tessellation;
 // out the nearest chunk (weighted by the angle to the camera) within the engine's vertex budget. The passes, the budget, the early
 // return while priority chunks wait, the recycling and the requeues (back in the next tick) stay the engine's. Switched off, what
 // waits goes back into game.dirtyChunks.
-// The tick and its state (Batch, Busy, the aim) belong to the tessellation thread, the tick's only caller. Komet's worker threads (TessWorkers)
-// take normal passes from the same queue (Work), whose lock hands each chunk to one thread at a time; the tessellation thread keeps
-// the priority marks and the passes the workers hand back. The main thread reads only the published count and the bound world, and
-// Clear only drops the world (the next Bind empties the queue).
+// The tick and its state (Batch, Busy, the aim) belong to the tessellation thread, the tick's only caller. Komet's worker threads
+// (TessWorkers) take normal passes from the same queue (Work), whose lock hands each chunk to one thread at a time; the tessellation
+// thread keeps the priority marks and the passes the workers hand back. The main thread reads only the published count and the bound
+// world, and Clear only drops the world (the next Bind empties the queue).
 internal static class TessSchedule
 {
     private const int MaxPerTick = 1 << 16, MaxCollect = 1 << 14, MaxPriority = 1 << 14, NearRadius = 6, AimMs = 200;
@@ -39,7 +39,7 @@ internal static class TessSchedule
     public static bool Installed { get; private set; }
     public static int NearWaiting => Volatile.Read(ref _near); // marks within NearRadius columns of the player
     public static int Backlog => Waiting.Count; // marks waiting for a normal pass
-    public static bool Active => Installed && Enabled;
+    private static bool Active => Installed && Enabled;
 
     public static void Install(Harmony harmony)
     {
@@ -50,13 +50,13 @@ internal static class TessSchedule
             [typeof(float)]);
         var frame = AccessTools.DeclaredMethod(manager, nameof(ChunkTesselatorManager.OnBeforeFrame), [typeof(float)]);
         if (!NotNull(harmony) || !NotNull(tick) || !NotNull(frame) || !Seams()) return;
-        _ = NotNull(harmony.Patch(tick, new HarmonyMethod(typeof(TessSchedule), nameof(Tick))));
-        _ = NotNull(harmony.Patch(frame, postfix: new HarmonyMethod(typeof(TessSchedule), nameof(Counted))));
+        _ = NotNull(harmony.Patch(tick, new HarmonyMethod(Tick)));
+        _ = NotNull(harmony.Patch(frame, postfix: new HarmonyMethod(Counted)));
         Installed = true;
     }
 
-    // Every private engine field the accessors reach, with its type, and the pass the tick calls: a missing one would throw inside the
-    // tick, on the tessellation thread, and ClientThread exits the game on any exception there
+    // Every private engine field the accessors reach (TessSeams.Started's too), with its type, and the pass the tick calls: a missing
+    // one would throw inside the tick, on the tessellation thread, and ClientThread exits the game on any exception there
     private static bool Seams()
     {
         var (main, queue, gate) = (typeof(ClientMain), typeof(UniqueQueue<long>), typeof(object));
@@ -91,7 +91,7 @@ internal static class TessSchedule
             return true;
         }
 
-        if (game.TerrainChunkTesselator is not { } tesselator || !Started(tesselator) ||
+        if (game.TerrainChunkTesselator is not { } tesselator || !TessSeams.Started(tesselator) ||
             !NotNull(game.frustumCuller)) return false;
         TessWorkers.Steer(game, __instance, true);
         Bind(game); // after started: ChunkTesselator.Start reads the map size, so the index multipliers are set
@@ -100,8 +100,8 @@ internal static class TessSchedule
             Collect(game);
             Aim(game, false);
             Measure(game, false);
-            if (!Normal(__instance, game))
-                return false; // the engine leaves the rest of the tick to new priority chunks, recycling too
+            // The engine leaves the rest of the tick to new priority chunks, recycling too
+            if (!Normal(__instance, game)) return false;
         }
 
         MeshData.Recycler?.DoRecycling();
@@ -111,8 +111,8 @@ internal static class TessSchedule
     private static void Counted(ChunkTesselatorManager __instance)
     {
         if (!Active || !NotNull(__instance) || !ReferenceEquals(Game(__instance), _game)) return;
-        RuntimeStats.chunksAwaitingTesselation +=
-            Waiting.Count; // the engine counted its three queues, these moved out of them
+        // The engine counted its three queues, these moved out of them
+        RuntimeStats.chunksAwaitingTesselation += Waiting.Count;
         _ = Assert(RuntimeStats.chunksAwaitingTesselation >= 0);
     }
 
@@ -159,7 +159,7 @@ internal static class TessSchedule
                 continue;
             }
 
-            if (Owned(manager, game, mark, true))
+            if (Owned(manager, game, mark, true, out _))
                 lock (gate)
                 {
                     PriorityQueue(game).Enqueue(mark);
@@ -173,8 +173,7 @@ internal static class TessSchedule
     private static bool Home(ChunkTesselatorManager manager, ClientMain game)
     {
         for (var i = 0; i < MaxPriority && game.ShouldTesselateTerrain && Waiting.TryTakeHome(out var mark); i++)
-            if (Owned(manager, game, mark, false))
-                Waiting.Defer(mark);
+            if (Owned(manager, game, mark, false, out _)) Waiting.Defer(mark);
         return game.ShouldTesselateTerrain;
     }
 
@@ -188,17 +187,8 @@ internal static class TessSchedule
         {
             if (PriorityQueue(game).Count > 0) return false;
             if (!game.ShouldTesselateTerrain || !Waiting.TryTake(out var mark)) break;
-            bool requeue;
-            try
-            {
-                vertices += Pass(manager, game, mark, false, out requeue);
-            }
-            finally
-            {
-                Waiting.Done(mark & long.MaxValue);
-            }
-
-            if (requeue) Waiting.Defer(mark);
+            if (Owned(manager, game, mark, false, out var added)) Waiting.Defer(mark);
+            vertices += added;
         }
 
         return Assert(vertices >= 0);
@@ -225,13 +215,14 @@ internal static class TessSchedule
         return Assert(finished);
     }
 
-    // A pass of a chunk this thread holds in flight, released afterwards; true when the engine wants it again
-    private static bool Owned(ChunkTesselatorManager manager, ClientMain game, long mark, bool priority)
+    // A pass of a chunk this thread holds in flight, released afterwards: its vertices, and true when the engine wants it again
+    private static bool Owned(ChunkTesselatorManager manager, ClientMain game, long mark, bool priority,
+        out int vertices)
     {
         bool requeue;
         try
         {
-            _ = Pass(manager, game, mark, priority, out requeue);
+            vertices = Pass(manager, game, mark, priority, out requeue);
         }
         finally
         {
@@ -307,8 +298,7 @@ internal static class TessSchedule
         if (pos is null || !Finite(pos.X) || !Finite(pos.Z) || !Finite(game.mouseYaw)) return null;
         var (fx, fz) = TessQueue.Facing(game.mouseYaw);
         return new TessView((int)Math.Floor(pos.X / 32), (int)Math.Floor(pos.Y / 32) + pos.Dimension * 1024,
-            (int)Math.Floor(pos.Z / 32),
-            fx, fz);
+            (int)Math.Floor(pos.Z / 32), fx, fz);
     }
 
     // Switched off: what still waits goes back into game.dirtyChunks
@@ -361,9 +351,6 @@ internal static class TessSchedule
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
     private static extern ref ClientMain? Game(ClientSystem system);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "started")]
-    private static extern ref bool Started(ChunkTesselator tesselator);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "dirtyChunks")]
     private static extern ref UniqueQueue<long> Dirty(ClientMain game);

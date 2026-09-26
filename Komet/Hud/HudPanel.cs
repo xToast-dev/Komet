@@ -2,16 +2,8 @@ using System.Text;
 
 namespace Komet.Hud;
 
-internal sealed class HudPanel(
-    ICoreClientAPI capi,
-    HudSettings settings,
-    HudFonts fonts,
-    int index,
-    int column,
-    int refreshEvery,
-    int phase,
-    Func<bool>? enabled,
-    LogStats? log) : IDisposable
+internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, HudFonts fonts, int index, int column,
+    int refreshEvery, int phase, Func<bool>? enabled, LogStats? log) : IDisposable
 {
     public const double Padding = 6, Gap = 14;
     private const int MaxRows = 64, MaxLines = 4 * MaxRows;
@@ -154,39 +146,26 @@ internal sealed class HudPanel(
         foreach (var line in _lines.Bounded(MaxLines)) line.Prime();
     }
 
-    public void AppendMeans(StringBuilder text)
-    {
-        if (!Assert(_lines.Count > 0)) return;
-        var first = true;
-        foreach (var line in _lines.Bounded(MaxLines))
-        {
-            var row = line.MeanText();
-            if (row.Length == 0) continue;
-            if (!first) _ = text.Append('\n');
-            _ = text.Append(row);
-            first = false;
-        }
-    }
-
     // The rows as the last Measure() left them, the ones Render() draws: nothing for a hidden panel or one not drawn yet, which is not
-    // on screen either
-    public void AppendShown(StringBuilder text)
+    // on screen either. means: the bench's mean of every row instead, hidden or not
+    public void AppendShown(StringBuilder text, bool means = false)
     {
-        if (!Assert(_lines.Count > 0) || !NotNull(text) || !Visible || !Ready) return;
-        _ = Assert(NaturalWidth > 0); // drawn means measured
-        AppendShown(text, _lines, _lastDetail);
+        if (!Assert(_lines.Count > 0) || !NotNull(text) || (!means && (!Visible || !Ready))) return;
+        _ = Assert(means || NaturalWidth > 0); // drawn means measured
+        AppendShown(text, _lines, means || _lastDetail, means);
     }
 
     // The rows Render() draws with detail as last measured, after a blank line when text already holds a panel. A detail row that
-    // was not measured holds the text of an older interval, so it is skipped here as it is there.
-    internal static void AppendShown(StringBuilder text, List<HudLine> lines, bool detail)
+    // was not measured holds the text of an older interval, so it is skipped here as it is there. A mean reads its label anew, so
+    // a row blank at the last measure is not left out.
+    internal static void AppendShown(StringBuilder text, List<HudLine> lines, bool detail, bool means = false)
     {
         if (!NotNull(text) || !Assert(lines.Count <= MaxLines)) return;
         var first = true;
         foreach (var line in lines.Bounded(MaxLines))
         {
-            if ((line.Detail && !detail) || line.Empty) continue;
-            var row = line.ShownText();
+            if ((line.Detail && !detail) || (!means && line.Empty)) continue;
+            var row = means ? line.MeanText() : line.ShownText();
             if (row.Length == 0) continue;
             if (!first) _ = text.Append('\n');
             else if (text.Length > 0) _ = text.Append("\n\n");
@@ -197,7 +176,7 @@ internal sealed class HudPanel(
 
     // Measures the lines when the panel is due this interval; true when it then needs Render(). The phase spreads a cadence over its
     // own period, so the slow panels do not all come due on one frame. force = due now regardless, for a direct refresh.
-    public bool Measure(int interval, bool detail, bool force = false)
+    public bool Measure(int interval, bool detail, bool force)
     {
         if (!Assert(interval >= 0) || !Assert(refreshEvery > 0) || !Assert(_lines.Count > 0)) return false;
         if (!Visible || (!force && (interval + phase) % refreshEvery != 0)) return false;
@@ -232,8 +211,8 @@ internal sealed class HudPanel(
         _valueBlock = _valueW > 0 ? gap + _valueW + unitGap + _unitW : 0;
         // A line of text alone (headers, titles, log rows, a status sentence) only needs the row wide enough, not the label column
         NaturalWidth = Math.Max(_labelW + _barBlock + _valueBlock, _textW) + 2 * scaled(Padding);
-        return Assert(_linesHeight > 0) &&
-               Assert(_labelW + _textW > 0); // every panel starts with a title or a section header
+        // every panel starts with a title or a section header
+        return Assert(_linesHeight > 0) && Assert(_labelW + _textW > 0);
     }
 
     // Draws the lines as last measured, at least minWidth wide: the column's width, so the panels of a column line up
@@ -241,16 +220,14 @@ internal sealed class HudPanel(
     {
         double gap = scaled(Gap), pad = scaled(Padding);
         if (!Assert(minWidth >= 0) || !Assert(_linesHeight > 0) || !Assert(NaturalWidth > 0)) return; // Measure() first
-        var row = Math.Max(minWidth, NaturalWidth) -
-                  2 * pad; // the values sit at the right edge, where the column lines them up
+        // the values sit at the right edge, where the column lines them up
+        var row = Math.Max(minWidth, NaturalWidth) - 2 * pad;
         var start = row - _barBlock - _valueBlock;
         if (!Assert(start >= _labelW - 1e-6)) return;
         var columns = new HudColumns(row, start + gap, start + gap + HudCanvas.BarWidth + gap + _percentW,
             start + _barBlock + gap + _valueW);
-        _canvas.Begin(columns.RowWidth + 2 * pad, _linesHeight + 2 * pad);
-        if (!Assert(_canvas.Width >= NaturalWidth)) return; // Begin() refused the size
-        _canvas.Fill(0, 0, _canvas.Width, _canvas.Height, HudCanvas.PanelBackground with { A = settings.Opacity },
-            scaled(4));
+        if (!_canvas.BeginPanel(columns.RowWidth + 2 * pad, _linesHeight + 2 * pad, settings.Opacity) ||
+            !Assert(_canvas.Width >= NaturalWidth)) return;
         var y = pad;
         foreach (var line in _lines.Bounded(MaxLines))
         {

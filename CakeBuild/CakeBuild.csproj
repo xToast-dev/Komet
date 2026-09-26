@@ -9,10 +9,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Cake.Frosting" Version="6.2.0" />
+        <PackageReference Include="Cake.Frosting" Version="6.2.0"/>
         <!-- transitive Cake dependencies with audit findings, pinned to patched versions -->
-        <PackageReference Include="NuGet.Packaging" Version="7.9.0" />
-        <PackageReference Include="NuGet.Protocol" Version="7.9.0" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+        <PackageReference Include="NuGet.Packaging" Version="7.9.0"/>
+        <PackageReference Include="NuGet.Protocol" Version="7.9.0"/>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
     </ItemGroup>
 </Project>

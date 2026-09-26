@@ -1,0 +1,79 @@
+{
+  "_comment": [
+    "Komet benchmark profiles for scripts/bench.sh. The script merges world + profiles.<name>, adds output, modDir, revision and",
+    "env, and hands the result to the game as KOMET_BENCH. Only overrides belong here: the defaults live in BenchConfig.cs",
+    "(settle 150 s and 10 s per lap, still 10, rotate 20, leg 40, turn 2 s, speed 11 blocks/s, 8 laps, one warm-up lap per arm).",
+    "Arm knobs are the names in Komet/Core/Knobs.cs; flags take true/false, UploadCap 0..20 (0 = engine), WorkerThreads 0..8 and TessJobs 0..8 (0 = engine), EntityTessBudget",
+    "0..50 (0 = engine); \"engine\": true starts the arm from every knob's engine value. Laps must be a multiple of the arm count.",
+    "sandbox is read by the script only: window size, windowMode (0 windowed, 1 fullscreen), vsync, fps cap, view distance,",
+    "boot timeout, extra environment for the game process, and hud: keys merged into komet-hud.json (e.g. Visible)."
+  ],
+  "world": {
+    "save": "testwelt",
+    "savegameId": "75695bba-910a-4a52-93dd-df4024a5ad1a"
+  },
+  "sandbox": {
+    "window": [1920, 1080],
+    "vsyncMode": 0,
+    "maxFps": 241,
+    "viewDistance": null,
+    "bootTimeout": 240,
+    "env": {}
+  },
+  "profiles": {
+    "smoke": {
+      "_comment": "about three minutes: proves the harness end to end, A/A so the two arms must agree",
+      "settle": { "seconds": 30, "lapSeconds": 5 },
+      "lap": { "still": 5, "rotate": 10, "leg": 15, "turn": 2 },
+      "laps": 2,
+      "warmupLaps": 1,
+      "arms": [{ "name": "A" }, { "name": "A2" }]
+    },
+    "aa": {
+      "_comment": "the noise floor: full length, both arms identical; |delta| here is what any A/B has to beat",
+      "warmupLaps": 2,
+      "arms": [{ "name": "A" }, { "name": "A2" }]
+    },
+    "full": {
+      "_comment": "Komet as configured against the engine (every knob at its engine value), A B B A A B B A",
+      "warmupLaps": 2,
+      "arms": [{ "name": "komet" }, { "name": "engine", "engine": true }]
+    },
+    "tess": {
+      "_comment": "the tessellation fast paths and TessSchedule on against off, in one process; compare tessMsPerPass and tessNearAvg (marks near the player still waiting), where new chunks stream in",
+      "warmupLaps": 2,
+      "arms": [
+        { "name": "komet" },
+        {
+          "name": "engine",
+          "set": { "ExtendedRows": false, "VisibleFaces": false, "FaceLight": false, "OccludedChunks": false, "TessSchedule": false }
+        }
+      ]
+    },
+    "gcreg": {
+      "_comment": "the always-on features outside the tessellation fast paths (shape init memo, entity budget, particle light) on against off, in one process: frame time and GC pauses",
+      "warmupLaps": 2,
+      "arms": [{ "name": "all" }, { "name": "lean", "set": { "ShapeInitMemo": false, "EntityTessBudget": 0, "ParticleLight": false } }]
+    },
+    "hud": {
+      "_comment": "the HUD itself in game: every panel shown, one lap, to catch what unit tests cannot (Cairo, GL uploads, the frame clock)",
+      "sandbox": {
+        "hud": {
+          "Visible": true,
+          "ShowGraph": true,
+          "ShowSystem": true,
+          "ShowPasses": true,
+          "ShowModTimes": true,
+          "Detail": true,
+          "ShowMods": true,
+          "ShowCounters": true,
+          "ShowLog": true,
+          "ShowDebugLog": true
+        }
+      },
+      "lap": { "still": 20, "rotate": 20, "leg": 30 },
+      "laps": 1,
+      "warmupLaps": 0
+    }
+  }
+}

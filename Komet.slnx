@@ -1,0 +1,6 @@
+<Solution>
+    <Project Path="Komet/Komet.csproj"/>
+    <Project Path="CakeBuild\CakeBuild.csproj"/>
+    <Project Path="Komet.Test/Komet.Test.csproj"/>
+    <Project Path="Komet.Rules/Komet.Rules.csproj"/>
+</Solution>

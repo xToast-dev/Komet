@@ -2,7 +2,7 @@
 bin/
 obj/
 Releases/
-publish/
+TestResults/
 
 # IDE / user state
 .idea/
@@ -11,9 +11,7 @@ publish/
 *.DotSettings.user
 .vscode/
 
-# Local game / run config
-/Komet/config/
-/CakeBuild/config/
+# Local run config
 /Komet/Properties/launchSettings.json
 
 # OS

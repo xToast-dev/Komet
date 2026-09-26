@@ -1,2 +1,2 @@
-dotnet run --project CakeBuild/CakeBuild.csproj -- $args
-exit $LASTEXITCODE;
+dotnet build "$PSScriptRoot/Komet/Komet.csproj" -c Release -t:Package @args
+exit $LASTEXITCODE

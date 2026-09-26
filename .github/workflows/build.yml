@@ -1,7 +1,9 @@
 name: build
 
-# The gate is build.sh: JSON validation, the Power-of-Ten rules and the compile with every
-# warning as an error. What passes here is packed as the zip that gets released.
+# The gate is build.sh: the parse of modinfo.json and the assets with the game's Newtonsoft, the
+# Komet.Rules analyzer, the compile with every warning as an error, and the package. What passes here
+# is the zip that gets released. The tests need a game installation with VSEssentials, VSSurvivalMod
+# and the assets, so they run locally only.
 on:
   push:
     # workflow_dispatch only shows its "Run workflow" button for workflows that exist on the
@@ -12,13 +14,14 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A second push onto the same branch makes the first run pointless.
+# A second push makes the first run pointless, except on main: a cancelled release job can leave
+# v<version> tagged without its release.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -45,30 +48,12 @@ jobs:
           echo "KometCommit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "KometBuilt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
-      # Fails with the missing file names rather than with a wall of CS0246 "type or
-      # namespace not found" from the first reference that could not be resolved.
-      - name: Check the game assemblies are present
-        run: |
-          missing=()
-          for f in VintagestoryAPI.dll VintagestoryLib.dll \
-                   Lib/0Harmony.dll Lib/cairo-sharp.dll Lib/Newtonsoft.Json.dll Lib/OpenTK.Graphics.dll; do
-            [[ -f "$VsInstall/$f" ]] || missing+=("$f")
-          done
-          if (( ${#missing[@]} )); then
-            printf 'missing in .github/vintagestory:\n'
-            printf '  %s\n' "${missing[@]}"
-            printf 'see .github/vintagestory/README.md for the expected layout\n'
-            exit 1
-          fi
-          echo "all 6 game assemblies present"
+      - name: Check the game assemblies
+        working-directory: .github/vintagestory
+        run: sha256sum --check --strict SHA256SUMS
 
-      # build.sh is the single source of truth for what a release is: it validates the
-      # assets, runs the rules, publishes and only then packs Releases/komet_<version>.zip.
       - name: Build, check and pack
         run: ./build.sh
-
-      - name: Test
-        run: dotnet test Komet.Test/Komet.Test.csproj --configuration Release
 
       # Into the run summary, so the checksum of a build can be read (and pasted onto the
       # ModDB page) without downloading the artifact first.
@@ -98,7 +83,7 @@ jobs:
   #   main            -> a DRAFT tagged v<version>. The real release; a human looks at it and
   #                      presses publish. An existing tag is never moved - a version is
   #                      published once.
-  #   nightly, manual run
+  #   any other branch (nightly, a manual run off main)
   #                   -> a PRERELEASE tagged preview-<sha>, visible in the tab right away and
   #                      never marked "latest". One per commit, so a preview and the sha256 in
   #                      its notes belong together permanently.
@@ -108,6 +93,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v7

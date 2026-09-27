@@ -93,8 +93,7 @@ internal static class IndirectDraw
         return at;
     }
 
-    // Fences the segment being left and waits on the one being entered; with four segments of the largest draw each, a wait means the
-    // GPU is several frames behind
+    // Fences the segment left and waits on the one entered; with four segments of the largest draw each, a wait means the GPU lags frames
     private static void Lap()
     {
         if (Fences[_segment] != IntPtr.Zero) GL.DeleteSync(Fences[_segment]);

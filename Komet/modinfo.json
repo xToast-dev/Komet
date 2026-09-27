@@ -7,7 +7,7 @@
   "authors": [
     "xToast"
   ],
-  "description": "Client-side performance mod: faster chunk tessellation, culling, animation and rendering with fewer allocations, plus an F7 HUD for frame times and diagnostics.",
+  "description": "An awesome Performance Mod!",
   "version": "2.0.0",
   "dependencies": {
     "game": "1.22.0"

@@ -144,11 +144,8 @@ internal sealed partial class HudOverlay : IRenderer
         _capi.Event.LevelFinalize -= AskForUpdateCheck;
         if (_settings.UpdateAsked || !Assert(_build.Version.Length > 0)) return;
         Quiet(); // GuiDialogConfirm composes itself in its constructor
-        _ask = new GuiDialogConfirm(_capi, HudText.Translate("update-ask"), yes =>
-        {
-            _settings.UpdateAsked = true;
-            _settings.UpdateCheck = yes;
-        });
+        _ask = new GuiDialogConfirm(_capi, HudText.Translate("update-ask"),
+            yes => (_settings.UpdateAsked, _settings.UpdateCheck) = (true, yes));
         _ask.OnClosed += Quiet;
         if (!_ask.TryOpen())
             _capi.Logger.Warning("Komet: update opt-in dialog could not be opened, update notices stay off");
@@ -240,19 +237,15 @@ internal sealed partial class HudOverlay : IRenderer
     private void StartBench(float seconds)
     {
         if (!Assert(seconds is > 0 and <= 3600) || !Assert(_panels.Count > 0)) return;
-        if (_benchLeft > 0) // already running
-        {
-            _capi.ShowChatMessage(HudText.Translate("hud-bench-start", MathF.Ceiling(_benchLeft)));
-            return;
-        }
-
+        var running = _benchLeft > 0; // not restarted, only its time left is told
+        _capi.ShowChatMessage(HudText.Translate("hud-bench-start", running ? MathF.Ceiling(_benchLeft) : seconds));
+        if (running) return;
         foreach (var panel in _panels.Bounded(PanelCount)) panel.ResetBench();
         _frames.ResetHistory();
         _passes.ResetWorst();
         _spikes.Reset();
         _benchLeft = seconds;
         UpdateProfiler();
-        _capi.ShowChatMessage(HudText.Translate("hud-bench-start", seconds));
     }
 
     private void Bench(float elapsed)
@@ -275,22 +268,20 @@ internal sealed partial class HudOverlay : IRenderer
         if (_dragging >= 0) EndDrag();
         var index = _layout.Topmost(e.X, e.Y);
         if (index < 0 || !Index(index, _panels.Count)) return;
-        var panel = _panels[index];
-        var now = Environment.TickCount64;
+        var (panel, now) = (_panels[index], Environment.TickCount64);
+        e.Handled = true;
         // double click grows / shrinks a log panel
         if (panel.Log is { } log && index == _lastClick && now - _lastClickTime < HudSettings.DoubleClickMs)
         {
             log.Expanded = !log.Expanded;
             Refresh(panel);
             _lastClick = -1;
-            e.Handled = true;
             return;
         }
 
         (_dragging, _lastClick, _lastClickTime) = (index, index, now);
         var at = _layout.Drawn(index);
         (_grabX, _grabY) = (e.X - at.X, e.Y - at.Y);
-        e.Handled = true;
     }
 
     private void OnMouseMove(MouseEvent e)
@@ -490,7 +481,12 @@ internal sealed partial class HudOverlay : IRenderer
     private double Width(HudPanel panel)
     {
         if (!NotNull(panel) || !Index(panel.Column, Columns)) return 0;
-        return panel.Pinned == null ? ColumnWidth(panel.Column) : panel.Width;
+        if (panel.Pinned != null) return panel.Width;
+        double width = 0;
+        foreach (var other in _panels.Bounded(PanelCount))
+            if (other.Column == panel.Column && other is { Visible: true, Pinned: null })
+                width = Math.Max(width, other.NaturalWidth);
+        return width;
     }
 
     // One panel right away (log scroll, double click), not at the next tick of its own cadence
@@ -500,16 +496,6 @@ internal sealed partial class HudOverlay : IRenderer
             !panel.Measure(_interval, _settings.Detail, true)) return;
         _queue.Remove(_panels.IndexOf(panel));
         panel.Render(Width(panel));
-    }
-
-    private double ColumnWidth(int column)
-    {
-        if (!Index(column, Columns)) return 0;
-        double width = 0;
-        foreach (var panel in _panels.Bounded(PanelCount))
-            if (panel.Column == column && panel is { Visible: true, Pinned: null })
-                width = Math.Max(width, panel.NaturalWidth);
-        return width;
     }
 
     // Laid out when something moved, then drawn layer by layer; a panel that was never drawn has no texture yet and takes no room
@@ -528,10 +514,7 @@ internal sealed partial class HudOverlay : IRenderer
                     _panels[i].Draw(at.X, at.Y);
     }
 
-    private LayoutFrame Frame()
-    {
-        // the slack is the padding: an overlap within it hides no text
-        return new LayoutFrame(_capi.Render.FrameWidth, _capi.Render.FrameHeight, _settings.Corner,
-            scaled(HudSettings.PanelGap), scaled(HudSettings.ScreenMargin), scaled(HudPanel.Padding), _dragging);
-    }
+    // The slack is the padding: an overlap within it hides no text
+    private LayoutFrame Frame() => new(_capi.Render.FrameWidth, _capi.Render.FrameHeight, _settings.Corner,
+        scaled(HudSettings.PanelGap), scaled(HudSettings.ScreenMargin), scaled(HudPanel.Padding), _dragging);
 }

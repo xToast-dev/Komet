@@ -28,35 +28,29 @@ internal sealed record UpdateReport(UpdateState State, string Detail = "", strin
     public bool Match => Installed.Length > 0 && Installed == Published;
 
     // The HUD's update line under the title: a lang key and its colour
-    public (string Key, Rgba? Color) Notice()
+    public (string Key, Rgba? Color) Notice() => State switch
     {
-        return State switch
-        {
-            UpdateState.Checking => ("hud-update-checking", null),
-            UpdateState.Verified => ("hud-update-verified", HudCanvas.Good),
-            UpdateState.Mismatch => ("hud-update-mismatch", HudCanvas.Error),
-            UpdateState.Outdated => ("hud-update-outdated", HudCanvas.Warning),
-            UpdateState.Unverified => ("hud-update-unverified", null),
-            UpdateState.Failed => ("hud-update-failed", null),
-            _ => ("hud-update-norelease", null)
-        };
-    }
+        UpdateState.Checking => ("hud-update-checking", null),
+        UpdateState.Verified => ("hud-update-verified", HudCanvas.Good),
+        UpdateState.Mismatch => ("hud-update-mismatch", HudCanvas.Error),
+        UpdateState.Outdated => ("hud-update-outdated", HudCanvas.Warning),
+        UpdateState.Unverified => ("hud-update-unverified", null),
+        UpdateState.Failed => ("hud-update-failed", null),
+        _ => ("hud-update-norelease", null)
+    };
 
     // What the checksum window's comparison says: a lang key and a colour
-    public (string Key, Rgba Color) Verdict()
+    public (string Key, Rgba Color) Verdict() => State switch
     {
-        return State switch
-        {
-            UpdateState.Checking => ("verify-checking", HudCanvas.Neutral),
-            UpdateState.Failed => ("verify-failed", HudCanvas.Neutral),
-            UpdateState.NoRelease => ("verify-norelease", HudCanvas.Warning),
-            _ when Match => ("verify-match", HudCanvas.Good),
-            _ when Installed.Length > 0 && Published.Length > 0 => ("verify-mismatch", HudCanvas.Error),
-            _ when Tag.Length == 0 => ("verify-norelease", HudCanvas.Warning),
-            _ when Installed.Length == 0 => ("verify-nofile", HudCanvas.Neutral),
-            _ => ("verify-nochecksum", HudCanvas.Warning)
-        };
-    }
+        UpdateState.Checking => ("verify-checking", HudCanvas.Neutral),
+        UpdateState.Failed => ("verify-failed", HudCanvas.Neutral),
+        UpdateState.NoRelease => ("verify-norelease", HudCanvas.Warning),
+        _ when Match => ("verify-match", HudCanvas.Good),
+        _ when Installed.Length > 0 && Published.Length > 0 => ("verify-mismatch", HudCanvas.Error),
+        _ when Tag.Length == 0 => ("verify-norelease", HudCanvas.Warning),
+        _ when Installed.Length == 0 => ("verify-nofile", HudCanvas.Neutral),
+        _ => ("verify-nochecksum", HudCanvas.Warning)
+    };
 }
 
 // Asks GitHub for the releases and compares this build (release: version, preview: commit) with the one of the same tag
@@ -94,10 +88,7 @@ internal sealed class UpdateCheck : IDisposable
     public string FileName => Path.GetFileName(_sourcePath);
     public string BuildTag { get; }
 
-    public void Dispose()
-    {
-        _http.Dispose();
-    }
+    public void Dispose() => _http.Dispose();
 
     // One run at a time; a click on "check again" while one is running is ignored.
     public void Start()
@@ -194,8 +185,5 @@ internal sealed class UpdateCheck : IDisposable
         }
     }
 
-    private static string Tag(JObject release)
-    {
-        return NotNull(release) ? (string?)release["tag_name"] ?? "" : "";
-    }
+    private static string Tag(JObject release) => NotNull(release) ? (string?)release["tag_name"] ?? "" : "";
 }

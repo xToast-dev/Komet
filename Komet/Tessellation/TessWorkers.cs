@@ -133,7 +133,13 @@ internal static class TessWorkers
     internal static void Steer(ClientMain game, ChunkTesselatorManager manager, bool active)
     {
         if (!Installed || !NotNull(game) || !NotNull(manager)) return;
-        if (!ReferenceEquals(game, _game)) Rebind(game, manager);
+        if (!ReferenceEquals(game, _game)) // a new world: the old one's instances are no one's any more
+        {
+            Array.Clear(Made);
+            Array.Clear(Asked);
+            (_game, _manager, Failed) = (game, manager, false);
+        }
+
         var backlog = TessSchedule.Backlog;
         Boosted = backlog > BoostOn || (Boosted && backlog > BoostOff);
         var jobs = Math.Clamp(Jobs, 0, WorkerPool.MaxThreads);
@@ -159,15 +165,6 @@ internal static class TessWorkers
         TessSafety.Open(false);
         // A pool thread counted itself in first: off at a later tick
         if (Volatile.Read(ref _passing) > 0) TessSafety.Open(true);
-    }
-
-    // A new world: the old one's instances are no one's any more
-    private static void Rebind(ClientMain game, ChunkTesselatorManager manager)
-    {
-        Array.Clear(Made);
-        Array.Clear(Asked);
-        (_game, _manager, Failed) = (game, manager, false);
-        _ = Assert(ReferenceEquals(_game, game));
     }
 
     // The background job: one pass on this pool thread, true when it ran one

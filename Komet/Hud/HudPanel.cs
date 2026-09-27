@@ -27,10 +27,7 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, HudFon
     public bool Ready => _canvas.Ready; // drawn and uploaded at least once; before that there is nothing to show
     public (double X, double Y)? Pinned => settings.Pinned.GetValueOrDefault(index) is [var x, var y] ? (x, y) : null;
 
-    public void Dispose()
-    {
-        _canvas.Dispose();
-    }
+    public void Dispose() => _canvas.Dispose();
 
     public void Draw(double x, double y)
     {
@@ -39,53 +36,39 @@ internal sealed class HudPanel(ICoreClientAPI capi, HudSettings settings, HudFon
 
     public void Pin(double x, double y)
     {
-        if (!Finite(x) || !Finite(y)) return;
-        settings.Pinned[index] = [x, y];
+        if (Finite(x) && Finite(y)) settings.Pinned[index] = [x, y];
     }
 
     // Keys are lang keys without "hud-"; their text is translated once per language
-    public HudPanel Title(string key, (string Text, Rgba Color)[] badges)
-    {
-        return Assert(key.Length > 0) && Assert(badges.Length <= HudLine.MaxBadges)
+    public HudPanel Title(string key, (string Text, Rgba Color)[] badges) =>
+        Assert(key.Length > 0) && Assert(badges.Length <= HudLine.MaxBadges)
             ? Add(new HudLine { Kind = HudLineKind.Title, Label = HudText.Once("hud-" + key), Badges = badges })
             : this;
-    }
 
-    public HudPanel Graph(FrameStats frames)
-    {
-        return Assert(frames.HistoryLength >= HudCanvas.GraphFrames)
-            ? Add(new HudLine { Kind = HudLineKind.Graph, Graph = frames })
-            : this;
-    }
+    public HudPanel Graph(FrameStats frames) => Assert(frames.HistoryLength >= HudCanvas.GraphFrames)
+        ? Add(new HudLine { Kind = HudLineKind.Graph, Graph = frames })
+        : this;
 
     public HudPanel Bar(string key, Func<double> percent, Func<double>? value = null, string unit = "",
-        bool good = false, bool detail = false)
-    {
-        return Assert(key.Length > 0)
-            ? Line(HudText.Once("hud-" + key), value, unit, percent, detail: detail, good: good)
-            : this;
-    }
+        bool good = false, bool detail = false) => Assert(key.Length > 0)
+        ? Line(HudText.Once("hud-" + key), value, unit, percent, detail: detail, good: good)
+        : this;
 
     public HudPanel Value(string key, Func<double> value, string unit = "", bool sub = false, bool detail = false,
-        bool final = false)
-    {
-        return Assert(key.Length > 0)
-            ? Line(HudText.Once("hud-" + key), value, unit, sub: sub, detail: detail, final: final)
-            : this;
-    }
+        bool final = false) => Assert(key.Length > 0)
+        ? Line(HudText.Once("hud-" + key), value, unit, sub: sub, detail: detail, final: final)
+        : this;
 
     public HudPanel Line(Func<string> label, Func<double>? value = null, string unit = "", Func<double>? percent = null,
         Func<double>? marker = null, bool sub = false, bool detail = false, bool final = false,
-        Func<Rgba?>? color = null, bool good = false)
-    {
-        return Assert(unit.Length <= HudLine.MaxUnit) && Assert(marker == null || percent != null)
+        Func<Rgba?>? color = null, bool good = false) =>
+        Assert(unit.Length <= HudLine.MaxUnit) && Assert(marker == null || percent != null)
             ? Add(new HudLine
             {
                 Label = label, Value = value, Unit = unit, Percent = percent, Marker = marker, Sub = sub,
                 Detail = detail, Final = final, Color = color, Good = good
             })
             : this;
-    }
 
     public HudPanel Section(string key, params object[] args)
     {

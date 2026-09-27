@@ -58,7 +58,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-          queries: security-extended,security-and-quality
+          # the suites, and the rules left out with their reasons
+          config-file: ./.github/codeql/codeql-config.yml
 
       # A plain Release build, no Package target: CodeQL needs the compile, not the zip. The
       # compiler server would compile outside CodeQL's tracer, so it is switched off.

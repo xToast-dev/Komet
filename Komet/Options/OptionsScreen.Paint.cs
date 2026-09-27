@@ -60,8 +60,7 @@ internal sealed partial class OptionsScreen
             var chosen = _query.Length == 0 && page.Id == current;
             if (chosen) Lit(0, y, c.Side, rowH);
             _canvas.Text(S(Pad) * 1.5, y, rowH, _fonts.Text, page.Title, chosen ? null : Soft);
-            var target = page;
-            _hits.Add(new Hit(0, y, c.Side, rowH, (_, _) => Select(target), Glow: RowGlow, Group: SideGroup));
+            _hits.Add(new Hit(0, y, c.Side, rowH, (_, _) => Select(page), Glow: RowGlow, Group: SideGroup));
             y += rowH;
         }
 
@@ -81,8 +80,7 @@ internal sealed partial class OptionsScreen
     {
         if (!NotNull(section) || !NotNull(capi)) return "";
         if (section == T("section-game")) return GameVersion.ShortGameVersion;
-        var mods = capi.ModLoader?.Mods;
-        var mod = mods?.FirstOrDefault(m => m.Info?.Name == section || m.Info?.ModID == section);
+        var mod = capi.ModLoader?.Mods?.FirstOrDefault(m => m.Info?.Name == section || m.Info?.ModID == section);
         return mod?.Info?.Version ?? "";
     }
 
@@ -183,10 +181,7 @@ internal sealed partial class OptionsScreen
         }
     }
 
-    private static string Caption(OptionRow row)
-    {
-        return NotNull(row) ? "›  " + (row.Shows?.Invoke() ?? "") : "";
-    }
+    private static string Caption(OptionRow row) => NotNull(row) ? "›  " + (row.Shows?.Invoke() ?? "") : "";
 
     // What a key is bound to (in the warning colour when another has it too); a click waits for a new one, a right click puts back
     // the game's default. Lit while it waits
@@ -239,7 +234,7 @@ internal sealed partial class OptionsScreen
         if (!enabled) return;
         _rows.Insert(0, new Hit(x, y, w, h, (_, back) =>
         {
-            if (listed && !back) Toggle(row);
+            if (listed && !back) (_picker, _pickScroll) = (ReferenceEquals(_picker, row) ? null : row, double.NaN);
             else Stage(row, (at + (back ? names.Length - 1 : 1)) % names.Length);
         }, Option: row));
     }
@@ -370,19 +365,21 @@ internal sealed partial class OptionsScreen
         var x = c.Desc > 0 ? c.Width - w : 0;
         if (!Assert(w > 0) || !Assert(h > 0)) return;
         var y = c.Height - h;
-        Button(x, y, w, h, T("done"), true, Done);
+        Button(x, y, w, h, T("done"), true, () =>
+        {
+            Apply();
+            _ = Close();
+        });
         y -= h + c.Gap;
         var count = _staged.Count;
         Button(x, y, w, h, count > 0 ? T("apply") + " (" + count + ")" : T("apply"), count > 0, Apply);
         if (count == 0) return;
         y -= h + c.Gap;
-        Button(x, y, w, h, T("undo"), true, Undo);
-    }
-
-    private void Undo()
-    {
-        _staged.Clear();
-        _dirty = Assert(_staged.Count == 0);
+        Button(x, y, w, h, T("undo"), true, () =>
+        {
+            _staged.Clear();
+            _dirty = true;
+        });
     }
 
     private void Button(double x, double y, double w, double h, string text, bool enabled, Action click)

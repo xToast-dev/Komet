@@ -16,9 +16,8 @@ internal sealed partial class ResourceStats
     private bool _failed;
     private long _lastAllocated;
     private ulong _lastBusy, _lastTotal;
-    private TimeSpan _lastCpu;
+    private TimeSpan _lastCpu, _lastPause;
     private int _lastGen0, _lastGen2;
-    private TimeSpan _lastPause;
 
     public double CpuPercent { get; private set; }
     public long WorkingSetMb { get; private set; }
@@ -35,10 +34,7 @@ internal sealed partial class ResourceStats
     public long AvailableRamMb { get; private set; }
     public long UsedRamMb => TotalRamMb - AvailableRamMb;
 
-    public double PercentOfRam(long mb)
-    {
-        return Assert(mb >= 0) && TotalRamMb > 0 ? 100.0 * mb / TotalRamMb : 0;
-    }
+    public double PercentOfRam(long mb) => Assert(mb >= 0) && TotalRamMb > 0 ? 100.0 * mb / TotalRamMb : 0;
 
     // Rethrows what the process handle or /proc throw, once: the values then stay as they were and later calls return at once
     public void Sample()
@@ -126,8 +122,8 @@ internal sealed partial class ResourceStats
     private static long KbToMb(string line)
     {
         var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (!Assert(fields.Length >= 2)) return 0;
-        return Assert(long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var kb)) &&
+        return Assert(fields.Length >= 2) &&
+               Assert(long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var kb)) &&
                Assert(kb >= 0)
             ? kb / 1024
             : 0;
@@ -264,8 +260,7 @@ internal sealed class GpuStats : IDisposable
         var count = GL.GetInteger(GetPName.NumExtensions);
         if (!Assert(count > 0)) return false;
         for (var i = 0; i < Math.Min(count, MaxExtensions); i++)
-            if (GL.GetString(StringNameIndexed.Extensions, i) == extension)
-                return true;
+            if (GL.GetString(StringNameIndexed.Extensions, i) == extension) return true;
         return false;
     }
 }

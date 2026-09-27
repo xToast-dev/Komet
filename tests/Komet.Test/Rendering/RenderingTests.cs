@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Komet.Test.Rendering;
 
 // Golden test: a mesh whose extra buffers are reused has to end up with exactly what the engine's own clone produces, including after
@@ -164,6 +166,31 @@ public sealed class MeshRecycleTests
             });
             _ = MeshRecycle.DisposeExtraData(dest);
         }
+    }
+
+    // A mesh that held top soil's shorts and is handed an opaque part drops them; the next top soil part, on another mesh, gets that
+    // very buffer back instead of a new one, and still exactly the engine's clone
+    [Test]
+    public void ADroppedPartsBufferServesTheNextMeshThatNeedsOne()
+    {
+        var (soil, opaque) = (Source(7), Source(8));
+        soil.CustomShorts =
+            new CustomMeshDataPartShort(61440) { Count = 60000, InterleaveStride = 4, InterleaveSizes = [2] };
+        new Random(7).NextBytes(MemoryMarshal.AsBytes(soil.CustomShorts.Values.AsSpan()));
+        var first = new MeshData(16) { Recyclable = true };
+        _ = MeshRecycle.CloneExtraData(soil, first);
+        var held = first.CustomShorts!.Values;
+        _ = MeshRecycle.DisposeExtraData(first);
+        _ = MeshRecycle.CloneExtraData(opaque, first);
+        var second = new MeshData(16) { Recyclable = true };
+        _ = MeshRecycle.CloneExtraData(soil, second);
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.CustomShorts, Is.Null, "the opaque part has no shorts");
+            Assert.That(second.CustomShorts!.Values, Is.SameAs(held), "the dropped buffer is handed out again");
+            AssertPart(second.CustomShorts, soil.Clone().CustomShorts, soil.CustomShorts.Count);
+        });
+        AssertMatchesEngineClone(soil, second);
     }
 
     [Test]

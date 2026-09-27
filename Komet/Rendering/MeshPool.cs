@@ -121,13 +121,10 @@ internal static class MeshPool
     }
 
     // Nothing may fail once the rebase has begun
-    private static bool Fits(MeshData modeldata)
-    {
-        return Assert(modeldata.VerticesCount is >= 0 and <= MaxVertices) &&
-               Assert(modeldata.IndicesCount is >= 0 and <= MaxIndices) &&
-               Assert(3 * modeldata.VerticesCount <= modeldata.xyz.Length) &&
-               Assert(modeldata.IndicesCount <= modeldata.Indices.Length);
-    }
+    private static bool Fits(MeshData modeldata) => Assert(modeldata.VerticesCount is >= 0 and <= MaxVertices) &&
+        Assert(modeldata.IndicesCount is >= 0 and <= MaxIndices) &&
+        Assert(3 * modeldata.VerticesCount <= modeldata.xyz.Length) &&
+        Assert(modeldata.IndicesCount <= modeldata.Indices.Length);
 
     // The engine rebases the indices only for a mesh that does not start at zero, and the vertices only for a pool that has an origin
     private static void Rebase(ICoreClientAPI capi, MeshDataPool pool, MeshData modeldata, Vec3i modelOrigin,
@@ -356,19 +353,17 @@ internal static class MeshPool
         }
 
         for (var i = lo; i < Math.Min(span.Length, MaxLocations) && span[i].IndicesStart == key; i++)
-            if (ReferenceEquals(span[i], location))
-                return i;
+            if (ReferenceEquals(span[i], location)) return i;
         for (var i = 0; i < Math.Min(span.Length, MaxLocations); i++)
-            if (ReferenceEquals(span[i], location))
-                return i;
+            if (ReferenceEquals(span[i], location)) return i;
         return -1;
     }
 
     // What CalcFragmentation would write, from the sums instead of a pass
     private static void Publish(MeshDataPool pool, List<ModelDataPoolLocation> list, State state)
     {
-        if (pool.verticesPosition == 0) (pool.UsedVertices, pool.CurrentFragmentation) = (0, 0f);
-        else (pool.UsedVertices, pool.CurrentFragmentation) = (state.Used, (float)state.Gaps / pool.verticesPosition);
+        (pool.UsedVertices, pool.CurrentFragmentation) =
+            pool.verticesPosition == 0 ? (0, 0f) : (state.Used, (float)state.Gaps / pool.verticesPosition);
         (state.ListVersion, state.Count) = (Version(list), list.Count);
         _ = Assert(ReferenceEquals(state.Owner, list)) && Assert(state.Count <= MaxLocations);
     }

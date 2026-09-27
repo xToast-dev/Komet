@@ -40,20 +40,11 @@ internal sealed class HudVerifyDialog : GuiDialog
     // Raised by every composition (a Cairo pass over every row and a texture upload), which the HUD keeps out of its steady frames
     public event Action? Composing;
 
-    public override void OnGuiClosed()
-    {
-        _moving = false;
-    }
+    public override void OnGuiClosed() => _moving = false;
 
-    public bool Contains(double px, double py)
-    {
-        return IsOpened() && _canvas.Contains(px, py);
-    }
+    public bool Contains(double px, double py) => IsOpened() && _canvas.Contains(px, py);
 
-    private static string Translate(string key, params object[] args)
-    {
-        return HudText.Translate("verify-" + key, args);
-    }
+    private static string Translate(string key, params object[] args) => HudText.Translate("verify-" + key, args);
 
     // Composed again only when something it shows changed (a new report: a check finished, or "check again" started one; a setting)
     // or the fonts were rebuilt (the font or the GUI scale, which changes without an event), not on every open: the canvas and its
@@ -131,7 +122,7 @@ internal sealed class HudVerifyDialog : GuiDialog
     private void Title()
     {
         if (!Assert(_rows.Count == 0) || !Assert(_titleRow > 0)) return;
-        Action<double> draw = y =>
+        _rows.Add((_titleRow, y =>
         {
             var title = HudText.Translate("hud-title");
             _canvas.Text(_pad, y, _titleRow, _fonts.Title, title);
@@ -139,8 +130,7 @@ internal sealed class HudVerifyDialog : GuiDialog
                 _fonts, Translate("title"), HudCanvas.Accent);
             _canvas.Text(_width - _pad - _canvas.TextWidth(_fonts.Title, "×"), y, _titleRow, _fonts.Title, "×");
             _hits.Add(new HitBox(_width - _pad - _titleRow, y, _titleRow, _titleRow, () => TryClose()));
-        };
-        _rows.Add((_titleRow, draw));
+        }));
     }
 
     private void Rule()
@@ -195,14 +185,13 @@ internal sealed class HudVerifyDialog : GuiDialog
         string[] buttons = [Translate("recheck"), Translate("close")];
         var width = buttons.Max(text => _canvas.BadgeWidth(_fonts, text));
         if (!Assert(width > 0) || !Assert(_rows.Count > 0)) return;
-        Action<double> draw = y =>
+        _rows.Add((_rowH, y =>
         {
             var x = _width - _pad - width;
             Button(x, y, width, buttons[1], HudCanvas.Neutral, () => TryClose());
             Button(x - width - scaled(ButtonGap), y, width, buttons[0],
                 r.State == UpdateState.Checking ? HudCanvas.Disabled : HudCanvas.Accent, _recheck);
-        };
-        _rows.Add((_rowH, draw));
+        }));
     }
 
     // A badge that runs click
@@ -255,10 +244,7 @@ internal sealed class HudVerifyDialog : GuiDialog
         args.Handled = true;
     }
 
-    public override void OnMouseUp(MouseEvent args)
-    {
-        _moving = false;
-    }
+    public override void OnMouseUp(MouseEvent args) => _moving = false;
 
     public override void Dispose()
     {

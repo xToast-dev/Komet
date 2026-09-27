@@ -11,10 +11,6 @@ namespace Komet.Chunks;
 // dedicated server Komet is not installed and nothing changes.
 internal static class ChunkThreadClosure
 {
-    private const string Supply = "Vintagestory.Server.ServerSystemSupplyChunks",
-        Request = "Vintagestory.Server.ChunkColumnLoadRequest";
-
-    private const string Method = "loadOrGenerateChunkColumn_OnChunkThread";
     private const int MaxInstructions = 4096, Prologue = 8;
 
     public static bool Rewritten { get; private set; }
@@ -28,10 +24,10 @@ internal static class ChunkThreadClosure
 
     internal static MethodInfo? Target()
     {
-        var supply = AccessTools.TypeByName(Supply); // internal to VintagestoryLib
-        var request = AccessTools.TypeByName(Request);
+        var supply = AccessTools.TypeByName("Vintagestory.Server.ServerSystemSupplyChunks"); // internal
+        var request = AccessTools.TypeByName("Vintagestory.Server.ChunkColumnLoadRequest");
         if (!NotNull(supply) || !NotNull(request)) return null;
-        var method = AccessTools.Method(supply, Method, [request, typeof(int)]);
+        var method = AccessTools.Method(supply, "loadOrGenerateChunkColumn_OnChunkThread", [request, typeof(int)]);
         return NotNull(method) && Assert(method.ReturnType == typeof(bool)) ? method : null;
     }
 

@@ -185,10 +185,7 @@ internal static class OccludedChunks
     {
         var decors = NotNull(chunk) ? chunk.Decors : null;
         if (decors is null) return true;
-        lock (decors)
-        {
-            return decors.Count == 0; // the engine reads them under this lock
-        }
+        lock (decors) return decors.Count == 0; // the engine reads them under this lock
     }
 
     // True when no position of the layer (side AllSides) or of the slab touching this chunk (side 0-5, the neighbour across it) holds
@@ -201,8 +198,7 @@ internal static class OccludedChunks
         layer.readWriteLock.AcquireReadLock();
         try
         {
-            var bits = Bitsize(layer);
-            var planes = DataBits(layer);
+            var (bits, planes) = (Bitsize(layer), DataBits(layer));
             if (bits <= 0 || !Planes(planes, bits)) return false; // no bits: every position reads 0, air
             var n = Bad(palette, layer.paletteCount, bits, blocks, count, side, bad);
             var (first, step, words, mask) = side == AllSides ? (0, 1, Words, -1) : Slabs[side];
@@ -222,8 +218,7 @@ internal static class OccludedChunks
         layer.readWriteLock.AcquireReadLock();
         try
         {
-            var bits = Bitsize(layer);
-            var planes = DataBits(layer);
+            var (bits, planes) = (Bitsize(layer), DataBits(layer));
             if (bits <= 0) return true;
             if (!Planes(planes, bits)) return false;
             var n = 0;

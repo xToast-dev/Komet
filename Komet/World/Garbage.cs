@@ -49,10 +49,8 @@ internal static class ClimateCache
     }
 
     // The engine's ten while switched off, else room for every region in view
-    internal static int Wanted(bool enabled, int region, int distance)
-    {
-        return enabled ? CapacityFor(region, distance) : EngineCapacity;
-    }
+    internal static int Wanted(bool enabled, int region, int distance) =>
+        enabled ? CapacityFor(region, distance) : EngineCapacity;
 
     // Harmony prefix, on the tesselation thread; the view distance is read only while on, and once: each read lower-cases its key
     // (SettingsBase)
@@ -164,7 +162,6 @@ internal static class CloudTileScratch
     internal static Vec3d At(double x, double y, double z)
     {
         if (!Enabled || !Finite(x) || !Finite(z)) return new Vec3d(x, y, z);
-        var scratch = _scratch ??= new Vec3d();
-        return scratch.Set(x, y, z);
+        return (_scratch ??= new Vec3d()).Set(x, y, z);
     }
 }

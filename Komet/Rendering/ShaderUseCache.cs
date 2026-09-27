@@ -22,12 +22,9 @@ internal static class ShaderUseCache
     private const int MaxSlots = 64, MaxUbos = 16, MaxIncludes = 8;
     private const bool External = true;
 
-    private static readonly (string File, int Bit)[] Includes =
-    [
-        ("fogandlight.fsh", FogLightF), ("fogandlight.vsh", FogLightV), ("shadowcoords.vsh", ShadowCoords),
-        ("vertexwarp.vsh", VertexWarp), ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap),
-        ("underwatereffects.fsh", Underwater)
-    ];
+    private static readonly (string File, int Bit)[] Includes = [("fogandlight.fsh", FogLightF),
+        ("fogandlight.vsh", FogLightV), ("shadowcoords.vsh", ShadowCoords), ("vertexwarp.vsh", VertexWarp),
+        ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap), ("underwatereffects.fsh", Underwater)];
 
     private static readonly Vec3f GuiLight = new(0.7071068f, -0.7071068f, 0f);
     private static readonly State?[] States = new State[128];
@@ -103,7 +100,6 @@ internal static class ShaderUseCache
         var s = States[p.PassId];
         if (s?.Program != p || s.ProgramId != p.ProgramId || s.ShadowQuality != ShaderProgramBase.shadowmapQuality)
             States[p.PassId] = s = Build(p);
-
         var w = new Writer(s, p, null);
         Fill(ref w, s.Mask);
         if (!w.Overflow) return s;
@@ -123,8 +119,7 @@ internal static class ShaderUseCache
     {
         var mask = p == ShaderPrograms.Gui ? Gui : 0;
         foreach (var (file, bit) in Includes.Bounded(MaxIncludes))
-            if (p.includes.Contains(file))
-                mask |= bit;
+            if (p.includes.Contains(file)) mask |= bit;
         var s = new State
         { Program = p, ProgramId = p.ProgramId, ShadowQuality = ShaderProgramBase.shadowmapQuality, Mask = mask };
         var layout = new List<Slot>();
@@ -148,7 +143,6 @@ internal static class ShaderUseCache
         }
 
         if (_settingsFrame != _frame) ReadSettings(); // a world's first Use can come before its first update
-        var (viewDistance, viewDistanceLod0) = (_viewDistance, _viewDistanceLod0);
         if ((mask & FogLightF) != 0)
         {
             w.F("zNear", u.ZNear);
@@ -164,8 +158,8 @@ internal static class ShaderUseCache
                 w.Tex("shadowMapNear", platform.FrameBuffers[12].DepthTextureId);
                 w.F("shadowMapWidthInv", 1f / far.Width);
                 w.F("shadowMapHeightInv", 1f / far.Height);
-                w.F("viewDistance", viewDistance);
-                w.F("viewDistanceLod0", viewDistanceLod0);
+                w.F("viewDistance", _viewDistance);
+                w.F("viewDistanceLod0", _viewDistanceLod0);
             }
         }
 
@@ -179,8 +173,8 @@ internal static class ShaderUseCache
             w.F("flatFogDensity", u.FlagFogDensity, External); // AuroraRenderer, CloudRenderer
             w.F("flatFogStart", u.FlatFogStartYPos - u.PlayerPos.Y, External);
             w.F("glitchStrengthFL", u.GlitchStrength);
-            w.F("viewDistance", viewDistance);
-            w.F("viewDistanceLod0", viewDistanceLod0);
+            w.F("viewDistance", _viewDistance);
+            w.F("viewDistanceLod0", _viewDistanceLod0);
             w.F("nightVisionStrength", u.NightVisionStrength);
         }
 

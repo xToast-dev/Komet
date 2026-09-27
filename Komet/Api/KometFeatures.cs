@@ -48,27 +48,19 @@ public static class KometFeatures
     // Keeps the feature at the game's own behaviour, whatever the player chose, until the handle is released or the world closes.
     // The player's choice applies again once the last hold goes. Works before Komet started too. A feature without a switch cannot
     // be held: the handle is then not holding, and the log says why.
-    public static FeatureHold HoldOff(string id, string modId, string reason)
-    {
-        if (!NotNull(id) || !NotNull(modId) || !NotNull(reason)) return new FeatureHold("", "", "", -1);
-        return Features.HoldOff(id, modId, reason);
-    }
+    public static FeatureHold HoldOff(string id, string modId, string reason) =>
+        NotNull(id) && NotNull(modId) && NotNull(reason)
+            ? Features.HoldOff(id, modId, reason)
+            : new FeatureHold("", "", "", -1);
 
     // Before Komet started (another mod's Start) it is installed after Komet's own features, while Komet runs (StartClientSide) at
     // once. false: refused, the log says why (an invalid definition, an id taken, too many features, after the world loaded).
-    public static bool Register(FeatureDefinition definition)
-    {
-        if (!NotNull(definition) || !Assert(Features.MaxExternal <= MaxFeatures)) return false;
-        return Features.Register(definition);
-    }
+    public static bool Register(FeatureDefinition definition) => NotNull(definition) && Features.Register(definition);
 
     // The fingerprint FeatureDefinition.Fingerprint compares, to pin in the mod's own test against the installed game; 0 when a
     // method is missing or has no body
-    public static ulong Fingerprint(IReadOnlyList<MethodBase?> methods)
-    {
-        if (!NotNull(methods) || !Assert(methods.Count <= EngineShape.MaxMethods)) return 0;
-        return EngineShape.Of([.. methods]);
-    }
+    public static ulong Fingerprint(IReadOnlyList<MethodBase?> methods) =>
+        NotNull(methods) && Assert(methods.Count <= EngineShape.MaxMethods) ? EngineShape.Of([.. methods]) : 0;
 
     internal static void Raise(string id, FeatureState previous, FeatureState state)
     {
@@ -78,11 +70,7 @@ public static class KometFeatures
     }
 
     // The world closes: no subscriber hears of it
-    internal static void Forget()
-    {
-        _ = Assert(Features.MaxExternal > 0) && Assert(MaxFeatures >= Features.MaxExternal);
-        StateChanged = null;
-    }
+    internal static void Forget() => StateChanged = null;
 }
 
 // One feature as Snapshot found it. Title: a registered feature's, Komet's id for its own. Owner: the mod id ("komet" for Komet's).

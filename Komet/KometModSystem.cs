@@ -38,10 +38,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
     }
 
     // Besides modinfo "side": "Client": a singleplayer server instance's Dispose would clear the client's statics
-    public override bool ShouldLoad(EnumAppSide forSide)
-    {
-        return forSide == EnumAppSide.Client;
-    }
+    public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Client;
 
     public override void StartClientSide(ICoreClientAPI api)
     {
@@ -55,9 +52,14 @@ public sealed class KometModSystem : ModSystem, IDisposable
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
+            // All or nothing: a feature that threw halfway through its own patches must not stay half installed.
+            // RegisterRenderer throws when another mod reserved the HUD's render order, after earlier stages went in.
             Mod.Logger.Error("Komet: install failed, Komet stands down: {0}", e);
-            // all or nothing: a feature that threw halfway through its own patches must not stay half installed
-            StandDown(api);
+            api.Event.LevelFinalize -= Features.Recheck;
+            if (_context?.Overlay is { } overlay)
+                foreach (var stage in HudStages.Bounded(HudStageCount))
+                    api.Event.UnregisterRenderer(overlay, stage);
+            Dispose();
         }
     }
 
@@ -88,15 +90,5 @@ public sealed class KometModSystem : ModSystem, IDisposable
         if (!NotNull(_api) || !Finite(dt)) return;
         WorkerPool.Steer(_api.World as ClientMain);
         Features.Poll();
-    }
-
-    // ClientEventManager.RegisterRenderer throws when another mod reserved the HUD's render order, after earlier stages went in
-    private void StandDown(ICoreClientAPI api)
-    {
-        api.Event.LevelFinalize -= Features.Recheck;
-        if (_context?.Overlay is { } overlay)
-            foreach (var stage in HudStages.Bounded(HudStageCount))
-                api.Event.UnregisterRenderer(overlay, stage);
-        Dispose();
     }
 }

@@ -301,16 +301,11 @@ internal static partial class Features
     }
 
     // Once per handle, and never after the world it held in closed
-    internal static bool Release(FeatureHold hold)
-    {
-        if (!NotNull(hold) || !Assert(Handles.Count <= MaxHolds) || !Handles.Remove(hold)) return false;
-        return Release(hold.Feature);
-    }
+    internal static bool Release(FeatureHold hold) =>
+        NotNull(hold) && Assert(Handles.Count <= MaxHolds) && Handles.Remove(hold) && Release(hold.Feature);
 
-    internal static bool Holding(FeatureHold hold)
-    {
-        return NotNull(hold) && Assert(Handles.Count <= MaxHolds) && Handles.Contains(hold);
-    }
+    internal static bool Holding(FeatureHold hold) =>
+        NotNull(hold) && Assert(Handles.Count <= MaxHolds) && Handles.Contains(hold);
 
     // The first hold still in place on the feature
     private static FeatureHold? Holder(int feature)

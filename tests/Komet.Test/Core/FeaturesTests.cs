@@ -12,11 +12,13 @@ public sealed class FeaturesTests
 {
     private static readonly string[] InstallOrder =
     [
-        "ModTimes", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "FrustumSweep", "IndirectDraw", "SunOcclusion",
-        "WindowSizeCache", "ChunkLookup", "MeshPool", "MeshRecycle", "ClimateCache", "AnimationFrames", "InitOnce",
-        "ShapeInitMemo", "EntityTessBudget", "ChunkBudget", "ChunkThreadClosure", "CloudTileScratch",
-        "DecompressScratch", "LightScratch", "ParticleLight", "ColumnNoiseScratch", "TessSafety", "TessSeams",
-        "ExtendedRows", "VisibleFaces", "FaceLight", "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers",
+        "ModTimes", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows", "FrustumSweep", "IndirectDraw", "SunOcclusion",
+        "AnimatableCulling", "IdleAnimators", "WindowSizeCache", "PoolScale", "GlErrorPoll", "ChunkLookup", "MeshPool",
+        "MeshRecycle", "ClimateCache", "PartitionReuse", "HandlerLists", "CookingMatch",
+        "AnimationFrames", "InitOnce", "ShapeInitMemo", "EntityTessBudget", "ChunkBudget",
+        "ChunkThreadClosure", "CloudTileScratch", "DecompressScratch", "LightScratch", "LightRepair", "ParticleLight",
+        "ColumnNoiseScratch", "TessSafety", "TessSeams", "ExtendedRows", "VisibleFaces", "FaceLight", "TessBlockPos",
+        "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers",
         "OccludedChunks", "FrameClock", "Benchmark", "PreJit"
     ];
 
@@ -51,7 +53,18 @@ public sealed class FeaturesTests
         "CloudTileScratch CloudTileScratch -/- 0..1 engine 0 CloudTileScratch",
         "PreJit PreJit misc/garbage 0..1 engine 0 PreJit",
         "GraphicsMenu GraphicsMenu misc/menu 0..1 engine 0 GraphicsMenu",
-        "MenuBlur MenuBlur misc/menu 0..1 engine 0 MenuBlur"
+        "MenuBlur MenuBlur misc/menu 0..1 engine 0 MenuBlur",
+        "PartitionReuse PartitionReuse misc/garbage 0..1 engine 0 PartitionReuse",
+        "AnimatableCulling AnimatableCulling render/culling 0..1 engine 0 AnimatableCulling",
+        "TessBlockPos TessBlockPos misc/garbage 0..1 engine 0 TessBlockPos",
+        "FrustumStages FrustumStages render/culling 0..1 engine 0 FrustumSweep",
+        "GlErrorPoll GlErrorPoll render/drawing 0..1 engine 0 GlErrorPoll",
+        "IdleAnimators IdleAnimators render/culling 0..1 engine 0 IdleAnimators",
+        "CookingMatch CookingMatch misc/garbage 0..1 engine 0 CookingMatch",
+        "HandlerLists HandlerLists misc/garbage 0..1 engine 0 HandlerLists",
+        "PoolScale PoolScale render/drawing 1..8x engine 1 PoolScale",
+        "LightRepair LightRepair chunks/light 0..1 engine 0 LightRepair",
+        "DistantShadows DistantShadows render/drawing 0..1 engine 0 DistantShadows"
     ];
 
     // Each knob's static, read without the table
@@ -71,7 +84,14 @@ public sealed class FeaturesTests
         ["EntityTessBudget"] = () => EntityTessBudget.Millis, ["ClimateCache"] = () => On(ClimateCache.Enabled),
         ["ColumnNoiseScratch"] = () => On(ColumnNoiseScratch.Enabled),
         ["CloudTileScratch"] = () => On(CloudTileScratch.Enabled), ["PreJit"] = () => On(PreJit.Enabled),
-        ["GraphicsMenu"] = () => On(GraphicsMenu.Enabled), ["MenuBlur"] = () => On(Backdrop.Enabled)
+        ["GraphicsMenu"] = () => On(GraphicsMenu.Enabled), ["MenuBlur"] = () => On(Backdrop.Enabled),
+        ["PartitionReuse"] = () => On(PartitionReuse.Enabled),
+        ["AnimatableCulling"] = () => On(AnimatableCulling.Enabled),
+        ["TessBlockPos"] = () => On(TessBlockPos.Enabled), ["FrustumStages"] = () => On(FrustumSweep.Stages),
+        ["GlErrorPoll"] = () => On(GlErrorPoll.Enabled), ["IdleAnimators"] = () => On(IdleAnimators.Enabled),
+        ["CookingMatch"] = () => On(CookingMatch.Enabled), ["HandlerLists"] = () => On(HandlerLists.Enabled),
+        ["PoolScale"] = () => PoolScale.Scale, ["LightRepair"] = () => On(LightRepair.Enabled),
+        ["DistantShadows"] = () => On(DistantShadows.Enabled)
     };
 
     // komet-hud.json as Komet 1.x wrote it: the display settings, then every knob under its saved name, a switch as a bool
@@ -87,22 +107,26 @@ public sealed class FeaturesTests
         "OccludedChunks:Boolean", "WorkerThreads:Integer", "TessJobs:Integer", "LightScratch:Boolean",
         "ParticleLight:Boolean", "AnimationFrames:Boolean", "InitOnce:Boolean", "ShapeInitMemo:Boolean",
         "EntityTessBudget:Integer", "ClimateCache:Boolean", "ColumnNoiseScratch:Boolean", "CloudTileScratch:Boolean",
-        "PreJit:Boolean", "GraphicsMenu:Boolean", "MenuBlur:Boolean"
+        "PreJit:Boolean", "GraphicsMenu:Boolean", "MenuBlur:Boolean", "PartitionReuse:Boolean",
+        "AnimatableCulling:Boolean", "TessBlockPos:Boolean", "FrustumStages:Boolean",
+        "GlErrorPoll:Boolean", "IdleAnimators:Boolean", "CookingMatch:Boolean",
+        "HandlerLists:Boolean", "PoolScale:Integer", "LightRepair:Boolean", "DistantShadows:Boolean"
     ];
 
     private static readonly string[] Stops =
     [
-        "PreJit", "TessWorkers", "WorkerPool", "TessSchedule", "TessAccounting", "ParticleLight", "AnimationFrames",
-        "ChunkLookup", "GraphicsMenu", "Hud"
+        "PreJit", "TessWorkers", "WorkerPool", "TessSchedule", "TessAccounting", "ParticleLight",
+        "AnimationFrames", "HandlerLists", "ChunkLookup", "DistantShadows", "GraphicsMenu", "Hud"
     ];
 
-    private static readonly string[] ServerOnly = ["ChunkThreadClosure", "ColumnNoiseScratch"], Tail = ["Benchmark"],
+    private static readonly string[] ServerOnly = ["ChunkThreadClosure", "LightRepair", "ColumnNoiseScratch"],
+        Tail = ["Benchmark"],
         Last = ["PreJit"], Unpatched = ["TessSafety"];
 
     private static readonly string[] Shaped =
     [
-        "ModTimes", "GraphicsMenu", "AnimationFrames", "InitOnce", "ShapeInitMemo", "ExtendedRows", "VisibleFaces",
-        "FaceLight", "FaceLight", "OccludedChunks"
+        "ModTimes", "GraphicsMenu", "DistantShadows", "AnimatableCulling", "IdleAnimators", "CookingMatch", "AnimationFrames", "InitOnce",
+        "ShapeInitMemo", "LightRepair", "ExtendedRows", "VisibleFaces", "FaceLight", "FaceLight", "OccludedChunks"
     ];
 
     // Lang.Get throws until a language is loaded: the game's English, unless one is loaded already
@@ -393,6 +417,8 @@ public sealed class FeaturesTests
     [TestCase("AnimationFrames")]
     [TestCase("InitOnce")]
     [TestCase("ShapeInitMemo")]
+    [TestCase("AnimatableCulling")]
+    [TestCase("IdleAnimators")]
     public void AProbeSeesAnotherModOnTheFirstSeam(string id)
     {
         ArgumentNullException.ThrowIfNull(id);

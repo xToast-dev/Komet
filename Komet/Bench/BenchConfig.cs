@@ -44,7 +44,7 @@ internal sealed class BenchConfig
     public int Laps { get; private set; } = 8;
     public int WarmupLaps { get; private set; } = -1; // one per arm unless set
     public IReadOnlyList<BenchArm> Arms { get; private set; } = [];
-    public string Frames => Path.Combine(Path.GetDirectoryName(Output) ?? "", "frames.csv");
+    public string Frames => Path.Join(Path.GetDirectoryName(Output) ?? "", "frames.csv");
     public string Status => Output + ".status";
 
     public static BenchConfig Parse(string json)
@@ -80,7 +80,6 @@ internal sealed class BenchConfig
         }
     }
 
-    // Speeds are capped so that one frame of up to BenchDriver.MaxStep seconds never moves the player past the server's step check
     private void Read(JsonElement root)
     {
         if (!Assert(root.ValueKind == JsonValueKind.Object) || !Assert(Raw.ValueKind == JsonValueKind.Object)) return;
@@ -108,8 +107,7 @@ internal sealed class BenchConfig
         if (!Get(root, "env", out var env)) return;
         if (env.ValueKind != JsonValueKind.Object) throw Bad("env", "an object of NAME: \"value\" strings");
         foreach (var entry in env.EnumerateObject().Bounded(MaxKeys))
-            if (entry.Value.ValueKind != JsonValueKind.String)
-                throw Bad("env." + entry.Name, "a string");
+            if (entry.Value.ValueKind != JsonValueKind.String) throw Bad("env." + entry.Name, "a string");
     }
 
     private static List<BenchArm> ReadArms(JsonElement root)
@@ -139,8 +137,7 @@ internal sealed class BenchConfig
         var engine = false;
         if (Get(arm, "engine", out var flag))
             engine = flag.ValueKind is JsonValueKind.True or JsonValueKind.False
-                ? flag.GetBoolean()
-                : throw Bad(path + "engine", "true or false");
+                ? flag.GetBoolean() : throw Bad(path + "engine", "true or false");
         List<BenchSetting> settings = [];
         if (Get(arm, "set", out var set))
         {
@@ -172,8 +169,7 @@ internal sealed class BenchConfig
             _ => throw Bad(path + entry.Name, "true, false or a whole number")
         };
         return external || (Knobs.InRange(knob, value) && Index(knob, Knobs.Count))
-            ? new BenchSetting(entry.Name, value)
-            : throw Bad(path + entry.Name, "a value inside the knob's range");
+            ? new BenchSetting(entry.Name, value) : throw Bad(path + entry.Name, "a value inside the knob's range");
     }
 
     private static InvalidDataException Bad(string key, string expected)
@@ -216,8 +212,7 @@ internal sealed class BenchConfig
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number))
             throw Bad(path + key, "a number");
         return number >= min && number <= max
-            ? number
-            : throw Bad(path + key, string.Create(CultureInfo.InvariantCulture, $"between {min} and {max}"));
+            ? number : throw Bad(path + key, string.Create(CultureInfo.InvariantCulture, $"between {min} and {max}"));
     }
 
     private static int Integer(JsonElement obj, string key, int fallback, int min, int max)
@@ -233,11 +228,9 @@ internal sealed class BenchConfig
         if (!Assert(key.Length > 0) || !NotNull(path) || !Get(obj, key, out var value))
             return required ? throw Bad(path + key, "set") : "";
         var text = value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? ""
-            : throw Bad(path + key, "a string");
+            ? value.GetString() ?? "" : throw Bad(path + key, "a string");
         return text.Length is > 0 and <= MaxText
-            ? text
-            : throw Bad(path + key, $"a string of 1 to {MaxText} characters");
+            ? text : throw Bad(path + key, $"a string of 1 to {MaxText} characters");
     }
 
     private static string FullPath(JsonElement obj, string key, bool required)
@@ -273,12 +266,8 @@ internal readonly record struct BenchSegment(BenchKind Kind, int Lap, int Arm, b
     public bool Measured => Kind >= BenchKind.Still; // Setup's Seconds is its timeout, Climb's comes from the distance
     public string Name => Far ? "turn-far" : KindName(Kind);
 
-    public static string KindName(BenchKind kind)
-    {
-        return Index((int)kind, Names.Length) && Assert(Names.Length == (int)BenchKind.Back + 1)
-            ? Names[(int)kind]
-            : "";
-    }
+    public static string KindName(BenchKind kind) =>
+        Index((int)kind, Names.Length) && Assert(Names.Length == (int)BenchKind.Back + 1) ? Names[(int)kind] : "";
 }
 
 // Offset from the route's start (home) and the yaw. Forward at yaw y is (sin y, 0, cos y), which is what
@@ -321,8 +310,7 @@ internal static class BenchScenario
         }
 
         return Assert(list.Count <= MaxSegments)
-            ? [.. list]
-            : throw new InvalidDataException("bench.json: too many segments");
+            ? [.. list] : throw new InvalidDataException("bench.json: too many segments");
     }
 
     // Mirrored blocks: lap order A B B A A B B A for two arms, A B C C B A for three

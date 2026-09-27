@@ -119,10 +119,8 @@ internal sealed class BenchDriver : IRenderer
     int IRenderer.RenderRange => int.MaxValue;
 
     // LeaveWorld fires at the top of ClientMain.DestroyGameSession, before the engine disposes renderers, so the run is over here
-    public void Dispose()
-    {
+    public void Dispose() =>
         _ = Assert(_phase != Phase.Running) && Assert(!ReferenceEquals(FrameClock.Sink, _recorder));
-    }
 
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
@@ -332,8 +330,7 @@ internal sealed class BenchDriver : IRenderer
         var (dx, dy, dz) = (_home.X - _from.X, _home.Y - _from.Y, _home.Z - _from.Z);
         var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
         _climbSeconds = Finite(distance) && Assert(distance < 1e7)
-            ? Math.Max(1, distance / BenchScenario.ClimbSpeed)
-            : 1;
+            ? Math.Max(1, distance / BenchScenario.ClimbSpeed) : 1;
     }
 
     private void End(int index)

@@ -202,27 +202,19 @@ internal static class VisibleFaces
                     Unsafe.Add(ref _draw, d) = Cull(toward, own, block.DrawType);
                     Fast++;
                 }
-                else if (Ported(mode) && Deferred < Cells)
-                {
-                    Unsafe.Add(ref _queue, Deferred++) = snowy ? d | Snowy : d;
-                }
-                else
-                {
-                    return false; // an unknown mode is the engine's
-                }
+                else if (Ported(mode) && Deferred < Cells) Unsafe.Add(ref _queue, Deferred++) = snowy ? d | Snowy : d;
+                else return false; // an unknown mode is the engine's
             }
 
             return true;
         }
 
         // The modes of the engine's switch. A Default cell only reaches the port under a snowy neighbour.
-        private static bool Ported(EnumFaceCullMode mode)
-        {
-            return mode is EnumFaceCullMode.Default or EnumFaceCullMode.NeverCull or EnumFaceCullMode.Merge or
-                EnumFaceCullMode.Collapse or EnumFaceCullMode.MergeMaterial or EnumFaceCullMode.CollapseMaterial or
-                EnumFaceCullMode.Liquid or EnumFaceCullMode.Callback or EnumFaceCullMode.MergeSnowLayer or
-                EnumFaceCullMode.FlushExceptTop or EnumFaceCullMode.Stairs;
-        }
+        private static bool Ported(EnumFaceCullMode mode) => mode is EnumFaceCullMode.Default or
+            EnumFaceCullMode.NeverCull or EnumFaceCullMode.Merge or EnumFaceCullMode.Collapse or
+            EnumFaceCullMode.MergeMaterial or EnumFaceCullMode.CollapseMaterial or EnumFaceCullMode.Liquid or
+            EnumFaceCullMode.Callback or EnumFaceCullMode.MergeSnowLayer or EnumFaceCullMode.FlushExceptTop or
+            EnumFaceCullMode.Stairs;
 
         // Default: bit s is set when the neighbour on side s is not opaque toward the cell (toward: bit s is the neighbour's side
         // GetOpposite(s)), or when the cell is not opaque on side s and not JSON or JSONAndSnowLayer
@@ -268,16 +260,13 @@ internal static class VisibleFaces
             return mode switch
             {
                 EnumFaceCullMode.Default => !toward ||
-                                            (!opaque[s] &&
-                                             block.DrawType is not (EnumDrawType.JSON
-                                                 or EnumDrawType.JSONAndSnowLayer)),
+                    (!opaque[s] && block.DrawType is not (EnumDrawType.JSON or EnumDrawType.JSONAndSnowLayer)),
                 EnumFaceCullMode.NeverCull => true,
                 EnumFaceCullMode.Merge => !same && (!opaque[s] || !toward),
                 EnumFaceCullMode.Collapse => (same && s is Up or North or West) || (!same && (!opaque[s] || !toward)),
                 EnumFaceCullMode.MergeMaterial => !block.SideSolid[s] ||
-                                                  (neighbour.BlockMaterial != block.BlockMaterial &&
-                                                   (!opaque[s] || !toward)) ||
-                                                  !neighbour.SideSolid[opposite],
+                    (neighbour.BlockMaterial != block.BlockMaterial && (!opaque[s] || !toward)) ||
+                    !neighbour.SideSolid[opposite],
                 EnumFaceCullMode.CollapseMaterial => neighbour.BlockMaterial == block.BlockMaterial
                     ? s is North or West
                     : !toward || (s < Up && !opaque[s]),

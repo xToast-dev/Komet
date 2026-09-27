@@ -193,8 +193,7 @@ internal static class InitOnce
     private static (Animation[]?, string?[]?) Codes(Animation[]? animations)
     {
         if (animations is null || animations.Length > MaxAnimations) return (null, null);
-        var copy = new Animation[animations.Length];
-        var codes = new string?[animations.Length];
+        var (copy, codes) = (new Animation[animations.Length], new string?[animations.Length]);
         for (var i = 0; i < Math.Min(animations.Length, MaxAnimations); i++)
             (copy[i], codes[i]) = (animations[i], animations[i]?.Code);
         return Assert(copy.Length == codes.Length) && Assert(codes.Length == animations.Length)

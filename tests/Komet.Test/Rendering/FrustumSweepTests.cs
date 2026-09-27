@@ -276,6 +276,62 @@ public sealed class FrustumSweepTests
         }
     }
 
+    // The same walk culled a stage at a time: each stage's first call hands every manager the stage called last frame to the workers at
+    // once, each call takes its own pools out of that batch, and the engine has to agree on every one of them
+    [Test]
+    public void TheStageBatchesMatchTheEngineWhileStreaming()
+    {
+        FrustumSweep.Clear();
+        var (threshold, staged) = (FrustumSweep.ParallelRows, FrustumSweep.StagedCalls);
+        (FrustumSweep.ParallelRows, FrustumSweep.Staging, Counting.Hud) = (0, true, true);
+        WorkerPool.Resize(null, 4);
+        try
+        {
+            var walk = new Walk(11, 7) { Parallel = true };
+            var failure = walk.Run(0, 600);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(failure, Is.Null);
+                Assert.That(FrustumSweep.StagedCalls - staged, Is.GreaterThan(2000), "the stage batches culled");
+            });
+        }
+        finally
+        {
+            FrustumSweep.EndFrame();
+            (FrustumSweep.ParallelRows, FrustumSweep.Staging) = (threshold, false);
+            _ = WorkerPool.Stop();
+        }
+    }
+
+    // Stages whose managers come in another order each frame, some left out: a call the batch does not hold ends it and culls alone,
+    // the next frame plans from what came, and every call still agrees with the engine
+    [Test]
+    public void StageBatchesFollowWhateverTheStagesCall()
+    {
+        FrustumSweep.Clear();
+        var (threshold, staged) = (FrustumSweep.ParallelRows, FrustumSweep.StagedCalls);
+        (FrustumSweep.ParallelRows, FrustumSweep.Staging, Counting.Hud) = (0, true, true);
+        WorkerPool.Resize(null, 4);
+        try
+        {
+            var walk = new Walk(13, 6) { Parallel = true, Shuffled = true };
+            var failure = walk.Run(0, 400);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(failure, Is.Null);
+                Assert.That(FrustumSweep.StagedCalls - staged, Is.Positive, "some calls still came out of a batch");
+            });
+        }
+        finally
+        {
+            FrustumSweep.EndFrame();
+            (FrustumSweep.ParallelRows, FrustumSweep.Staging) = (threshold, false);
+            _ = WorkerPool.Stop();
+        }
+    }
+
     // Diff against changes the engine never makes: rows moved, the list reordered, whole runs replaced. What it cannot follow it reads
     // again or hands to a full rebuild. Without the OnFrame postfix the relayout budget is spent once and never refills.
     [TestCase(true)]
@@ -586,6 +642,8 @@ public sealed class FrustumSweepTests
         public bool Ticks { get; init; } = true;
 
         public bool Parallel { get; init; } // cull through FrustumSweep.Precull, per manager, before comparing
+        // and each stage calls its managers in another order, now and then leaving one out
+        public bool Shuffled { get; init; }
         public int PoolCount => _managers.Sum(m => Pools(m).Count);
         public int Rows => _managers.Sum(m => Pools(m).Sum(p => PoolLocations(p).Count));
 
@@ -635,16 +693,19 @@ public sealed class FrustumSweepTests
         // One frame in the engine's order, every pool against the engine in every mode; null when all agreed
         private string? Render(int frame)
         {
+            FrustumSweep.EndFrame(); // MainRenderLoop's prefix: no batch lives into the next frame
             Occlusion(frame);
             Shadow(true);
             var failure = Check(EnumFrustumCullMode.CullInstantShadowPassFar);
             Shadow(false);
             failure ??= Check(EnumFrustumCullMode.CullInstantShadowPassNear);
+            FrustumSweep.Unbatch(); // the prefix on RemoveLocation, which OnFrame calls for the queued removals
             _master.OnFrame(0.016f, null, null);
             if (Ticks) FrustumSweep.NextFrame();
             Camera(frame);
             failure ??= Check(EnumFrustumCullMode.CullNormal);
             failure ??= Check(EnumFrustumCullMode.CullInstant);
+            FrustumSweep.EndFrame(); // MainRenderLoop's postfix: the next step tesselates and unloads
             return failure is null ? null : $"frame {frame}: {failure}";
         }
 
@@ -671,7 +732,9 @@ public sealed class FrustumSweepTests
         // Precull writes each pool's own fields; they are copied before the engine's FrustumCull overwrites them
         private string? CheckParallel(EnumFrustumCullMode mode)
         {
-            foreach (var manager in _managers)
+            MeshDataPoolManager[] order =
+                Shuffled ? [.. _managers.Where(_ => _r.Next(5) != 0).OrderBy(_ => _r.Next())] : _managers;
+            foreach (var manager in order)
             {
                 FrustumSweep.Precull(manager, mode);
                 foreach (var pool in Pools(manager))
@@ -683,8 +746,9 @@ public sealed class FrustumSweepTests
                     pool.FrustumCull(_culler, mode);
                     if (groups != pool.indicesGroupsCount || rendered != pool.RenderedTriangles ||
                         allocated != pool.AllocatedTris)
-                        return
-                            $"{mode}, pool {FrustumSweep.SlotOf(pool)}: {groups} ranges on the workers, the engine {pool.indicesGroupsCount}";
+                        return $"{mode}, pool {FrustumSweep.SlotOf(pool)}: {groups} ranges, {rendered} of " +
+                               $"{allocated} triangles on the workers, the engine {pool.indicesGroupsCount}, " +
+                               $"{pool.RenderedTriangles} of {pool.AllocatedTris}";
                     for (var i = 0; i < groups; i++)
                         if (_starts[2 * i] != pool.indicesStartsByte[2 * i] || _sizes[i] != pool.indicesSizes[i])
                             return $"{mode}, pool {FrustumSweep.SlotOf(pool)}: range {i} differs";

@@ -144,8 +144,7 @@ internal static class ColumnNoiseScratch
     {
         if (!NotNull(method) || !NotNull(forColumn) || method.GetMethodBody() == null) return false;
         foreach (var code in PatchProcessor.GetOriginalInstructions(method).Bounded(MaxInstructions))
-            if (code.Calls(forColumn))
-                return true;
+            if (code.Calls(forColumn)) return true;
         return false;
     }
 
@@ -281,8 +280,7 @@ internal static class ColumnNoiseScratch
         if (method.ReturnType != typeof(void) && !method.ReturnType.IsPrimitive) return false;
         var parameters = method.GetParameters();
         for (var i = 0; i < Math.Min(parameters.Length, MaxParameters); i++)
-            if (!parameters[i].ParameterType.IsPrimitive)
-                return false;
+            if (!parameters[i].ParameterType.IsPrimitive) return false;
         return parameters.Length <= MaxParameters;
     }
 
@@ -307,8 +305,7 @@ internal static class ColumnNoiseScratch
         if (type.IsPrimitive) return true;
         var fields = AccessTools.GetDeclaredFields(type);
         for (var i = 0; i < Math.Min(fields.Count, MaxFields); i++)
-            if (!fields[i].IsStatic && !fields[i].FieldType.IsPrimitive)
-                return false;
+            if (!fields[i].IsStatic && !fields[i].FieldType.IsPrimitive) return false;
         return Assert(fields.Count <= MaxFields);
     }
 
@@ -332,12 +329,10 @@ internal static class ColumnNoiseScratch
 
     // A call of one of ColumnNoise's own double-returning members with the column's address as `this`: the column itself is never
     // copied, stored again or handed on
-    private static bool Member(CodeInstruction code, int operand)
-    {
-        if (!NotNull(code) || !Assert(operand >= 0)) return false;
-        return operand == 0 && code.opcode == OpCodes.Call && code.operand is MethodInfo { IsStatic: false } member &&
-               member.DeclaringType == typeof(ColumnNoise) && member.ReturnType == typeof(double);
-    }
+    private static bool Member(CodeInstruction code, int operand) =>
+        NotNull(code) && Assert(operand >= 0) && operand == 0 && code.opcode == OpCodes.Call &&
+        code.operand is MethodInfo { IsStatic: false } member && member.DeclaringType == typeof(ColumnNoise) &&
+        member.ReturnType == typeof(double);
 
     // Stands in for the body's terrainNoise.ForColumn(...): the same call, with this thread armed for the one constructor it runs.
     // A null noise throws in ForColumn as the engine's callvirt would, and the finally disarms the thread whatever throws.

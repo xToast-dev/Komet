@@ -5,10 +5,7 @@ namespace Komet.Hud;
 
 internal readonly record struct Rgba(double R, double G, double B, double A)
 {
-    public static Rgba White(double alpha)
-    {
-        return new Rgba(1, 1, 1, Assert(alpha is >= 0 and <= 1) ? alpha : 1);
-    }
+    public static Rgba White(double alpha) => new(1, 1, 1, Assert(alpha is >= 0 and <= 1) ? alpha : 1);
 }
 
 internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
@@ -65,8 +62,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _font = null;
     }
 
-    // On this canvas's context, with the font drawing sets up: CairoFont.GetTextExtents runs SetupContext on every call, which is slower
-    // and allocates more.
+    // On this canvas's context with the drawing's font: CairoFont.GetTextExtents runs SetupContext on every call, slower and allocating
     public double TextWidth(CairoFont font, string text)
     {
         if (text.Length == 0 || !NotNull(_ctx) || !Assert(font.UnscaledFontsize > 0)) return 0;
@@ -74,15 +70,10 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         return _ctx.TextExtents(text).XAdvance;
     }
 
-    public double BadgeWidth(HudFonts fonts, string text)
-    {
-        return TextWidth(fonts.Header, text) + HudFonts.BadgePadding;
-    }
+    public double BadgeWidth(HudFonts fonts, string text) => TextWidth(fonts.Header, text) + HudFonts.BadgePadding;
 
-    public bool Contains(double px, double py)
-    {
-        return Finite(px) && Finite(py) && px >= X && px < X + Width && py >= Y && py < Y + Height;
-    }
+    public bool Contains(double px, double py) =>
+        Finite(px) && Finite(py) && px >= X && px < X + Width && py >= Y && py < Y + Height;
 
     public void Begin(double width, double height)
     {
@@ -247,10 +238,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Antialias = Antialias.Default;
         return;
 
-        double ToY(double value)
-        {
-            return Assert(value >= 0) ? y + h - value / scaleMs * h : y + h;
-        }
+        double ToY(double value) => Assert(value >= 0) ? y + h - value / scaleMs * h : y + h;
     }
 
     public void End()
@@ -313,10 +301,8 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         return true;
     }
 
-    private static int RoundUp(double value)
-    {
-        return Assert(value is > 0 and <= MaxSize) ? (int)Math.Ceiling(value / SizeStep) * SizeStep : SizeStep;
-    }
+    private static int RoundUp(double value) =>
+        Assert(value is > 0 and <= MaxSize) ? (int)Math.Ceiling(value / SizeStep) * SizeStep : SizeStep;
 }
 
 // The HUD's three fonts at the settings' font scale and the row heights measured from them. Rebuilt when the font scale or the game's
@@ -358,10 +344,8 @@ internal sealed class HudFonts
         _ = Assert(TextRow > 0 && TitleRow > 0);
     }
 
-    private static double Height(CairoFont font)
-    {
-        return Assert(font.UnscaledFontsize > 0) ? font.GetFontExtents().Height * font.LineHeightMultiplier : 0;
-    }
+    private static double Height(CairoFont font) =>
+        Assert(font.UnscaledFontsize > 0) ? font.GetFontExtents().Height * font.LineHeightMultiplier : 0;
 }
 
 // The grid drawn under a drag, by the HUD and lent to its checksum window: one full-screen texture (2560x1440 is a 14.7 MB surface and a

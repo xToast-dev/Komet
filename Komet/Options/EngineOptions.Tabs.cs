@@ -173,18 +173,14 @@ internal static partial class EngineOptions
         var own = (split < 0 ? name : name[..split]).Trim();
         var english = split < 0 ? own : name[(split + 3)..];
         var cut = english.IndexOf(" (", StringComparison.Ordinal);
-        if (cut > 0) english = english[..cut];
-        english = english.Trim();
+        english = (cut > 0 ? english[..cut] : english).Trim();
         var main = Drawable(own) && own.Length > 0 ? own : english;
         var aside = main == own ? english : "";
         return Assert(main.Length > 0) && Drawable(aside) && aside.Length > 0 && aside != main ? main + "\t" + aside : main;
     }
 
     // Below Hebrew: the scripts the game's font has glyphs for
-    private static bool Drawable(string text)
-    {
-        return NotNull(text) && text.All(c => c < '\u0590');
-    }
+    private static bool Drawable(string text) => NotNull(text) && text.All(c => c < '\u0590');
 
     // What the game's language handler does, less its notice text: the language and the fonts it needs, saved at once. Windows
     // takes the system's fonts for Chinese, Japanese, Korean and Thai; other systems keep sans-serif for them.

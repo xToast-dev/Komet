@@ -2,23 +2,16 @@ using System.Text;
 
 namespace Komet.Diagnostics;
 
-internal enum LogLevel
-{
-    Info,
-    Debug,
-    Warning,
-    Error
-}
+internal enum LogLevel { Info, Debug, Warning, Error }
 
 // Tails a log file: reads the last few KB off the main thread, drops timestamps and wraps long lines.
 // The panel shows a window of Visible rows; the wheel moves it back from the end, a double click grows it.
 internal sealed class LogStats(string fileName)
 {
     public const int MaxRows = 45;
-    private const int CompactRows = 20;
-    private const int WrapChars = 100, TailBytes = 64 * 1024, KeepLines = 600, MaxWrap = 64;
+    private const int CompactRows = 20, WrapChars = 100, TailBytes = 64 * 1024, KeepLines = 600, MaxWrap = 64;
     private const string Continuation = "    ";
-    private readonly string _path = Assert(fileName.Length > 0) ? Path.Combine(GamePaths.Logs, fileName) : "";
+    private readonly string _path = Assert(fileName.Length > 0) ? Path.Join(GamePaths.Logs, fileName) : "";
 
     // Replaced wholesale, so readers never see a half-written snapshot
     private (string Text, LogLevel Level)[] _lines = [];

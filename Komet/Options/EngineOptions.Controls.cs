@@ -63,8 +63,7 @@ internal static partial class EngineOptions
     private static string Mapping(string code)
     {
         if (!NotNull(code) || HotKeys is not { } keys || !keys.TryGetValue(code, out var key)) return "";
-        var clash = Clash(code);
-        var shown = key.CurrentMapping?.ToString() ?? "?";
+        var (clash, shown) = (Clash(code), key.CurrentMapping?.ToString() ?? "?");
         return clash.Length > 0 ? shown + Lang.Get("keybind-conflict-sameas", clash) : shown;
     }
 

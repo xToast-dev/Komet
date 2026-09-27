@@ -53,11 +53,8 @@ internal static class TessSeams
         OccludedChunks.Recheck();
     }
 
-    public static bool Standard(int[]? moves)
-    {
-        return NotNull(moves) && moves.Length == Faces && Assert(Moves.Length == Faces) &&
-               moves.AsSpan().SequenceEqual(Moves);
-    }
+    public static bool Standard(int[]? moves) =>
+        NotNull(moves) && moves.Length == Faces && Assert(Moves.Length == Faces) && moves.AsSpan().SequenceEqual(Moves);
 
     // The fields the accessors below name, with their types: a renamed one would throw MissingFieldException on the tesselation thread
     public static bool Accessible(string feature, ILogger? logger)
@@ -85,10 +82,8 @@ internal static class TessSeams
     }
 
     // The method or null, for a list of bodies to fingerprint or of seams to watch (EngineShape counts a missing one as a mismatch)
-    public static MethodInfo? Method(Type? type, string name, params Type[] parameters)
-    {
-        return type is null || !NotNull(name) ? null : AccessTools.DeclaredMethod(type, name, parameters);
-    }
+    public static MethodInfo? Method(Type? type, string name, params Type[] parameters) =>
+        type is null || !NotNull(name) ? null : AccessTools.DeclaredMethod(type, name, parameters);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "currentChunkBlocksExt")]
     internal static extern ref Block[]? BlocksExt(ChunkTesselator tesselator);

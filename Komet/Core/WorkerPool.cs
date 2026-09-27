@@ -15,7 +15,8 @@ namespace Komet.Core;
 // and the next index in its low half: one Interlocked increment claims an index and says of which batch, so a worker that saw the
 // previous batch can never claim an item of the next one under the old count. The caller returns when every claimed item is done (a
 // short spin, then Finished). It never waits for a worker that is inside a background job: a worker only claims between jobs and
-// finishes what it claimed before it takes anything else, so the caller waits at most for the items workers claimed, one each.
+// finishes what it claimed before it takes anything else, so the caller waits at most for the items workers claimed, one each. An open
+// batch (OpenFrame) is the same batch without that wait: the caller goes on and ends it later, when unclaimed items are dropped.
 // Nothing is allocated per batch. A resting worker marks itself Idle through a full fence before it looks at the cursor a last time,
 // and the caller publishes through a full fence before it looks for Idle workers: either the caller wakes it or it sees the batch.
 //
@@ -34,7 +35,7 @@ internal static class WorkerPool
     public const int MaxThreads = 8, MaxItems = 1 << 16, MaxFrameFailures = 2;
 
     private const int IdleMs = 50, Spins = 32, SignalSpins = 8, JoinMs = 2000, FrameCounter = 0, BackgroundCounter = 1,
-        MaxRetired = 64;
+        MaxRetired = 64, MaxWaits = 1 << 24;
 
     private const long MaxRounds = long.MaxValue; // a worker runs until its world or generation ends
     private const long Low = 0xFFFFFFFFL;
@@ -183,7 +184,7 @@ internal static class WorkerPool
     public static FrameResult RunFrame(Action<int> job, int count, int helpers)
     {
         if (!NotNull(job) || !Assert(count <= MaxItems) || count < 2 || Running == 0 || FrameOff ||
-            !Assert(_number == 0))
+            !Assert(_number == 0) || !Assert(_job is null))
             return FrameResult.Declined;
         (_job, _done, _error) = (job, 0, null);
         Finished.Reset();
@@ -197,10 +198,61 @@ internal static class WorkerPool
         _ = Assert(Volatile.Read(ref _done) == count); // every item ran exactly once
         _ = Interlocked.Exchange(ref _cursor, 0);
         _ = Assert(ReferenceEquals(_job, job)); // no second batch ran meanwhile
+        return Ended();
+    }
+
+    // A batch the caller does not wait for: published like RunFrame's, but the call returns at once and the workers claim its items
+    // while the caller goes on. The caller takes items itself with ClaimBelow, waits for whatever it needs through the job's own
+    // bookkeeping, and ends the batch with CloseFrame before anything else opens one. False when there is no pool to run it.
+    public static bool OpenFrame(Action<int> job, int count, int helpers)
+    {
+        if (!NotNull(job) || !Assert(count <= MaxItems) || count < 1 || Running == 0 || FrameOff ||
+            !Assert(_number == 0) || !Assert(_job is null))
+            return false;
+        (_job, _done, _error) = (job, 0, null);
+        Finished.Reset();
+        _ = Interlocked.Exchange(ref _cursor, (long)count << 32); // publishes the batch
+        _ = Assert(Wake(Math.Min(helpers, count)) <= MaxThreads);
+        return true;
+    }
+
+    // The open batch's items the caller runs itself: the next one, as long as its index lies below `below`; how many it ran. A compare
+    // and swap takes it, so the caller never claims one past the bound, while the workers' increments go on claiming beside it.
+    public static int ClaimBelow(int below)
+    {
+        var ran = 0;
+        for (var i = 0; i < MaxItems && _job is not null; i++)
+        {
+            var seen = Volatile.Read(ref _cursor);
+            var (count, at) = ((int)(seen >>> 32), (int)(seen & Low));
+            if (at >= Math.Min(count, below)) break;
+            if (Interlocked.CompareExchange(ref _cursor, seen + 1, seen) != seen) continue;
+            Item(at, count);
+            ran++;
+        }
+
+        return Assert(ran <= MaxItems) ? ran : 0;
+    }
+
+    // Ends the batch OpenFrame opened: no item is handed out any more, and once every item a thread claimed has ended it returns.
+    // Unclaimed items never run. Declined when none was open.
+    public static FrameResult CloseFrame()
+    {
+        if (_job is null || !Assert(_number == 0)) return FrameResult.Declined;
+        var seen = Interlocked.Exchange(ref _cursor, 0);
+        var claimed = (int)Math.Min(seen >>> 32, seen & Low); // an increment past the count claimed nothing
+        var spin = new SpinWait();
+        for (var i = 0; i < MaxWaits && Volatile.Read(ref _done) < claimed; i++) spin.SpinOnce(-1);
+        _ = Assert(Volatile.Read(ref _done) == claimed); // every claimed item ended, no other ran
+        return Ended();
+    }
+
+    private static FrameResult Ended()
+    {
         _job = null;
         if (Volatile.Read(ref _error) is not { } error) return FrameResult.Done;
         LastError = error;
-        _ = Interlocked.Increment(ref _frameFailures);
+        _ = Assert(Interlocked.Increment(ref _frameFailures) > 0);
         return FrameResult.Failed;
     }
 

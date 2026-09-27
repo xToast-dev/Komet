@@ -53,10 +53,7 @@ internal static class TessAccounting
     }
 
     // A new world starts from zero; in between the counters only grow, the HUD and the bench take differences
-    public static void Clear()
-    {
-        Counts.Clear();
-    }
+    public static void Clear() => Counts.Clear();
 
     // A requeue after the count moved is a RetryTesselationException: the pass is thrown away and the chunk comes again
     public static TessBucket Classify(bool processed, bool requeue, bool priority, bool edge)
@@ -79,10 +76,7 @@ internal static class TessAccounting
     }
 
     // Before any prefix that may skip the tesselator's work (OccludedChunks): the pass got past TesselateChunk's early exits
-    private static void Entered()
-    {
-        _entered = unchecked(_entered + 1);
-    }
+    private static void Entered() => _entered = unchecked(_entered + 1);
 
     private static void End(bool priority, bool skipChunkCenter, ref bool requeue, int __result, Pass __state)
     {
@@ -130,10 +124,7 @@ internal readonly record struct TessTotals(long Passes, long Ticks, long Edge)
 {
     public double Ms => Ticks * 1000.0 / Stopwatch.Frequency;
 
-    public TessTotals Since(TessTotals earlier)
-    {
-        return Assert(Passes >= earlier.Passes) && Assert(Ticks >= earlier.Ticks)
-            ? new TessTotals(Passes - earlier.Passes, Ticks - earlier.Ticks, Edge - earlier.Edge)
-            : default;
-    }
+    public TessTotals Since(TessTotals earlier) => Assert(Passes >= earlier.Passes) && Assert(Ticks >= earlier.Ticks)
+        ? new TessTotals(Passes - earlier.Passes, Ticks - earlier.Ticks, Edge - earlier.Edge)
+        : default;
 }

@@ -42,10 +42,7 @@ internal static class WindowSizeCache
         (_size, _valid) = (__result, true);
     }
 
-    private static void Invalidate()
-    {
-        _valid = false;
-    }
+    private static void Invalidate() => _valid = false;
 }
 
 // SystemRenderSunMoon.OnRenderFrame3DPost polls last frame's sun occlusion query every frame, and each glGet* is a Mesa glthread sync
@@ -75,8 +72,7 @@ internal static class SunOcclusion
         ___firstTickDone = false; // the engine never polls
         if (_rest > 0) // no new query while the last one matures
         {
-            _rest--;
-            ___nowQuerying = true;
+            (_rest, ___nowQuerying) = (_rest - 1, true);
             return;
         }
 

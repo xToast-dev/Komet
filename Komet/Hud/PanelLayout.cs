@@ -30,15 +30,10 @@ internal sealed class PanelLayout
         Array.Fill(_inputs, double.NaN); // the first Update lays out
     }
 
-    public int Layer(int panel)
-    {
-        return Index(panel, _layer.Length) ? _layer[panel] : Hidden;
-    }
+    public int Layer(int panel) => Index(panel, _layer.Length) ? _layer[panel] : Hidden;
 
-    public PanelRect Drawn(int panel)
-    {
-        return Index(panel, _drawn.Length) && Assert(_layer[panel] != Hidden) ? _drawn[panel] : default;
-    }
+    public PanelRect Drawn(int panel) =>
+        Index(panel, _drawn.Length) && Assert(_layer[panel] != Hidden) ? _drawn[panel] : default;
 
     // Lays out again only when a panel appeared, resized or moved, or the screen, corner or scale changed; true when it did
     public bool Update(ReadOnlySpan<PanelBox> panels, in LayoutFrame frame)
@@ -178,16 +173,13 @@ internal sealed class PanelLayout
     }
 
     // HudCanvas.Draw keeps a panel on screen: the same clamp, so clicks and snaps see where it is drawn
-    private static PanelRect OnScreen(PanelRect r, in LayoutFrame frame)
-    {
-        return Finite(r.X) && Finite(r.Y)
-            ? r with
-            {
-                X = Math.Clamp(r.X, 0, Math.Max(0, frame.Width - r.Width)),
-                Y = Math.Clamp(r.Y, 0, Math.Max(0, frame.Height - r.Height))
-            }
-            : r with { X = 0, Y = 0 };
-    }
+    private static PanelRect OnScreen(PanelRect r, in LayoutFrame frame) => Finite(r.X) && Finite(r.Y)
+        ? r with
+        {
+            X = Math.Clamp(r.X, 0, Math.Max(0, frame.Width - r.Width)),
+            Y = Math.Clamp(r.Y, 0, Math.Max(0, frame.Height - r.Height))
+        }
+        : r with { X = 0, Y = 0 };
 }
 
 // A panel's rectangle in corner space: distances from the HUD's corner, so one placement serves all four corners
@@ -209,11 +201,8 @@ internal readonly record struct PanelRect(double X, double Y, double Width, doub
         return w > 0 && h > 0 ? Math.Min(w, h) : 0;
     }
 
-    private (double W, double H) Intersection(PanelRect other)
-    {
-        return (Math.Min(Right, other.Right) - Math.Max(X, other.X),
-            Math.Min(Bottom, other.Bottom) - Math.Max(Y, other.Y));
-    }
+    private (double W, double H) Intersection(PanelRect other) =>
+        (Math.Min(Right, other.Right) - Math.Max(X, other.X), Math.Min(Bottom, other.Bottom) - Math.Max(Y, other.Y));
 }
 
 // Where an unpinned panel goes when its column slot would cover a panel already on screen. The candidates are the screen's edges and
@@ -231,10 +220,7 @@ internal sealed class PanelPlacer(int capacity)
 
     public int Count { get; private set; }
 
-    public void Clear()
-    {
-        Count = 0;
-    }
+    public void Clear() => Count = 0;
 
     public void Take(PanelRect rect)
     {

@@ -4,17 +4,17 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The screen's picture: one canvas over the columns (search bar, sidebar, the scrolled list, the description, the buttons), composed
-// again only when something it shows changed, the game blurred (Backdrop) and dimmed under it. It ends above the hotbar. The highlight
-// under the cursor is one translucent rectangle drawn over the canvas, so hovering never recomposes it. It eases toward what is under
-// the cursor every frame, fading in and out and gliding from one row to the next within a column; a click flashes it brighter for a
-// moment.
+// The screen's picture: one canvas over the columns (search bar, sidebar, scrolled list, description, buttons), recomposed only when
+// something it shows changed, over the game blurred (Backdrop) and dimmed; it ends above the hotbar. The highlight under the cursor is
+// one translucent rectangle over the canvas, so hovering never recomposes: each frame it eases toward what is under the cursor,
+// fading in and out and gliding from row to row within a column; a click briefly flashes it brighter.
 internal sealed partial class OptionsScreen
 {
     // Sizes before the GUI scale
     private const double TextScale = 1.4, Margin = 28, Space = 10, SideWidth = 300, MinSide = 220, ContentWidth = 700,
-        MinContent = 420, DescWidth = 360, MinDesc = 240, SideShare = 0.2, DescShare = 0.24, SearchHeight = 44, SectionHeight = 58, PageHeight = 44, GroupHeight = 32, RowHeight = 42, Spacer = 8,
-        Pad = 18, Box = 18, TrackWidth = 180, ButtonWidth = 200, ButtonHeight = 42, Track = 6, KnobSize = 14, AccentBar = 4;
+        MinContent = 420, DescWidth = 360, MinDesc = 240, SideShare = 0.2, DescShare = 0.24, SearchHeight = 44,
+        SectionHeight = 58, PageHeight = 44, GroupHeight = 32, RowHeight = 42, Spacer = 8, Pad = 18, Box = 18,
+        TrackWidth = 180, ButtonWidth = 200, ButtonHeight = 42, Track = 6, KnobSize = 14, AccentBar = 4;
 
     private const int MaxItems = 512, MaxLines = 12, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
     private const double GearSize = 85, GearShown = 0.55, MinShare = 0.5; // the hotbar's temporal gear: its size, the part above
@@ -157,7 +157,16 @@ internal sealed partial class OptionsScreen
         List<Item> items = [];
         if (Array.Find(_pages, p => p.Id == _page) is not { } page) return items;
         items.Add(new Item(ItemKind.Section, S(SectionHeight), page, Text: page.Title));
-        for (var i = 0; i < Math.Min(page.Count, OptionPage.MaxRows); i++) Add(items, page, page[i]);
+        for (var i = 0; i < Math.Min(page.Count, OptionPage.MaxRows); i++)
+        {
+            var row = page[i];
+            if (!NotNull(row) || !Assert(items.Count < MaxItems)) continue;
+            if (row.Kind == OptionKind.Group) items.Add(new Item(ItemKind.Space, scaled(Spacer), page));
+            items.Add(row.Kind == OptionKind.Group
+                ? new Item(ItemKind.Group, scaled(GroupHeight), page, Text: row.Label)
+                : new Item(ItemKind.Row, scaled(RowHeight), page, row));
+        }
+
         _ = Assert(items.Count <= MaxItems);
         return items;
     }
@@ -184,24 +193,9 @@ internal sealed partial class OptionsScreen
         return items;
     }
 
-    private bool Matches(OptionRow row)
-    {
-        return NotNull(row) && (row.Label.Contains(_query, StringComparison.CurrentCultureIgnoreCase) ||
-                                (row.Hint ?? "").Contains(_query, StringComparison.CurrentCultureIgnoreCase));
-    }
-
-    private static void Add(List<Item> items, OptionPage page, OptionRow row)
-    {
-        if (!NotNull(row) || !Assert(items.Count < MaxItems)) return;
-        if (row.Kind != OptionKind.Group)
-        {
-            items.Add(new Item(ItemKind.Row, scaled(RowHeight), page, row));
-            return;
-        }
-
-        items.Add(new Item(ItemKind.Space, scaled(Spacer), page));
-        items.Add(new Item(ItemKind.Group, scaled(GroupHeight), page, Text: row.Label));
-    }
+    private bool Matches(OptionRow row) => NotNull(row) &&
+        (row.Label.Contains(_query, StringComparison.CurrentCultureIgnoreCase) ||
+         (row.Hint ?? "").Contains(_query, StringComparison.CurrentCultureIgnoreCase));
 
     // The scroll clamped to the list; returns the page the sidebar lights (none while searching)
     private string Scroll(List<Item> items, Columns c)
@@ -214,10 +208,7 @@ internal sealed partial class OptionsScreen
         return Assert(total >= 0) && _query.Length == 0 ? _page : "";
     }
 
-    private static double S(double size)
-    {
-        return Finite(size) ? scaled(size) : 0;
-    }
+    private static double S(double size) => Finite(size) ? scaled(size) : 0;
 
     // Words onto lines no wider than width; a line break in the text starts a line
     private List<string> Wrap(string text, CairoFont font, double width)
@@ -280,8 +271,6 @@ internal sealed partial class OptionsScreen
             (float)_glow.H, ColorUtil.ToRgba((int)(alpha * 255), 255, 255, 255));
     }
 
-    private static double Ease(double from, double to, double k)
-    {
-        return Finite(from) && Finite(to) && Finite(k) ? from + (to - from) * k : to;
-    }
+    private static double Ease(double from, double to, double k) =>
+        Finite(from) && Finite(to) && Finite(k) ? from + (to - from) * k : to;
 }

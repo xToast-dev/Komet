@@ -56,10 +56,7 @@ internal static class Knobs
         return knob < Table.Length ? Table[knob] : Added[knob - Table.Length];
     }
 
-    public static string Name(int knob)
-    {
-        return Index(knob, Count) && Assert(Count <= MaxKnobs) ? At(knob).Key : "";
-    }
+    public static string Name(int knob) => Index(knob, Count) && Assert(Count <= MaxKnobs) ? At(knob).Key : "";
 
     public static int Find(string key)
     {
@@ -70,22 +67,19 @@ internal static class Knobs
         return -1;
     }
 
-    public static bool InRange(int knob, int value)
-    {
-        return Index(knob, Count) && Assert(At(knob).Min <= At(knob).Max) && value >= At(knob).Min &&
-               value <= At(knob).Max;
-    }
+    public static bool InRange(int knob, int value) =>
+        Index(knob, Count) && Assert(At(knob).Min <= At(knob).Max) && value >= At(knob).Min && value <= At(knob).Max;
 
     // Every knob's current value (a held one's wanted value), or with engine its Engine value; builtIn: Komet's knobs alone
     public static int[] Snapshot(bool engine = false, bool builtIn = false)
     {
         var values = new int[builtIn ? Table.Length : Count];
         if (!Assert(values.Length <= MaxKnobs)) return values;
-        for (var i = 0; i < Math.Min(values.Length, MaxKnobs); i++)
-        {
-            if (engine) values[i] = At(i).Engine;
-            else values[i] = Features.Held(i) ? Wanted[i] : At(i).Get();
-        }
+        if (engine)
+            for (var i = 0; i < Math.Min(values.Length, MaxKnobs); i++) values[i] = At(i).Engine;
+        else
+            for (var i = 0; i < Math.Min(values.Length, MaxKnobs); i++)
+                values[i] = Features.Held(i) ? Wanted[i] : At(i).Get();
 
         return values;
     }

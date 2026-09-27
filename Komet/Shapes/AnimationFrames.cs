@@ -24,8 +24,7 @@ namespace Komet.Shapes;
 // ElementPose.Add arguments, ForElement on a cached pose is dead because its readers walk RootPoses, AnimModelMatrix is never set).
 // A hit compares the whole descriptor, not the hash, so no hash collision hands an animator the pose tree of another shape.
 //
-// A miss compiles with the kernel in AnimationFrames.Compile.cs; where that declines, the engine compiles and the postfix stores its
-// result. Another mod's patch on a reproduced method, or a body that is not the 1.22.7 one, leaves every compile to the engine.
+// A miss compiles with the kernel in AnimationFrames.Compile.cs; where that declines, the engine compiles and the postfix stores it.
 internal static partial class AnimationFrames
 {
     internal const int MaxEntries = 512;
@@ -186,10 +185,7 @@ internal static partial class AnimationFrames
     private static void Keep(Snapshot? key, AnimationFrame[][]? frames)
     {
         if (key is not { } fresh || !NotNull(frames) || !Assert(frames.Length > 0)) return;
-        lock (Gate)
-        {
-            Store(fresh, frames);
-        }
+        lock (Gate) Store(fresh, frames);
     }
 
     // The key as the cache compares it, null for a shape it does not describe. Two shapes describe the same only when
@@ -218,8 +214,7 @@ internal static partial class AnimationFrames
         if (!NotNull(keys) || keys.Length > MaxKeyFrames) return false;
         if (!Int(animation.QuantityFrames) || !Int(keys.Length)) return false;
         for (var i = 0; i < Math.Min(keys.Length, MaxKeyFrames); i++)
-            if (!Frame(keys[i]))
-                return false;
+            if (!Frame(keys[i])) return false;
         return true;
     }
 
@@ -326,16 +321,12 @@ internal static partial class AnimationFrames
         if (!Assert(bytes.Length <= MaxDescriptor) || !Assert(_entries <= MaxEntries)) return null;
         if (!Cache.TryGetValue(hash, out var bucket) || !NotNull(bucket)) return null;
         foreach (var entry in bucket.Bounded(MaxBucket))
-            if (entry.Bytes.AsSpan().SequenceEqual(bytes))
-                return entry.Compiled;
+            if (entry.Bytes.AsSpan().SequenceEqual(bytes)) return entry.Compiled;
         return null;
     }
 
-    private static Snapshot Take(ulong hash)
-    {
-        if (!Assert(_at >= 0) || !Assert(_at <= _buffer.Length)) return new Snapshot(hash, []);
-        return new Snapshot(hash, _buffer.AsSpan(0, _at).ToArray());
-    }
+    private static Snapshot Take(ulong hash) =>
+        new(hash, Assert(_at >= 0) && Assert(_at <= _buffer.Length) ? _buffer.AsSpan(0, _at).ToArray() : []);
 
     // Bounded by entries, each a compiled set of up to ~180 KiB: past MaxEntries the cache starts over rather than grow
     private static void Store(Snapshot key, AnimationFrame[][] frames)

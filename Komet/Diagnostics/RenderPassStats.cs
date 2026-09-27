@@ -57,48 +57,28 @@ internal sealed class RenderPassStats
     // The dearest marks and ranges of the frame added last, the time between frames ranked in as Outside; empty when it had no profile
     public ReadOnlySpan<(string? Name, double Ms)> FrameTop => _hasFrame ? _frameTop : [];
 
-    public string Key(int place)
-    {
-        return Index(place, Count) ? Keys[_order[place]] : "";
-    }
+    public string Key(int place) => Index(place, Count) ? Keys[_order[place]] : "";
 
-    public double AverageMs(int place)
-    {
-        return Index(place, Count) && _frames > 0 ? _sumMs[_order[place]] / _frames : 0;
-    }
+    public double AverageMs(int place) => Index(place, Count) && _frames > 0 ? _sumMs[_order[place]] / _frames : 0;
 
-    public double Percent(int place)
-    {
-        return Index(place, Count) && AverageTotalMs > 0 ? AverageMs(place) / AverageTotalMs * 100 : 0;
-    }
+    public double Percent(int place) =>
+        Index(place, Count) && AverageTotalMs > 0 ? AverageMs(place) / AverageTotalMs * 100 : 0;
 
-    public double WorstPercent(int place)
-    {
-        return Index(place, Count) && AverageTotalMs > 0 ? _worstMs[_order[place]] / AverageTotalMs * 100 : 0;
-    }
+    public double WorstPercent(int place) =>
+        Index(place, Count) && AverageTotalMs > 0 ? _worstMs[_order[place]] / AverageTotalMs * 100 : 0;
 
-    public string DetailName(int place, int rank)
-    {
-        return Index(place, Count) && Index(rank, DetailCount) ? _topMarks[_order[place]][rank].Name ?? "–" : "";
-    }
+    public string DetailName(int place, int rank) =>
+        Index(place, Count) && Index(rank, DetailCount) ? _topMarks[_order[place]][rank].Name ?? "–" : "";
 
-    public double DetailMs(int place, int rank)
-    {
-        return Index(place, Count) && Index(rank, DetailCount) && _frames > 0 &&
-               _topMarks[_order[place]][rank].Name is { } mark
-            ? _marks[_order[place]].GetValueOrDefault(mark) / _frames
+    public double DetailMs(int place, int rank) =>
+        Index(place, Count) && Index(rank, DetailCount) && _frames > 0 && _topMarks[_order[place]][rank].Name is { } m
+            ? _marks[_order[place]].GetValueOrDefault(m) / _frames
             : double.NaN;
-    }
 
-    public string WorstMarkName(int rank)
-    {
-        return Index(rank, DetailCount) ? _worstTop[rank].Name ?? "" : "";
-    }
+    public string WorstMarkName(int rank) => Index(rank, DetailCount) ? _worstTop[rank].Name ?? "" : "";
 
-    public double WorstMarkMs(int rank)
-    {
-        return Index(rank, DetailCount) && _worstTop[rank].Name != null ? _worstTop[rank].Ms : double.NaN;
-    }
+    public double WorstMarkMs(int rank) =>
+        Index(rank, DetailCount) && _worstTop[rank].Name != null ? _worstTop[rank].Ms : double.NaN;
 
     // The frame's own root, and its dt from start to start: what the profiler did not see between this frame's End() and the next
     // Begin() is its own pass, and what is left of dt goes to Other
@@ -267,19 +247,7 @@ internal sealed class RenderPassStats
 
     private enum Pass
     {
-        GameTick,
-        Before,
-        Shadows,
-        Opaque,
-        Transparent,
-        PostProcess,
-        Gui,
-        Done,
-        MainThread,
-        Swap,
-        Sleep,
-        Outside,
-        Other
+        GameTick, Before, Shadows, Opaque, Transparent, PostProcess, Gui, Done, MainThread, Swap, Sleep, Outside, Other
     }
 }
 

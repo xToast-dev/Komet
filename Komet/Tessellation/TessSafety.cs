@@ -67,9 +67,7 @@ internal static class TessSafety
     [ThreadStatic] private static bool _guarded; // this thread's passes take the locks
     private static readonly List<(MethodBase Target, MethodInfo Patch)> Patched = [];
     private static BlockGate?[] _gates = [];
-    private static int _parallel;
-
-    private static int _sites;
+    private static int _parallel, _sites;
 
     // Every patch below is in: the only state in which TessWorkers runs passes
     public static bool Installed { get; private set; }
@@ -80,10 +78,7 @@ internal static class TessSafety
     public static bool Parallel => Volatile.Read(ref _parallel) != 0; // workers may pass
 
     // The table BuildFastBlockAccessArray built on this thread, or the engine's while TessSafety is not installed
-    public static Block[]? Palette()
-    {
-        return Installed ? _palette : BlockChunkDataLayer.blocksByPaletteIndex;
-    }
+    public static Block[]? Palette() => Installed ? _palette : BlockChunkDataLayer.blocksByPaletteIndex;
 
     // Switched on by the tessellation thread only (TessWorkers.Steer), with a full fence
     internal static void Open(bool on)
@@ -103,10 +98,7 @@ internal static class TessSafety
     {
         (Installed, Broken, _gates) = (false, false, []);
         Open(false);
-        lock (TableGate)
-        {
-            Patched.Clear();
-        }
+        lock (TableGate) Patched.Clear();
     }
 
     // All or nothing: a transpiler that does not find exactly its sites leaves the IL alone, and then every patch made so far goes
@@ -116,8 +108,7 @@ internal static class TessSafety
         Clear();
         if (!NotNull(harmony) || !NotNull(PaletteField) || !NotNull(StartField) || !NotNull(EndField) ||
             !NotNull(EntityCall) || !NotNull(JsonHook)) return;
-        var ok = Transpilers(harmony) && Locks(harmony) && Leaves(harmony);
-        if (ok)
+        if (Transpilers(harmony) && Locks(harmony))
         {
             Installed = true;
             return;
@@ -151,14 +142,23 @@ internal static class TessSafety
         return ok;
     }
 
+    // The locks around their methods; the unpatch loop takes at most MaxPatches
     private static bool Locks(Harmony harmony)
     {
-        var (vars, manager, i) = (typeof(TCTCache), typeof(ShapeTesselatorManager), typeof(int));
+        var (vars, manager, recycler) = (typeof(TCTCache), typeof(ShapeTesselatorManager), typeof(MeshDataRecycler));
+        var (atlas, i, position) = (typeof(TextureAtlasManager), typeof(int), typeof(TextureAtlasPosition));
         Type[] shape =
         [
             typeof(string), typeof(AssetLocation), typeof(CompositeShape), typeof(MeshData).MakeByRefType(),
             typeof(ITexPositionSource), i, typeof(byte), typeof(byte), typeof(int?), typeof(string[])
         ];
+        Type[] insert =
+        [
+            typeof(AssetLocationAndSource), i.MakeByRefType(), position.MakeByRefType(), typeof(CreateTextureDelegate),
+            typeof(float)
+        ];
+        Type[] allocate = [i, i, i.MakeByRefType(), position.MakeByRefType(), typeof(AssetLocationAndSource)];
+        Type[] blend = [i, typeof(int[]), typeof(int[]), typeof(int[]), atlas, i];
         return Around(harmony,
                    TessSeams.Method(typeof(JsonTesselator), nameof(JsonTesselator.doMesh), vars, typeof(MeshData), i),
                    nameof(EnterBlock)) &&
@@ -175,22 +175,8 @@ internal static class TessSafety
                Around(harmony,
                    TessSeams.Method(manager, nameof(ShapeTesselatorManager.GetDefaultBlockMesh), typeof(Block)),
                    nameof(EnterMesh)) &&
-               Assert(Patched.Count <= MaxPatches);
-    }
-
-    private static bool Leaves(Harmony harmony)
-    {
-        var (atlas, i, position) = (typeof(TextureAtlasManager), typeof(int), typeof(TextureAtlasPosition));
-        Type[] insert =
-        [
-            typeof(AssetLocationAndSource), i.MakeByRefType(), position.MakeByRefType(), typeof(CreateTextureDelegate),
-            typeof(float)
-        ];
-        Type[] allocate = [i, i, i.MakeByRefType(), position.MakeByRefType(), typeof(AssetLocationAndSource)];
-        Type[] blend = [i, typeof(int[]), typeof(int[]), typeof(int[]), atlas, i];
-        var recycler = typeof(MeshDataRecycler);
-        return Around(harmony, TessSeams.Method(typeof(ClientWorldMap),
-                       nameof(ClientWorldMap.LoadOrCreateLerpedClimateMapOffthread), i, i), nameof(EnterClimate)) &&
+               Around(harmony, TessSeams.Method(typeof(ClientWorldMap),
+                   nameof(ClientWorldMap.LoadOrCreateLerpedClimateMapOffthread), i, i), nameof(EnterClimate)) &&
                Around(harmony, TessSeams.Method(typeof(TerrainIlluminator), nameof(TerrainIlluminator.SunRelightChunk),
                    typeof(ClientChunk), typeof(ChunkPos)), nameof(EnterRelight)) &&
                Around(harmony, TessSeams.Method(recycler, nameof(MeshDataRecycler.GetOrCreateMesh), i),
@@ -205,8 +191,8 @@ internal static class TessSafety
                    TessSeams.Method(atlas, "runtimeUpdateTexture", typeof(IBitmap), position, typeof(float)),
                    nameof(EnterTexture)) &&
                Around(harmony, TessSeams.Method(typeof(BlendedTextureManager),
-                       nameof(BlendedTextureManager.GetOrCreateBlendedTexture), blend),
-                   nameof(EnterTexture)) && Assert(Patched.Count <= MaxPatches); // the unpatch loop takes MaxPatches
+                   nameof(BlendedTextureManager.GetOrCreateBlendedTexture), blend), nameof(EnterTexture)) &&
+               Assert(Patched.Count <= MaxPatches);
     }
 
     // A transpiler that finds exactly its sites (it records the count it rewrote, 0 when another count leaves the IL alone)
@@ -216,11 +202,7 @@ internal static class TessSafety
         if (!NotNull(target) || !NotNull(patch)) return false;
         _sites = 0;
         _ = NotNull(harmony.Patch(target, transpiler: new HarmonyMethod(patch)));
-        lock (TableGate)
-        {
-            Patched.Add((target, patch));
-        }
-
+        lock (TableGate) Patched.Add((target, patch));
         return Assert(Volatile.Read(ref _sites) > 0);
     }
 
@@ -231,12 +213,7 @@ internal static class TessSafety
             AccessTools.Method(typeof(TessSafety), nameof(Leave)));
         if (!NotNull(target) || !NotNull(enter) || !NotNull(leave) || !Assert(Il.Binds(target, enter))) return false;
         _ = NotNull(harmony.Patch(target, new HarmonyMethod(enter), finalizer: new HarmonyMethod(leave)));
-        lock (TableGate)
-        {
-            Patched.Add((target, enter));
-            Patched.Add((target, leave));
-        }
-
+        lock (TableGate) Patched.AddRange([(target, enter), (target, leave)]);
         return true;
     }
 
@@ -287,10 +264,7 @@ internal static class TessSafety
         return Assert(sites == expected) ? sites : 0;
     }
 
-    private static Block[]? GetPalette()
-    {
-        return _palette;
-    }
+    private static Block[]? GetPalette() => _palette;
 
     private static void SetPalette(Block[]? table)
     {
@@ -298,25 +272,16 @@ internal static class TessSafety
         _palette = table;
     }
 
-    private static Vec3f StartRot()
-    {
-        return _start ??= new Vec3f();
-    }
+    private static Vec3f StartRot() => _start ??= new Vec3f();
 
-    private static Vec3f EndRot()
-    {
-        return _end ??= new Vec3f();
-    }
+    private static Vec3f EndRot() => _end ??= new Vec3f();
 
     // In place of the virtual call: the same dispatch (a null entity throws as the callvirt did), one block entity at a time
     private static bool EntityTesselation(BlockEntity entity, ITerrainMeshPool mesher, ITesselatorAPI tesselator)
     {
         if (!_guarded) return entity.OnTesselation(mesher, tesselator);
-        _ = Assert(!Monitor.IsEntered(ShapeGate) && LeavesHeld() == 0); // lock order
-        lock (EntityGate)
-        {
-            return entity.OnTesselation(mesher, tesselator);
-        }
+        _ = Assert(!Monitor.IsEntered(ShapeGate) && LeavesHeld == 0); // lock order
+        lock (EntityGate) return entity.OnTesselation(mesher, tesselator);
     }
 
     // After the lock is taken, each checks the lock order (a leaf finds its own gate held, and no other leaf's)
@@ -324,20 +289,20 @@ internal static class TessSafety
     {
         __state = _guarded && vars?.block is { } block && GateOf(block) is { } gate ? Take(gate) : null;
         _ = Assert(__state is null ||
-                   (!EntityGate.IsHeldByCurrentThread && !Monitor.IsEntered(ShapeGate) && LeavesHeld() == 0));
+                   (!EntityGate.IsHeldByCurrentThread && !Monitor.IsEntered(ShapeGate) && LeavesHeld == 0));
     }
 
     private static void EnterDecor(out object? __state)
     {
         __state = _guarded ? Take(DecorGate) : null;
         _ = Assert(__state is null ||
-                   (!EntityGate.IsHeldByCurrentThread && !Monitor.IsEntered(ShapeGate) && LeavesHeld() == 0));
+                   (!EntityGate.IsHeldByCurrentThread && !Monitor.IsEntered(ShapeGate) && LeavesHeld == 0));
     }
 
     private static void EnterShape(out object? __state)
     {
         __state = _guarded ? Take(ShapeGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 0);
+        _ = Assert(__state is null || LeavesHeld == 0);
     }
 
     // Only while the mesh is missing: the engine checks again under the lock, so a second thread finds the first one's mesh
@@ -347,31 +312,19 @@ internal static class TessSafety
         var missing = meshes is null || block is null || (uint)block.BlockId >= (uint)meshes.Length ||
                       meshes[block.BlockId] is null;
         __state = _guarded && missing ? Take(ShapeGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 0);
+        _ = Assert(__state is null || LeavesHeld == 0);
     }
 
-    private static void EnterClimate(out object? __state)
-    {
-        __state = _guarded ? Take(ClimateGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 1);
-    }
+    private static void EnterClimate(out object? __state) => __state = Leaf(ClimateGate);
+    private static void EnterRelight(out object? __state) => __state = Leaf(RelightGate);
+    private static void EnterRecycle(out object? __state) => __state = Leaf(RecycleGate);
+    private static void EnterTexture(out object? __state) => __state = Leaf(TextureGate);
 
-    private static void EnterRelight(out object? __state)
+    private static object? Leaf(object gate)
     {
-        __state = _guarded ? Take(RelightGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 1);
-    }
-
-    private static void EnterRecycle(out object? __state)
-    {
-        __state = _guarded ? Take(RecycleGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 1);
-    }
-
-    private static void EnterTexture(out object? __state)
-    {
-        __state = _guarded ? Take(TextureGate) : null;
-        _ = Assert(__state is null || LeavesHeld() == 1);
+        var state = _guarded ? Take(gate) : null;
+        _ = Assert(state is null || LeavesHeld == 1);
+        return state;
     }
 
     private static Exception? Leave(Exception? __exception, object? __state)
@@ -389,11 +342,9 @@ internal static class TessSafety
     }
 
     // The leaf locks this thread holds
-    private static int LeavesHeld()
-    {
-        return (Monitor.IsEntered(ClimateGate) ? 1 : 0) + (Monitor.IsEntered(RelightGate) ? 1 : 0) +
-               (Monitor.IsEntered(RecycleGate) ? 1 : 0) + (Monitor.IsEntered(TextureGate) ? 1 : 0);
-    }
+    private static int LeavesHeld => (Monitor.IsEntered(ClimateGate) ? 1 : 0) +
+        (Monitor.IsEntered(RelightGate) ? 1 : 0) + (Monitor.IsEntered(RecycleGate) ? 1 : 0) +
+        (Monitor.IsEntered(TextureGate) ? 1 : 0);
 
     // The lock a block is meshed under: none for Block's own OnJsonTesselation (unless another mod patches it), the fence family's,
     // or the block itself; worked out once per block and kept by BlockId

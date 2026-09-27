@@ -18,10 +18,7 @@ internal sealed class FrameStats
     public float Fps => Frames == 0 || _elapsed <= 0 ? float.NaN : Frames / _elapsed;
     public float AverageMs => Frames == 0 ? float.NaN : _elapsed / Frames * 1000f;
     public float WorstMs { get; private set; } = float.NaN; // NaN until the window holds a frame
-
-    // How much of that worst frame the collector held every thread
-    public float WorstGcMs { get; private set; } = float.NaN;
-
+    public float WorstGcMs { get; private set; } = float.NaN; // how much of it the collector held every thread
     public float Low1Fps { get; private set; } = float.NaN;
     public float Low01Fps { get; private set; } = float.NaN;
     public int Recorded { get; private set; }
@@ -29,7 +26,6 @@ internal sealed class FrameStats
 
     // The engine zeroes both every frame and sets them once per second
     public int RenderedTriangles { get; private set; }
-
     public int AvailableTriangles { get; private set; }
 
     // Only a steady frame enters the history: a load stall or a pause gap would own the lows for the next thousand frames.
@@ -52,10 +48,7 @@ internal sealed class FrameStats
     }
 
     // 0 = oldest frame
-    public float HistoryMs(int index)
-    {
-        return Index(index, History) ? _history[(_next + index) % History] : 0;
-    }
+    public float HistoryMs(int index) => Index(index, History) ? _history[(_next + index) % History] : 0;
 
     // RuntimeStats.drawCallsCount is an int the engine resets only at start and on Alt+F3, so it wraps after hours of drawing: the
     // delta is taken unchecked, and a counter below the last reading was reset. The lows are over the frames actually recorded, not
@@ -72,8 +65,7 @@ internal sealed class FrameStats
         var history = _history.AsSpan(0, Recorded);
         var worst = 0;
         for (var i = 1; i < Math.Min(Recorded, History); i++)
-            if (history[i] > history[worst])
-                worst = i;
+            if (history[i] > history[worst]) worst = i;
         (WorstMs, WorstGcMs) = (history[worst], _gcMs[worst]);
         var window = _sorted.AsSpan(0, Recorded);
         history.CopyTo(window);
@@ -101,8 +93,5 @@ internal sealed class FrameStats
         (WorstMs, WorstGcMs, Low1Fps, Low01Fps) = (float.NaN, float.NaN, float.NaN, float.NaN);
     }
 
-    public void Reset()
-    {
-        (Frames, _elapsed) = (0, 0f);
-    }
+    public void Reset() => (Frames, _elapsed) = (0, 0f);
 }

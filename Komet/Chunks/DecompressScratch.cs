@@ -14,7 +14,6 @@ namespace Komet.Chunks;
 // (ChunkDataPool.NewData) for slices before it copies.
 internal static class DecompressScratch
 {
-    private const string Method = "DecompressCombined";
     private const int MaxInstructions = 1024;
 
     [ThreadStatic] private static byte[]? _buffer;
@@ -36,7 +35,7 @@ internal static class DecompressScratch
 
     internal static MethodInfo? Target()
     {
-        var method = AccessTools.Method(typeof(Compression), Method); // internal static, one overload
+        var method = AccessTools.Method(typeof(Compression), "DecompressCombined"); // internal static, one overload
         return NotNull(method) && Assert(method.ReturnType == typeof(int[])) ? method : null;
     }
 
@@ -117,7 +116,7 @@ internal static class DecompressScratch
     // Stands in for the length check's ldlen: the decompressed size for the buffer handed out above, the array's length otherwise
     internal static int Length(byte[] array)
     {
-        if (!ReferenceEquals(array, _buffer) || !NotNull(array)) return array.Length; // null throws here as ldlen would
+        if (!NotNull(array) || !ReferenceEquals(array, _buffer)) return array.Length; // null throws here as ldlen would
         _buffer = null; // one answer per decompression, and zstd may swap its buffer on a later call
         return Assert(_length >= 0) ? _length : array.Length;
     }

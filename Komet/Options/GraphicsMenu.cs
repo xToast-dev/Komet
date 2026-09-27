@@ -6,12 +6,11 @@ using Vintagestory.Client.NoObf;
 namespace Komet.Options;
 
 // The game's settings replaced by Komet's options screen, as Sodium replaces Minecraft's video settings. The escape menu's Settings
-// button and the Graphics tab both run GuiCompositeSettings.OnGraphicsOptions; in game the prefix loads an empty composer under the
-// graphics tab's name into the escape menu (so the menu itself shows nothing behind the screen) and opens the screen over it. The
-// screen's buttons open the game's own screens (the original graphics tab, the macro editor) through their handlers. The escape menu raises
-// "leftGraphicsDlg" when its composer stops being the graphics one (another tab, or closed), and the screen goes with it.
-// Stands down (the game's tab shows) when the knob is off, the bodies are not the 1.22.7 ones it was written against, or another mod
-// patches OnGraphicsOptions, whose additions would land on a composer without the controls they expect.
+// button and Graphics tab both run GuiCompositeSettings.OnGraphicsOptions; in game the prefix loads an empty composer named like the
+// graphics tab into the escape menu (so nothing shows behind the screen) and opens the screen over it; its buttons open the game's own
+// screens (original graphics tab, macro editor) through their handlers. The escape menu raises "leftGraphicsDlg" when its composer
+// stops being the graphics one (another tab, or closed); the screen goes with it. Stands down (the game's tab shows) when the knob is
+// off, the bodies are not 1.22.7's, or another mod patches OnGraphicsOptions (its additions would miss the controls they expect).
 internal static class GraphicsMenu
 {
     internal const ulong Fingerprint = 0x4DF9587AB32B1D45UL; // the six rebuilt tabs, Vintage Story 1.22.7
@@ -64,10 +63,7 @@ internal static class GraphicsMenu
         if (NotNull(harmony) && render is not null) _ = NotNull(harmony.Patch(render, new HarmonyMethod(Quiet)));
     }
 
-    private static bool Quiet()
-    {
-        return _dialog is null || !_dialog.IsOpened();
-    }
+    private static bool Quiet() => _dialog is null || !_dialog.IsOpened();
 
     public static void Clear()
     {
@@ -91,8 +87,7 @@ internal static class GraphicsMenu
         return false;
     }
 
-    // One of the game's own screens by its handler: a tab's takes on (OnGraphicsOptions: the original graphics tab), others nothing
-    // (OnMacroEditor)
+    // One of the game's own screens by handler name: a tab's takes on (OnGraphicsOptions: the original tab), others nothing (OnMacroEditor)
     private static void Open(GuiCompositeSettings settings, string handler)
     {
         var tab = AccessTools.Method(typeof(GuiCompositeSettings), handler, [typeof(bool)]);

@@ -11,12 +11,10 @@ internal static class HudText
 
     // NaN is a value not measured yet, and an infinite one is a division by an empty window. Neither is a number to show; both print
     // as nothing, never as "NaN" or "Infinity".
-    public static string Format(double value, string format)
-    {
-        return !double.IsFinite(value) || !Assert(format.Length is 2 or 3)
-            ? ""
-            : value.ToString(format, CultureInfo.InvariantCulture);
-    }
+    public static string Format(double value, string format) =>
+        double.IsFinite(value) && Assert(format.Length is 2 or 3)
+            ? value.ToString(format, CultureInfo.InvariantCulture)
+            : "";
 
     // Lang.Get hands the key back when the translation is missing
     public static string Translate(string key, params object[] args)

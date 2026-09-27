@@ -47,10 +47,7 @@ internal sealed class TessQueue
     public void Map(long mulX, long mulZ)
     {
         if (!Assert(mulX > 0) || !Assert(mulZ > 0)) return;
-        lock (_gate)
-        {
-            (_mulX, _mulZ) = (mulX, mulZ);
-        }
+        lock (_gate) (_mulX, _mulZ) = (mulX, mulZ);
     }
 
     // Marks from the engine's queue: index3d, or index3d | long.MinValue for an edge-only pass
@@ -108,10 +105,7 @@ internal sealed class TessQueue
     // known and nothing happens.
     public void Done(long index)
     {
-        lock (_gate)
-        {
-            _ = Release(index);
-        }
+        lock (_gate) _ = Release(index);
     }
 
     // A worker's pass the engine wants again: done, and handed to the tessellation thread (RetryTesselationException queues its fix on
@@ -214,10 +208,7 @@ internal sealed class TessQueue
     // Another world: nothing waits and nothing is in flight any more
     public void Clear()
     {
-        lock (_gate)
-        {
-            Empty(true);
-        }
+        lock (_gate) Empty(true);
     }
 
     // Whether the chunk of an index lies within radius columns of the view's chunk
@@ -287,10 +278,7 @@ internal sealed class TessQueue
         Volatile.Write(ref _count, _pending.Count + _deferred.Count + _home.Count);
     }
 
-    private static long Raw(long index, Entry entry)
-    {
-        return entry.Full ? index : index | long.MinValue;
-    }
+    private static long Raw(long index, Entry entry) => entry.Full ? index : index | long.MinValue;
 
     // The score in the high bits, the arrival order below it: equal scores keep the engine's FIFO
     private long Priority(long index, long seq)

@@ -16,17 +16,11 @@ internal enum HudCorner
 
 internal readonly record struct HudRange(double Min, double Max, double Step, double Factor, string Unit)
 {
-    public bool Contains(double value)
-    {
-        return Finite(value) && value >= Min && value <= Max;
-    }
+    public bool Contains(double value) => Finite(value) && value >= Min && value <= Max;
 
-    public string Text(double value)
-    {
-        return Assert(Factor > 0) && Assert(Unit.Length < 8)
-            ? (HudText.Format(value * Factor, "N0") + " " + Unit).TrimEnd()
-            : "";
-    }
+    public string Text(double value) => Assert(Factor > 0) && Assert(Unit.Length < 8)
+        ? (HudText.Format(value * Factor, "N0") + " " + Unit).TrimEnd()
+        : "";
 }
 
 // Properties with a setter persist as JSON in ModConfig, the knobs as top-level keys beside them; every change raises Changed.
@@ -53,15 +47,12 @@ internal sealed class HudSettings
 
     public bool Visible { get; set => Set(ref field, value); }
 
-    [JsonProperty]
+    [JsonProperty] // private setter: Json.NET writes it only with the attribute
     public HudCorner Corner
     {
         get;
-        private set
-        {
-            if (Assert(value is >= HudCorner.TopLeft and <= HudCorner.BottomRight)) Set(ref field, value);
-        }
-    } // private setter: Json.NET writes it only with the attribute
+        private set { if (Assert(value is >= HudCorner.TopLeft and <= HudCorner.BottomRight)) Set(ref field, value); }
+    }
 
     public double Opacity { get; set { if (Assert(OpacityRange.Contains(value))) Set(ref field, value); } } = 0.6;
     public double Interval { get; set { if (Assert(IntervalRange.Contains(value))) Set(ref field, value); } } = 0.25;
@@ -109,10 +100,7 @@ internal sealed class HudSettings
         NotifyChanged();
     }
 
-    public void NotifyChanged()
-    {
-        Changed?.Invoke();
-    }
+    public void NotifyChanged() => Changed?.Invoke();
 
     // The display, the panels and every knob; the update notice is a consent, not a display setting
     public void ResetDefaults()
@@ -127,10 +115,8 @@ internal sealed class HudSettings
         ResetPositions();
     }
 
-    public int Knob(int knob)
-    {
-        return Index(knob, _knobs.Length) && Assert(_knobs.Length == Knobs.BuiltInCount) ? _knobs[knob] : 0;
-    }
+    public int Knob(int knob) =>
+        Index(knob, _knobs.Length) && Assert(_knobs.Length == Knobs.BuiltInCount) ? _knobs[knob] : 0;
 
     public void SetKnob(int knob, int value)
     {

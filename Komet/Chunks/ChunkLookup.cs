@@ -96,37 +96,6 @@ internal static class ChunkLookup
         return true;
     }
 
-    // On the main thread, like the engine's own inserts and removals, so a fill never races a removal. loadChunkMT may replace a chunk:
-    // past MaxChunks (more than any view distance loads) the key is dropped instead, and its lookups miss.
-    private static void Store(ClientWorldMap map, Packet_ServerChunk p, ClientChunk chunk)
-    {
-        if (!Enabled || !NotNull(map) || !NotNull(p) || !NotNull(chunk)) return;
-        var chunks = Chunks(map);
-        if (!ReferenceEquals(chunks, _chunks))
-        {
-            Mirror.Clear();
-            _chunks = chunks;
-        }
-
-        var key = Key(map, p.X, p.Y, p.Z);
-        if (!NotNull(chunks) || !Assert(key != long.MinValue)) return;
-        if (Assert(chunks.Count <= MaxChunks)) Mirror[key] = chunk;
-        else _ = Mirror.TryRemove(key, out _);
-    }
-
-    // An overload may re-enqueue itself instead of inserting, so afterwards the mirror takes whatever the dictionary actually holds
-    private static void Sync(ClientWorldMap map, long key)
-    {
-        var chunks = Chunks(map);
-        var gate = Gate(map);
-        if (!NotNull(chunks) || !NotNull(gate) || !Assert(key != long.MinValue)) return;
-        lock (gate)
-        {
-            if (chunks.TryGetValue(key, out var current) && NotNull(current)) Mirror[key] = current;
-            else _ = Mirror.TryRemove(key, out _);
-        }
-    }
-
     private static bool ByIndex(ClientWorldMap __instance, long index3d, ref IWorldChunk __result)
     {
         if (!Hit(__instance, index3d, out var chunk)) return true;
@@ -151,9 +120,22 @@ internal static class ChunkLookup
         return false;
     }
 
+    // On the main thread, like the engine's own inserts and removals, so a fill never races a removal. loadChunkMT may replace a chunk:
+    // past MaxChunks (more than any view distance loads) the key is dropped instead, and its lookups miss.
     private static void Loaded(ClientWorldMap __instance, Packet_ServerChunk p, ClientChunk chunk)
     {
-        if (NotNull(p) && NotNull(chunk)) Store(__instance, p, chunk);
+        if (!NotNull(p) || !NotNull(chunk) || !Enabled || !NotNull(__instance)) return;
+        var chunks = Chunks(__instance);
+        if (!ReferenceEquals(chunks, _chunks))
+        {
+            Mirror.Clear();
+            _chunks = chunks;
+        }
+
+        var key = Key(__instance, p.X, p.Y, p.Z);
+        if (!NotNull(chunks) || !Assert(key != long.MinValue)) return;
+        if (Assert(chunks.Count <= MaxChunks)) Mirror[key] = chunk;
+        else _ = Mirror.TryRemove(key, out _);
     }
 
     private static void Overloading(ClientWorldMap __instance, Packet_ServerChunk p)
@@ -163,9 +145,17 @@ internal static class ChunkLookup
         if (Assert(key != long.MinValue)) _ = Mirror.TryRemove(key, out _);
     }
 
+    // An overload may re-enqueue itself instead of inserting, so afterwards the mirror takes whatever the dictionary actually holds
     private static void Overloaded(ClientWorldMap __instance, Packet_ServerChunk p, ClientChunk newchunk)
     {
-        if (NotNull(__instance) && NotNull(p) && NotNull(newchunk)) Sync(__instance, Key(__instance, p.X, p.Y, p.Z));
+        if (!NotNull(__instance) || !NotNull(p) || !NotNull(newchunk)) return;
+        var (key, chunks, gate) = (Key(__instance, p.X, p.Y, p.Z), Chunks(__instance), Gate(__instance));
+        if (!NotNull(chunks) || !NotNull(gate) || !Assert(key != long.MinValue)) return;
+        lock (gate)
+        {
+            if (chunks.TryGetValue(key, out var current) && NotNull(current)) Mirror[key] = current;
+            else _ = Mirror.TryRemove(key, out _);
+        }
     }
 
     // A packet lists every chunk the server unloaded that tick, however many: one the mirror cannot read whole empties it, so lookups

@@ -83,10 +83,7 @@ internal static partial class PreJit
         _thread.Start();
     }
 
-    public static void Stop()
-    {
-        _cancel = true;
-    }
+    public static void Stop() => _cancel = true;
 
     private static void Run(HashSet<(Guid, int)> patched, ILogger logger)
     {

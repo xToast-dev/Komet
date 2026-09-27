@@ -121,29 +121,19 @@ internal sealed class BenchRecorder : IFrameSink
         (_stampSegment, _stampFlags, _stampX, _stampZ, _stampYaw, _stamped) = (segment, flags, x, z, yaw, true);
     }
 
-    public ReadOnlySpan<BenchSpike> Spikes(int segment)
-    {
-        return Index(segment, _segments) && Assert(_spikes.Length == _segments * _perSegment)
-            ? _spikes.AsSpan(segment * _perSegment, _perSegment)
-            : [];
-    }
+    public ReadOnlySpan<BenchSpike> Spikes(int segment) =>
+        Index(segment, _segments) && Assert(_spikes.Length == _segments * _perSegment)
+            ? _spikes.AsSpan(segment * _perSegment, _perSegment) : [];
 
-    public ReadOnlySpan<BenchSpikeMark> Marks(int segment, int rank)
-    {
-        return Index(segment, _segments) && Index(rank, _perSegment)
-            ? _marks.AsSpan((segment * _perSegment + rank) * MarksPerSpike, MarksPerSpike)
-            : [];
-    }
+    public ReadOnlySpan<BenchSpikeMark> Marks(int segment, int rank) =>
+        Index(segment, _segments) && Index(rank, _perSegment)
+            ? _marks.AsSpan((segment * _perSegment + rank) * MarksPerSpike, MarksPerSpike) : [];
 
-    private static int Kb(long bytes)
-    {
-        return Assert(bytes >= 0) && Assert(bytes / 1024 <= int.MaxValue) ? (int)(bytes / 1024) : 0;
-    }
+    private static int Kb(long bytes) =>
+        Assert(bytes >= 0) && Assert(bytes / 1024 <= int.MaxValue) ? (int)(bytes / 1024) : 0;
 
-    private static byte Collections(int count)
-    {
-        return Assert(count >= 0) && Assert(count < 1 << 16) ? (byte)Math.Min(count, byte.MaxValue) : (byte)0;
-    }
+    private static byte Collections(int count) =>
+        Assert(count >= 0) && Assert(count < 1 << 16) ? (byte)Math.Min(count, byte.MaxValue) : (byte)0;
 
     // Insertion at the frame's rank: the slots below it move down and the last one falls off
     private void Spike(int frame, float ms, ProfileEntryRange? root, bool collected)

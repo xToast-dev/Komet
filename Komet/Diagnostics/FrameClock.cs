@@ -17,14 +17,12 @@ internal readonly record struct FrameRecord(
 // thread and by the main thread alone, between the same two frame starts as the record's dt
 internal readonly record struct FrameCounters(int Gen0, int Gen1, int Gen2, long Allocated, long MainAllocated)
 {
-    public FrameCounters Since(in FrameCounters before)
-    {
-        return Assert(Gen0 >= before.Gen0 && Gen1 >= before.Gen1 && Gen2 >= before.Gen2) &&
-               Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
+    public FrameCounters Since(in FrameCounters before) =>
+        Assert(Gen0 >= before.Gen0 && Gen1 >= before.Gen1 && Gen2 >= before.Gen2) &&
+        Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
             ? new FrameCounters(Gen0 - before.Gen0, Gen1 - before.Gen1, Gen2 - before.Gen2,
                 Allocated - before.Allocated, MainAllocated - before.MainAllocated)
             : default;
-    }
 }
 
 // Takes every frame FrameClock closes, on the main thread, inside window_RenderFrame's prefix: nothing it does may throw
@@ -95,7 +93,7 @@ internal static class FrameClock
         // All four are cumulative: a step back is a broken reading, and the frame is dropped rather than booked a negative share.
         // End() has checked the root's length; delay may be NaN (no schedstat), which passes and stays NaN.
         if (_start != 0 && Assert(now >= _start) && Assert(pause >= _pause) && Assert(jit >= _jit) &&
-            Assert(!(delay < _runDelayNs)))
+            Assert(double.IsNaN(delay) || double.IsNaN(_runDelayNs) || delay >= _runDelayNs))
         {
             Last = new FrameRecord(Completed, (now - _start) * TickMs, (pause - _pause).TotalMilliseconds,
                 _end >= _start ? (now - _end) * TickMs : double.NaN, (jit - _jit).TotalMilliseconds,
@@ -123,10 +121,8 @@ internal static class FrameClock
     }
 
     // Stopwatch ticks in milliseconds, for the profiler's lengths and tick totals
-    internal static double ToMs(long ticks)
-    {
-        return Assert(ticks >= 0) && Assert(Stopwatch.Frequency > 0) ? ticks * 1000.0 / Stopwatch.Frequency : 0;
-    }
+    internal static double ToMs(long ticks) =>
+        Assert(ticks >= 0) && Assert(Stopwatch.Frequency > 0) ? ticks * 1000.0 / Stopwatch.Frequency : 0;
 
     // Time the main thread was runnable but waited for a core (schedstat field 2, ns). One pread through a handle opened once, on
     // the render thread, ~1.2 µs; Linux only.
@@ -152,19 +148,13 @@ internal static class FrameClock
         for (var i = 0; i < Math.Min(read, MaxSchedBytes); i++)
         {
             var c = Sched[i];
-            if (c is >= (byte)'0' and <= (byte)'9')
-            {
-                value = value * 10 + (c - '0');
-            }
+            if (c is >= (byte)'0' and <= (byte)'9') value = value * 10 + (c - '0');
             else if (field++ == 1)
             {
                 delay = value;
                 break;
             }
-            else
-            {
-                value = 0;
-            }
+            else value = 0;
         }
 
         return Assert(read > 0) && Assert(delay >= 0) ? delay : double.NaN;

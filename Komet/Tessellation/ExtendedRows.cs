@@ -246,10 +246,9 @@ internal static class ExtendedRows
     {
         if (converter is null) return false;
         if (ReferenceEquals(converter, _converter)) return true;
-        var (block, sun, hue, sat) = (BlockLevels(converter), SunLevels(converter), HueLevels(converter),
-            SatLevels(converter));
-        if (block is not { Length: >= LightLevels } || sun is not { Length: >= LightLevels }) return false;
-        if (hue is not { Length: >= Hues } || sat is not { Length: >= Saturations }) return false;
+        if (BlockLevels(converter) is not { Length: >= LightLevels } ||
+            SunLevels(converter) is not { Length: >= LightLevels } || HueLevels(converter) is not { Length: >= Hues } ||
+            SatLevels(converter) is not { Length: >= Saturations }) return false;
         _converter = converter;
         return Assert(ReferenceEquals(_converter, converter));
     }
@@ -361,14 +360,8 @@ internal static class ExtendedRows
         same = false;
         if (!Index(row, RowCount) || buffer.Length > MaxPlanes) return false;
         Span<int> words = stackalloc int[MaxPlanes];
-        for (var k = 0; k < Math.Min(buffer.Length, MaxPlanes); k++)
-        {
-            var plane = buffer[k];
-            if (plane is null || plane.Length <= row) return false;
-            words[k] = plane[row];
-        }
-
-        return Lookup(palette, words[..buffer.Length], x0, values, out same);
+        return FromArray(buffer, 0, buffer.Length, row, words) &&
+               Lookup(palette, words[..buffer.Length], x0, values, out same);
     }
 
     // A layer's Get over the row: 0 for no layer and for GetFromBits0, else palette[index] from the planes its delegate reads. The layer's
@@ -522,9 +515,7 @@ internal static class ExtendedRows
             d |= spread[word >> 24] << k;
         }
 
-        Span<ulong> lanes = stackalloc ulong[4];
-        (lanes[0], lanes[1], lanes[2], lanes[3]) = (a, b, c, d);
-        var bytes = MemoryMarshal.AsBytes(lanes);
+        var bytes = MemoryMarshal.AsBytes(stackalloc ulong[] { a, b, c, d });
         for (var x = 0; x < Math.Min(indices.Length, RowLength); x++) indices[x] = bytes[x];
     }
 
@@ -662,31 +653,12 @@ internal static class ExtendedRows
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "satLevels")]
     private static extern ref byte[]? SatLevels(ColorUtil.LightUtil converter);
 
-    // One..Five follow Zero in order: Solid and Words count planes by their distance from Zero
-    private enum Decoder : byte
-    {
-        Unknown,
-        Zero,
-        One,
-        Two,
-        Three,
-        Four,
-        Five,
-        General, // dataBits[0..bitsize)
-        UnsafeGeneral, // dataBit0, then dataBits[1..bitsize)
-        Air
-    }
+    // One..Five follow Zero in order: Solid and Words count planes by their distance from Zero. General reads dataBits[0..bitsize),
+    // UnsafeGeneral dataBit0, then dataBits[1..bitsize).
+    private enum Decoder : byte { Unknown, Zero, One, Two, Three, Four, Five, General, UnsafeGeneral, Air }
 
-    private enum SolidMode : byte
-    {
-        Air,
-        Table,
-        Values
-    }
+    private enum SolidMode : byte { Air, Table, Values }
 
     [InlineArray(RowLength)]
-    private struct BlockRow
-    {
-        private Block _cell;
-    }
+    private struct BlockRow { private Block _cell; }
 }

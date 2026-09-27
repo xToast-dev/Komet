@@ -17,14 +17,12 @@ namespace Komet.Shapes;
 // esr-tesseleateshape, once per animal.
 //
 // For the same shape object, the same arguments and an unchanged tree the init is idempotent. So a completed init is remembered per
-// Shape (main thread only): the element tree in CollectElements' order with every element's name, depth, ParentElement, JointId and
-// attachment points; every animation with its code, version, keyframe array and AnimationsByCrc32 entry; every keyframe with its
-// Elements dictionary, the resolved table the engine made and each entry's key, value and resolved element; JointsById entry by
-// entry; the joint list asked for and which keys resolve to nothing. The next init compares all of it by reference, O(elements +
-// keyframe elements), and only when everything matches skips the engine. It then writes what the engine would write again, because
-// Shape.Clone shares these objects with every clone and the clone's init points them at its own elements: ForElement and Frame of
-// every keyframe entry, ParentElement of every attachment point (ShapeElement.Clone copies the array, not the points), and
-// CacheInvTransforms. Anything else runs the engine, and its result is remembered anew.
+// Shape (main thread only): the element tree in CollectElements' order, every animation, keyframe, keyframe entry and joint (the
+// records below), the joint list asked for and which keys resolve to nothing. The next init compares all of it by reference,
+// O(elements + keyframe elements), and only when everything matches skips the engine. It then writes what the engine would write
+// again, because Shape.Clone shares these objects with every clone and the clone's init points them at its own elements: ForElement
+// and Frame of every keyframe entry, ParentElement of every attachment point (ShapeElement.Clone copies the array, not the points),
+// and CacheInvTransforms. Anything else runs the engine, and its result is remembered anew.
 //
 // What stays different: the remembered resolved tables and AnimationJoint objects stay in place where the engine would allocate equal
 // new ones, and warnings the engine logs on every init of a flawed shape are logged by the first init only. The skip also closes an
@@ -53,11 +51,9 @@ internal static class ShapeInitMemo
     // Inits on the main thread answered from the memo, a total while Counting.Hud
     public static long Skipped { get; private set; }
 
-    private static (ShapeElement[] Keys, AnimationKeyFrameElement[] Values) ArraysOf(ResolvedTable table)
-    {
-        return (Arrays<ShapeElement, AnimationKeyFrameElement>.Keys(table),
+    private static (ShapeElement[] Keys, AnimationKeyFrameElement[] Values) ArraysOf(ResolvedTable table) =>
+        (Arrays<ShapeElement, AnimationKeyFrameElement>.Keys(table),
             Arrays<ShapeElement, AnimationKeyFrameElement>.Values(table));
-    }
 
     // The patch goes on whatever the memo decides, since InitOnce's skip rides on it
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
@@ -69,8 +65,7 @@ internal static class ShapeInitMemo
         if (!NotNull(harmony) || !Assert(_seams.Length == SeamCount)) return;
         _shaped = EngineShape.Matches(Shaped(), fingerprint, nameof(ShapeInitMemo), logger);
         var warm = _shaped && WarmUp(); // before the patch: the engine's init, never remembered
-        if (_seams[0] is { } init)
-            _ = NotNull(harmony.Patch(init, new HarmonyMethod(Check), new HarmonyMethod(Done)));
+        if (_seams[0] is { } init) _ = NotNull(harmony.Patch(init, new HarmonyMethod(Check), new HarmonyMethod(Done)));
         Recheck();
         _installed = warm;
     }
@@ -208,8 +203,7 @@ internal static class ShapeInitMemo
         var hash = RuntimeHelpers.GetHashCode(shape);
         if (!Assert(Seen.Length == MaxSeen) || !Index(_seen, MaxSeen)) return false;
         for (var i = 0; i < MaxSeen; i++)
-            if (Seen[i] == hash)
-                return true;
+            if (Seen[i] == hash) return true;
         (Seen[_seen], _seen) = (hash, (_seen + 1) % MaxSeen);
         return false;
     }
@@ -219,7 +213,7 @@ internal static class ShapeInitMemo
     private static bool Same(Memo memo, Shape shape, string[]? disable, string[]? joints)
     {
         if (!NotNull(memo) || !SameArguments(memo, disable, joints)) return false;
-        if (!ReferenceEquals(shape.Elements, memo.Roots) || memo.Roots is null) return false;
+        if (memo.Roots is null || !ReferenceEquals(shape.Elements, memo.Roots)) return false;
         return Walk(memo.Roots, memo, Mode.Check, null) && SameAnimations(memo, shape) && SameKeys(memo) &&
                SameJoints(memo, shape.JointsById);
     }
@@ -233,8 +227,7 @@ internal static class ShapeInitMemo
         if (disable is null || memo.Unresolved.Length == 0) return true;
         if (!Assert(memo.Unresolved.Length <= MaxNames)) return false;
         for (var i = 0; i < Math.Min(memo.Unresolved.Length, MaxNames); i++)
-            if (Array.IndexOf(disable, memo.Unresolved[i]) < 0)
-                return false;
+            if (Array.IndexOf(disable, memo.Unresolved[i]) < 0) return false;
         return true;
     }
 
@@ -287,19 +280,14 @@ internal static class ShapeInitMemo
     {
         if (n >= memo.Nodes.Count || !Assert(n >= 0)) return false; // a grown tree
         var node = memo.Nodes[n];
-        if (!ReferenceEquals(element, node.Element) || depth != node.Depth ||
-            element.JointId != node.JointId) return false;
-        if (!ReferenceEquals(element.ParentElement, node.Parent) ||
-            !string.Equals(element.Name, node.Name, StringComparison.Ordinal)) return false;
-        if (!ReferenceEquals(element.AttachmentPoints, node.Points)) return false;
+        if (!ReferenceEquals(element, node.Element) || depth != node.Depth || element.JointId != node.JointId ||
+            !ReferenceEquals(element.ParentElement, node.Parent) ||
+            !string.Equals(element.Name, node.Name, StringComparison.Ordinal) ||
+            !ReferenceEquals(element.AttachmentPoints, node.Points)) return false;
         if (node.Points is null) return true;
         if (!Assert(points + node.Points.Length <= memo.Points.Count)) return false;
         for (var p = 0; p < Math.Min(node.Points.Length, MaxPoints); p++, points++)
-        {
-            var point = memo.Points[points];
-            if (!ReferenceEquals(node.Points[p], point.Item)) return false;
-        }
-
+            if (!ReferenceEquals(node.Points[p], memo.Points[points].Item)) return false;
         return true;
     }
 
@@ -308,8 +296,8 @@ internal static class ShapeInitMemo
     {
         var anims = CollectionsMarshal.AsSpan(memo.Anims);
         var (live, byCrc) = (shape.Animations, shape.AnimationsByCrc32);
-        if (!ReferenceEquals(live, memo.Animations) || live is null || live.Length != anims.Length) return false;
-        if (!ReferenceEquals(byCrc, memo.ByCrc) || byCrc is null || byCrc.Count != memo.ByCrcCount) return false;
+        if (live is null || !ReferenceEquals(live, memo.Animations) || live.Length != anims.Length) return false;
+        if (byCrc is null || !ReferenceEquals(byCrc, memo.ByCrc) || byCrc.Count != memo.ByCrcCount) return false;
         if (!Assert(anims.Length <= MaxAnimations)) return false;
         for (var a = 0; a < Math.Min(anims.Length, MaxAnimations); a++)
         {
@@ -331,8 +319,7 @@ internal static class ShapeInitMemo
     {
         if (anim.Keys is null || !Assert(anim.FirstKey + anim.Keys.Length <= memo.Keys.Count)) return false;
         for (var k = 0; k < Math.Min(anim.Keys.Length, MaxKeys); k++)
-            if (!ReferenceEquals(anim.Keys[k], memo.Keys[anim.FirstKey + k].Item))
-                return false;
+            if (!ReferenceEquals(anim.Keys[k], memo.Keys[anim.FirstKey + k].Item)) return false;
         return true;
     }
 
@@ -444,8 +431,7 @@ internal static class ShapeInitMemo
         if (!Walk(roots, memo, Mode.Record, names)) return false;
         var unresolved = new HashSet<string>(StringComparer.Ordinal);
         for (var a = 0; a < Math.Min(animations.Length, MaxAnimations); a++)
-            if (!KeepAnimation(memo, animations[a], byCrc, names, unresolved))
-                return false;
+            if (!KeepAnimation(memo, animations[a], byCrc, names, unresolved)) return false;
         if (unresolved.Count > MaxNames || !KeepJoints(memo, byId)) return false;
         (memo.Roots, memo.Animations, memo.JointTable, memo.ByCrc, memo.ByCrcCount) =
             (roots, animations, byId, byCrc, byCrc.Count);
@@ -485,8 +471,7 @@ internal static class ShapeInitMemo
             memo.Keys.Count + keys.Length > MaxKeys) return false;
         memo.Anims.Add(new Anim(animation, animation.Code, animation.Version, crc, winner, keys, memo.Keys.Count));
         foreach (var key in keys.Bounded(MaxKeys))
-            if (!KeepKey(memo, key, names, unresolved))
-                return false;
+            if (!KeepKey(memo, key, names, unresolved)) return false;
         return Assert(memo.Anims.Count > 0);
     }
 

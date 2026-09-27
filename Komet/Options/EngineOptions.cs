@@ -26,8 +26,7 @@ internal static partial class EngineOptions
     private static Effect? _batched; // while Batch runs: the reloads and rebuilds asked for so far, done once at its end
     private static ICoreClientAPI? _capi;
 
-    // tab opens one of the game's own screens by its handler's name; without it (the screen opened on its own) the buttons that lead
-    // there are left out
+    // tab opens one of the game's own screens by handler name; without it (screen opened on its own) the buttons leading there are left out
     public static OptionPage[] Pages(ICoreClientAPI capi, Action<string>? tab = null)
     {
         if (!NotNull(capi)) return [];
@@ -98,11 +97,8 @@ internal static partial class EngineOptions
     {
         var page = new OptionPage("vs-quality", T("page-quality"), section);
         string[] ssao = [Lang.Get("Off"), Lang.Get("Medium quality"), Lang.Get("High quality")];
-        string[] shadows =
-        [
-            Lang.Get("Off"), Lang.Get("Low quality"), Lang.Get("Medium quality"), Lang.Get("High quality"),
-            Lang.Get("Very high quality")
-        ];
+        string[] shadows = [Lang.Get("Off"), Lang.Get("Low quality"), Lang.Get("Medium quality"),
+            Lang.Get("High quality"), Lang.Get("Very high quality")];
         if (!NotNull(capi) || !Assert(shadows.Length == 5 && ssao.Length == 3)) return page;
         _ = page.Group(Lang.Get("setting-column-graphics"))
             .Slider(Name("shadows"), 0, 4, 1, () => ClientSettings.ShadowMapQuality,
@@ -264,15 +260,11 @@ internal static partial class EngineOptions
             ? AccessTools.MethodDelegate<Action<int>>(method)
             : null;
 
-    private static string Name(string id)
-    {
-        return NotNull(id) && Assert(id.Length > 0) ? Lang.Get("setting-name-" + id) : "";
-    }
+    private static string Name(string id) =>
+        NotNull(id) && Assert(id.Length > 0) ? Lang.Get("setting-name-" + id) : "";
 
-    private static string Hover(string id)
-    {
-        return NotNull(id) && Assert(id.Length > 0) ? Lang.Get("setting-hover-" + id) : "";
-    }
+    private static string Hover(string id) =>
+        NotNull(id) && Assert(id.Length > 0) ? Lang.Get("setting-hover-" + id) : "";
 
     private static string Named(string[] names, double value)
     {
@@ -281,8 +273,8 @@ internal static partial class EngineOptions
         return Index(i, names.Length) ? names[i] : "";
     }
 
-    private static string[] Names(string prefix, params string[] ids)
-    {
-        return NotNull(prefix) && Assert(ids.Length is > 0 and <= OptionPage.MaxOptions) ? Array.ConvertAll(ids, id => Lang.Get(prefix + id)) : [];
-    }
+    private static string[] Names(string prefix, params string[] ids) =>
+        NotNull(prefix) && Assert(ids.Length is > 0 and <= OptionPage.MaxOptions)
+            ? Array.ConvertAll(ids, id => Lang.Get(prefix + id))
+            : [];
 }

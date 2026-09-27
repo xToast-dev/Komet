@@ -14,7 +14,7 @@ internal sealed class KometPages(HudSettings settings, Action dump, Action<float
     {
         var section = T("section-komet");
         if (!NotNull(settings)) return [];
-        List<OptionPage> pages = [HudPage(section), Measure(Version(new OptionPage(Tools, T("page-tools"), section)))];
+        List<OptionPage> pages = [HudPage(section), ToolsPage(section)];
         var knobs = Knobs.BuiltIn;
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
             if (knobs[i].Page is { } page && pages.TrueForAll(p => p.Id != "komet-" + page) &&
@@ -31,10 +31,7 @@ internal sealed class KometPages(HudSettings settings, Action dump, Action<float
             .Switch(T("visible"), () => s.Visible, on => s.Visible = on)
             .Choice(T("corner"), Array.ConvertAll(Corners, c => T("corner-" + c)),
                 () => s.Pinned.Count > 0 ? Corners.Length - 1 : (int)s.Corner,
-                i =>
-                {
-                    if (i < Corners.Length - 1) s.SetCorner((HudCorner)i);
-                })
+                i => { if (i < Corners.Length - 1) s.SetCorner((HudCorner)i); })
             .Slider(T("opacity"), HudSettings.OpacityRange, () => s.Opacity, v => s.Opacity = v)
             .Slider(T("scale"), HudSettings.ScaleRange, () => s.FontScale, v => s.FontScale = v)
             .Group(T("panels"))
@@ -49,11 +46,14 @@ internal sealed class KometPages(HudSettings settings, Action dump, Action<float
             .Switch(T("detail"), () => s.Detail, on => s.Detail = on);
     }
 
-    private OptionPage Measure(OptionPage page)
+    private OptionPage ToolsPage(string section)
     {
-        var s = settings;
-        if (!NotNull(page) || !NotNull(s)) return page;
-        return page.Group(T("measure"))
+        var (s, page) = (settings, new OptionPage(Tools, T("page-tools"), section));
+        if (!NotNull(s) || !NotNull(section)) return page;
+        return page.Group(T("version"))
+            .Switch(T("updates"), () => s.UpdateCheck, on => (s.UpdateAsked, s.UpdateCheck) = (true, on))
+            .Button(T("checksum"), T("do-verify"), verify)
+            .Group(T("measure"))
             .Slider(T("interval"), HudSettings.IntervalRange, () => s.Interval, v => s.Interval = v)
             .Slider(T("bench"), HudSettings.BenchRange, () => s.BenchSeconds, v => s.BenchSeconds = v)
             .Button(T("benchmark"), T("do-bench", s.BenchSeconds), () => bench((float)s.BenchSeconds))
@@ -61,19 +61,6 @@ internal sealed class KometPages(HudSettings settings, Action dump, Action<float
             .Group(T("reset"))
             .Button(T("positions"), T("do-reset"), s.ResetPositions)
             .Button(T("defaults"), T("do-reset"), s.ResetDefaults);
-    }
-
-    private OptionPage Version(OptionPage page)
-    {
-        var s = settings;
-        if (!NotNull(page) || !NotNull(s)) return page;
-        return page.Group(T("version"))
-            .Switch(T("updates"), () => s.UpdateCheck, on =>
-            {
-                s.UpdateAsked = true;
-                s.UpdateCheck = on;
-            })
-            .Button(T("checksum"), T("do-verify"), verify);
     }
 
     // The page's knobs in table order, a header wherever the group changes, then other mods' placed on it; a held knob's row is locked
@@ -105,9 +92,6 @@ internal sealed class KometPages(HudSettings settings, Action dump, Action<float
     }
 
     // Komet's own text on the options screen, its own pages and the game's
-    internal static string T(string key, params object[] args)
-    {
-        return NotNull(key) && Assert(key.Length > 0) ? HudText.Translate("settings-" + key, args) : "";
-    }
+    internal static string T(string key, params object[] args) =>
+        NotNull(key) && Assert(key.Length > 0) ? HudText.Translate("settings-" + key, args) : "";
 }
-

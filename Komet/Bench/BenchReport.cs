@@ -47,11 +47,7 @@ internal static class BenchReport
     {
         if (!Assert(path.Length > 0) || !NotNull(write)) return;
         var temporary = path + ".tmp";
-        using (var stream = File.Create(temporary))
-        {
-            write(stream);
-        }
-
+        using (var stream = File.Create(temporary)) write(stream);
         File.Move(temporary, path, true);
     }
 
@@ -178,14 +174,11 @@ internal static class BenchReport
         {
             var f = frames[i];
             sums.Frames++;
-            sums.TessQ += f.TessQ;
-            sums.TessQMax = Math.Max(sums.TessQMax, f.TessQ);
-            sums.TessNear += f.TessNear;
-            sums.TessNearMax = Math.Max(sums.TessNearMax, f.TessNear);
-            sums.UploadQ += f.UploadQ;
-            sums.UploadQMax = Math.Max(sums.UploadQMax, f.UploadQ);
-            (sums.Received, sums.TessPasses) = (sums.Received + f.Received, sums.TessPasses + f.TessPasses);
-            sums.TessMs += f.TessMs;
+            (sums.TessQ, sums.TessQMax) = (sums.TessQ + f.TessQ, Math.Max(sums.TessQMax, f.TessQ));
+            (sums.TessNear, sums.TessNearMax) = (sums.TessNear + f.TessNear, Math.Max(sums.TessNearMax, f.TessNear));
+            (sums.UploadQ, sums.UploadQMax) = (sums.UploadQ + f.UploadQ, Math.Max(sums.UploadQMax, f.UploadQ));
+            (sums.Received, sums.TessPasses, sums.TessMs) =
+                (sums.Received + f.Received, sums.TessPasses + f.TessPasses, sums.TessMs + f.TessMs);
             if ((f.Flags & BenchFrameTags.Paused) != 0) sums.Paused++;
             if ((f.Flags & (BenchFrameTags.Discard | BenchFrameTags.NoStamp)) != 0) sums.Discarded++;
             if ((f.Flags & BenchFrameTags.Unfocused) == 0) sums.Focused++;
@@ -473,20 +466,16 @@ internal static class BenchReport
         if (!Assert(values.Length <= MaxFrames)) return (double.NaN, double.NaN, 0);
         var (sum, n) = (0.0, 0);
         for (var i = 0; i < Math.Min(values.Length, MaxFrames); i++)
-            if (double.IsFinite(values[i]))
-                (sum, n) = (sum + values[i], n + 1);
+            if (double.IsFinite(values[i])) (sum, n) = (sum + values[i], n + 1);
         if (n == 0 || !Finite(sum)) return (double.NaN, double.NaN, n);
         var (mean, squares) = (sum / n, 0.0);
         for (var i = 0; i < Math.Min(values.Length, MaxFrames); i++)
-            if (double.IsFinite(values[i]))
-                squares += (values[i] - mean) * (values[i] - mean);
+            if (double.IsFinite(values[i])) squares += (values[i] - mean) * (values[i] - mean);
         return (mean, n > 1 ? Math.Sqrt(squares / (n - 1)) : double.NaN, n);
     }
 
-    private static string ArmName(BenchRun run, int arm)
-    {
-        return NotNull(run) && Index(arm, run.Config.Arms.Count) ? run.Config.Arms[arm].Name : "";
-    }
+    private static string ArmName(BenchRun run, int arm) =>
+        NotNull(run) && Index(arm, run.Config.Arms.Count) ? run.Config.Arms[arm].Name : "";
 
     // JSON has no NaN: a number that does not exist is written as null
     private static void Number(Utf8JsonWriter json, string name, double value)

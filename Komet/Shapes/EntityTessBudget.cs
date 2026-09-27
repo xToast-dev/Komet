@@ -77,8 +77,7 @@ internal static class EntityTessBudget
         var frame = AccessTools.Method(typeof(SystemRenderEntities), "OnBeforeRender", [typeof(float)]);
         var prefix = new HarmonyMethod(Frame);
         if (NotNull(frame) && Assert(Il.Binds(frame, prefix.method))) _ = NotNull(harmony.Patch(frame, prefix));
-        if (Before() is { } before)
-            _ = NotNull(harmony.Patch(before, transpiler: new HarmonyMethod(Substitute)));
+        if (Before() is { } before) _ = NotNull(harmony.Patch(before, transpiler: new HarmonyMethod(Substitute)));
         if (!Substituted)
             logger?.Warning(
                 "Komet EntityTessBudget: EntityShapeRenderer.BeforeRender is not the method it was written for; " +
@@ -86,13 +85,8 @@ internal static class EntityTessBudget
     }
 
     // EntityShapeRenderer lives in VSEssentials, which Komet does not reference; declared there, not inherited
-    internal static MethodInfo? Before()
-    {
-        var type = AccessTools.TypeByName(Renderer);
-        return type is null
-            ? null
-            : AccessTools.DeclaredMethod(type, nameof(EntityRenderer.BeforeRender), [typeof(float)]);
-    }
+    internal static MethodInfo? Before() => AccessTools.TypeByName(Renderer) is { } type
+        ? AccessTools.DeclaredMethod(type, nameof(EntityRenderer.BeforeRender), [typeof(float)]) : null;
 
     // Harmony injects ClientSystem.game by name
     internal static void Frame(ClientMain ___game)
@@ -121,9 +115,7 @@ internal static class EntityTessBudget
         var waited = Waiting.Count > 0 && Waiting.TryGetValue(id, out var times) ? times : 0;
         if (_spent < _budget || id == _self || waited >= MaxWaitFrames)
         {
-            if (waited == 0) return false;
-            _ = Waiting.Remove(id);
-            if (Counting.Hud) MostWaited = Math.Max(MostWaited, waited);
+            if (waited > 0 && Waiting.Remove(id) && Counting.Hud) MostWaited = Math.Max(MostWaited, waited);
             return false;
         }
 

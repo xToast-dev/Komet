@@ -174,28 +174,17 @@ internal static partial class AnimationFrames
 
     // AnimationKeyFrameElement.IsSet for the three flags GenerateFrameForElement asks about
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsSet(AnimationKeyFrameElement element, int flag)
-    {
-        if (!NotNull(element) || !Index(flag, Flags)) return false;
-        return flag switch
-        {
-            0 => element.PositionSet,
-            1 => element.RotationSet,
-            _ => element.StretchSet
-        };
-    }
+    private static bool IsSet(AnimationKeyFrameElement element, int flag) => NotNull(element) && Index(flag, Flags) &&
+        flag switch { 0 => element.PositionSet, 1 => element.RotationSet, _ => element.StretchSet };
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool Complete(AnimationKeyFrameElement element, int flag)
-    {
-        if (!NotNull(element) || !Index(flag, Flags)) return false;
-        return flag switch
+    private static bool Complete(AnimationKeyFrameElement element, int flag) =>
+        NotNull(element) && Index(flag, Flags) && flag switch
         {
             0 => element.OffsetX.HasValue && element.OffsetY.HasValue && element.OffsetZ.HasValue,
             1 => element.RotationX.HasValue && element.RotationY.HasValue && element.RotationZ.HasValue,
             _ => element.StretchX.HasValue && element.StretchY.HasValue && element.StretchZ.HasValue
         };
-    }
 
     // GenerateFrame for every keyframe, the tree flattened: each pose is added to its parent's ChildElementPoses (or the frame's
     // RootElementTransforms) right after it is made, and pre-order makes that the engine's order of Add calls.
@@ -259,8 +248,7 @@ internal static partial class AnimationFrames
         if (!Assert(q > 0) || !Assert(frameNumber < q)) return 0f; // Compile declines both
         int left = At(prev), right = At(next);
         if (right >= left) return (float)(frameNumber - left) / (right - left);
-        var span = right + (q - left);
-        return (float)GameMath.Mod(frameNumber - left, q) / span;
+        return (float)GameMath.Mod(frameNumber - left, q) / (right + (q - left));
     }
 
     // lerpKeyFrameElement, expression for expression: the same casts, the same division by 16, the same GameMath.Lerp
@@ -301,8 +289,7 @@ internal static partial class AnimationFrames
         {
             var left = -1;
             for (var i = 0; i < Math.Min(k, MaxKeys); i++)
-                if (frames[i].FrameNumber <= frame)
-                    left = i;
+                if (frames[i].FrameNumber <= frame) left = i;
             result[frame] = left < 0 ? [frames[k - 1], frames[0]] : [frames[left], frames[(left + 1) % k]];
         }
 

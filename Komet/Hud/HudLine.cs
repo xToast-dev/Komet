@@ -59,12 +59,6 @@ internal sealed class HudLine
     {
         Capture();
         ValueWidth = PercentWidth = 0;
-        if (!Assert(Kind != HudLineKind.Graph || Graph != null))
-        {
-            Height = 0;
-            return;
-        }
-
         var font = Kind switch
         {
             HudLineKind.Title => fonts.Title,
@@ -79,18 +73,17 @@ internal sealed class HudLine
             HudLineKind.Title => fonts.TitleRow,
             _ => scaled(GraphHeight)
         };
-        if (!Assert(Height > 0))
+        if (!Assert(Kind != HudLineKind.Graph || Graph != null) || !Assert(Height > 0))
         {
             Height = 0;
             return;
         }
 
-        var indent = Sub ? scaled(Indent) : 0;
         LabelWidth = Kind switch
         {
             HudLineKind.Graph => scaled(GraphWidth),
             HudLineKind.Title => scaled(TitleGap) + canvas.TextWidth(font, _label),
-            _ => indent + canvas.TextWidth(font, _label)
+            _ => (Sub ? scaled(Indent) : 0) + canvas.TextWidth(font, _label)
         };
         foreach (var (text, _) in Badges.Bounded(MaxBadges))
             LabelWidth += scaled(BadgeGap) + canvas.BadgeWidth(fonts, text);
@@ -154,10 +147,7 @@ internal sealed class HudLine
     }
 
     // A reading from before the bench is no sample of it
-    public void ResetBench()
-    {
-        (_valueSum, _percentSum, _samples, _percentSamples, _fresh) = (0, 0, 0, 0, false);
-    }
+    public void ResetBench() => (_valueSum, _percentSum, _samples, _percentSamples, _fresh) = (0, 0, 0, 0, false);
 
     // The bench's mean of the row, NaN (nothing) without one sample; a final row as it stands, it covers the whole bench already. The
     // label is read once: a log row changes on a pool thread.
@@ -169,21 +159,17 @@ internal sealed class HudLine
         double mean = _samples > 0 ? _valueSum / _samples : double.NaN,
             share = _percentSamples > 0 ? _percentSum / _percentSamples : double.NaN;
         if (Final) (mean, share) = (Value?.Invoke() ?? double.NaN, Percent?.Invoke() ?? double.NaN);
-        var value = Value is null ? null : HudText.Format(mean, NumberFormat);
-        var percent = Percent is null ? null : HudText.Format(share, "F1");
-        return Text(label, value, percent);
+        return Text(label, Value is null ? null : HudText.Format(mean, NumberFormat),
+            Percent is null ? null : HudText.Format(share, "F1"));
     }
 
-    private string Text(string label, string? value, string? percent)
+    private string Text(string label, string? value, string? percent) => Kind switch
     {
-        return Kind switch
-        {
-            HudLineKind.Header => $"[{label}]",
-            HudLineKind.Title => $"{label} – {string.Join(", ", Badges.Select(b => b.Text))}",
-            HudLineKind.Text when label.Length > 0 => RowText(label, Sub, value, percent, Unit),
-            _ => ""
-        };
-    }
+        HudLineKind.Header => $"[{label}]",
+        HudLineKind.Title => $"{label} – {string.Join(", ", Badges.Select(b => b.Text))}",
+        HudLineKind.Text when label.Length > 0 => RowText(label, Sub, value, percent, Unit),
+        _ => ""
+    };
 
     // One row of a dump or a bench report: "label: 12.5 % 3.20 ms". value and percent are the numbers as formatted, null for a row
     // without that column and "" for one that measured nothing. The panel draws what it has and leaves the rest blank, so the row

@@ -127,8 +127,7 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
         return true;
     }
 
-    // Shrink into the first quarter texture, then each round across into the second and down back into the first, the taps spread
-    // by amount
+    // Shrink into the first quarter texture, then each round across into the second and down back into the first, taps spread by amount
     private void Passes(int width, int height, float amount)
     {
         var (w, h) = (width / Shrink, height / Shrink);
@@ -159,8 +158,7 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
     private bool Build()
     {
         if (!Assert(_program == 0)) return true;
-        var vertex = Stage(ShaderType.VertexShader, Vertex);
-        var fragment = Stage(ShaderType.FragmentShader, Fragment);
+        var (vertex, fragment) = (Stage(ShaderType.VertexShader, Vertex), Stage(ShaderType.FragmentShader, Fragment));
         if (vertex == 0 || fragment == 0) return Fail("a shader did not compile");
         _program = GL.CreateProgram();
         GL.AttachShader(_program, vertex);

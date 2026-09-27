@@ -116,27 +116,21 @@ internal static class ParticleLight
     // like the engine's
     private static bool Served(int slot, ref int result)
     {
-        if (slot >= 0 && Slots[slot].Known)
-        {
-            result = Slots[slot].Light;
-            return false;
-        }
-
-        if (!_hasLast)
+        if (slot >= 0 && Slots[slot].Known) result = Slots[slot].Light;
+        else if (_hasLast) result = _last;
+        else
         {
             _ = Assert(_last == 0);
             return true;
         }
 
-        result = _last;
         return false;
     }
 
     private static int Find(WorldChunk chunk)
     {
         for (var i = 0; i < Remembered; i++)
-            if (ReferenceEquals(Slots[i].Owner, chunk))
-                return i;
+            if (ReferenceEquals(Slots[i].Owner, chunk)) return i;
         return -1;
     }
 

@@ -41,6 +41,10 @@ internal static class LightScratch
     private const int MaxNodes = 1 << 15;
     private const int HsvBytes = 45, LookupLength = 18, UpdateBit = 1, CollectBit = 2, DarknessBit = 4, AllBits = 7;
 
+    private static readonly Type NodeMap = typeof(Dictionary<Vec3i, LightSourcesAtBlock>),
+        Entries = typeof(Dictionary<Vec3i, LightSourcesAtBlock>.Enumerator),
+        Entry = typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>);
+
     [ThreadStatic] private static Visit? _visit;
     private static int _rewritten; // Harmony reruns a transpiler whenever another mod patches the method
     private static bool _confined;
@@ -134,8 +138,7 @@ internal static class LightScratch
     {
         if (!NotNull(il) || !Assert(il.Length <= MaxIl)) return true;
         for (var i = 0; i < Math.Min(il.Length - 3, MaxIl); i++)
-            if (BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(i, 4)) == token)
-                return true;
+            if (BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(i, 4)) == token) return true;
         return false;
     }
 
@@ -210,8 +213,7 @@ internal static class LightScratch
         (key, node) = (-1, -1);
         if (!Index(at + LookupLength - 1, code.Count) || !NotNull(visited)) return false;
         for (var step = 1; step < Math.Min(code.Count - at, LookupLength - 1); step++)
-            if (code[at + step].labels.Count > 0 || code[at + step].blocks.Count > 0)
-                return false;
+            if (code[at + step].labels.Count > 0 || code[at + step].blocks.Count > 0) return false;
         key = Il.Local(code[at + 1], Il.Uses.Store);
         node = Il.Local(code[at + 5], Il.Uses.Address);
         var shape = code[at + 2].IsLdarg(0) && code[at + 3].LoadsField(visited) && IsLoad(code[at + 4], key) &&
@@ -268,7 +270,7 @@ internal static class LightScratch
         List<int> entries = [];
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
-            if (!EntryCall(code[i], typeof(Dictionary<Vec3i, LightSourcesAtBlock>.Enumerator), "get_Current")) continue;
+            if (!EntryCall(code[i], Entries, "get_Current")) continue;
             if (!Index(i + 1, code.Count) || !code[i + 1].IsStloc()) return false;
             entries.Add(Il.Local(code[i + 1]));
         }
@@ -276,8 +278,7 @@ internal static class LightScratch
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             var c = code[i];
-            var (key, value) = (EntryCall(c, typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>), "get_Key"),
-                EntryCall(c, typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>), "get_Value"));
+            var (key, value) = (EntryCall(c, Entry, "get_Key"), EntryCall(c, Entry, "get_Value"));
             if (entries.Contains(Il.Local(c)) && !Stored(code, i) && !Unpacked(code, i)) return false;
             if (!key && !value) continue;
             var (use, operand) = Il.Consumer(code, i);
@@ -291,27 +292,18 @@ internal static class LightScratch
     }
 
     // An entry local's store, straight after get_Current
-    private static bool Stored(List<CodeInstruction> code, int at)
-    {
-        return Index(at, code.Count) && code[at].IsStloc() && at > 0 &&
-               EntryCall(code[at - 1], typeof(Dictionary<Vec3i, LightSourcesAtBlock>.Enumerator), "get_Current");
-    }
+    private static bool Stored(List<CodeInstruction> code, int at) =>
+        Index(at, code.Count) && code[at].IsStloc() && at > 0 && EntryCall(code[at - 1], Entries, "get_Current");
 
     // An entry local's address, straight before get_Key or get_Value
-    private static bool Unpacked(List<CodeInstruction> code, int at)
-    {
-        if (!Index(at, code.Count) || !Index(at + 1, code.Count)) return false;
-        return Il.Local(code[at], Il.Uses.Address) >= 0 &&
-               (EntryCall(code[at + 1], typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>), "get_Key") ||
-                EntryCall(code[at + 1], typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>), "get_Value"));
-    }
+    private static bool Unpacked(List<CodeInstruction> code, int at) =>
+        Index(at, code.Count) && Index(at + 1, code.Count) && Il.Local(code[at], Il.Uses.Address) >= 0 &&
+        (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
 
-    private static bool EntryCall(CodeInstruction code, Type type, string name)
-    {
-        if (!NotNull(code) || !NotNull(type)) return false;
-        return (code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) &&
-               code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
-    }
+    // A call or callvirt of `type`'s method `name`
+    private static bool EntryCall(CodeInstruction code, Type type, string name) =>
+        NotNull(code) && NotNull(type) && (code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) &&
+        code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
 
     // RecalcBlockLightAtPos, which UpdateLightAt hands every key and node, only reads them: each load of either is the object of a
     // field load, the node's hsv array is only indexed, and neither argument is written or taken by address
@@ -368,12 +360,8 @@ internal static class LightScratch
         return at == index || at < 0;
     }
 
-    private static bool IsNodesCall(CodeInstruction code, string name)
-    {
-        if (!NotNull(code) || !Assert(name.Length > 0)) return false;
-        return code.opcode == OpCodes.Callvirt && code.operand is MethodInfo { Name: var n, DeclaringType: var t } &&
-               n == name && t == typeof(Dictionary<Vec3i, LightSourcesAtBlock>);
-    }
+    private static bool IsNodesCall(CodeInstruction code, string name) =>
+        NotNull(code) && Assert(name.Length > 0) && code.opcode == OpCodes.Callvirt && EntryCall(code, NodeMap, name);
 
     // newobj of `type` with `parameters` int parameters
     private static bool Creates(CodeInstruction code, Type type, int parameters)
@@ -384,10 +372,7 @@ internal static class LightScratch
         return p.Length == parameters && Array.TrueForAll(p, q => q.ParameterType == typeof(int));
     }
 
-    private static bool IsLoad(CodeInstruction code, int local)
-    {
-        return local >= 0 && Il.Local(code, Il.Uses.Load) == local;
-    }
+    private static bool IsLoad(CodeInstruction code, int local) => local >= 0 && Il.Local(code, Il.Uses.Load) == local;
 
     private static MethodInfo Helper(string name)
     {

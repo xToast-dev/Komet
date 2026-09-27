@@ -39,13 +39,12 @@ internal static class Benchmark
                                       or ArgumentException
                                       or NotSupportedException) // Path.GetFullPath refuses a path with a NUL in it
         {
-            Refuse(capi, Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".", "result.json"), e.Message,
+            Refuse(capi, Path.Join(Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".", "result.json"), e.Message,
                 false);
             return;
         }
 
-        var refusal = Refusal(capi, config);
-        if (refusal is not null)
+        if (Refusal(capi, config) is { } refusal)
         {
             Refuse(capi, config.Output, refusal, true);
             return;
@@ -93,11 +92,9 @@ internal static class Benchmark
         return Assert(root.Length > 1) && full.StartsWith(root, StringComparison.Ordinal);
     }
 
-    private static bool JitOptimizerDisabled(Assembly assembly)
-    {
-        return NotNull(assembly) && Assert(assembly.GetName().Name == "Komet") &&
-               assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
-    }
+    private static bool JitOptimizerDisabled(Assembly assembly) => NotNull(assembly) &&
+        Assert(assembly.GetName().Name == "Komet") &&
+        assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
 
     // What a result states about the build, the runtime (GCSettings: what the runtime applied of the script's environment), the
     // world, and the client settings that change frame times

@@ -43,15 +43,18 @@ public sealed class LightWorld : IChunkProvider
     public bool Catching { get; set; }
     public ILogger Logger { get; } = new QuietLogger();
 
+    // Chunks the provider answers as not loaded, as a server with a column loaded only in part; the world keeps them
+    public HashSet<(int X, int Y, int Z)> Unloaded { get; } = [];
+
     public IWorldChunk GetChunk(int chunkX, int chunkY, int chunkZ)
     {
-        return Chunk(chunkX, chunkY, chunkZ)!;
+        return Unloaded.Contains((chunkX, chunkY, chunkZ)) ? null! : Chunk(chunkX, chunkY, chunkZ)!;
     }
 
     public IWorldChunk GetUnpackedChunkFast(int chunkX, int chunkY, int chunkZ, bool notRecentlyAccessed = false)
     {
-        return Chunk(chunkX, chunkY, chunkZ)!;
-        // always unpacked: the data never leaves ChunkData
+        // as the world holds it: every chunk keeps its ChunkData, but one a test packs, which the code under test must unpack first
+        return GetChunk(chunkX, chunkY, chunkZ);
     }
 
     public long ChunkIndex3D(int chunkX, int chunkY, int chunkZ)

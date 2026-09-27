@@ -80,10 +80,7 @@ internal sealed class Tally
     }
 
     // Only while no thread counts (a new world before its tessellation starts, or a test)
-    public void Clear()
-    {
-        Array.Clear(_cells);
-    }
+    public void Clear() => Array.Clear(_cells);
 
     private static int Claim()
     {

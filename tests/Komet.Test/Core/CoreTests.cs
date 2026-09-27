@@ -381,6 +381,54 @@ public sealed class WorkerPoolTests
         });
     }
 
+    // An open batch: the workers run its items while the caller goes on, the caller's own claims never pass their bound, and closing it
+    // waits for every claimed item and drops the rest - each item ran at most once, and exactly the ones claimed before the close
+    [Test]
+    public void AnOpenBatchRunsBesideTheCallerAndClosesCleanly()
+    {
+        WorkerPool.Resize(null, 3);
+        for (var batch = 0; batch < 20; batch++)
+        {
+            Array.Clear(Hits);
+            Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.True);
+            var bound = batch * Items / 20;
+            var mine = WorkerPool.ClaimBelow(bound);
+            var cut = batch % 2 == 0 ? Items / 3 : Items;
+            _ = SpinWait.SpinUntil(() => Volatile.Read(ref Hits[cut - 1]) > 0 || cut < Items, 2000);
+            Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Done));
+            var ran = Hits.Count(n => n > 0);
+            Assert.Multiple(() =>
+            {
+                Assert.That(Hits.All(n => n <= 1), Is.True, "no item twice");
+                Assert.That(mine, Is.LessThanOrEqualTo(bound), "the caller stopped at its bound");
+                Assert.That(Hits.Take(ran).All(n => n == 1), Is.True, "the items that ran are the first ones claimed");
+                if (cut == Items) Assert.That(ran, Is.EqualTo(Items), "a batch left open long enough runs whole");
+            });
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Declined), "nothing is open");
+            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
+                Is.EqualTo(WorkerPool.FrameResult.Done));
+        });
+    }
+
+    // An open batch holds the pool: nothing else opens one or runs a frame batch until it is closed
+    [Test]
+    public void AnOpenBatchExcludesEveryOther()
+    {
+        WorkerPool.Resize(null, 2);
+        Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.False);
+            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
+                Is.EqualTo(WorkerPool.FrameResult.Declined));
+        });
+        Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Done));
+    }
+
     // Every worker sits in a background job far longer than the batch takes: the caller runs the batch alone and does not wait for them,
     // and the background jobs go on
     [Test]

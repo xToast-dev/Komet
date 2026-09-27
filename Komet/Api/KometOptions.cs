@@ -31,14 +31,12 @@ public static class KometOptions
         return page;
     }
 
-    internal static OptionPage At(int index)
-    {
-        return Index(index, Registered.Count) ? Registered[index] : new OptionPage("invalid", "?", "?");
-    }
+    internal static OptionPage At(int index) =>
+        Index(index, Registered.Count) ? Registered[index] : new OptionPage("invalid", "?", "?");
 
     internal static void RaiseApplied()
     {
-        if (!Assert(Registered.Count <= MaxPages) || !Assert(ApiEvents.MaxHandlers > 0)) return;
+        if (!Assert(Registered.Count <= MaxPages)) return;
         ApiEvents.Raise(Applied, h => h(null, EventArgs.Empty), h => Applied -= h, "KometOptions.Applied");
     }
 
@@ -125,10 +123,8 @@ public sealed class OptionPage
     internal OptionRow this[int index] => Index(index, _options.Count) ? _options[index] : new OptionRow(OptionKind.Group, "?", null);
 
     // A header over the rows that follow
-    public OptionPage Group(string title)
-    {
-        return NotNull(title) && Assert(title.Length > 0) ? Add(new OptionRow(OptionKind.Group, title, null)) : this;
-    }
+    public OptionPage Group(string title) =>
+        NotNull(title) && Assert(title.Length > 0) ? Add(new OptionRow(OptionKind.Group, title, null)) : this;
 
     public OptionPage Switch(string label, Func<bool> get, Action<bool> set, string? hint = null)
     {

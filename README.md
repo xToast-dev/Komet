@@ -1,83 +1,117 @@
-# Komet 2.0.0 Nightlybuild - PRERELEASE!
+# Komet 2.0.0
 
-Performance-Mod für den Client von Vintage Story 1.22 (C#, .NET 10). Komet ersetzt teure Stellen der Engine durch Wege mit
-demselben Ergebnis, misst sich im Spiel selbst und zeigt ein HUD mit Frametimes, Lows, Spikes und Zählern. Ziel sind die 1-%- und
-0,1-%-Lows, nicht die durchschnittlichen FPS.
+Client-side performance mod for Vintage Story 1.22 (C#, .NET 10). Komet replaces expensive parts of the engine with code that
+produces the same result, measures itself in game and shows a HUD with frame times, lows, spikes and counters. The goal is the
+1 % and 0.1 % lows, not the average FPS.
 
-- **HUD**: F7 an/aus, Umschalt+F7 Detailzeilen. Panels: Frametime-Graph, System, Render-Passes, Mod-Zeiten, Mods & Patches,
-  Komet-Zähler, Haupt-Log, Debug-Log.
-- **Optionsmenü**: ersetzt im Spiel die Einstellungen (Escape → Einstellungen) durch ein Menü wie Sodium in Minecraft; auch über
-  `.komet`. Details unten. Komets Einstellungen stehen in `ModConfig/komet-hud.json`.
-- **Update-Hinweis**: nach Zustimmung prüft Komet beim Start auf GitHub, ob es einen neueren Build des eigenen Kanals gibt.
+- **HUD**: F7 on/off, Shift+F7 detail rows. Panels: frame time graph, system, render passes, mod times, mods & patches,
+  Komet counters, main log, debug log.
+- **Options menu**: replaces the in-game settings (Escape → Settings) with a menu in the style of Sodium for Minecraft; also
+  via `.komet`. Details below. Komet's own settings live in `ModConfig/komet-hud.json`.
+- **Update notice**: once you agree, Komet checks GitHub at startup for a newer build of its own channel.
 
-Komet läuft nur im Client (im Einzelspieler samt eingebautem Server). Fehlt eine Engine-Stelle oder patcht ein anderer Mod dieselbe
-Methode, rechnet die Engine, und Log oder HUD sagen es.
+Komet runs on the client only (in singleplayer including the built-in server). If an engine method is missing or another mod
+patches the same method, the engine does the work, and the log or the HUD says so.
 
 ## Features
 
-Schalter in `Komet/Core/Features.cs`; aus oder 0 heißt: die Engine rechnet. Alle Features sind standardmäßig an.
+Switches are defined in `Komet/Core/Features.cs`; off or 0 means the engine does the work. All features are on by default.
 
-**Rendern**
-- **FrustumSweep**: Chunk-Culling vektorisiert, ab 8 192 Einträgen auf den Worker-Threads; 0,97 statt 2,3 ms pro Frame.
-- **SunOcclusion**: Occlusion-Query der Sonne nur jeden vierten Frame (unter Mesa ist jeder `glGet*` ein Sync).
-- **ShaderUseCache**: `Use` lädt nur geänderte Uniforms hoch; 208 B → 0 Garbage pro Aufruf.
-- **IndirectDraw**: Multi-Draws als indirekte Befehle aus einem gemappten GPU-Puffer (braucht `GL_ARB_multi_draw_indirect`).
-- **WindowSizeCache**: Fenstergröße gecacht statt ein Dutzend GLFW-Abfragen pro Frame.
-- **MeshPool**: Einfügen/Entfernen in Mesh-Pools ohne Lauf über alle Einträge; 1000 Entfernungen 28 → 0,8 ms.
-- **MeshRecycle**: recycelte Meshes behalten ihre Extradaten-Arrays.
-- **UploadCap** (3 ms, 0–20): Chunk-Uploads pro Frame begrenzt, Vorrang-Chunks nie.
+**Rendering**
+- **FrustumSweep**: vectorized chunk culling, on the worker threads from 8,192 entries; 0.97 instead of 2.3 ms per frame.
+- **FrustumStages**: culling per render stage. The first chunk render call of a stage hands the pools of all passes of that stage
+  to the workers at once, including the sync of the pool mirrors; the main thread only waits for the pass it is drawing. Together
+  with GlErrorPoll in an A/B: 104.6 → 120.3 FPS, 1 % low 35.4 → 39.1 FPS, frames over 25 ms 53 → 33 per minute.
+- **GlErrorPoll**: the two GL error checks per frame only ask the driver every 16th time; under Mesa's glthread each one waits for
+  the driver thread (0.13 ms per frame). No error is lost, and in GL debug mode every check asks.
+- **AnimatableCulling**: animated block entities outside the view and shadow volumes are not drawn; the GL state stays as a drawn
+  one leaves it.
+- **IdleAnimators**: the render loop no longer calls idle block entity animations (chests, doors, querns) every frame; 8,000 calls
+  per frame in the test world, 0.1 ms.
+- **SunOcclusion**: the sun's occlusion query only every fourth frame (under Mesa every `glGet*` is a sync).
+- **ShaderUseCache**: `Use` uploads only the uniforms that changed; 208 B → 0 garbage per call.
+- **DistantShadows**: shadows up to the view distance. The engine has two shadow maps, and the far one already fades out from
+  40 % of its range: at the highest quality every shadow ends after about 200 blocks. A third map (up to 4096², up to 1,120
+  blocks radius) covers the rest, aligned to the world's texel grid so nothing shimmers. It is only redrawn when the sun has moved
+  0.3°, you have travelled 96 blocks or 20 s have passed, one sixteenth per frame. The shaders only use it where the engine's two
+  maps run out; with another mod's shader pack the feature stays off.
+- **IndirectDraw**: multi-draws as indirect commands from a mapped GPU buffer (needs `GL_ARB_multi_draw_indirect`).
+- **WindowSizeCache**: the window size is cached instead of a dozen GLFW queries per frame.
+- **MeshPool**: inserting into and removing from mesh pools without a walk over all entries; 1,000 removals 28 → 0.8 ms.
+- **PoolScale** (4, 1–8): the second mesh pool of a chunk pass is twice, every further one four times the size of
+  `modelDataPoolMaxVertexSize` (500,000): the same meshes in a quarter of the pools, and so of the draw calls and culling jobs.
+  One run each with plain and with fourfold pools: 134 → 144 FPS, 1 % low 41 → 45, 0.1 % low 31 → 35, frames over 25 ms
+  26 → 15 per minute. Applies to newly created pools, fully after re-entering the world.
+- **MeshRecycle**: recycled meshes keep their extra data arrays; dropped custom part arrays are taken by the next tessellation.
+- **UploadCap** (3 ms, 0–20): chunk uploads per frame are capped, priority chunks never.
 
-**Chunks und Tesselierung** — ExtendedRows, VisibleFaces, FaceLight und OccludedChunks sind bitgleich zur Engine geprüft und
-installieren sich nur bei passendem IL-Fingerabdruck (1.22.7). Zusammen: ein Viertel weniger Zeit pro Tesselierung, die Welt steht
-nach dem Betreten rund 19 s früher.
-- **ChunkLookup**: `GetChunk` aus einem Spiegel statt unter `chunksLock`.
-- **DecompressScratch**: Chunk-Ebenen ohne Wegwerfkopie entpacken; rund 8 MB/s weniger Garbage beim Laden.
-- **TessSchedule**: nächster Chunk zuerst (gewichtet nach Blickrichtung); nahe Chunks warten halb so lange.
-- **WorkerThreads** (Kerne − 2, 1–8) und **TessJobs** (2, 0–8): gemeinsamer Pool `komet-worker-N` für Culling und Tesselierung.
-  Frame-Aufgaben haben Vorrang; ab 3 000 wartenden Chunks tesselieren alle Threads. TessSafety macht geteilten Engine-Zustand pro
-  Thread oder sperrt ihn, solange Worker tesselieren.
-- **ExtendedRows**: Chunk und Nachbarschale zeilenweise kopieren; 400–600 statt 820–1 250 ns pro Zeile.
-- **VisibleFaces**: Bitformel für `FaceCullMode.Default`; pro Chunk 370–470 → 100–120 µs unter Tage.
-- **FaceLight**: Umgebungslicht aus Bits, vier Ecken zugleich; 90–95 → 50–57 ns pro Seite.
-- **OccludedChunks**: rundum umschlossene Chunks werden nicht tesseliert.
-- **LightScratch**: Blocklicht mit wiederverwendeten Objekten; Laterne setzen/entfernen 4,5 MB → 2,4 KB.
-- **ParticleLight**: Partikel nehmen den Chunk-Lock nur, wenn er frei ist; beseitigt minutenlange 8–13-ms-Frames bei Bienenkörben
-  (1-%-Low 45,6 → 50,2 FPS, Frames über 25 ms 28 → 1 pro Minute).
+**Chunks and tessellation** — ExtendedRows, VisibleFaces, FaceLight and OccludedChunks are verified bit for bit against the engine
+and only install when the IL fingerprint matches (1.22.7). Together: a quarter less time per tessellation, and the world is
+complete about 19 s sooner after joining.
+- **ChunkLookup**: `GetChunk` from a mirror instead of under `chunksLock`.
+- **DecompressScratch**: chunk layers are unpacked without a throwaway copy; about 8 MB/s less garbage while loading.
+- **TessSchedule**: nearest chunk first (weighted by view direction); near chunks wait half as long.
+- **WorkerThreads** (cores − 2, 1–8) and **TessJobs** (2, 0–8): a shared pool `komet-worker-N` for culling and tessellation.
+  Frame tasks come first; from 3,000 waiting chunks all threads tessellate. TessSafety makes shared engine state per thread or
+  locks it while workers tessellate.
+- **ExtendedRows**: the chunk and its neighbour shell are copied row by row; 400–600 instead of 820–1,250 ns per row.
+- **VisibleFaces**: a bit formula for `FaceCullMode.Default`; per chunk 370–470 → 100–120 µs underground.
+- **FaceLight**: ambient light from bits, four corners at once; 90–95 → 50–57 ns per face.
+- **OccludedChunks**: chunks enclosed on all sides are not tessellated.
+- **LightScratch**: block light with reused objects; placing/removing a lantern 4.5 MB → 2.4 KB.
+- **LightRepair** (singleplayer only): chunks saved without any light although they reach up to the sky are drawn black and count
+  as caves. They appear when `FullRelight` (WorldEdit, `/debug relight`, the timeswitch, `/wgen`) runs over columns that are not
+  fully loaded: it clears their light and never computes it again. It also places light sources again at doubly offset
+  coordinates, so torches in the relit area lose their light. Komet replaces `FullRelight` with the same computation without both
+  faults: a column loaded only in part keeps its light and is relit as soon as it is fully loaded. A column that already lost its
+  light gets sun and block light back when it loads, the way the engine lights a whole column. Whatever that misses, such as
+  columns the server loaded before Komet started, a sweep every 200 ms on the server tick finds; it repairs at most two columns
+  per tick. Everything repaired is saved. In the test world 2,800 of 5,200 loaded columns had such chunks; afterwards not a single
+  chunk arrived dark at the client (before: 2,200 permanently black).
+- **ParticleLight**: particles only take the chunk lock when it is free; removes minutes-long 8–13 ms frames near beehives
+  (1 % low 45.6 → 50.2 FPS, frames over 25 ms 28 → 1 per minute).
 
 **Entities**
-- **AnimationFrames**: Animations-Frames aus dem Cache, sonst schnell kompiliert, sonst von der Engine.
-- **InitOnce**: doppelte Shape-Initialisierung des Spielers überspringen.
-- **ShapeInitMemo**: wiederholte Initialisierung unveränderter Entity-Shapes überspringen; `moose` 0,5 → 0,09 ms.
-- **EntityTessBudget** (4 ms, 0–50): Entity-Tesselierungen auf mehrere Frames verteilen.
+- **AnimationFrames**: animation frames from the cache, otherwise compiled quickly, otherwise by the engine.
+- **InitOnce**: skips the player's duplicate shape initialization.
+- **ShapeInitMemo**: skips repeated initialization of unchanged entity shapes; `moose` 0.5 → 0.09 ms.
+- **EntityTessBudget** (4 ms, 0–50): spreads entity tessellations over several frames.
 
-**Allokationen und Start**
-- **ClimateCache**: Klimakarten-Cache nach Sichtweite statt fester 10 Regionen à 1 MiB.
-- **ColumnNoiseScratch**: Geländerauschen ohne Allokation (nur Einzelspieler-Weltgenerierung).
-- **CloudTileScratch**: Wolkenkacheln ohne `Vec3d` pro Kachel; spart 33 MB/s.
-- **ChunkThreadClosure** (kein Schalter): der Chunk-Thread des eingebauten Servers legt keine Closure pro Anfrage mehr an.
-- **PreJit**: übersetzt API, Lib und Vanilla-Mods beim Weltbeitritt auf einem Hintergrund-Thread vorab.
+**Allocations and startup**
+- **ClimateCache**: the climate map cache follows the view distance instead of a fixed 10 regions of 1 MiB.
+- **ColumnNoiseScratch**: terrain noise without allocations (singleplayer world generation only).
+- **CloudTileScratch**: cloud tiles without a `Vec3d` per tile; saves 33 MB/s.
+- **PartitionReuse**: the built-in server's entity partitioning reuses its lists; 7 MB/s less garbage.
+- **TessBlockPos**: the tessellator asks plants and crops for their sink offset without a new `BlockPos`; 1.8 MB/s.
+- **CookingMatch**: firepits with a cooking pot check the cooking recipes without copies; standing still 16.9 → 12.6 MB/s garbage,
+  gen0 GCs 2.2 → 1.6 per second.
+- **HandlerLists**: climate and wind queries only copy their event's handlers again when the event has changed; 0.7 MB/s.
+- **ChunkThreadClosure** (no switch): the built-in server's chunk thread no longer allocates a closure per request.
+- **PreJit**: compiles the API, the library and the vanilla mods ahead of time on a background thread when joining a world.
 
-**Diagnose**: TessAccounting bucht jeden Tesselier-Durchlauf nach Art. HUD und Benchmark lesen dieselbe Frame-Uhr;
-1-%-Low = 1000·k / (Summe der k längsten Frametimes in ms), k = n/100.
+**Diagnostics**: TessAccounting books every tessellation run by kind. The HUD and the benchmark read the same frame clock;
+1 % low = 1000·k / (sum of the k longest frame times in ms), k = n/100.
 
-## Optionsmenü und API für andere Mods
+## Options menu and API for other mods
 
-Escape → Einstellungen öffnet Komets Optionsmenü im Stil von Sodium über den ganzen Bildschirm:
-- **Aufbau:** oben die Suche über alle Optionen; links die Seitenleiste mit **Vintage Story** (Allgemein, Qualität, Leistung, Maus,
-  Steuerung, Barrierefreiheit, Ton, Oberfläche, Entwickler), **Komet** (HUD, Werkzeuge, Rendern, Chunks, Sonstiges) und den Seiten anderer Mods.
-- **Liste:** in der Mitte alle Seiten des gewählten Abschnitts untereinander, rechts die Beschreibung der Option unter der Maus.
-- **Übernehmen:** Änderungen werden gesammelt und erst mit **Übernehmen** oder **Fertig** wirksam (Shader werden dabei nur einmal
-  neu geladen); Escape verwirft sie.
-- **Auswahlen:** mit wenigen Möglichkeiten wechselt ein Klick weiter (Rechtsklick zurück); mit vielen, etwa der Sprache (gilt nach
-  einem Neustart), öffnet ein Klick rechts ein Fenster mit allen Einträgen untereinander.
-- **Steuerung:** alle Tastenbelegungen und Mausaktionen des Spiels auf einer Seite; Klick und dann die neue Taste belegt neu
-  (Escape bricht ab), Rechtsklick stellt die Standardbelegung her, doppelt belegte Tasten stehen in Rot. Wirkt sofort, wie im Spiel.
-- **Original-Grafikmenü:** als Schaltfläche am Ende der Seite Oberfläche.
-- **Zurück aufs Spielmenü:** mit dem Schalter `GraphicsMenu` (Sonstiges → Optionsmenü), und automatisch, wenn ein Spiel-Update einen
-  der nachgebauten Reiter ändert oder ein anderer Mod ihn patcht.
+Escape → Settings opens Komet's full-screen options menu in the style of Sodium:
+- **Layout:** the search over all options at the top; on the left the sidebar with **Vintage Story** (General, Quality,
+  Performance, Mouse, Controls, Accessibility, Sound, Interface, Developer), **Komet** (HUD, Tools, Rendering, Chunks, Misc) and the
+  pages of other mods.
+- **List:** in the middle all pages of the chosen section one below the other, on the right the description of the option under
+  the mouse.
+- **Apply:** changes are collected and only take effect with **Apply** or **Done** (shaders are reloaded only once); Escape
+  discards them.
+- **Choices:** with few options a click moves to the next one (right-click goes back); with many, such as the language (applies
+  after a restart), a click on the right opens a window listing all entries.
+- **Controls:** all key bindings and mouse actions of the game on one page; click, then press the new key to rebind (Escape
+  cancels), right-click restores the default, keys bound twice are shown in red. Takes effect immediately, as in the game.
+- **Original graphics menu:** as a button at the end of the Interface page.
+- **Back to the game's menu:** with the `GraphicsMenu` switch (Misc → Options menu), and automatically when a game update changes
+  one of the rebuilt tabs or another mod patches it.
 
-Ein Mod bindet sich ein, indem er `Komet.dll` referenziert (`Private="false"`) und in `StartClientSide` seine Seite anlegt, aus
-einer eigenen Klasse, die er nur bei `api.ModLoader.IsModEnabled("komet")` aufruft:
+A mod hooks in by referencing `Komet.dll` (`Private="false"`) and creating its page in `StartClientSide`, from a class of its own
+that it only calls when `api.ModLoader.IsModEnabled("komet")`:
 
 ```csharp
 KometOptions.Page("mymod", Lang.Get("mymod:title"))
@@ -88,29 +122,28 @@ KometOptions.Page("mymod", Lang.Get("mymod:title"))
     .Button(Lang.Get("mymod:reset"), Lang.Get("mymod:do-reset"), config.Reset);
 ```
 
-Speichern übernimmt der Mod in seinen Settern; Komet ruft sie beim Übernehmen auf. Der dritte Parameter von `Page` ist der Name in
-der Seitenleiste (Standard: der Titel); heißt er wie der Mod, steht dessen Version darunter. `Format(...)` und `EnabledWhen(...)`
-gelten für die zuletzt angelegte Zeile. `KometOptions.Applied` meldet jedes Übernehmen. Beim Schließen der Welt verwirft Komet alle
-Seiten und Abonnenten.
+The mod saves in its setters; Komet calls them on Apply. The third parameter of `Page` is the name in the sidebar (default: the
+title); if it matches the mod, the mod's version is shown below it. `Format(...)` and `EnabledWhen(...)` apply to the row created
+last. `KometOptions.Applied` reports every Apply. When the world closes, Komet drops all pages and subscribers.
 
-### Features abfragen, anhalten und eigene anmelden
+### Querying, holding and registering features
 
-`KometFeatures` (gleiche Regeln wie `KometOptions`) kennt jedes Feature unter seiner Id: Komets wie oben, die anderer Mods als
-`modid:name`. `Snapshot()` listet alle in Installationsreihenfolge, `StateOf(id)` liefert `Pending`, `Active`, `Off` (vom Spieler
-aus), `HeldOff`, `StoodDown` (ein anderer Mod patcht dieselbe Stelle), `EngineChanged`, `NotApplicable` oder `Failed`. Ein Mod, der
-sich mit einem Feature nicht verträgt, hält es auf dem Verhalten des Spiels an, statt die Einstellung des Spielers zu ändern:
+`KometFeatures` (same rules as `KometOptions`) knows every feature by its id: Komet's as above, other mods' as `modid:name`.
+`Snapshot()` lists all of them in install order, `StateOf(id)` returns `Pending`, `Active`, `Off` (switched off by the player),
+`HeldOff`, `StoodDown` (another mod patches the same method), `EngineChanged`, `NotApplicable` or `Failed`. A mod that does not get
+along with a feature holds it on the game's behaviour instead of changing the player's setting:
 
 ```csharp
-var hold = KometFeatures.HoldOff("ChunkBudget", "mymod", "eigene Upload-Steuerung"); // auch per Schalter: "UploadCap"
-hold.Release(); // die Wahl des Spielers gilt wieder
+var hold = KometFeatures.HoldOff("ChunkBudget", "mymod", "own upload control"); // also by switch: "UploadCap"
+hold.Release(); // the player's choice applies again
 ```
 
-Solange gehalten wird, ist der Schalter im Optionsmenü gesperrt (mit Mod und Grund); das HUD-Panel Mods & Patches listet alle
-nicht aktiven Features. `KometFeatures.StateChanged` meldet jeden Wechsel; ein Handler, der wirft, wird einmal geloggt und
-abgemeldet.
+While a hold is active, the switch in the options menu is locked (showing the mod and the reason); the HUD panel Mods & Patches
+lists all features that are not active. `KometFeatures.StateChanged` reports every change; a handler that throws is logged once and
+unsubscribed.
 
-Eigene Features meldet ein Mod in `Start` oder `StartClientSide` an, danach lehnt Komet ab. Komet installiert sie nach den eigenen,
-zeigt, hält und benchmarkt ihren Schalter und tritt zurück, solange ein anderer Mod die beobachteten Methoden patcht:
+A mod registers its own features in `Start` or `StartClientSide`; after that Komet refuses. Komet installs them after its own,
+shows, holds and benchmarks their switch, and stands down while another mod patches the watched methods:
 
 ```csharp
 KometFeatures.Register(new FeatureDefinition("mymod", "water", Lang.Get("mymod:water"))
@@ -123,16 +156,17 @@ KometFeatures.Register(new FeatureDefinition("mymod", "water", Lang.Get("mymod:w
 });
 ```
 
-Die ersten beiden Funktionen des Schalters sind der gespeicherte Wert des Spielers, die dritte das, was die Patches lesen
-(angehalten der Engine-Wert). Id und Harmony-Id sind `mymod:water`, im Benchmark ebenso. `Page` ist `RenderPage`, `ChunksPage`,
-`MiscPage` oder eine eigene `KometOptions`-Seite. Passt der Fingerabdruck der `Shaped`-Methoden nicht, bleibt das Feature draußen
-(`EngineChanged`); den Wert pinnt ein Test des Mods mit `KometFeatures.Fingerprint(...)` gegen das installierte Spiel. Wirft
-`Install`, entfernt Komet die Patches (`Failed`). Beim Schließen der Welt ruft Komet `Uninstall`, entfernt die Patches und vergisst
-die Anmeldung; in der nächsten Welt meldet der Mod sich neu an.
+The first two functions of the switch are the player's saved value, the third is what the patches read (the engine value while
+held). The id and the Harmony id are `mymod:water`, in the benchmark as well. `Page` is `RenderPage`, `ChunksPage`, `MiscPage` or a
+`KometOptions` page of your own. If the fingerprint of the `Shaped` methods does not match, the feature stays out
+(`EngineChanged`); a test of the mod pins the value with `KometFeatures.Fingerprint(...)` against the installed game. If `Install`
+throws, Komet removes the patches (`Failed`). When the world closes, Komet calls `Uninstall`, removes the patches and forgets the
+registration; in the next world the mod registers again.
 
-## Starteinstellungen (optional)
+## Launch settings (optional)
 
-.NET liest einige Stellschrauben nur beim Start aus Umgebungsvariablen. `run.sh` überschreibt jedes Update, also ein eigenes Skript:
+.NET reads some settings only at startup from environment variables. `run.sh` is overwritten by every update, so use a script of
+your own:
 
 ```bash
 #!/bin/bash
@@ -142,48 +176,48 @@ export DOTNET_gcServer=1 DOTNET_GCHeapCount=4 DOTNET_GCDynamicAdaptationMode=0 \
 exec /opt/vintagestory/run.sh "$@"
 ```
 
-- **`DOTNET_TC_CallCountingDelayMs=0`**: heißer Code wird auch während des Ladens sofort auf Tier 1 optimiert. Nicht verwenden:
+- **`DOTNET_TC_CallCountingDelayMs=0`**: hot code is optimized to tier 1 right away, also while loading. Do not use:
   `DOTNET_TieredCompilation=0`, `DOTNET_TC_QuickJitForLoops=0`, `DOTNET_TieredPGO=0`.
-- **Server-GC statt Workstation-GC**: 1-%-Low 45 → 58 FPS, Frames über 25 ms 13 → 1 pro Minute, GC-Pause im Flug 2,5 → 0,65 s;
-  4 statt 8 MiB gen0 halbiert zusätzlich die längsten Pausen.
-  Schreibweise `DOTNET_GCGen0MaxBudget` beachten (falsch geschrieben ignoriert Linux sie still); nie ohne Deckel oder mit DATAS.
-- **„RAM optimieren“**: nicht auf „Aggressiv“ (2) stellen, das fordert blockierende GCs samt LOH-Kompaktierung an.
+- **Server GC instead of workstation GC**: 1 % low 45 → 58 FPS, frames over 25 ms 13 → 1 per minute, GC pause in flight
+  2.5 → 0.65 s; 4 instead of 8 MiB gen0 also halves the longest pauses. Mind the spelling of `DOTNET_GCGen0MaxBudget` (Linux
+  silently ignores a misspelled one); never without a cap or with DATAS.
+- **"Optimize RAM"**: do not set it to "Aggressive" (2); that requests blocking GCs including LOH compaction.
 
 ## Benchmark
 
-`scripts/bench.sh` startet das Spiel unbeaufsichtigt auf einer Kopie des Spielstands aus `scripts/bench.json`, fliegt eine feste
-Route (Stehen, Drehen, Hin- und Rückflug) und schreibt `result.json` und `frames.csv` nach `~/.cache/komet-bench/runs/`.
+`scripts/bench.sh` starts the game unattended on a copy of the save from `scripts/bench.json`, flies a fixed route (standing,
+turning, flying out and back) and writes `result.json` and `frames.csv` to `~/.cache/komet-bench/runs/`.
 
 ```bash
-./build.sh && scripts/bench.sh --profile smoke   # Messkette prüfen, etwa 4 Minuten
-scripts/bench.sh --profile full                  # Komet gegen Engine, etwa 25 Minuten
+./build.sh && scripts/bench.sh --profile smoke   # check the measuring chain, about 4 minutes
+scripts/bench.sh --profile full                  # Komet against the engine, about 25 minutes
 ```
 
-Profile: `smoke`, `aa` (Streuung), `full`, `tess`, `gcreg`, `hud`. Arme laufen im selben Prozess im Wechsel (A B B A) und setzen
-Schalter mit ihren Namen aus `Features.cs` (die anderer Mods als `modid:name`); `--mod DIR` misst einen anderen Build, `--env N=V`
-setzt Umgebungsvariablen. Das Spiel muss geschlossen und der Desktop entsperrt sein; Fremdlast verfälscht Frametimes, die Spielzeit
-nie anhalten.
+Profiles: `smoke`, `aa` (spread), `full`, `tess`, `gcreg`, `hud`. Arms run alternately in the same process (A B B A) and set
+switches by their names from `Features.cs` (other mods' as `modid:name`); `--mod DIR` measures another build, `--env N=V` sets
+environment variables. The game must be closed and the desktop unlocked; other load on the machine distorts frame times; never
+stop the game time.
 
-## Bauen
+## Building
 
-.NET SDK 10 und Vintage Story unter `/opt/vintagestory` (sonst `VsInstall=…`).
+.NET SDK 10 and Vintage Story in `/opt/vintagestory` (otherwise `VsInstall=…`).
 
 ```bash
-./build.sh                    # Release-Paket: Releases/komet/ und Releases/komet_<version>.zip
-dotnet test tests/Komet.Test  # nur lokal, braucht die Spielinstallation
+./build.sh                    # release package: Releases/komet/ and Releases/komet_<version>.zip
+dotnet test tests/Komet.Test  # local only, needs the game installation
 ```
 
-**Aufbau:** `Komet/` der Mod, `tests/Komet.Test` seine Tests, `tests/Komet.Testing` die Test-Rigs, `tools/Komet.Rules` der Analyzer,
-`scripts/` der Benchmark.
+**Layout:** `Komet/` the mod, `tests/Komet.Test` its tests, `tests/Komet.Testing` the test rigs, `tools/Komet.Rules` the analyzer,
+`scripts/` the benchmark.
 
-**Test-Rigs:** `Komet.Testing` bündelt die Rigs der Tests ohne Abhängigkeit von Komet (Harmony-Ids, Logger, fremde Patches, Chunk-
-und Licht-Welten, Animationsformen), auch für die Tests anderer Mods. `GameInstall` findet das Spiel über `VINTAGE_STORY`, sonst den
-`VsInstall` des Builds, sonst `/opt/vintagestory`; ohne Assets überspringt `RequireAssets()` den Test. `ResolveAssemblies()` lädt wie
-das Spiel dessen Abhängigkeiten (protobuf-net, cairo, …) aus der Installation.
+**Test rigs:** `Komet.Testing` bundles the test rigs without a dependency on Komet (Harmony ids, loggers, foreign patches, chunk
+and light worlds, animation shapes), also for other mods' tests. `GameInstall` finds the game through `VINTAGE_STORY`, otherwise
+the build's `VsInstall`, otherwise `/opt/vintagestory`; without assets `RequireAssets()` skips the test. `ResolveAssemblies()`
+loads the game's dependencies (protobuf-net, cairo, …) from the installation, as the game does.
 
-Jede Warnung ist ein Fehler (NetAnalyzers, Roslynator, Sonar). Der Analyzer `Komet.Rules` erzwingt zusätzlich: keine `while`/`do`,
-kein `goto`, keine Präprozessor-Direktiven, keine Rekursion, begrenzte `for`/`foreach`, höchstens 60 Zeilen pro Funktion,
-Assertion-Dichte ≥ 2,0 und vollständige, gleiche Sprachdateien (KR0001–KR0013).
+Every warning is an error (NetAnalyzers, Roslynator, Sonar). The analyzer `Komet.Rules` additionally enforces: no `while`/`do`, no
+`goto`, no preprocessor directives, no recursion, bounded `for`/`foreach`, at most 60 lines per function, an assertion density
+≥ 2.0 and complete, matching language files (KR0001–KR0013).
 
-CI (`.github/workflows/build.yml`) prüft die Spiel-DLLs gegen `SHA256SUMS` und ruft `./build.sh` auf, ohne Tests. `main` erzeugt einen
-Release-Entwurf `v<version>`, andere Branches ein Prerelease `preview-<sha>` (die neuesten drei bleiben).
+CI (`.github/workflows/build.yml`) checks the game DLLs against `SHA256SUMS` and runs `./build.sh`, without tests. `main` creates a
+release draft `v<version>`, other branches a prerelease `preview-<sha>` (the newest three are kept).

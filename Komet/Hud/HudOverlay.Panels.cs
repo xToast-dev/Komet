@@ -13,9 +13,11 @@ internal sealed partial class HudOverlay
     private const string Gen0Size = "DOTNET_GCgen0size";
     private const double Mebibyte = 1.0 / 1024 / 1024;
 
+    private static readonly Assembly Self = typeof(HudOverlay).Assembly;
+
     // Assertions do not inline without the optimizer, so every Komet timing below is inflated several times over
     private static readonly bool DebugBuild =
-        typeof(HudOverlay).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
+        Self.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
 
     private static readonly Func<string> ServerLocal = HudText.Once("hud-server-local"),
         ServerRemote = HudText.Once("hud-server-remote");
@@ -29,33 +31,25 @@ internal sealed partial class HudOverlay
     }
 
     // "" and no colour while notices are off or nothing has been checked
-    private string UpdateText()
-    {
-        return _settings.UpdateCheck && _update is { } check
-            ? HudText.Translate(check.Report.Notice().Key, check.Report.Detail)
-            : "";
-    }
+    private string UpdateText() => _settings.UpdateCheck && _update is { } check
+        ? HudText.Translate(check.Report.Notice().Key, check.Report.Detail)
+        : "";
 
-    private Rgba? UpdateColor()
-    {
-        return _settings.UpdateCheck && _update is { } check ? check.Report.Notice().Color : null;
-    }
+    private Rgba? UpdateColor() => _settings.UpdateCheck && _update is { } check ? check.Report.Notice().Color : null;
 
     // Version, channel and commit as CI stamped them, and the zip the mod was loaded from: what the title badges and the update check need
     private static (string Version, bool Preview, string Commit, string SourcePath) ReadBuild(ICoreClientAPI capi)
     {
         var mod = capi.ModLoader.GetMod(KometModSystem.ModId);
-        var assembly = typeof(HudOverlay).Assembly;
         if (!NotNull(mod) || !Assert(mod.Info.Version.Length > 0)) return ("", false, "", "");
-        return (mod.Info.Version, Metadata(assembly, "Channel") == "preview", Metadata(assembly, "Commit"),
+        return (mod.Info.Version, Metadata(Self, "Channel") == "preview", Metadata(Self, "Commit"),
             mod.SourcePath ?? "");
     }
 
     // Edition (dev build, CI preview or release) and build (version, plus commit and time when CI stamped them)
     private (string Text, Rgba Color)[] TitleBadges()
     {
-        var assembly = typeof(HudOverlay).Assembly;
-        var built = HudText.LocalTime(Metadata(assembly, "Built"));
+        var built = HudText.LocalTime(Metadata(Self, "Built"));
         var (version, preview, commit, _) = _build;
         // CI stamps channel and commit together
         if (!Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0)) return [];
@@ -95,21 +89,14 @@ internal sealed partial class HudOverlay
     }
 
     // -1 for a key this runtime does not report
-    private static long ConfigValue(IReadOnlyDictionary<string, object> config, string key)
-    {
-        if (!NotNull(config) || !Assert(key.Length > 0)) return -1;
-        return config.TryGetValue(key, out var value) && value is IConvertible number
-            ? number.ToInt64(CultureInfo.InvariantCulture)
-            : -1;
-    }
+    private static long ConfigValue(IReadOnlyDictionary<string, object> config, string key) =>
+        NotNull(config) && Assert(key.Length > 0) && config.TryGetValue(key, out var value) &&
+        value is IConvertible number ? number.ToInt64(CultureInfo.InvariantCulture) : -1;
 
     // The latency mode is the one setting a program may change while it runs
-    private string GcText()
-    {
-        return Assert(_gc.Mode.Length > 0) && Assert(Enum.IsDefined(GCSettings.LatencyMode))
-            ? HudText.Translate("hud-gc-latency", _gc.Budget, GCSettings.LatencyMode)
-            : "";
-    }
+    private string GcText() => Assert(_gc.Mode.Length > 0) && Assert(Enum.IsDefined(GCSettings.LatencyMode))
+        ? HudText.Translate("hud-gc-latency", _gc.Budget, GCSettings.LatencyMode)
+        : "";
 
     // Mark names without the namespaces the engine puts into them (initbebehavior-Vintagestory.GameContent.BEBehaviorFruitingBush
     // reads as initbebehavior-BEBehaviorFruitingBush), so one long type name cannot widen a whole column; the ledger's pseudo causes
@@ -126,13 +113,10 @@ internal sealed partial class HudOverlay
             : name[(dot + 1)..];
     }
 
-    private string SpikeCause(int place)
-    {
-        if (!Index(place, SpikeLedger.Shown) || _spikes.Ranked(place) is not { Name.Length: > 0 } cause) return "";
-        return Assert(cause.Count > 0)
+    private string SpikeCause(int place) => Index(place, SpikeLedger.Shown) &&
+        _spikes.Ranked(place) is { Name.Length: > 0 } cause && Assert(cause.Count > 0)
             ? HudText.Translate("hud-spike-cause", Describe(cause.Name), cause.Count, HudText.Format(cause.MaxMs, "F1"))
             : "";
-    }
 
     // The latest spike frames whole, newest first; the panel rows only name their causes
     private void AppendSpikes(StringBuilder text)
@@ -188,15 +172,15 @@ internal sealed partial class HudOverlay
             : static () => double.NaN;
     }
 
-    private Func<double> PerFrame(Func<double> total, double scale = 1)
-    {
-        return Assert(scale > 0) && NotNull(total) ? Ratio(total, () => _frameTotal, scale) : static () => double.NaN;
-    }
+    // The percentage part makes of part and rest together
+    private static Func<double> Share(Func<double> part, Func<double> rest) =>
+        NotNull(part) && NotNull(rest) ? Ratio(part, () => part() + rest(), 100) : static () => double.NaN;
 
-    private Func<double> PerSecond(Func<double> total, double scale = 1)
-    {
-        return Assert(scale > 0) && NotNull(total) ? Ratio(total, () => _elapsedTotal, scale) : static () => double.NaN;
-    }
+    private Func<double> PerFrame(Func<double> total, double scale = 1) =>
+        Assert(scale > 0) && NotNull(total) ? Ratio(total, () => _frameTotal, scale) : static () => double.NaN;
+
+    private Func<double> PerSecond(Func<double> total, double scale = 1) =>
+        Assert(scale > 0) && NotNull(total) ? Ratio(total, () => _elapsedTotal, scale) : static () => double.NaN;
 
     // A cap the transpiler could not place would leave the engine's budget alone without a word
     private static string UploadCapText()
@@ -366,11 +350,11 @@ internal sealed partial class HudOverlay
     {
         if (!Assert(_panels.Count == PanelCount - 1)) return;
         _ = panel.Section("shadercache")
-            .Bar("use-skipped",
-                Ratio(() => ShaderUseCache.Skips, () => ShaderUseCache.Skips + ShaderUseCache.Uploads, 100),
+            .Bar("use-skipped", Share(() => ShaderUseCache.Skips, () => ShaderUseCache.Uploads),
                 PerFrame(() => ShaderUseCache.Skips), good: true)
             .Value("use-calls", PerFrame(() => ShaderUseCache.Calls), detail: true)
             .Value("use-uploads", PerFrame(() => ShaderUseCache.Uploads), detail: true)
+            .Value("glerror-skipped", PerFrame(() => GlErrorPoll.Skipped), detail: true)
             .Section("frustumsweep")
             .Warn("debug-timings", () => DebugBuild)
             .Value("cull-time", PerFrame(() => FrustumSweep.Ticks, FrameClock.TickMs), "ms")
@@ -382,7 +366,13 @@ internal sealed partial class HudOverlay
             .Value("cull-diffed", PerFrame(() => FrustumSweep.Diffed), detail: true)
             .Value("cull-rebuilt-max", () => FrustumSweep.MaxRebuilds, detail: true)
             .Value("cull-sorted", PerFrame(() => FrustumSweep.Settles), detail: true)
+            .Value("cull-staged", PerFrame(() => FrustumSweep.StagedCalls), detail: true)
             .Peaks(FrustumSweep.ResetPeaks)
+            .Section("animculling")
+            .Value("anim-idle", PerFrame(() => IdleAnimators.Skipped), detail: true)
+            .Bar("anim-culled", Share(() => AnimatableCulling.Culled, () => AnimatableCulling.Drawn),
+                PerFrame(() => AnimatableCulling.Culled), good: true)
+            .Value("anim-drawn", PerFrame(() => AnimatableCulling.Drawn), detail: true)
             .Section("indirectdraw")
             .Warn("draw-unsupported", () => IndirectDraw.Detected && !IndirectDraw.Supported)
             .Warn("draw-unmapped", () => IndirectDraw.Supported && !IndirectDraw.Persistent)
@@ -421,8 +411,7 @@ internal sealed partial class HudOverlay
         Func<double> passes = () => TessAccounting.Totals().Passes, passMs = () => TessAccounting.Totals().Ms;
         var busy = PerSecond(passMs, 0.1); // percent of one thread
         _ = panel.Section("chunklookup")
-            .Bar("chunk-hitrate", Ratio(() => ChunkLookup.Hits, () => ChunkLookup.Hits + ChunkLookup.Misses, 100),
-                good: true)
+            .Bar("chunk-hitrate", Share(() => ChunkLookup.Hits, () => ChunkLookup.Misses), good: true)
             .Value("chunk-hits", PerFrame(() => ChunkLookup.Hits), detail: true)
             .Section("tessaccounting")
             .Warn("tess-unpatched", () => !TessAccounting.Installed)
@@ -466,19 +455,17 @@ internal sealed partial class HudOverlay
         Func<double> frame = PerSecond(() => WorkerPool.FrameTicks * 1000.0 / Stopwatch.Frequency, 0.1),
             tess = PerSecond(() => WorkerPool.BackgroundTicks * 1000.0 / Stopwatch.Frequency, 0.1);
 
-        static double Share(double percent)
-        {
-            return double.IsFinite(percent) && WorkerPool.Running > 0 ? percent / WorkerPool.Running : double.NaN;
-        }
+        static double PerThread(double percent) =>
+            double.IsFinite(percent) && WorkerPool.Running > 0 ? percent / WorkerPool.Running : double.NaN;
 
         _ = panel.Section("pool")
             .Warn("pool-frame-off", () => WorkerPool.FrameOff)
             .Value("pool-threads", () => WorkerPool.Running)
             .Line(() => HudText.Translate(TessWorkers.Boosted ? "hud-pool-tess-boost" : "hud-pool-tess-limit",
                 WorkerPool.BackgroundLimit, WorkerPool.InBackground), sub: true)
-            .Bar("pool-frame", () => Share(frame()))
-            .Bar("pool-tess", () => Share(tess()))
-            .Bar("pool-idle", () => Share(100 * WorkerPool.Running - frame() - tess()), detail: true);
+            .Bar("pool-frame", () => PerThread(frame()))
+            .Bar("pool-tess", () => PerThread(tess()))
+            .Bar("pool-idle", () => PerThread(100.0 * WorkerPool.Running - frame() - tess()), detail: true);
     }
 
     private void LightCounters(HudPanel panel)
@@ -487,18 +474,15 @@ internal sealed partial class HudOverlay
         _ = panel.Section("visiblefaces")
             .Warn("visiblefaces-unpatched", () => !VisibleFaces.Installed)
             .Warn("visiblefaces-other", () => VisibleFaces.StoodDown)
-            .Bar("visiblefaces-engine",
-                Ratio(() => VisibleFaces.Fallbacks, () => VisibleFaces.Chunks + VisibleFaces.Fallbacks, 100),
+            .Bar("visiblefaces-engine", Share(() => VisibleFaces.Fallbacks, () => VisibleFaces.Chunks),
                 PerFrame(() => VisibleFaces.Fallbacks))
             .Value("visiblefaces-chunks", PerFrame(() => VisibleFaces.Chunks), detail: true)
-            .Value("visiblefaces-ported",
-                Ratio(() => VisibleFaces.PortedCells, () => VisibleFaces.FastCells + VisibleFaces.PortedCells, 100),
-                "%", detail: true)
+            .Value("visiblefaces-ported", Share(() => VisibleFaces.PortedCells, () => VisibleFaces.FastCells), "%",
+                detail: true)
             .Section("facelight")
             .Warn("facelight-unpatched", () => !FaceLight.Installed)
             .Warn("facelight-other", () => FaceLight.StoodDown)
-            .Bar("facelight-engine",
-                Ratio(() => FaceLight.EngineFaces, () => FaceLight.FastFaces + FaceLight.EngineFaces, 100),
+            .Bar("facelight-engine", Share(() => FaceLight.EngineFaces, () => FaceLight.FastFaces),
                 PerFrame(() => FaceLight.EngineFaces))
             .Value("facelight-faces", PerFrame(() => FaceLight.FastFaces), detail: true)
             .Value("facelight-blocks", PerFrame(() => FaceLight.FusedBlocks), detail: true)
@@ -515,8 +499,7 @@ internal sealed partial class HudOverlay
         if (!Assert(_panels.Count == PanelCount)) return;
         _ = panel.Section("animframes")
             .Warn("anim-fast-blocked", () => AnimationFrames.Blocked)
-            .Bar("anim-hitrate",
-                Ratio(() => AnimationFrames.Hits, () => AnimationFrames.Hits + AnimationFrames.Misses, 100), good: true)
+            .Bar("anim-hitrate", Share(() => AnimationFrames.Hits, () => AnimationFrames.Misses), good: true)
             .Value("anim-compile-worst", () => AnimationFrames.WorstMs, "ms")
             .Line(() => AnimationFrames.WorstCode, sub: true)
             .Value("anim-hits", PerSecond(() => AnimationFrames.Hits), "/s", detail: true)
@@ -549,10 +532,13 @@ internal sealed partial class HudOverlay
         _ = panel.Section("garbage")
             .Warn("garbage-unpatched", () =>
                 !(DecompressScratch.Rewritten && LightScratch.Rewritten && ColumnNoiseScratch.Rewritten &&
-                  CloudTileScratch.Rewritten))
+                  CloudTileScratch.Rewritten && PartitionReuse.Rewritten && TessBlockPos.Rewritten &&
+                  CookingMatch.Rewritten && HandlerLists.Rewritten))
             .Value("garbage-decompress", PerFrame(() => DecompressScratch.Saved, Mebibyte), "MB")
             .Value("garbage-noise", PerFrame(() => ColumnNoiseScratch.Saved, Mebibyte), "MB")
             .Value("garbage-light", PerFrame(() => LightScratch.Avoided), detail: true)
+            .Value("garbage-partitions", PerFrame(() => PartitionReuse.Reused), detail: true)
+            .Value("garbage-plantpos", PerFrame(() => TessBlockPos.Saved), detail: true)
             .Section("prejit")
             .Line(PreJitText, sub: true, color: () => PreJit.State == PreJitState.Cancelled ? HudCanvas.Warning : null)
             .Value("prejit-methods", () => PreJit.Prepared)

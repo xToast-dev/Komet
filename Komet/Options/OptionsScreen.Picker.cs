@@ -24,12 +24,6 @@ internal sealed partial class OptionsScreen
     private (double X, double Y, double W, double H) _pickView; // where its names show, in canvas pixels
     private (double Cell, double Step, double Width, int Count, double Total) _pickLayout;
 
-    private void Toggle(OptionRow row)
-    {
-        if (!NotNull(row) || !Assert(row.Names.Length > MaxCycled)) return;
-        (_picker, _pickScroll) = (ReferenceEquals(_picker, row) ? null : row, double.NaN);
-    }
-
     private void Picker(Columns c)
     {
         _pickView = default;

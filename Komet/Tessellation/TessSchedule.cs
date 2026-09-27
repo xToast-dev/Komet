@@ -124,11 +124,7 @@ internal static class TessSchedule
         if (!NotNull(gate) || !NotNull(PriorityQueue(game)) || !Assert(Busy.Count == 0)) return false;
         var go = PriorityMarks(manager, game, gate);
         if (Busy.Count == 0) return go;
-        lock (gate)
-        {
-            foreach (var mark in Busy.Bounded(MaxPriority)) PriorityQueue(game).Enqueue(mark);
-        }
-
+        lock (gate) foreach (var mark in Busy.Bounded(MaxPriority)) PriorityQueue(game).Enqueue(mark);
         Busy.Clear();
         return go;
     }
@@ -160,10 +156,7 @@ internal static class TessSchedule
             }
 
             if (Owned(manager, game, mark, true, out _))
-                lock (gate)
-                {
-                    PriorityQueue(game).Enqueue(mark);
-                }
+                lock (gate) PriorityQueue(game).Enqueue(mark);
         }
 
         return Assert(Busy.Count <= MaxPriority) && game.ShouldTesselateTerrain;
@@ -200,7 +193,7 @@ internal static class TessSchedule
     {
         if (!Active || !ReferenceEquals(game, _game) || !game.ShouldTesselateTerrain ||
             !Waiting.TryTake(out var mark)) return false;
-        var (requeue, finished) = (true, false);
+        bool requeue = false, finished = false;
         try
         {
             _ = Pass(manager, game, mark, false, out requeue);
@@ -208,7 +201,8 @@ internal static class TessSchedule
         }
         finally
         {
-            if (requeue || !finished) Waiting.Home(mark);
+            // a pass that threw leaves its chunk queued
+            if (!finished || requeue) Waiting.Home(mark);
             else Waiting.Done(mark & long.MaxValue);
         }
 
@@ -306,11 +300,7 @@ internal static class TessSchedule
     {
         var gate = DirtyLock(game);
         if (!NotNull(gate)) return;
-        lock (gate)
-        {
-            Waiting.Drain(Dirty(game));
-        }
-
+        lock (gate) Waiting.Drain(Dirty(game));
         _ = Assert(Waiting.Count == 0);
     }
 
@@ -344,10 +334,8 @@ internal static class TessSchedule
         return n;
     }
 
-    private static bool Is(Type owner, string name, Type type)
-    {
-        return AccessTools.DeclaredField(owner, name) is { IsStatic: false } field && field.FieldType == type;
-    }
+    private static bool Is(Type owner, string name, Type type) =>
+        AccessTools.DeclaredField(owner, name) is { IsStatic: false } field && field.FieldType == type;
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
     private static extern ref ClientMain? Game(ClientSystem system);

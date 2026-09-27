@@ -164,17 +164,14 @@ internal sealed class ModTimes
     }
 
     // EventManager.TriggerGameTick runs from ClientMain and, in singleplayer, from the server thread; Entries belongs to the client
-    private static void Start(out long __state)
-    {
+    private static void Start(out long __state) =>
         __state = Enabled && _sampling && Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId
             ? Stopwatch.GetTimestamp()
             : 0;
-    }
 
     private static void EndEntity(GameTickListener __instance, long __state)
     {
-        if (__state == 0 || !NotNull(__instance.Handler)) return;
-        Book(__instance.Handler.Method, __state);
+        if (__state != 0 && NotNull(__instance.Handler)) Book(__instance.Handler.Method, __state);
     }
 
     private static void EndBlock(GameTickListenerBlock __instance, long __state)
@@ -233,34 +230,22 @@ internal sealed class ModTimes
         if (!Assert(mod.Length > 0)) mod = "?";
         if (mod.StartsWith("Vintagestory", StringComparison.Ordinal)) mod = "game";
         foreach (var candidate in (_loader?.Mods ?? []).Bounded(ModStats.MaxLoadedMods))
-            if (candidate is ModContainer container && container.Assembly == assembly)
-                mod = candidate.Info.ModID;
+            if (candidate is ModContainer container && container.Assembly == assembly) mod = candidate.Info.ModID;
         return ModByAssembly[assembly] = mod;
     }
 
-    public string ModName(int place)
-    {
-        return Index(place, MaxMods) ? _mods[place].Mod ?? "" : "";
-    }
+    public string ModName(int place) => Index(place, MaxMods) ? _mods[place].Mod ?? "" : "";
 
-    public double ModMs(int place)
-    {
-        return Index(place, MaxMods) && _mods[place].Mod != null ? _mods[place].Ms : double.NaN;
-    }
+    public double ModMs(int place) => Index(place, MaxMods) && _mods[place].Mod != null ? _mods[place].Ms : double.NaN;
 
-    public string DetailName(int place, int rank)
-    {
-        return Index(place, MaxMods) && Index(rank, DetailCount) && _top[place][rank].Entry is { } e
+    public string DetailName(int place, int rank) =>
+        Index(place, MaxMods) && Index(rank, DetailCount) && _top[place][rank].Entry is { } e
             ? $"{e.Name} ({HudText.Format(e.CallsPerSecond, "F1")}/s)"
             : "";
-    }
 
-    public double DetailMs(int place, int rank)
-    {
-        return Index(place, MaxMods) && Index(rank, DetailCount)
-            ? _top[place][rank].Entry?.SmoothMs ?? double.NaN
-            : double.NaN;
-    }
+    public double DetailMs(int place, int rank) => Index(place, MaxMods) && Index(rank, DetailCount)
+        ? _top[place][rank].Entry?.SmoothMs ?? double.NaN
+        : double.NaN;
 
     // Once per HUD interval: smooth every entry into its mod's sum; every ReorderEvery intervals rank the mods and their entries anew
     public void Update(int frames, float seconds)
@@ -290,8 +275,7 @@ internal sealed class ModTimes
         }
 
         for (var i = 0; i < MaxMods; i++)
-            if (_mods[i].Mod is { } mod)
-                _mods[i].Ms = _byMod.GetValueOrDefault(mod);
+            if (_mods[i].Mod is { } mod) _mods[i].Ms = _byMod.GetValueOrDefault(mod);
     }
 
     // The dearest mods, then each one's dearest entries in one pass over the entries
@@ -319,8 +303,7 @@ internal sealed class ModTimes
     {
         if (!Assert(mod.Length > 0)) return -1; // ModOf and Create name every entry's mod
         for (var i = 0; i < MaxMods; i++)
-            if (_mods[i].Mod == mod)
-                return i;
+            if (_mods[i].Mod == mod) return i;
         return -1;
     }
 

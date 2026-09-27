@@ -7,6 +7,12 @@ namespace Komet.Rendering;
 // scratch and DisposeExtraData drops it: two thirds of the client's allocations. A recyclable mesh keeps those arrays as capacity for the
 // next clone, and custom parts copy Count values instead of the whole tesselator buffer SetFrom clones. Fields the source lacks get the
 // state of a fresh mesh: null, TextureIds empty.
+//
+// The recycler hands out meshes by size alone, while each render pass has its own custom parts (liquid two floats and two ints per
+// vertex, top soil an int and two shorts, the others one int): a top soil mesh reused for an opaque part drops its shorts, and the next
+// top soil part allocates them again, three quarters of which are still queued for upload when a collection comes. So values a clone
+// drops or outgrows go to a few spare slots per element type, and a part needing a new buffer first takes the smallest spare that fits.
+// Only CloneExtraData moves arrays: its destination is a new mesh (Clone) or one back from the recycler, whose parts nothing else holds.
 internal static class MeshRecycle
 {
     private static readonly DataConversion ShortConversion = new CustomMeshDataPartShort().Conversion;
@@ -112,18 +118,12 @@ internal static class MeshRecycle
     private static TPart? Part<TPart, T>(TPart? dest, TPart? source)
         where TPart : CustomMeshDataPart<T>, new() where T : unmanaged
     {
+        // the destination's own values are dropped with its part unless Filled reuses them
+        var engine = source?.Values is null || !Assert(source.Count >= 0 && source.Count <= source.Values.Length);
+        if (engine && Enabled && dest?.Values is { } dropped) Spare<T>.Put(dropped);
         if (source is null) return null;
-        TPart part;
-        if (source.Values is null || !Assert(source.Count >= 0 && source.Count <= source.Values.Length))
-        {
-            part = new TPart();
-            part.SetFrom(source);
-        }
-        else
-        {
-            part = Filled(dest ?? new TPart(), source);
-        }
-
+        var part = engine ? new TPart() : Filled(dest ?? new TPart(), source);
+        if (engine) part.SetFrom(source);
         // CustomMeshDataPartByte.Clone copies Conversion; the Short and Int clones leave their class default
         if (part is CustomMeshDataPartByte bytes && source is CustomMeshDataPartByte from)
             bytes.Conversion = from.Conversion;
@@ -137,8 +137,7 @@ internal static class MeshRecycle
         where TPart : CustomMeshDataPart<T> where T : unmanaged
     {
         if (!NotNull(source.Values) || !Assert(source.Count <= source.Values.Length)) return dest;
-        var values = dest.Values is { } kept && kept.Length >= source.Count
-            ? kept : GC.AllocateUninitializedArray<T>(Capacity(source.Count));
+        var values = dest.Values is { } kept && kept.Length >= source.Count ? kept : Grown(dest.Values, source.Count);
         var reuse = ReferenceEquals(values, dest.Values);
         Array.Copy(source.Values, values, source.Count);
         (dest.Values, dest.Count) = (values, source.Count);
@@ -154,9 +153,63 @@ internal static class MeshRecycle
     }
 
     // A fresh buffer is sized to what this mesh holds plus room to grow, not to the tesselator buffer the engine's SetFrom copies whole
-    private static int Capacity(int count)
+    private static int Capacity(int count) => Assert(count >= 0) ? Math.Max(4, count + count / 4) : 4;
+
+    // A buffer for count values in place of one too small (null: none yet), which goes to the spares
+    private static T[] Grown<T>(T[]? small, int count) where T : unmanaged
     {
-        return Assert(count >= 0) ? Math.Max(4, count + count / 4) : 4;
+        if (!Enabled) return GC.AllocateUninitializedArray<T>(Capacity(count));
+        if (small is not null) Spare<T>.Put(small);
+        var spare = Spare<T>.Take(count);
+        if (spare is null) return GC.AllocateUninitializedArray<T>(Capacity(count));
+        _ = Assert(spare.Length >= count) && Assert(!ReferenceEquals(spare, small) || small.Length >= count);
+        if (Counting.Hud) Reuse(count);
+        return spare;
+    }
+
+    // Values no mesh holds any more, by element type; the tesselation threads and the main thread clone at once
+    private static class Spare<T> where T : unmanaged
+    {
+        private const int Slots = 16;
+        private static readonly T[]?[] Kept = new T[]?[Slots]; // also the lock: one per element type
+
+        // The smallest spare that holds count values, taken out; null for none
+        public static T[]? Take(int count)
+        {
+            lock (Kept)
+            {
+                var best = -1;
+                for (var i = 0; i < Slots; i++)
+                    if (Kept[i] is { } array && array.Length >= count &&
+                        (best < 0 || array.Length < Kept[best]!.Length)) best = i;
+                if (best < 0) return null;
+                var taken = Kept[best];
+                Kept[best] = null;
+                return Assert(taken is not null) ? taken : null;
+            }
+        }
+
+        // Into a free slot; with every slot taken a larger array displaces the smallest, a smaller one is left to the collector
+        public static void Put(T[] array)
+        {
+            if (!NotNull(array)) return;
+            lock (Kept)
+            {
+                var smallest = 0;
+                for (var i = 0; i < Slots; i++)
+                {
+                    if (Kept[i] is null)
+                    {
+                        Kept[i] = array;
+                        return;
+                    }
+
+                    if (Kept[i]!.Length < Kept[smallest]!.Length) smallest = i;
+                }
+
+                if (Kept[smallest]!.Length < array.Length) Kept[smallest] = array;
+            }
+        }
     }
 
     // The fields SetFrom copies behind AllocationSize, the GL buffer size of the part

@@ -19,11 +19,8 @@ internal sealed class SpikeLedger
     private readonly Dictionary<string, Cause> _causes = [];
     private readonly (Cause? Item, double Ms)[] _ranked = new (Cause?, double)[Shown];
     private readonly Spike[] _ring = new Spike[Recent];
-
-    // How often the engine marked each of them in that frame
-    private readonly int[] _ringCalls = new int[Recent * TopMarks];
-
     private readonly (string? Name, double Ms)[] _ringMarks = new (string?, double)[Recent * TopMarks];
+    private readonly int[] _ringCalls = new int[Recent * TopMarks]; // how often the engine marked each in its frame
     private double _meanMs;
     private int _next;
 
@@ -39,8 +36,9 @@ internal sealed class SpikeLedger
         var dt = frame.DtMs;
         if (!steady || !Finite(dt) || !Assert(dt >= 0)) return false;
         var (threshold, mean) = (ThresholdMs, _meanMs);
-        _meanMs = mean == 0 ? dt : mean + (Math.Min(dt, threshold) - mean) / MeanFrames;
-        if (mean == 0 || dt <= threshold) return false;
+        // 0: no mean yet; a mean of frames that are all >= 0 never goes below it
+        _meanMs = mean <= 0 ? dt : mean + (Math.Min(dt, threshold) - mean) / MeanFrames;
+        if (mean <= 0 || dt <= threshold) return false;
         var cause = CauseOf(frame, top, dt - mean);
         Book(cause, dt);
         Remember(new Spike(atSeconds, dt, cause, frame.GcMs, frame.OutsideMs, frame.JitMs, frame.RunQueueMs), top,
@@ -70,11 +68,7 @@ internal sealed class SpikeLedger
         if (!_causes.TryGetValue(cause, out var stats))
         {
             if (_causes.Count >= MaxCauses - 1 && !_causes.TryGetValue(Other, out stats)) cause = Other;
-            if (stats is null)
-            {
-                stats = new Cause { Name = cause };
-                _causes[cause] = stats;
-            }
+            if (stats is null) _causes[cause] = stats = new Cause { Name = cause };
         }
 
         stats.Count++;
@@ -128,12 +122,8 @@ internal sealed class SpikeLedger
     }
 
     // 0 = the newest spike
-    public Spike Latest(int age)
-    {
-        return Index(age, Stored) && Assert(Stored <= Recent)
-            ? _ring[(_next - 1 - age + 2 * Recent) % Recent]
-            : default;
-    }
+    public Spike Latest(int age) =>
+        Index(age, Stored) && Assert(Stored <= Recent) ? _ring[(_next - 1 - age + 2 * Recent) % Recent] : default;
 
     public (string? Name, double Ms, int Calls) LatestMark(int age, int rank)
     {

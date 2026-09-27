@@ -73,11 +73,11 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
         while (target.Parent is ITupleOperation tuple) target = tuple;
         return target.Parent switch
         {
-            ISimpleAssignmentOperation assignment when assignment.Target == target => (set, null),
-            IDeconstructionAssignmentOperation deconstruction when deconstruction.Target == target => (set, null),
-            ICompoundAssignmentOperation compound when compound.Target == target => (get, set),
-            ICoalesceAssignmentOperation coalesce when coalesce.Target == target => (get, set),
-            IIncrementOrDecrementOperation step when step.Target == target => (get, set),
+            ISimpleAssignmentOperation assignment when ReferenceEquals(assignment.Target, target) => (set, null),
+            IDeconstructionAssignmentOperation deconstruction when ReferenceEquals(deconstruction.Target, target) => (set, null),
+            ICompoundAssignmentOperation compound when ReferenceEquals(compound.Target, target) => (get, set),
+            ICoalesceAssignmentOperation coalesce when ReferenceEquals(coalesce.Target, target) => (get, set),
+            IIncrementOrDecrementOperation step when ReferenceEquals(step.Target, target) => (get, set),
             _ => (get, null)
         };
     }

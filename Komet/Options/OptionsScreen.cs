@@ -3,11 +3,11 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Options;
 
-// Komet's options screen, laid out like Sodium's: over the whole screen a search bar, a sidebar of sections (Vintage Story, Komet,
-// then every mod that registered pages with KometOptions) with their pages, the chosen page in a scrolling column, the description
-// of the hovered option beside it, and Undo / Apply / Done at the bottom right. Changes are staged and take
-// effect on Apply or Done (the game's settings in one batch: one shader reload, one framebuffer rebuild); Escape drops them. Buttons
-// (a benchmark, a reset) and keys act at once. Stands in for the game's settings (GraphicsMenu, Embed) or opens on its own (.komet).
+// Komet's options screen, laid out like Sodium's: a search bar, a sidebar of sections (Vintage Story, Komet, then every mod that
+// registered pages with KometOptions), the chosen page in a scrolling column, the hovered option's description beside it, and
+// Undo / Apply / Done at the bottom right. Changes are staged until Apply or Done (the game's settings in one batch: one shader
+// reload, one framebuffer rebuild); Escape drops them. Buttons (a benchmark, a reset) and keys act at once. Stands in for the
+// game's settings (GraphicsMenu, Embed) or opens on its own (.komet).
 internal sealed partial class OptionsScreen : GuiDialog
 {
     private const int MaxPages = 48, MaxStaged = 256, MaxQuery = 64;
@@ -58,10 +58,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     // Raised by every composition (a Cairo pass and a texture upload), which the HUD keeps out of its steady frames
     public event Action? Composing;
 
-    public bool Contains(double x, double y)
-    {
-        return IsOpened() && Finite(x) && Finite(y); // the screen covers everything
-    }
+    public bool Contains(double x, double y) => IsOpened() && Finite(x) && Finite(y); // the screen covers everything
 
     // On its own, at a page (the Komet section's first when null)
     public bool Open(string? page = null)
@@ -72,8 +69,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         return IsOpened() || TryOpen();
     }
 
-    // In place of the game's settings; tab opens one of the game's own tabs by its handler name (the original graphics tab, the macro
-    // editor)
+    // In place of the game's settings; tab opens one of the game's own screens by handler name (original graphics tab, macro editor)
     public void Embed(IGameSettingsHandler handler, Action<string> tab)
     {
         if (!NotNull(handler) || !NotNull(tab)) return;
@@ -93,25 +89,11 @@ internal sealed partial class OptionsScreen : GuiDialog
 
     public override bool OnEscapePressed()
     {
-        if (_binding is not null)
-        {
-            Unbound();
-            return true;
-        }
-
-        if (_picker is not null)
-        {
-            (_picker, _dirty) = (null, true);
-            return true;
-        }
-
-        if (_query.Length > 0 || _searching)
-        {
-            (_query, _searching, _dirty) = ("", false, true);
-            return true;
-        }
-
-        return Close();
+        if (_binding is not null) Unbound();
+        else if (_picker is not null) (_picker, _dirty) = (null, true);
+        else if (_query.Length > 0 || _searching) (_query, _searching, _dirty) = ("", false, true);
+        else return Close();
+        return true;
     }
 
     public override void OnGuiOpened()
@@ -138,8 +120,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         if (!NotNull(page)) return;
         _pages = Pages();
         if (!Assert(_pages.Length > 0)) return;
-        var found = Array.Find(_pages, p => p.Id == page) ?? (_pages.Length > 0 ? _pages[0] : null);
-        (_page, _scroll, _query, _dirty) = (found?.Id ?? "", 0, "", true);
+        (_page, _scroll, _query, _dirty) = ((Array.Find(_pages, p => p.Id == page) ?? _pages[0]).Id, 0, "", true);
         _staged.Clear();
         _widest.Clear();
     }
@@ -163,10 +144,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         embedded.Tab(handler);
     }
 
-    private double Value(OptionRow row)
-    {
-        return NotNull(row) && _staged.TryGetValue(row, out var value) ? value : row.Get();
-    }
+    private double Value(OptionRow row) => NotNull(row) && _staged.TryGetValue(row, out var value) ? value : row.Get();
 
     private void Stage(OptionRow row, double value)
     {
@@ -188,12 +166,6 @@ internal sealed partial class OptionsScreen : GuiDialog
         });
         _dirty = true;
         if (changes.Length > 0) KometOptions.RaiseApplied();
-    }
-
-    private void Done()
-    {
-        Apply();
-        _ = Close();
     }
 
     public override void OnMouseDown(MouseEvent args)
@@ -328,15 +300,11 @@ internal sealed partial class OptionsScreen : GuiDialog
         _backdrop?.Dispose();
     }
 
-    // Click gets the x fraction and whether it was the right button; a Row box only marks its option as hovered
-    // Glow: how bright the highlight over it is while hovered (0: none), Group: the column it belongs to, within which the
-    // highlight glides from one to the next
+    // Click gets the x fraction and whether it was the right button; a Row box only marks its option as hovered. Glow: the
+    // highlight's brightness while hovered (0: none); Group: its column, within which the highlight glides from box to box
     private sealed record Hit(double X, double Y, double W, double H, Action<double, bool> Click, bool Drag = false,
         OptionRow? Option = null, bool Row = false, double Glow = 0, int Group = 0)
     {
-        public bool Covers(double x, double y)
-        {
-            return Finite(x) && Finite(y) && x >= X && x < X + W && y >= Y && y < Y + H;
-        }
+        public bool Covers(double x, double y) => Finite(x) && Finite(y) && x >= X && x < X + W && y >= Y && y < Y + H;
     }
 }

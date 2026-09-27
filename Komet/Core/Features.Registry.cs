@@ -185,10 +185,8 @@ internal static partial class Features
         return Index(row, MaxShown) && Assert(ShownText.Length == MaxShown) ? ShownText[row] ?? "" : "";
     }
 
-    public static FeatureState ShownState(int row)
-    {
-        return Index(row, MaxShown) && Assert(ShownStates.Length == MaxShown) ? ShownStates[row] : Active;
-    }
+    public static FeatureState ShownState(int row) =>
+        Index(row, MaxShown) && Assert(ShownStates.Length == MaxShown) ? ShownStates[row] : Active;
 
     // The feature id, or the key of one of its knobs (UploadCap: ChunkBudget); -1 for neither
     public static int Find(string id)
@@ -225,10 +223,8 @@ internal static partial class Features
         return true;
     }
 
-    public static bool Held(int knob)
-    {
-        return Index(knob, Knobs.Count) && Index(Knobs.At(knob).Owner, Count) && Holds[Knobs.At(knob).Owner] > 0;
-    }
+    public static bool Held(int knob) =>
+        Index(knob, Knobs.Count) && Index(Knobs.At(knob).Owner, Count) && Holds[Knobs.At(knob).Owner] > 0;
 
     // Shown under a held knob's option, which takes no input meanwhile, with the first holder and its reason; null while it is free
     public static string? LockText(int knob)

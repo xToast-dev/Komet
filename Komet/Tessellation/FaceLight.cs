@@ -302,11 +302,8 @@ internal static class FaceLight
 
     // A sample cell: the solid block's EmitSideAo and whether it is leaves, and whether the fluid there absorbs light
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int Sample(Block solid, Block fluid)
-    {
-        return solid.EmitSideAo | (solid.BlockMaterial == EnumBlockMaterial.Leaves ? Leaves : 0) |
-               (fluid.LightAbsorption > 0 ? Absorbs : 0);
-    }
+    private static int Sample(Block solid, Block fluid) => solid.EmitSideAo |
+        (solid.BlockMaterial == EnumBlockMaterial.Leaves ? Leaves : 0) | (fluid.LightAbsorption > 0 ? Absorbs : 0);
 
     // The cell in front of the face: its fluid when that absorbs light, else its solid block, as the engine picks the block it asks
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -409,10 +406,8 @@ internal static class FaceLight
 
     // (int)((float)sum * factor) on each lane
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector128<int> Scale(Vector128<int> sums, Vector128<float> factor)
-    {
-        return Vector128.ConvertToInt32(Vector128.ConvertToSingle(sums) * factor);
-    }
+    private static Vector128<int> Scale(Vector128<int> sums, Vector128<float> factor) =>
+        Vector128.ConvertToInt32(Vector128.ConvertToSingle(sums) * factor);
 
     // Bit c of the four bits as lane c: all ones when set
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -465,9 +460,9 @@ internal static class FaceLight
         {
             return Kind(type, overrides);
         }
-        catch (Exception e) when (e is AmbiguousMatchException or TypeLoadException or FileNotFoundException
-                                      or FileLoadException
-                                      or BadImageFormatException or MissingMemberException or InvalidOperationException)
+        catch (Exception e) when (e is AmbiguousMatchException or TypeLoadException or FileNotFoundException or
+                                      FileLoadException or BadImageFormatException or MissingMemberException or
+                                      InvalidOperationException)
         {
             return 0;
         }
@@ -511,22 +506,13 @@ internal static class FaceLight
     private readonly record struct Entry(Block? Owner, bool FluidsLayer);
 
     [InlineArray(Samples)]
-    internal struct Eight
-    {
-        private int _element;
-    }
+    internal struct Eight { private int _element; }
 
     [InlineArray(Around)]
-    private struct Block27
-    {
-        private int _element;
-    }
+    private struct Block27 { private int _element; }
 
     [InlineArray(Factors5)]
-    private struct Floats5
-    {
-        private float _element;
-    }
+    private struct Floats5 { private float _element; }
 
     // One face's 8 samples: what the cell holds (EmitSideAo, Leaves, Absorbs, Custom bits) and its light
     internal struct Cells
@@ -611,12 +597,8 @@ internal static class FaceLight
         }
 
         // The index offset of a cell of the 3x3x3 block, numbered (y + 1) * 9 + (z + 1) * 3 + x + 1
-        public static int OffsetOf(int cell)
-        {
-            return Index(cell, Around)
-                ? (cell / 9 - 1) * TessSeams.Plane + (cell / 3 % 3 - 1) * Ext + (cell % 3 - 1)
-                : 0;
-        }
+        public static int OffsetOf(int cell) =>
+            Index(cell, Around) ? (cell / 9 - 1) * TessSeams.Plane + (cell / 3 % 3 - 1) * Ext + (cell % 3 - 1) : 0;
 
         private byte[] Distinct()
         {

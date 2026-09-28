@@ -1,0 +1,276 @@
+using Vintagestory.API.MathTools;
+using Vintagestory.Client.NoObf;
+using static Komet.Options.KometPages;
+
+namespace Komet.Options;
+
+// The screen's picture: one canvas over the columns (search bar, sidebar, scrolled list, description, buttons), recomposed only when
+// something it shows changed, over the game blurred (Backdrop) and dimmed; it ends above the hotbar. The highlight under the cursor is
+// one translucent rectangle over the canvas, so hovering never recomposes: each frame it eases toward what is under the cursor,
+// fading in and out and gliding from row to row within a column; a click briefly flashes it brighter.
+internal sealed partial class OptionsScreen
+{
+    // Sizes before the GUI scale
+    private const double TextScale = 1.4, Margin = 28, Space = 10, SideWidth = 300, MinSide = 220, ContentWidth = 700,
+        MinContent = 420, DescWidth = 360, MinDesc = 240, SideShare = 0.2, DescShare = 0.24, SearchHeight = 44,
+        SectionHeight = 58, PageHeight = 44, GroupHeight = 32, RowHeight = 42, Spacer = 8, Pad = 18, Box = 18,
+        TrackWidth = 180, ButtonWidth = 200, ButtonHeight = 42, Track = 6, KnobSize = 14, AccentBar = 4;
+
+    private const int MaxItems = 512, MaxLines = 12, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
+    private const double GearSize = 85, GearShown = 0.55, MinShare = 0.5; // the hotbar's temporal gear: its size, the part above
+
+    private const float DimDepth = 900, ScreenDepth = 1000;
+    private const int Dim = 150, BlurDim = 90; // the dim's alpha, lighter over the blur
+    private const double FadeSeconds = 0.5;
+    private const double SoftGlow = 0.04, RowGlow = 0.14, StrongGlow = 0.22, Flash = 0.1, Speed = 20, FlashFade = 7, Settle = 0.003;
+    private const int TopGroup = 1, SideGroup = 2, ListGroup = 3, ButtonGroup = 4;
+    private const float GlowDepth = ScreenDepth + 1;
+    private double _fade; // how far the blur and the dim have come in since the screen opened, 0 to 1
+    private (double X, double Y) _mouse = (-1, -1); // in canvas pixels
+    private Light _glow, _target;
+    private double _flash;
+
+    private static readonly Rgba Panel = new(0, 0, 0, 0.62), HeaderBack = new(0, 0, 0, 0.8),
+        RowBack = new(0, 0, 0, 0.5), Selected = Rgba.White(0.08), Title = new(0.55, 0.78, 1, 1),
+        Faint = Rgba.White(0.5), Soft = Rgba.White(0.82), BoxLine = Rgba.White(0.7);
+
+    private enum ItemKind
+    {
+        Section,
+        Page,
+        Group,
+        Row,
+        Space
+    }
+
+    private sealed record Item(ItemKind Kind, double Height, OptionPage Page, OptionRow? Row = null, string Text = "");
+
+    // The columns in canvas pixels: the canvas is Width wide and Height high, the columns start at Top below the search bar
+    private sealed record Columns(double Width, double Height, double Side, double Content, double Desc, double Top, double Gap);
+
+    private readonly record struct Light(double X, double Y, double W, double H, double Alpha, int Group);
+
+    public override void OnRenderGUI(float deltaTime)
+    {
+        if (!Finite(deltaTime) || !IsOpened()) return;
+        if (_embedded is { Handler: GuiDialog menu } && !menu.IsOpened())
+        {
+            Leave(); // the escape menu closed under the screen
+            return;
+        }
+
+        int w = capi.Render.FrameWidth, h = capi.Render.FrameHeight;
+        if (!Assert(w > 0 && h > 0)) return;
+        _fonts.Update(TextScale);
+        var bottom = Math.Round(Bottom(h));
+        if (_dirty || _epoch != _fonts.Epoch || _frame != (w, h) || Math.Abs(bottom - _bottom) >= 1) Compose(w, h, bottom);
+        // The HUD drew before the screen (a lower draw order) and left its depth behind, near enough that the hotbar, its item
+        // stacks, the chat and the minimap won against the screen wherever they overlap it. Without the depth test the screen paints
+        // over whatever is there, and writes no depth for the dialogs drawn after it (tooltips).
+        capi.Render.GLDisableDepthTest();
+        try
+        {
+            _fade = Finite(_fade) ? Math.Min(1, _fade + deltaTime / FadeSeconds) : 1;
+            var eased = _fade * _fade * (3 - 2 * _fade); // smoothstep: no jolt at either end
+            var dim = _backdrop.Draw(DimDepth - 1, eased) ? BlurDim : Dim;
+            capi.Render.RenderRectangle(0, 0, DimDepth, w, h, ColorUtil.ToRgba((int)Math.Round(dim * eased), 0, 0, 0));
+            if (!_canvas.Ready) return;
+            _canvas.Draw(Math.Round((w - _canvas.Width) / 2), Math.Round(scaled(Margin)), ScreenDepth);
+            DrawNames();
+            Glow(deltaTime);
+        }
+        finally
+        {
+            capi.Render.GLEnableDepthTest(); // as the ortho stage has it
+        }
+    }
+
+    private void Compose(int width, int height, double bottom)
+    {
+        if (!Assert(width > 0) || !Assert(height > 0) || !Assert(bottom <= height)) return;
+        if (_epoch != _fonts.Epoch) _widest.Clear();
+        (_dirty, _epoch, _frame, _bottom) = (false, _fonts.Epoch, (width, height), bottom);
+        Composing?.Invoke();
+        _hits.Clear();
+        _rows.Clear();
+        _canvas.BeginMeasure();
+        var c = Measure(width, bottom);
+        var items = Items();
+        var current = Scroll(items, c);
+        if (!_canvas.Blank(c.Width, c.Height)) return;
+        Search(c);
+        Sidebar(c, current);
+        Content(c, items);
+        Description(c);
+        Buttons(c);
+        Picker(c);
+        _canvas.End();
+        Retarget(); // the boxes moved (a scroll, another page): the highlight follows what is under the cursor now
+    }
+
+    // Where the screen ends, in frame pixels: a gap above the hotbar, the bars over it and its temporal gear, so none of them shows
+    // through; the frame's margin without them (spectator mode) or when what is left would be less than half the frame
+    private double Bottom(int height)
+    {
+        var (bottom, top) = (height - scaled(Margin), (double)height);
+        var gui = capi.Gui?.OpenedGuis;
+        if (gui is null || capi.World?.Player?.WorldData?.CurrentGameMode == EnumGameMode.Spectator) return bottom;
+        foreach (var dialog in gui.Take(MaxDialogs).Bounded(MaxDialogs))
+        {
+            var bounds = dialog switch
+            {
+                HudHotbar => dialog.Composers["hotbar"]?.Bounds,
+                HudStatbar => dialog.Composers["statbar"]?.Bounds,
+                _ => null
+            };
+            if (bounds is null || !Finite(bounds.renderY) || bounds.renderY <= 0) continue;
+            top = Math.Min(top, bounds.renderY);
+            // renderGear: the gear's texture (85 scaled, 5 around it) reaches 0.55 of itself above a line 30 under the composer's
+            // top (the composer is 20 taller than the hotbar, which sits 5 low, and the line is 15 under the hotbar's)
+            if (dialog is HudHotbar && capi.World?.Config?.GetBool("temporalStability", true) != false)
+                top = Math.Min(top, bounds.renderY + scaled(30) - (Math.Ceiling(scaled(GearSize)) + 10) * GearShown);
+        }
+
+        var above = top - S(Space);
+        return above - scaled(Margin) >= height * MinShare ? Math.Min(bottom, above) : bottom;
+    }
+
+    // The columns share the frame down to bottom: sidebar and description take their part of it within bounds, the list the rest up
+    // to its most; on a narrow frame the description goes first, the buttons then under the sidebar
+    private static Columns Measure(double width, double bottom)
+    {
+        double gap = S(Space), room = width - 2 * S(Margin);
+        if (!Finite(bottom) || !Assert(room > 0)) return new Columns(1, 1, 1, 1, 0, 0, 0);
+        var side = Math.Clamp(room * SideShare, S(MinSide), S(SideWidth));
+        var desc = Math.Clamp(room * DescShare, S(MinDesc), S(DescWidth));
+        var content = Math.Min(S(ContentWidth), room - side - desc - 2 * gap);
+        if (content < S(MinContent)) (desc, content) = (0, Math.Min(S(ContentWidth), room - side - gap));
+        content = Math.Max(S(ButtonWidth), content);
+        var total = side + gap + content + (desc > 0 ? gap + desc : 0);
+        return new Columns(total, bottom - scaled(Margin), side, content, desc, scaled(SearchHeight) + gap, gap);
+    }
+
+    // What the list shows: the chosen page under its title, or what the search found in every page
+    private List<Item> Items()
+    {
+        if (_query.Length > 0) return Found();
+        List<Item> items = [];
+        if (Array.Find(_pages, p => p.Id == _page) is not { } page) return items;
+        items.Add(new Item(ItemKind.Section, S(SectionHeight), page, Text: page.Title));
+        for (var i = 0; i < Math.Min(page.Count, OptionPage.MaxRows); i++)
+        {
+            var row = page[i];
+            if (!NotNull(row) || !Assert(items.Count < MaxItems)) continue;
+            if (row.Kind == OptionKind.Group) items.Add(new Item(ItemKind.Space, scaled(Spacer), page));
+            items.Add(row.Kind == OptionKind.Group
+                ? new Item(ItemKind.Group, scaled(GroupHeight), page, Text: row.Label)
+                : new Item(ItemKind.Row, scaled(RowHeight), page, row));
+        }
+
+        _ = Assert(items.Count <= MaxItems);
+        return items;
+    }
+
+    private List<Item> Found()
+    {
+        List<Item> items = [];
+        foreach (var page in _pages.Bounded(MaxPages))
+        {
+            var header = false;
+            for (var i = 0; i < Math.Min(page.Count, OptionPage.MaxRows); i++)
+            {
+                var row = page[i];
+                if (row.Kind == OptionKind.Group || !Matches(row)) continue;
+                if (!header) items.Add(new Item(ItemKind.Page, scaled(PageHeight), page, Text: page.Section + " › " + page.Title));
+                header = true;
+                items.Add(new Item(ItemKind.Row, scaled(RowHeight), page, row));
+            }
+        }
+
+        _ = Assert(items.Count <= MaxItems);
+        if (items.Count == 0 && _pages.Length > 0)
+            items.Add(new Item(ItemKind.Group, scaled(GroupHeight), _pages[0], Text: T("nothing-found")));
+        return items;
+    }
+
+    private bool Matches(OptionRow row) => NotNull(row) &&
+        (row.Label.Contains(_query, StringComparison.CurrentCultureIgnoreCase) ||
+         (row.Hint ?? "").Contains(_query, StringComparison.CurrentCultureIgnoreCase));
+
+    // The scroll clamped to the list; returns the page the sidebar lights (none while searching)
+    private string Scroll(List<Item> items, Columns c)
+    {
+        double total = 0;
+        if (!NotNull(items) || !NotNull(c)) return "";
+        foreach (var item in items.Bounded(MaxItems)) total += item.Height;
+        if (!Finite(_scroll)) _scroll = 0;
+        _scroll = Math.Clamp(_scroll, 0, Math.Max(0, total - (c.Height - c.Top)));
+        return Assert(total >= 0) && _query.Length == 0 ? _page : "";
+    }
+
+    private static double S(double size) => Finite(size) ? scaled(size) : 0;
+
+    // Words onto lines no wider than width; a line break in the text starts a line
+    private List<string> Wrap(string text, CairoFont font, double width)
+    {
+        List<string> lines = [];
+        if (!NotNull(text) || !Assert(width > 0)) return lines;
+        foreach (var paragraph in text.Split('\n').Bounded(MaxLines))
+        {
+            var line = "";
+            foreach (var word in paragraph.Split(' ').Bounded(MaxWords))
+            {
+                var next = line.Length == 0 ? word : line + " " + word;
+                if (line.Length > 0 && _canvas.TextWidth(font, next) > width)
+                {
+                    lines.Add(line);
+                    next = word;
+                }
+
+                line = next;
+            }
+
+            lines.Add(line);
+        }
+
+        return lines;
+    }
+
+    // What the highlight heads for: the box under the cursor that does something (a row only inside the list's view), or nothing
+    private void Retarget()
+    {
+        var (x, y) = _mouse;
+        var hit = PickAt(x, y) ?? _hits.Find(h => h.Covers(x, y)); // the open window's gaps (no glow) hide what is under them
+        var (vx, vy, vw, vh) = _view;
+        if (hit is null && x >= vx && x < vx + vw && y >= vy && y < vy + vh) hit = _rows.Find(h => h.Row && h.Covers(x, y));
+        if (hit is null || !Assert(hit.Glow >= 0) || hit.Glow <= 0)
+        {
+            _target = _target with { Alpha = 0 };
+            return;
+        }
+
+        // a row half scrolled out of the list is lit only where it shows
+        var (top, bottom) = hit.Group == ListGroup ? (Math.Max(hit.Y, vy), Math.Min(hit.Y + hit.H, vy + vh)) : (hit.Y, hit.Y + hit.H);
+        _target = new Light(hit.X, top, hit.W, Math.Max(0, bottom - top), hit.Glow, hit.Group);
+    }
+
+    // One frame of easing, then the rectangle over the canvas
+    private void Glow(float deltaTime)
+    {
+        if (!Finite(deltaTime) || !Assert(deltaTime >= 0)) return;
+        var (t, k) = (_target, 1 - Math.Exp(-deltaTime * Speed));
+        if (t.Alpha > 0 && (_glow.Alpha < Settle || _glow.Group != t.Group))
+            _glow = t with { Alpha = _glow.Group == t.Group ? _glow.Alpha : 0 }; // appears where it is: no glide across the screen
+        if (t.Alpha > 0) _glow = _glow with { X = Ease(_glow.X, t.X, k), Y = Ease(_glow.Y, t.Y, k), W = Ease(_glow.W, t.W, k),
+            H = Ease(_glow.H, t.H, k) };
+        _glow = _glow with { Alpha = Ease(_glow.Alpha, t.Alpha, k) };
+        _flash *= Math.Exp(-deltaTime * FlashFade);
+        var alpha = Math.Min(1, _glow.Alpha + (t.Alpha > 0 ? _flash : 0));
+        if (alpha < Settle || _glow.W <= 0 || _glow.H <= 0) return;
+        capi.Render.RenderRectangle((float)(_canvas.X + _glow.X), (float)(_canvas.Y + _glow.Y), GlowDepth, (float)_glow.W,
+            (float)_glow.H, ColorUtil.ToRgba((int)(alpha * 255), 255, 255, 255));
+    }
+
+    private static double Ease(double from, double to, double k) =>
+        Finite(from) && Finite(to) && Finite(k) ? from + (to - from) * k : to;
+}

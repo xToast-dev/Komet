@@ -6,14 +6,89 @@ indent_size = 4
 end_of_line = lf
 charset = utf-8
 insert_final_newline = true
+# Code wraps at 120 columns (comments run to 140); a wrapped construct that fits in 120 is joined again
+max_line_length = 120
+csharp_style_namespace_declarations = file_scoped
+# dotnet format keeps a one-line initializer on one line
+csharp_new_line_before_members_in_object_initializers = false
+csharp_new_line_before_members_in_anonymous_types = false
 
 # A discarded return value must be discarded explicitly (`_ = f()`)
 dotnet_diagnostic.IDE0058.severity = warning
-csharp_style_unused_value_expression_statement_preference = discard_variable
+
+# Dead code, redundancy and the modern forms: all clean, kept clean
+dotnet_diagnostic.IDE0004.severity = warning
+dotnet_diagnostic.IDE0005.severity = warning
+dotnet_diagnostic.IDE0028.severity = warning
+dotnet_diagnostic.IDE0035.severity = warning
+dotnet_diagnostic.IDE0036.severity = warning
+dotnet_diagnostic.IDE0040.severity = warning
+dotnet_diagnostic.IDE0044.severity = warning
+dotnet_diagnostic.IDE0051.severity = warning
+dotnet_diagnostic.IDE0052.severity = warning
+dotnet_diagnostic.IDE0059.severity = warning
+dotnet_diagnostic.IDE0060.severity = warning
+dotnet_diagnostic.IDE0062.severity = warning
+dotnet_diagnostic.IDE0079.severity = warning
+dotnet_diagnostic.IDE0080.severity = warning
+dotnet_diagnostic.IDE0100.severity = warning
+dotnet_diagnostic.IDE0110.severity = warning
+dotnet_diagnostic.IDE0120.severity = warning
+dotnet_diagnostic.IDE0161.severity = warning
+dotnet_diagnostic.IDE0200.severity = warning
+dotnet_diagnostic.IDE0251.severity = warning
+dotnet_diagnostic.IDE0290.severity = warning
+dotnet_diagnostic.IDE0300.severity = warning
+dotnet_diagnostic.IDE0301.severity = warning
+dotnet_diagnostic.IDE0302.severity = warning
+dotnet_diagnostic.IDE0303.severity = warning
+dotnet_diagnostic.IDE0304.severity = warning
+dotnet_diagnostic.IDE0305.severity = warning
+dotnet_diagnostic.IDE0306.severity = warning
+dotnet_diagnostic.IDE0330.severity = warning
+dotnet_diagnostic.IDE0340.severity = warning
+dotnet_diagnostic.RCS1163.severity = warning
 
 # Contracts.NotNull is the mod's argument check; CA1062 accepts it as a null guard
 dotnet_code_quality.null_check_validation_methods = NotNull
 
-# Frosting tasks and NUnit fixtures are found by reflection and have to stay public
-[{CakeBuild,Komet.Test}/**.cs]
-dotnet_diagnostic.CA1515.severity = none
+# Rules that do not fit this mod
+dotnet_diagnostic.RCS1123.severity = none   # redundant parentheses stay out
+dotnet_diagnostic.CA1031.severity = none    # thread and engine boundaries catch everything: an escaping exception ends the game
+dotnet_diagnostic.CA1308.severity = none    # lang keys are lower case
+dotnet_diagnostic.S1144.severity = none     # flags [InlineArray] elements; IDE0051/IDE0052 cover unused members
+dotnet_diagnostic.S1075.severity = none     # the release feed URL has exactly one home
+
+[Komet/KometModSystem.cs]
+dotnet_diagnostic.CA1063.severity = none    # sealed override of ModSystem's virtual Dispose
+
+[Komet/Bench/Benchmark.cs]
+dotnet_diagnostic.CA2000.severity = none    # the engine disposes a registered renderer with the world
+
+[Komet/Rendering/IndirectDraw.cs]
+dotnet_diagnostic.S6640.severity = none     # the persistent GL mapping is a raw pointer
+
+[tests/**.cs]
+dotnet_diagnostic.CA5394.severity = none    # seeded Random: reproducible, not secret
+
+[tests/Komet.Test/**.cs]
+dotnet_diagnostic.CA1515.severity = none    # NUnit finds fixtures by reflection
+dotnet_diagnostic.CA2000.severity = none
+dotnet_diagnostic.CA1810.severity = none
+dotnet_diagnostic.CA1812.severity = none
+dotnet_diagnostic.CA2211.severity = none
+dotnet_diagnostic.S1215.severity = none
+dotnet_diagnostic.S2223.severity = none
+dotnet_diagnostic.S3236.severity = none
+dotnet_diagnostic.S3963.severity = none
+
+# A public library of test rigs: its callers are tests
+[tests/Komet.Testing/**.cs]
+dotnet_diagnostic.CA1062.severity = none    # a null argument fails the calling test where it is used
+dotnet_diagnostic.CA1002.severity = none    # tests read, add to and compare the lists a rig records into
+dotnet_diagnostic.CA1819.severity = none    # the arrays are the engine's own buffers and palettes, handed out to inspect and fill
+
+# Loaded only by this repository's build: no release tracking, and the compiler never passes a null context
+[tools/Komet.Rules/**.cs]
+dotnet_diagnostic.RS2008.severity = none
+dotnet_diagnostic.CA1062.severity = none

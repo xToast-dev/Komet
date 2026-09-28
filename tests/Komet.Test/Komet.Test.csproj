@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>
+        <PackageReference Include="NUnit.Analyzers" Version="4.15.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="6.3.0"/>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0"/> <!-- RulesTests compile snippets with the analyzer -->
+    </ItemGroup>
+
+    <!-- The game API is copied next to the tests: the golden tests run the engine's culling against Komet's -->
+    <ItemGroup>
+        <ProjectReference Include="$(KometRepo)Komet/Komet.csproj"/>
+        <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj"/>
+        <ProjectReference Include="../Komet.Testing/Komet.Testing.csproj"/>
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll"/>
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll"/>
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll"/>
+        <Reference Include="VSEssentials" HintPath="$(VsInstall)/Mods/VSEssentials.dll"/>
+        <Reference Include="VSSurvivalMod" HintPath="$(VsInstall)/Mods/VSSurvivalMod.dll"/>
+        <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll"/>
+        <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll"/>
+        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll"/> <!-- the settings menu's bodies draw with it -->
+        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll"/> <!-- the game's own: Shape's JSON attributes and the atlas code TessSafety patches -->
+    </ItemGroup>
+
+    <!-- On top of NUnit and the usings shared with Komet.Testing (../Directory.Build.props) -->
+    <ItemGroup>
+        <Using Include="System.Reflection.Emit"/>
+        <Using Include="Komet.Testing"/>
+        <Using Include="Komet.Test.Rigs"/>
+    </ItemGroup>
+
+    <!-- The repository: the rules and options tests read the mod's lang files and modinfo.json, the bench tests scripts/bench.json. The
+         installation comes from Komet.Testing's GameInstall. -->
+    <ItemGroup>
+        <AssemblyMetadata Include="KometRepo" Value="$(KometRepo)"/>
+    </ItemGroup>
+
+</Project>

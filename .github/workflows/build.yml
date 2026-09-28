@@ -1,42 +1,34 @@
 name: build
 
-# The gate is build.sh: JSON validation, the Power-of-Ten rules and the compile with every
-# warning as an error. What passes here is packed as the zip that gets released.
+# Gate: build.sh (JSON check, Komet.Rules, warnings as errors, package). Tests need a game install and run locally only.
 on:
   push:
-    # workflow_dispatch only shows its "Run workflow" button for workflows that exist on the
-    # default branch, so main carrying this file is what makes manual runs possible at all.
-    # No path filter: with one, a push whose diff is empty (a merge of identical commits, say) gets no run and
-    # therefore no preview tag, which looks like a broken release pipeline.
     branches: [main, nightly]
   pull_request:
   workflow_dispatch:
 
-# A second push onto the same branch makes the first run pointless.
+# Never cancel on main: a cancelled release job could leave v<version> tagged without its release.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     env:
-      # The game assemblies Komet.csproj compiles against, in the layout the csproj expects
-      # (see .github/vintagestory/README.md). MSBuild picks the variable up as $(VsInstall).
+      # Game assemblies to compile against (see .github/vintagestory/README.md)
       VsInstall: ${{ github.workspace }}/.github/vintagestory
-      # Stamped into the assembly (Komet.csproj); the HUD shows "Preview" instead of "Release"
-      # and the commit next to the version, so a preview zip can never pass for a release.
+      # Stamped into the assembly: the HUD shows "Preview" and the commit for non-release builds
       KometChannel: ${{ github.ref == 'refs/heads/main' && 'release' || 'preview' }}
 
     steps:
       - uses: actions/checkout@v7
 
-      # No version here on purpose: global.json pins it, so the runner and a developer's
-      # machine compile with the same SDK.
+      # SDK version comes from global.json
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
 
@@ -45,33 +37,13 @@ jobs:
           echo "KometCommit=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "KometBuilt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
-      # Fails with the missing file names rather than with a wall of CS0246 "type or
-      # namespace not found" from the first reference that could not be resolved.
-      - name: Check the game assemblies are present
-        run: |
-          missing=()
-          for f in VintagestoryAPI.dll VintagestoryLib.dll \
-                   Lib/0Harmony.dll Lib/cairo-sharp.dll Lib/Newtonsoft.Json.dll Lib/OpenTK.Graphics.dll; do
-            [[ -f "$VsInstall/$f" ]] || missing+=("$f")
-          done
-          if (( ${#missing[@]} )); then
-            printf 'missing in .github/vintagestory:\n'
-            printf '  %s\n' "${missing[@]}"
-            printf 'see .github/vintagestory/README.md for the expected layout\n'
-            exit 1
-          fi
-          echo "all 6 game assemblies present"
+      - name: Check the game assemblies
+        working-directory: .github/vintagestory
+        run: sha256sum --check --strict SHA256SUMS
 
-      # build.sh is the single source of truth for what a release is: it validates the
-      # assets, runs the rules, publishes and only then packs Releases/komet_<version>.zip.
       - name: Build, check and pack
         run: ./build.sh
 
-      - name: Test
-        run: dotnet test Komet.Test/Komet.Test.csproj --configuration Release
-
-      # Into the run summary, so the checksum of a build can be read (and pasted onto the
-      # ModDB page) without downloading the artifact first.
       - name: Report checksums
         run: |
           cd Releases
@@ -93,21 +65,13 @@ jobs:
             Releases/komet.sha256
           if-no-files-found: error
 
-  # Everything that is built lands under Releases, but not as the same kind of thing:
-  #
-  #   main            -> a DRAFT tagged v<version>. The real release; a human looks at it and
-  #                      presses publish. An existing tag is never moved - a version is
-  #                      published once.
-  #   nightly, manual run
-  #                   -> a PRERELEASE tagged preview-<sha>, visible in the tab right away and
-  #                      never marked "latest". One per commit, so a preview and the sha256 in
-  #                      its notes belong together permanently.
-  #
-  # Pull requests publish nothing (a fork must not be able to tag this repository).
+  # main -> draft release v<version> (tags are never moved); other branches -> prerelease preview-<sha>; PRs publish nothing.
   release:
     needs: build
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v7
@@ -120,7 +84,6 @@ jobs:
           name: komet
           path: dist
 
-      # modinfo.json is what the game reads and what build.sh named the zip after.
       - name: Work out what this is
         id: what
         run: |
@@ -146,10 +109,7 @@ jobs:
             echo "prerelease=true"                       >> "$GITHUB_OUTPUT"
           fi
 
-      # A version is published once. If the tag is already there, the release that belongs to
-      # it was built from another commit; nothing is published then - bump the version in
-      # modinfo.json to publish again. (Previews carry the commit in their tag, so they never
-      # land here.)
+      # A version is published once: bump modinfo.json to publish again.
       - name: Tag the commit
         id: tag
         run: |
@@ -184,7 +144,8 @@ jobs:
           } > notes.md
           cat notes.md
 
-      - uses: softprops/action-gh-release@v3
+      # pinned to a commit: a third-party action that publishes the release must not change under the same tag
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: steps.tag.outputs.publish == 'true'
         with:
           tag_name: ${{ steps.what.outputs.tag }}
@@ -199,9 +160,7 @@ jobs:
             dist/komet.sha256
           fail_on_unmatched_files: true
 
-      # One preview per commit means the tab would grow without end. Keep the newest few;
-      # tags go with them. Version tags (v*) are never touched. Newest by publish date: createdAt
-      # is the tagged commit's date, which rebases and cherry-picks scramble.
+      # Keep the newest previews (by publish date); v* tags are never touched.
       - name: Prune old previews
         if: steps.what.outputs.preview == 'true'
         env:

@@ -1,21 +1,55 @@
 <Project>
 
-    <!-- Rule 6: every warning is an error, all analyzers on, three independent analyzer sets (NetAnalyzers, Roslynator, Sonar) -->
     <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>14</LangVersion>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
         <WarningLevel>9999</WarningLevel>
         <AnalysisLevel>latest-all</AnalysisLevel>
         <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
-        <NuGetAudit>true</NuGetAudit>
-        <NuGetAuditMode>all</NuGetAuditMode>
-        <NuGetAuditLevel>low</NuGetAuditLevel>
+        <!-- IDE0005 runs in the build only with a documentation file (dotnet/roslyn#41640); the file itself is not wanted anywhere -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <CopyDocumentationFileToOutputDirectory>false</CopyDocumentationFileToOutputDirectory>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+        <VsInstall Condition="'$(VsInstall)' == ''">/opt/vintagestory</VsInstall>
+        <!-- The repository root, with its trailing slash: the projects reach each other and the tests the mod's folder from here -->
+        <KometRepo>$(MSBuildThisFileDirectory)</KometRepo>
     </PropertyGroup>
 
+    <!-- The shipped assembly embeds /_/-relative source paths in a release ([CallerFilePath] in Contracts, the pdb); Debug and the tests
+         keep absolute ones for the debugger -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(MSBuildProjectName)' == 'Komet'">
+        <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+    </PropertyGroup>
+
+    <!-- The game's API in every project that runs against the game; the analyzer project knows none of it -->
+    <ItemGroup Condition="'$(MSBuildProjectName)' != 'Komet.Rules'">
+        <Using Include="Vintagestory.API.Client"/>
+        <Using Include="Vintagestory.API.Common"/>
+        <Using Include="Vintagestory.API.Config"/>
+    </ItemGroup>
+
+    <!-- The mod's own namespaces, in the mod and its tests; Komet.Testing stays independent of the mod -->
+    <ItemGroup Condition="'$(MSBuildProjectName)' == 'Komet' or '$(MSBuildProjectName)' == 'Komet.Test'">
+        <Using Include="Komet.Core"/>
+        <Using Include="Komet.Rendering"/>
+        <Using Include="Komet.Chunks"/>
+        <Using Include="Komet.Tessellation"/>
+        <Using Include="Komet.Shapes"/>
+        <Using Include="Komet.World"/>
+        <Using Include="Komet.Hud"/>
+        <Using Include="Komet.Diagnostics"/>
+        <Using Include="Komet.Bench"/>
+        <Using Include="Komet.Options"/>
+        <Using Include="Komet.Api"/>
+    </ItemGroup>
+
     <ItemGroup>
-        <PackageReference Include="Roslynator.Analyzers" Version="5.0.0" PrivateAssets="all" />
-        <PackageReference Include="SonarAnalyzer.CSharp" Version="10.34.0.3385" PrivateAssets="all" />
+        <PackageReference Include="Roslynator.Analyzers" Version="5.0.0" PrivateAssets="all"/>
+        <PackageReference Include="SonarAnalyzer.CSharp" Version="10.34.0.3385" PrivateAssets="all"/>
     </ItemGroup>
 
 </Project>

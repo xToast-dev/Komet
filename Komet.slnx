@@ -1,0 +1,10 @@
+<Solution>
+    <Project Path="Komet/Komet.csproj"/>
+    <Folder Name="/tests/">
+        <Project Path="tests/Komet.Test/Komet.Test.csproj"/>
+        <Project Path="tests/Komet.Testing/Komet.Testing.csproj"/>
+    </Folder>
+    <Folder Name="/tools/">
+        <Project Path="tools/Komet.Rules/Komet.Rules.csproj"/>
+    </Folder>
+</Solution>

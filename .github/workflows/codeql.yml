@@ -1,0 +1,73 @@
+name: codeql
+
+# Scans the C# (built against .github/vintagestory, without Komet.Test) and the workflows.
+on:
+  push:
+    branches: [main, nightly]
+  pull_request:
+    branches: [main, nightly]
+  schedule:
+    # weekly, so new queries run against code that has not changed
+    - cron: '37 23 * * 5'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: csharp
+            build-mode: manual
+
+    env:
+      # as in build.yml: MSBuild picks the variable up as $(VsInstall)
+      VsInstall: ${{ github.workspace }}/.github/vintagestory
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # global.json pins the SDK
+      - name: Set up .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v6
+
+      - name: Check the game assemblies
+        if: matrix.language == 'csharp'
+        working-directory: .github/vintagestory
+        run: sha256sum --check --strict SHA256SUMS
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # the suites, and the rules left out with their reasons
+          config-file: ./.github/codeql/codeql-config.yml
+
+      # A plain Release build, no Package target: CodeQL needs the compile, not the zip. The
+      # compiler server would compile outside CodeQL's tracer, so it is switched off.
+      - name: Build
+        if: matrix.build-mode == 'manual'
+        run: dotnet build Komet/Komet.csproj -c Release -p:UseSharedCompilation=false
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

@@ -1,42 +1,99 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <OutputPath>bin\$(Configuration)\Mods\mod</OutputPath>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- for the generated LibraryImport stubs only -->
-        <VsInstall Condition="'$(VsInstall)' == ''">/opt/vintagestory</VsInstall>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport stubs, [SkipLocalsInit] (ExtendedRows), IndirectDraw's mapped buffer -->
+        <GenerateDependencyFile>false</GenerateDependencyFile>   <!-- the game loads the mod assembly itself -->
     </PropertyGroup>
 
     <ItemGroup>
-        <Using Include="Vintagestory.API.Client" />
-        <Using Include="Vintagestory.API.Common" />
-        <Using Include="Vintagestory.API.Config" />
-        <Using Include="Vintagestory.API.Client.GuiElement" Static="true" />
-        <Using Include="Komet.Contracts" Static="true" />
-        <InternalsVisibleTo Include="Komet.Test" />
+        <Using Include="Vintagestory.API.Client.GuiElement" Static="true"/>
+        <Using Include="Komet.Contracts" Static="true"/>
+        <InternalsVisibleTo Include="Komet.Test"/>
     </ItemGroup>
 
     <!-- Supplied by the game at runtime, never copied into the mod output -->
     <ItemGroup>
-        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false" />
-        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false" />
-        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false" />
-        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll" Private="false" />
-        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false" />
-        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false" />
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false"/>
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false"/>
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false"/>
+        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll" Private="false"/>
+        <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll" Private="false"/>
+        <Reference Include="OpenTK.Windowing.Common" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Common.dll" Private="false"/>
+        <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll" Private="false"/>
+        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false"/>
+        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false"/>
     </ItemGroup>
 
     <!-- Stamped by CI (see .github/workflows/build.yml); a local build carries neither and the HUD shows plain Release -->
     <ItemGroup>
-        <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''" />
-        <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''" />
-        <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''" />
+        <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''"/>
+        <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''"/>
+        <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''"/>
+    </ItemGroup>
+
+    <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build of this project; the lang files are their input -->
+    <ItemGroup>
+        <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+        <AdditionalFiles Include="assets/**/lang/*.json"/>
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
-        <Content Include="modicon.png" Condition="Exists('modicon.png')" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Include="modicon.png" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
+
+    <!-- `dotnet build -c Release -t:Package` (build.sh) builds, lays the mod out in ../Releases/<modid> (scripts/bench.sh loads it from
+         there) and zips it as <modid>_<version>.zip. An explicit target, not one after every Release build: a Release build of the tests
+         must neither replace the gate's zip nor delete the folder a bench is running from. -->
+    <Target Name="Package" DependsOnTargets="ValidateJson;Build">
+        <Error Condition="'$(Configuration)' != 'Release'" Text="Package takes a Release build: dotnet build -c Release -t:Package"/>
+        <PropertyGroup>
+            <ModInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/modinfo.json'))</ModInfo>
+            <ModId>$([System.Text.RegularExpressions.Regex]::Match($(ModInfo), '(?&lt;="modid"\s*:\s*")[^"]+'))</ModId>
+            <ModVersion>$([System.Text.RegularExpressions.Regex]::Match($(ModInfo), '(?&lt;="version"\s*:\s*")[^"]+'))</ModVersion>
+            <ReleaseRoot>$(MSBuildProjectDirectory)/../Releases</ReleaseRoot>
+            <ReleaseDir>$(ReleaseRoot)/$(ModId)</ReleaseDir>
+        </PropertyGroup>
+        <Error Condition="'$(ModId)' == '' or '$(ModVersion)' == ''" Text="modinfo.json: modid and version must not be empty"/>
+        <ItemGroup>
+            <ReleaseFile Include="$(TargetPath);$(TargetDir)$(TargetName).pdb;@(Content)"/>
+            <ReleaseAsset Include="assets/**"/>
+        </ItemGroup>
+        <RemoveDir Directories="$(ReleaseRoot)"/>
+        <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)"/>
+        <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset->'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')"/>
+        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(ModVersion).zip"/>
+    </Target>
+
+    <!-- The zip carries modinfo.json and the assets as they are, and the game parses them with Newtonsoft. The analyzer reads the lang
+         files tolerantly, so the real parse happens here, with the game's own library: comments and single quotes pass, a missing comma
+         fails the package. -->
+    <Target Name="ValidateJson">
+        <ItemGroup>
+            <JsonFile Include="modinfo.json;assets/**/*.json"/>
+        </ItemGroup>
+        <ValidateJson Library="$(VsInstall)/Lib/Newtonsoft.Json.dll" Files="@(JsonFile)"/>
+    </Target>
+
+    <!-- An inline task compiles against netstandard, which cannot see the game's net6 Newtonsoft; so the parser is bound at run time -->
+    <UsingTask TaskName="ValidateJson" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+        <ParameterGroup>
+            <Library Required="true"/>
+            <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true"/>
+        </ParameterGroup>
+        <Task>
+            <Using Namespace="System.Reflection"/>
+            <Code Type="Fragment" Language="cs"><![CDATA[
+                var parse = Assembly.LoadFrom(Library).GetType("Newtonsoft.Json.Linq.JToken", true).GetMethod("Parse", new[] { typeof(string) });
+                foreach (var file in Files)
+                {
+                    try { parse.Invoke(null, new object[] { File.ReadAllText(file.ItemSpec) }); }
+                    catch (TargetInvocationException e) { Log.LogError(null, null, null, file.ItemSpec, 0, 0, 0, 0, "invalid JSON: " + e.InnerException.Message); }
+                }
+            ]]></Code>
+        </Task>
+    </UsingTask>
 
 </Project>

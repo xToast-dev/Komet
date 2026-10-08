@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+    <PropertyGroup>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks> <!-- the GPU tests record Vulkan commands of their own -->
+    </PropertyGroup>
+
     <ItemGroup>
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>
         <PackageReference Include="NUnit.Analyzers" Version="4.15.0"/>
@@ -19,8 +23,14 @@
         <Reference Include="VSSurvivalMod" HintPath="$(VsInstall)/Mods/VSSurvivalMod.dll"/>
         <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll"/>
         <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll"/>
+        <!-- the GPU tests make a GL context of their own -->
+        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll"/>
+        <Reference Include="OpenTK.Windowing.Common" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Common.dll"/>
+        <Reference Include="OpenTK.Windowing.GraphicsLibraryFramework" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.GraphicsLibraryFramework.dll"/>
+        <Reference Include="OpenTK.Core" HintPath="$(VsInstall)/Lib/OpenTK.Core.dll"/>
         <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll"/> <!-- the settings menu's bodies draw with it -->
         <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll"/> <!-- the game's own: Shape's JSON attributes and the atlas code TessSafety patches -->
+        <Reference Include="Microsoft.Data.Sqlite" HintPath="$(VsInstall)/Lib/Microsoft.Data.Sqlite.dll"/> <!-- the world map's database -->
     </ItemGroup>
 
     <!-- On top of NUnit and the usings shared with Komet.Testing (../Directory.Build.props) -->

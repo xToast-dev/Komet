@@ -11,18 +11,13 @@ namespace Komet.Shapes;
 
 // Every animal without gear re-runs Shape.InitForAnimations on the shape its whole entity type shares, on every tesselation:
 // Entity.OnTesselation hands an uncloned shape to AnimManager.LoadAnimatorCached, and AnimationCache.InitManager inits it before it
-// looks the type up in its cache. That init is CacheInvTransforms, CollectAndResolveReferences (a name lookup per keyframe element,
-// ForElement and Frame written, AnimationsByCrc32 refilled, ParentElement set down the tree) and ResolveAndFindJoints (a new
-// FastSmallDictionary per keyframe, every JointId zeroed, new AnimationJoint objects, JointIds set again by depth), all inside
-// esr-tesseleateshape, once per animal.
+// looks the type up in its cache. That init allocates a FastSmallDictionary per keyframe and new AnimationJoint objects and zeroes
+// every JointId before setting it again, all inside esr-tesseleateshape, once per animal.
 //
-// For the same shape object, the same arguments and an unchanged tree the init is idempotent. So a completed init is remembered per
-// Shape (main thread only): the element tree in CollectElements' order, every animation, keyframe, keyframe entry and joint (the
-// records below), the joint list asked for and which keys resolve to nothing. The next init compares all of it by reference,
-// O(elements + keyframe elements), and only when everything matches skips the engine. It then writes what the engine would write
-// again, because Shape.Clone shares these objects with every clone and the clone's init points them at its own elements: ForElement
-// and Frame of every keyframe entry, ParentElement of every attachment point (ShapeElement.Clone copies the array, not the points),
-// and CacheInvTransforms. Anything else runs the engine, and its result is remembered anew.
+// For the same shape object, the same arguments and an unchanged tree the init is idempotent, so a completed init is remembered per
+// Shape (main thread only) and compared by reference. A skip still writes what the engine would write again, because Shape.Clone
+// shares these objects with every clone and the clone's init points them at its own elements: ForElement and Frame of every keyframe
+// entry, ParentElement of every attachment point (ShapeElement.Clone copies the array, not the points), and CacheInvTransforms.
 //
 // What stays different: the remembered resolved tables and AnimationJoint objects stay in place where the engine would allocate equal
 // new ones, and warnings the engine logs on every init of a flawed shape are logged by the first init only. The skip also closes an

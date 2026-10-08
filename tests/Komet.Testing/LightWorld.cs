@@ -3,12 +3,8 @@ using Vintagestory.API.Server;
 namespace Komet.Testing;
 
 // A 128 x 96 x 128 world on the engine's own chunk storage - ChunkData from a ChunkDataPool, held by a WorldChunk - behind an
-// IChunkProvider that is an array, and a ChunkIlluminator over it exactly as the server builds one. The terrain is fixed by the seed:
-// stone hills with caves, a glass wall and leaves (light passes, weakened), water, and light sources on chunk borders, at the map's
-// edges, under water, in caves and in clusters whose ranges overlap. A script of block light changes then runs on it: the light
-// sources placed, removed and re-placed, blocks put into and taken out of their light. After every step the touched chunks the engine
-// returns and a hash of every light value of those chunks are recorded. There is no sunlight: the block light code neither reads nor
-// writes it, and flooding the columns would take most of the test's time.
+// IChunkProvider that is an array, and a ChunkIlluminator over it exactly as the server builds one. There is no sunlight: the block
+// light code neither reads nor writes it, and flooding the columns would take most of the test's time.
 public sealed class LightWorld : IChunkProvider
 {
     public const int Size = 32, ChunksX = 4, ChunksY = 3, ChunksZ = 4;
@@ -46,10 +42,8 @@ public sealed class LightWorld : IChunkProvider
     // Chunks the provider answers as not loaded, as a server with a column loaded only in part; the world keeps them
     public HashSet<(int X, int Y, int Z)> Unloaded { get; } = [];
 
-    public IWorldChunk GetChunk(int chunkX, int chunkY, int chunkZ)
-    {
-        return Unloaded.Contains((chunkX, chunkY, chunkZ)) ? null! : Chunk(chunkX, chunkY, chunkZ)!;
-    }
+    public IWorldChunk GetChunk(int chunkX, int chunkY, int chunkZ) =>
+        Unloaded.Contains((chunkX, chunkY, chunkZ)) ? null! : Chunk(chunkX, chunkY, chunkZ)!;
 
     public IWorldChunk GetUnpackedChunkFast(int chunkX, int chunkY, int chunkZ, bool notRecentlyAccessed = false)
     {
@@ -57,27 +51,20 @@ public sealed class LightWorld : IChunkProvider
         return GetChunk(chunkX, chunkY, chunkZ);
     }
 
-    public long ChunkIndex3D(int chunkX, int chunkY, int chunkZ)
-    {
-        return ((long)chunkY * ChunksZ + chunkZ) * ChunksX + chunkX;
-    }
+    public long ChunkIndex3D(int chunkX, int chunkY, int chunkZ) =>
+        ((long)chunkY * ChunksZ + chunkZ) * ChunksX + chunkX;
 
     public long ChunkIndex3D(EntityPos pos)
     {
         throw new NotSupportedException();
     }
 
-    private LightChunk? Chunk(int x, int y, int z)
-    {
-        return x is >= 0 and < ChunksX && y is >= 0 and < ChunksY && z is >= 0 and < ChunksZ
+    private LightChunk? Chunk(int x, int y, int z) =>
+        x is >= 0 and < ChunksX && y is >= 0 and < ChunksY && z is >= 0 and < ChunksZ
             ? _chunks[ChunkIndex3D(x, y, z)]
             : null;
-    }
 
-    private static int Local(int x, int y, int z)
-    {
-        return (y % Size * Size + z % Size) * Size + x % Size;
-    }
+    private static int Local(int x, int y, int z) => (y % Size * Size + z % Size) * Size + x % Size;
 
     public int BlockAt(int x, int y, int z)
     {
@@ -99,7 +86,6 @@ public sealed class LightWorld : IChunkProvider
         }
     }
 
-    // Every light value of every chunk, in chunk order
     public int[][] Light()
     {
         var all = new int[_chunks.Length][];
@@ -114,7 +100,6 @@ public sealed class LightWorld : IChunkProvider
         return all;
     }
 
-    // Every light value of these chunks, in the order given
     public ulong Hash(IEnumerable<long> chunks)
     {
         var hash = 14695981039346656037UL;
@@ -129,10 +114,7 @@ public sealed class LightWorld : IChunkProvider
         return hash;
     }
 
-    public ulong Hash()
-    {
-        return Hash(Enumerable.Range(0, _chunks.Length).Select(i => (long)i));
-    }
+    public ulong Hash() => Hash(Enumerable.Range(0, _chunks.Length).Select(i => (long)i));
 
     private void Record(FastSetOfLongs touched)
     {
@@ -142,11 +124,8 @@ public sealed class LightWorld : IChunkProvider
         Hashes.Add(Hash(chunks));
     }
 
-    private byte[] Hsv(int id)
-    {
-        return Blocks[id].GetLightHsv(null!, null!);
-        // the engine's own conversion, a fresh byte[3]
-    }
+    // the engine's own conversion, a fresh byte[3]
+    private byte[] Hsv(int id) => Blocks[id].GetLightHsv(null!, null!);
 
     // Every light source placed in a fixed order
     public void LightUp()
@@ -234,15 +213,9 @@ public sealed class LightWorld : IChunkProvider
         }
     }
 
-    public int Fluid(int x, int y, int z)
-    {
-        return Chunk(x / Size, y / Size, z / Size)!.Cells.GetFluid(Local(x, y, z));
-    }
+    public int Fluid(int x, int y, int z) => Chunk(x / Size, y / Size, z / Size)!.Cells.GetFluid(Local(x, y, z));
 
-    private static int Clamp(int value, int size)
-    {
-        return Math.Clamp(value, 0, size - 1);
-    }
+    private static int Clamp(int value, int size) => Math.Clamp(value, 0, size - 1);
 
     // An air block, preferring ones near the chunk borders and the map's edges
     private (int X, int Y, int Z) Open(Random random)

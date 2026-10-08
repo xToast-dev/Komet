@@ -1,14 +1,16 @@
 {
   "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
   "type": "Code",
-  "side": "Client",
+  "side": "Universal",
+  "requiredOnClient": false,
+  "requiredOnServer": false,
   "modid": "komet",
   "name": "Komet",
   "authors": [
     "xToast"
   ],
   "description": "An awesome Performance Mod!",
-  "version": "2.0.0",
+  "version": "3.0.0-pre1",
   "dependencies": {
     "game": "1.22.0"
   }

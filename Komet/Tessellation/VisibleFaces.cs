@@ -10,12 +10,9 @@ using static Komet.Tessellation.TessSeams;
 
 namespace Komet.Tessellation;
 
-// ChunkTesselator.CalculateVisibleFaces stores which of the six faces of every cell are drawn (bits N, E, S, W, U, D; 0x40 for
-// JSONAndWater), running a loop over the six faces with an 11-way switch on the cell's FaceCullMode per non-air cell. For Default -
-// almost every terrain block - that loop reduces to one bit formula over six field reads: the faces whose neighbour is not opaque
-// toward the cell, plus, unless the cell is JSON or JSONAndSnowLayer, the faces the cell itself is not opaque on, plus 0x40 for
-// JSONAndWater. The sweep computes that without a call or a branch per face. Every other cell - another mode, or a cell whose upper
-// neighbour is JSONAndSnowLayer and opaque downward, for which the engine asks the cell's AllowSnowCoverage - goes through a
+// ChunkTesselator.CalculateVisibleFaces runs an 11-way switch on FaceCullMode per face of every non-air cell. For Default - almost
+// every terrain block - that reduces to one bit formula over six field reads (Cull). Every other cell - another mode, or a cell whose
+// upper neighbour is JSONAndSnowLayer and opaque downward, for which the engine asks the cell's AllowSnowCoverage - goes through a
 // line-for-line port of the engine's face loop, run for those cells after the sweep in the engine's cell order, so the same virtual
 // calls reach the same blocks with the same arguments in the same order. An unknown mode sends the chunk to the engine before any
 // call is made; the engine then rewrites every byte the sweep wrote.
@@ -32,7 +29,6 @@ internal static class VisibleFaces
 
     private const int ChunksCounter = 0, FastCounter = 1, PortedCounter = 2, FallbacksCounter = 3;
 
-    // Totals while Counting.Hud, every tessellation thread
     private static readonly Tally Counts = new(FallbacksCounter + 1);
 
     [ThreadStatic] private static int[]? _deferred; // per thread, as every tessellation thread runs its own tesselator
@@ -44,10 +40,10 @@ internal static class VisibleFaces
     // Another prefix, transpiler or infix is on the method: the engine runs
     public static bool StoodDown { get; private set; }
 
-    public static long Chunks => Counts.Total(ChunksCounter); // chunks the sweep answered
-    public static long FastCells => Counts.Total(FastCounter); // Default cells by the formula
-    public static long PortedCells => Counts.Total(PortedCounter); // other modes and snow-covered cells by the port
-    public static long Fallbacks => Counts.Total(FallbacksCounter); // chunks left to the engine: an unknown mode
+    public static long Chunks => Counts.Total(ChunksCounter);
+    public static long FastCells => Counts.Total(FastCounter);
+    public static long PortedCells => Counts.Total(PortedCounter);
+    public static long Fallbacks => Counts.Total(FallbacksCounter);
 
     public static void Install(Harmony harmony, ILogger? logger = null, ulong shape = Shape)
     {
@@ -252,7 +248,6 @@ internal static class VisibleFaces
             return (byte)(block.DrawType == EnumDrawType.JSONAndWater ? faces | Water : faces);
         }
 
-        // The engine's switch on the cell's mode for side s
         private bool Drawn(EnumFaceCullMode mode, SmallBoolArray opaque, Block block, Block neighbour, bool toward,
             int e, int d, int s, int opposite, (int X, int Y, int Z) at)
         {
@@ -279,7 +274,6 @@ internal static class VisibleFaces
             };
         }
 
-        // Nothing between the same material, always the top, else what the neighbour's SideIsSolid says at its position
         private bool Liquid(Block block, Block neighbour, int s, int opposite, int x, int y, int z)
         {
             if (!Index(s, Faces) || !Index(opposite, Faces) || neighbour.BlockMaterial == block.BlockMaterial)

@@ -1,0 +1,79 @@
+#version 460 core
+// The commands rows.comp wrote, near ones first: one work group per pool draw (y, from span.y) counts its commands' buckets (the
+// keys rows.comp wrote beside them), then copies each command into the same place of the sorted buffer, its bucket's commands
+// after those of every nearer bucket. Only the order changes: the same commands, as many as the draw's count says (flags.z the
+// first count, as rows.comp had it; the region base is 0, the camera's first pass), so the early depth test turns away what
+// lies behind them.
+// Written for OpenGL and Vulkan alike: explicit bindings no two resources share, no loose uniforms.
+layout(local_size_x = 256) in;
+
+struct Command // DrawElementsIndirectCommand, VkDrawIndexedIndirectCommand
+{
+    uint count;
+    uint instances;
+    uint first;
+    int baseVertex;
+    uint baseInstance;
+};
+
+layout(std140, binding = 14) uniform Params
+{
+    mat4 viewProjection;
+    vec4 shift;
+    ivec4 sizes;
+    ivec4 flags; // z: the first per-draw count
+    ivec4 span;  // y: the first pool draw
+};
+
+const uint Buckets = 64u, Threads = 256u;
+
+layout(std430, binding = 5) readonly buffer Counters
+{
+    uint counters[];
+};
+
+layout(std430, binding = 7) readonly buffer Commands
+{
+    Command commands[];
+};
+
+layout(std430, binding = 8) readonly buffer Starts
+{
+    uint starts[];
+};
+
+layout(std430, binding = 12) readonly buffer Keys
+{
+    uint keys[];
+};
+
+layout(std430, binding = 13) writeonly buffer Sorted
+{
+    Command sorted[];
+};
+
+shared uint places[Buckets];
+
+void main()
+{
+    uint draw = uint(span.y) + gl_WorkGroupID.y, thread = gl_LocalInvocationID.x;
+    uint base = starts[draw], count = counters[uint(flags.z) + draw];
+    if (thread < Buckets) places[thread] = 0u;
+    barrier();
+    for (uint i = thread; i < count; i += Threads) atomicAdd(places[min(keys[base + i], Buckets - 1u)], 1u);
+    barrier();
+    if (thread == 0u)
+    {
+        uint before = 0u;
+        for (uint b = 0u; b < Buckets; b++)
+        {
+            uint n = places[b];
+            places[b] = before;
+            before += n;
+        }
+    }
+
+    barrier();
+    for (uint i = thread; i < count; i += Threads)
+        sorted[base + atomicAdd(places[min(keys[base + i], Buckets - 1u)], 1u)] = commands[base + i];
+}

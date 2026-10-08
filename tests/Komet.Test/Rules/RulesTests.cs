@@ -9,7 +9,6 @@ using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.Rules;
 
-// The build rules (Komet.Rules) on short snippets: every rule fires on a bad one and stays quiet on a good one
 public sealed class RulesTests
 {
     private const string Prefix = "using System; using System.Linq; using static Komet.Contracts;\nnamespace Komet;\n";
@@ -35,10 +34,8 @@ public sealed class RulesTests
         .Select(path => MetadataReference.CreateFromFile(path))
     ];
 
-    private static Diagnostic[] Analyze(string code, params (string Path, string Json)[] langs)
-    {
-        return Analyze(Prefix + code, "Snippet.cs", null, langs);
-    }
+    private static Diagnostic[] Analyze(string code, params (string Path, string Json)[] langs) =>
+        Analyze(Prefix + code, "Snippet.cs", null, langs);
 
     // The snippet at `path` next to the Contracts stub; `projectDir` is what MSBuild passes as build_property.ProjectDir
     private static Diagnostic[] Analyze(string source, string path, string? projectDir,
@@ -58,27 +55,17 @@ public sealed class RulesTests
     }
 
     // Every diagnostic but the density, which a snippet cannot reach
-    private static IEnumerable<Diagnostic> Rules(Diagnostic[] diagnostics)
-    {
-        return diagnostics.Where(d => d.Id != "KR0009");
-    }
+    private static IEnumerable<Diagnostic> Rules(Diagnostic[] diagnostics) => diagnostics.Where(d => d.Id != "KR0009");
 
     // As sorted "id message" lines
-    private static string Report(string code, params (string Path, string Json)[] langs)
-    {
-        return string.Join("\n", Rules(Analyze(code, langs))
+    private static string Report(string code, params (string Path, string Json)[] langs) =>
+        string.Join("\n", Rules(Analyze(code, langs))
             .Select(d => d.Id + " " + d.GetMessage(CultureInfo.InvariantCulture)).Order(StringComparer.Ordinal));
-    }
 
-    private static string Ids(Diagnostic[] diagnostics)
-    {
-        return string.Join(" ", Rules(diagnostics).Select(d => d.Id).Order(StringComparer.Ordinal));
-    }
+    private static string Ids(Diagnostic[] diagnostics) =>
+        string.Join(" ", Rules(diagnostics).Select(d => d.Id).Order(StringComparer.Ordinal));
 
-    private static string Ids(string code)
-    {
-        return Ids(Analyze(code));
-    }
+    private static string Ids(string code) => Ids(Analyze(code));
 
     // "id line:column text" of each, in source order: where it points, not only what it says
     private static string Where(string code)
@@ -93,11 +80,7 @@ public sealed class RulesTests
             }));
     }
 
-    // A function body of that many statements
-    private static string Lines(int statements)
-    {
-        return string.Concat(Enumerable.Repeat("        n++;\n", statements));
-    }
+    private static string Lines(int statements) => string.Concat(Enumerable.Repeat("        n++;\n", statements));
 
     private static string Method(string body)
     {
@@ -364,6 +347,7 @@ public sealed class RulesTests
 
     [TestCase(1, "Assertion density 1/1 = 1.00 is below 2.0")]
     [TestCase(2, null)]
+    [Category("Slow")]
     public void AssertionDensityIsAtLeastTwo(int assertions, string? message)
     {
         var body = string.Concat(Enumerable.Repeat("_ = Assert(n > 0); ", assertions));
@@ -438,10 +422,8 @@ public sealed class RulesTests
     {
         public override string Path => path;
 
-        public override SourceText GetText(CancellationToken cancellationToken = default)
-        {
-            return SourceText.From(json);
-        }
+        public override SourceText GetText(CancellationToken cancellationToken = default) =>
+            SourceText.From(json);
     }
 
     private sealed class Options(string? projectDir) : AnalyzerConfigOptionsProvider
@@ -450,15 +432,9 @@ public sealed class RulesTests
 
         public override AnalyzerConfigOptions GlobalOptions { get; } = new Values(projectDir);
 
-        public override AnalyzerConfigOptions GetOptions(SyntaxTree tree)
-        {
-            return None;
-        }
+        public override AnalyzerConfigOptions GetOptions(SyntaxTree tree) => None;
 
-        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile)
-        {
-            return None;
-        }
+        public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => None;
     }
 
     private sealed class Values(string? projectDir) : AnalyzerConfigOptions

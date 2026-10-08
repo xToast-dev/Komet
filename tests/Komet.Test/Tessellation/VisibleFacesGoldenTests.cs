@@ -2,13 +2,11 @@ using Vintagestory.API.Client.Tesselation;
 
 namespace Komet.Test.Tessellation;
 
-// Golden test of VisibleFaces against the engine's own ChunkTesselator.CalculateVisibleFaces, unpatched, on the same halo: random
-// worlds from all air to all solid, layered terrain, one block everywhere and a palette of thousands, with blocks of every
-// FaceCullMode and DrawType, opacity and solidity bits above the six sides, and blocks that record every virtual call the engine makes
-// (AllowSnowCoverage, SideIsSolid, ShouldMergeFace, GetSnowLevel) with its arguments and the position it was given - snow cover and
-// snow layers included. Both runs start from the same random buffer, so the stale centre bytes of skipChunkCenter are compared too.
-// The buffer, the result and the call log must be identical; where the sweep hands the chunk to the engine (an unknown mode), it must
-// have called nothing, and the engine run on the sweep's buffer must end where the engine alone did.
+// Golden test of VisibleFaces against the engine's own ChunkTesselator.CalculateVisibleFaces, unpatched, on the same halo, with
+// blocks that record every virtual call the engine makes with its arguments and position. Both runs start from the same random
+// buffer, so the stale centre bytes of skipChunkCenter are compared too. The buffer, the result and the call log must be identical;
+// where the sweep hands the chunk to the engine (an unknown mode), it must have called nothing, and the engine run on the sweep's
+// buffer must end where the engine alone did.
 public sealed class VisibleFacesGoldenTests
 {
     private const int Worlds = 300, Seed = 20260923;
@@ -17,26 +15,19 @@ public sealed class VisibleFacesGoldenTests
 
     private static readonly EnumDrawType[] DrawTypes =
     [
-        EnumDrawType.JSON, EnumDrawType.JSONAndSnowLayer, EnumDrawType.JSONAndWater, EnumDrawType.Cube,
-        EnumDrawType.Liquid,
-        EnumDrawType.TopSoil, EnumDrawType.Cross, EnumDrawType.Empty, EnumDrawType.Transparent,
-        EnumDrawType.BlockLayer_3,
+        EnumDrawType.JSON, EnumDrawType.JSONAndSnowLayer, EnumDrawType.JSONAndWater, EnumDrawType.Cube, EnumDrawType.Liquid,
+        EnumDrawType.TopSoil, EnumDrawType.Cross, EnumDrawType.Empty, EnumDrawType.Transparent, EnumDrawType.BlockLayer_3,
         EnumDrawType.CrossAndSnowlayer, EnumDrawType.SurfaceLayer
     ];
 
     private static readonly EnumBlockMaterial[] Materials =
-    [
-        EnumBlockMaterial.Stone, EnumBlockMaterial.Leaves, EnumBlockMaterial.Snow, EnumBlockMaterial.Soil,
-        EnumBlockMaterial.Water
-    ];
+    [EnumBlockMaterial.Stone, EnumBlockMaterial.Leaves, EnumBlockMaterial.Snow, EnumBlockMaterial.Soil, EnumBlockMaterial.Water];
 
     [TearDown]
-    public void Reset()
-    {
-        (VisibleFaces.Enabled, Counting.Hud) = (true, false);
-    }
+    public void Reset() => (VisibleFaces.Enabled, Counting.Hud) = (true, false);
 
     [Test]
+    [Category("Slow")]
     public void SweepMatchesTheEngineOnRandomWorlds()
     {
         var r = new Random(Seed);
@@ -70,6 +61,7 @@ public sealed class VisibleFacesGoldenTests
     // Every cell has one mode: the port on its own, including the calls on neighbours at the halo's edge, with and without snow
     // cover above (then Default cells are ported too)
     [Test]
+    [Category("Slow")]
     public void PortMatchesTheEngineForEveryMode()
     {
         var r = new Random(Seed + 1);
@@ -115,7 +107,6 @@ public sealed class VisibleFacesGoldenTests
         Assert.That(Compare(rig, new Random(4), true, 64, 32, 96).SnowCalls, Is.Zero);
     }
 
-    // A mode the engine's switch does not know: the chunk is the engine's, before anything was asked
     [Test]
     public void UnknownModeHandsTheChunkBack()
     {
@@ -135,10 +126,7 @@ public sealed class VisibleFacesGoldenTests
         using var rig = new TessRig(palette);
         Array.Fill(rig.Solid, palette[0]);
         foreach (var skip in (bool[])[false, true])
-        {
-            var outcome = Compare(rig, new Random(6), skip, 0, 0, 0);
-            Assert.That(outcome.Result, Is.Zero);
-        }
+            Assert.That(Compare(rig, new Random(6), skip, 0, 0, 0).Result, Is.Zero);
     }
 
     // Through Harmony: the patched method answers what the unpatched one answers, and a non-standard MoveIndex goes to the engine
@@ -219,12 +207,8 @@ public sealed class VisibleFacesGoldenTests
 
     // Komet.Testing cannot see TessSeams: ChunkRig's own copy of the standard MoveIndex must stay the one Komet's paths take
     [Test]
-    public void ChunkRigMovesAreTheStandardOnes()
-    {
-        Assert.That(ChunkRig.Moves, Is.EqualTo(TessSeams.Moves));
-    }
+    public void ChunkRigMovesAreTheStandardOnes() => Assert.That(ChunkRig.Moves, Is.EqualTo(TessSeams.Moves));
 
-    // One chunk both ways from the same starting buffer
     private static Outcome Compare(TessRig rig, Random r, bool skip, int baseX, int baseY, int baseZ)
     {
         var start = new byte[TessRig.Cells];
@@ -295,13 +279,9 @@ public sealed class VisibleFacesGoldenTests
             : $"cell {at} (x {at & 31}, y {at >> 10}, z {(at >> 5) & 31}): {a[at]} vs {b[at]}";
     }
 
-    private static int Ext(int x, int y, int z)
-    {
-        return (y * TessRig.Ext + z) * TessRig.Ext + x;
-    }
+    private static int Ext(int x, int y, int z) => (y * TessRig.Ext + z) * TessRig.Ext + x;
 
-    // Air first; blocks of every mode, draw type and material, with opacity and solidity bits beyond the six sides. Without snow no
-    // block is MergeSnowLayer and no JSONAndSnowLayer block is opaque downward.
+    // Without snow no block is MergeSnowLayer and no JSONAndSnowLayer block is opaque downward
     private static Block[] Palette(Random r, int count, bool snowy)
     {
         var palette = new Block[count];
@@ -351,7 +331,6 @@ public sealed class VisibleFacesGoldenTests
     private readonly record struct Outcome(int Result, int Ported, int Calls, int SnowCalls);
 }
 
-// Records the virtual calls CalculateVisibleFaces makes and answers from their arguments
 internal sealed class CullRecordingBlock : Block
 {
     public const int Snow = 1, Solid = 2, Merge = 3, Level = 4;

@@ -4,14 +4,12 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Tessellation;
 
-// Chunk tessellation as WorkerPool's background job. The engine tessellates on one thread with one ChunkTesselator, 96-99 % busy while
-// terrain loads. A pool thread that takes a tessellation job gets a ChunkTesselator of its own, asked for on first use and made on the
-// main thread as the engine makes its one (the constructor adds a settings watcher; LightlevelsReceived and BlockTexturesLoaded run
-// Start, which reads the atlases and subscribes the instance to texture and shape reloads), then pinned to that thread for its life:
-// BeginProcessChunk reloads the shape tesselator of the thread it runs on when its instance asks for it. A job is one normal pass from
-// TessSchedule's queue - nearest first, one pass per chunk at a time - through the engine's own ChunkTesselatorManager.TesselateChunk,
-// every patch on it included; a transpiler makes its one read of game.TerrainChunkTesselator this thread's instance. The engine's
-// thread keeps the priority marks and takes from the same queue.
+// Chunk tessellation as WorkerPool's background job: the engine's one tessellation thread is 96-99 % busy while terrain loads. Each
+// pool thread gets a ChunkTesselator of its own, made on the main thread as the engine makes its one (the constructor adds a settings
+// watcher; LightlevelsReceived and BlockTexturesLoaded run Start, which reads the atlases and subscribes the instance to texture and
+// shape reloads), then pinned to that thread for its life: BeginProcessChunk reloads the shape tesselator of the thread it runs on
+// when its instance asks for it. A job is one normal pass from TessSchedule's queue through the engine's own
+// ChunkTesselatorManager.TesselateChunk, every patch on it included.
 //
 // What else the engine shares between passes TessSafety makes safe; without it installed completely there are no jobs. A pass the
 // engine wants again (RetryTesselationException, a chunk not loaded yet) or one that threw goes to the engine's thread: the atlas and
@@ -25,11 +23,11 @@ namespace Komet.Tessellation;
 // would: the engine's thread goes on alone.
 internal static class TessWorkers
 {
-    private const int TesselatorSites = 1, DefaultJobs = 2;
+    private const int TesselatorSites = 1, DefaultPriority = 25, MaxPriority = 100;
 
     // A backlog past BoostOn (a world join or a teleport: 3000-4700 marks waited in game, flight with the engine's thread alone peaked
-    // at 2600) lets every pool thread tessellate until it drops under BoostOff; otherwise at most Jobs at once, since eight passes at
-    // once took 3.9 instead of 1.5 ms each and halved the 1 % low in flight
+    // at 2600) raises the ceiling until it drops under BoostOff; otherwise Priority sets it, since eight passes at once took 3.9 instead
+    // of 1.5 ms each and halved the 1 % low in flight. Under the ceiling TessGovernor decides.
     private const int BoostOn = 3000, BoostOff = 500;
 
     // By pool thread, main thread writes
@@ -39,7 +37,7 @@ internal static class TessWorkers
     private static readonly int[] Asked = new int[WorkerPool.MaxThreads];
 
     private static readonly Func<bool> Job = Pass;
-    private static volatile ClientMain? _game; // the world the jobs belong to
+    private static volatile ClientMain? _game;
     private static volatile ChunkTesselatorManager? _manager;
 
     // A pool thread's instance on its thread; null on every other thread
@@ -47,10 +45,11 @@ internal static class TessWorkers
 
     private static int _passing, _sites;
 
-    // Pool threads that may tessellate at once without a backlog; 0 = none
-    public static int Jobs { get; set; } = DefaultJobs;
+    // What comes first, 0-100: 0 smooth frames with no pool thread tessellating (the engine's thread alone), 100 loading chunks with
+    // every pool thread and a governor that yields to the main thread only late
+    public static int Priority { get; set; } = DefaultPriority;
 
-    public static bool Boosted { get; private set; }
+    private static bool Boosted { get; set; }
 
     public static bool Installed { get; private set; }
     public static bool Failed { get; private set; } // an exception stopped the jobs for this world
@@ -88,6 +87,7 @@ internal static class TessWorkers
         if (ReferenceEquals(WorkerPool.Background, Job)) WorkerPool.Background = null;
         (Installed, _game, _manager, Failed, Boosted) = (false, null, null, false, false);
         WorkerPool.BackgroundLimit = 0;
+        TessGovernor.Reset();
         Array.Clear(Made);
         Array.Clear(Asked);
         _ = Assert(!Installed);
@@ -128,6 +128,17 @@ internal static class TessWorkers
                 _ = made.RuntimeCreateNewBlockTextureAtlas(textureId);
     }
 
+    // Pool threads that may tessellate at most: one at priority 1 up to every running one at 100; a backlog lifts it to half of them,
+    // to all from priority 50
+    internal static int Ceiling(int threads, int priority, bool boosted)
+    {
+        if (!Assert(threads is >= 0 and <= WorkerPool.MaxThreads) || threads == 0 || priority <= 0) return 0;
+        var share = 1 + (int)Math.Round((threads - 1) * (double)Math.Min(priority, MaxPriority) / MaxPriority);
+        var boost = priority >= MaxPriority / 2 ? threads : (threads + 1) / 2;
+        if (!boosted) boost = 0;
+        return Assert(share >= 1) ? Math.Clamp(Math.Max(share, boost), 1, threads) : 1;
+    }
+
     // On the engine's thread at the start of each tick: switches Parallel for the pool. This thread's own passes take the locks exactly
     // while Parallel is on.
     internal static void Steer(ClientMain game, ChunkTesselatorManager manager, bool active)
@@ -142,29 +153,23 @@ internal static class TessWorkers
 
         var backlog = TessSchedule.Backlog;
         Boosted = backlog > BoostOn || (Boosted && backlog > BoostOff);
-        var jobs = Math.Clamp(Jobs, 0, WorkerPool.MaxThreads);
-        var on = active && jobs > 0 && !Failed && !TessSafety.Broken && !WorkerPool.BackgroundOff &&
-                 WorkerPool.Running > 0;
-        var limit = Boosted ? WorkerPool.MaxThreads : jobs;
-        WorkerPool.BackgroundLimit = on ? limit : 0;
-        Switch(on);
-        TessSafety.Guard(TessSafety.Parallel);
-        if (on && backlog > 0) WorkerPool.WakeBackground();
-    }
-
-    private static void Switch(bool on)
-    {
+        var priority = Math.Clamp(Priority, 0, MaxPriority);
+        var ceiling = Ceiling(WorkerPool.Running, priority, Boosted);
+        var on = active && ceiling > 0 && !Failed && !TessSafety.Broken && !WorkerPool.BackgroundOff;
+        // the ceiling; TessGovernor keeps under it as many as the main thread can spare the cores for
+        (TessGovernor.Ceiling, TessGovernor.Scale) = (ceiling, 0.5 + 2.0 * priority / MaxPriority);
+        WorkerPool.BackgroundLimit = on ? TessGovernor.Limit(ceiling) : 0;
         _ = Assert(WorkerPool.Current < 0); // the engine's thread, never a pool thread
-        if (on)
+        if (on) TessSafety.Open(true);
+        else if (TessSafety.Parallel && !Passing)
         {
-            TessSafety.Open(true);
-            return;
+            TessSafety.Open(false);
+            // A pool thread counted itself in first: off at a later tick
+            if (Volatile.Read(ref _passing) > 0) TessSafety.Open(true);
         }
 
-        if (!TessSafety.Parallel || Passing) return;
-        TessSafety.Open(false);
-        // A pool thread counted itself in first: off at a later tick
-        if (Volatile.Read(ref _passing) > 0) TessSafety.Open(true);
+        TessSafety.Guard(TessSafety.Parallel);
+        if (on && backlog > 0) WorkerPool.WakeBackground();
     }
 
     // The background job: one pass on this pool thread, true when it ran one
@@ -204,9 +209,15 @@ internal static class TessWorkers
             return _own = made;
         }
 
-        if (Interlocked.Exchange(ref Asked[slot], 1) == 0)
-            game.EnqueueMainThreadTask(() => Make(game, slot), "komet-tesselator");
+        if (Interlocked.Exchange(ref Asked[slot], 1) == 0) Ask(game, slot);
         return null;
+    }
+
+    // Its own method: the closure over game and slot would otherwise be allocated on every call of Own, on every tessellation pass
+    private static void Ask(ClientMain game, int slot)
+    {
+        if (!NotNull(game) || !Index(slot, Made.Length)) return;
+        game.EnqueueMainThreadTask(() => Make(game, slot), "komet-tesselator");
     }
 
     // On the main thread: the instance is made where the engine makes its own
@@ -229,12 +240,6 @@ internal static class TessWorkers
         {
             Volatile.Write(ref Asked[slot], 0);
         }
-    }
-
-    // A test's instance for a pool thread, as Make would leave it
-    internal static void Provide(int slot, ChunkTesselator tesselator)
-    {
-        if (Index(slot, Made.Length) && NotNull(tesselator)) Volatile.Write(ref Made[slot], tesselator);
     }
 
     private static void Fail(ClientMain game, Exception e)

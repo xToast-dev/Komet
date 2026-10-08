@@ -8,10 +8,7 @@ internal sealed class NoMesh : MeshRef
 // A location type the engine never makes: List.Remove would call its own Equals, so Komet has to leave such a pool to the engine
 internal sealed class ForeignLocation : ModelDataPoolLocation
 {
-    public override string ToString()
-    {
-        return "foreign";
-    }
+    public override string ToString() => "foreign";
 }
 
 // Golden test: the engine's own MeshDataPool code drives one pool with Komet switched off, Komet drives its twin, and after every step
@@ -48,15 +45,9 @@ public sealed class MeshPoolTests
     }
 
     [TearDown]
-    public void Defaults()
-    {
-        (MeshPool.Enabled, Counting.Hud) = (true, false);
-    }
+    public void Defaults() => (MeshPool.Enabled, Counting.Hud) = (true, false);
 
-    private static void Komet(bool on)
-    {
-        MeshPool.Enabled = on;
-    }
+    private static void Komet(bool on) => MeshPool.Enabled = on;
 
     private static MeshDataPool Pool(int id, int vertices = PoolVertices, int maxParts = MaxParts)
     {
@@ -69,23 +60,15 @@ public sealed class MeshPoolTests
         return pool;
     }
 
-    private static List<ModelDataPoolLocation> Locations(MeshDataPool pool)
-    {
-        return (List<ModelDataPoolLocation>)LocationsField.GetValue(pool)!;
-    }
+    private static List<ModelDataPoolLocation> Locations(MeshDataPool pool) =>
+        (List<ModelDataPoolLocation>)LocationsField.GetValue(pool)!;
 
-    private static int Version(MeshDataPool pool)
-    {
-        return (int)VersionField.GetValue(Locations(pool))!;
-    }
+    private static int Version(MeshDataPool pool) => (int)VersionField.GetValue(Locations(pool))!;
 
-    private static MeshData Mesh(int vertices, int indices)
+    private static MeshData Mesh(int vertices, int indices) => new(false)
     {
-        return new MeshData(false)
-        {
-            VerticesCount = vertices, IndicesCount = indices, xyz = new float[3 * vertices], Indices = new int[indices]
-        };
-    }
+        VerticesCount = vertices, IndicesCount = indices, xyz = new float[3 * vertices], Indices = new int[indices]
+    };
 
     // Mostly chunk-sized meshes in the engine's 2:3 ratio, some empty ones, some large, and some whose index count disagrees with the
     // vertex count, so that the widest index gap and the widest vertex gap sit at different places
@@ -107,10 +90,20 @@ public sealed class MeshPoolTests
         pool.RemoveLocation(Locations(pool)[index]);
     }
 
-    private static string Describe(ModelDataPoolLocation? l)
+    private static void AddBoth(MeshDataPool engine, MeshDataPool komet, (int Vertices, int Indices) size)
     {
-        return l == null ? "null" : $"[{l.IndicesStart}..{l.IndicesEnd}) [{l.VerticesStart}..{l.VerticesEnd})";
+        _ = Add(engine, size, false);
+        _ = Add(komet, size, true);
     }
+
+    private static void RemoveBoth(MeshDataPool engine, MeshDataPool komet, int index)
+    {
+        Remove(engine, index, false);
+        Remove(komet, index, true);
+    }
+
+    private static string Describe(ModelDataPoolLocation? l) =>
+        l == null ? "null" : $"[{l.IndicesStart}..{l.IndicesEnd}) [{l.VerticesStart}..{l.VerticesEnd})";
 
     // Assert.That per field and step would dominate the run time, so the comparison is plain code that fails with the first difference
     private static void AssertSame(MeshDataPool engine, MeshDataPool komet, string context)
@@ -130,7 +123,7 @@ public sealed class MeshPoolTests
                 Assert.Fail($"{context}: location {i} is {Describe(a[i])} vs {Describe(b[i])}");
     }
 
-    // One step on both pools. Returns what it did, for the message. Mischief is everything that changes Komet's pool without Komet.
+    // Mischief is everything that changes Komet's pool without Komet
     private static string Step(Random r, MeshDataPool engine, MeshDataPool komet, Tally tally, bool mischief)
     {
         var count = Locations(engine).Count;
@@ -160,8 +153,7 @@ public sealed class MeshPoolTests
             if (index == count - 1) tally.Tails++;
             if (Locations(engine)[index].VerticesEnd == Locations(engine)[index].VerticesStart) tally.Empty++;
             var version = Version(komet);
-            Remove(engine, index, false);
-            Remove(komet, index, true);
+            RemoveBoth(engine, komet, index);
             if (Version(komet) == version)
                 Assert.Fail("a removal did not move List._version, FrustumSweep would not see it");
             tally.Removed++;
@@ -170,12 +162,7 @@ public sealed class MeshPoolTests
 
         if (roll < 94)
         {
-            for (var left = count; left > 0; left--)
-            {
-                var index = r.Next(left);
-                Remove(engine, index, false);
-                Remove(komet, index, true);
-            }
+            for (var left = count; left > 0; left--) RemoveBoth(engine, komet, r.Next(left));
 
             tally.Drains++;
             return $"drain {count}";
@@ -278,28 +265,19 @@ public sealed class MeshPoolTests
         var (engine, komet) = (Pool(1), Pool(1));
         for (var i = 0; i < 200; i++)
         {
-            var size = (r.Next(100, 2000), 0);
-            size.Item2 = size.Item1 * 3 / 2;
-            _ = Add(engine, size, false);
-            _ = Add(komet, size, true);
+            var v = r.Next(100, 2000);
+            AddBoth(engine, komet, (v, v * 3 / 2));
         }
 
-        for (var i = 0; i < 40; i++)
-        {
-            var index = r.Next(Locations(komet).Count);
-            Remove(engine, index, false);
-            Remove(komet, index, true);
-        }
+        for (var i = 0; i < 40; i++) RemoveBoth(engine, komet, r.Next(Locations(komet).Count));
 
         AssertSame(engine, komet, "before");
         Counting.Hud = true;
         var recounts = MeshPool.Recounts;
         foreach (var pool in (MeshDataPool[])[engine, komet]) Locations(pool).RemoveAt(17);
-        Remove(engine, 3, false);
-        Remove(komet, 3, true);
+        RemoveBoth(engine, komet, 3);
         AssertSame(engine, komet, "after the list changed behind the state's back");
-        Remove(engine, 50, false);
-        Remove(komet, 50, true);
+        RemoveBoth(engine, komet, 50);
         AssertSame(engine, komet, "one more");
         Assert.That(MeshPool.Recounts - recounts, Is.EqualTo(1));
     }
@@ -325,13 +303,11 @@ public sealed class MeshPoolTests
             pool.CalcFragmentation();
         }
 
-        Remove(engine, 0, false);
-        Remove(komet, 0, true);
+        RemoveBoth(engine, komet, 0);
         AssertSame(engine, komet, "after removing the location held twice");
         Assert.That(Describe(Locations(komet)[0]), Is.EqualTo("[0..100) [0..100)"), "the first copy went");
     }
 
-    // The private MeshPool.State's flags; null when Komet never counted the pool
     private static (bool Sorted, bool Plain)? StateOf(MeshDataPool pool)
     {
         var table = AccessTools.Field(typeof(MeshPool), "States").GetValue(null)!;
@@ -372,15 +348,13 @@ public sealed class MeshPoolTests
     public void TheFirstMeshKeepsTheEnginesStalePosition()
     {
         var (engine, komet) = (Pool(0), Pool(0));
-        _ = Add(engine, (1000, 1500), false);
-        _ = Add(komet, (1000, 1500), true);
+        AddBoth(engine, komet, (1000, 1500));
         Assert.Multiple(() =>
         {
             Assert.That(komet.UsedVertices, Is.Zero);
             Assert.That(komet.verticesPosition, Is.EqualTo(1000));
         });
-        _ = Add(engine, (500, 750), false);
-        _ = Add(komet, (500, 750), true);
+        AddBoth(engine, komet, (500, 750));
         AssertSame(engine, komet, "second mesh");
         Assert.That(komet.UsedVertices, Is.EqualTo(1500));
     }
@@ -391,11 +365,7 @@ public sealed class MeshPoolTests
     public void BadRemovalsThrowWhatTheEngineThrows()
     {
         var (engine, komet) = (Pool(2), Pool(2));
-        foreach (var size in (int[])[300, 0, 0, 700, 1200])
-        {
-            _ = Add(engine, (size, size * 3 / 2), false);
-            _ = Add(komet, (size, size * 3 / 2), true);
-        }
+        foreach (var size in (int[])[300, 0, 0, 700, 1200]) AddBoth(engine, komet, (size, size * 3 / 2));
 
         System.Func<MeshDataPool, ModelDataPoolLocation?>[] bad =
         [
@@ -567,7 +537,7 @@ public sealed class MeshPoolTests
 
     private sealed class Tally
     {
-        public long Recounts; // MeshPool's full passes over the run
+        public long Recounts;
         public int Squeezed, Appended, Removed, Tails, Empty, Drains, Behind, Foreign;
     }
 }

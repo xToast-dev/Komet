@@ -8,17 +8,14 @@ namespace Komet.Core;
 // Komet's worker threads, one pool for everything that runs beside the game's threads: frame jobs (FrustumSweep's cull of one
 // MeshDataPoolManager.Render call) and background jobs (tessellation passes, TessWorkers). Frame jobs win: a worker helps a published
 // batch first and runs one background job only when no batch waits - and only while fewer than BackgroundLimit workers are in one, so
-// the background work cannot crowd out the main thread. Otherwise it rests on its own signal until woken or IdleMs passed.
+// the background work cannot crowd out the main thread.
 //
-// A frame batch is count items of one job delegate. The caller (the main thread) publishes it, wakes as many resting workers as it
-// asked for (none for a small batch) and claims items itself from the shared cursor, which holds the batch's count in its high half
-// and the next index in its low half: one Interlocked increment claims an index and says of which batch, so a worker that saw the
-// previous batch can never claim an item of the next one under the old count. The caller returns when every claimed item is done (a
-// short spin, then Finished). It never waits for a worker that is inside a background job: a worker only claims between jobs and
-// finishes what it claimed before it takes anything else, so the caller waits at most for the items workers claimed, one each. An open
-// batch (OpenFrame) is the same batch without that wait: the caller goes on and ends it later, when unclaimed items are dropped.
-// Nothing is allocated per batch. A resting worker marks itself Idle through a full fence before it looks at the cursor a last time,
-// and the caller publishes through a full fence before it looks for Idle workers: either the caller wakes it or it sees the batch.
+// The shared cursor holds the batch's count in its high half and the next index in its low half: one Interlocked increment claims an
+// index and says of which batch, so a worker that saw the previous batch can never claim an item of the next one under the old count.
+// The caller never waits for a worker that is inside a background job: a worker only claims between jobs and finishes what it claimed
+// before it takes anything else, so the caller waits at most for the items workers claimed, one each. Nothing is allocated per batch.
+// A resting worker marks itself Idle through a full fence before it looks at the cursor a last time, and the caller publishes through
+// a full fence before it looks for Idle workers: either the caller wakes it or it sees the batch.
 //
 // Threads belong to a world: they join its list of client threads (DestroyGameSession waits for them like for its own) and end when it
 // exits, when the pool moves to another world, or at Stop. Fewer wanted than running parks the rest; they are reused, so a thread keeps
@@ -39,11 +36,12 @@ internal static class WorkerPool
 
     private const long MaxRounds = long.MaxValue; // a worker runs until its world or generation ends
     private const long Low = 0xFFFFFFFFL;
-    public static readonly int DefaultThreads = Math.Clamp(Environment.ProcessorCount - 2, 1, MaxThreads);
+    private static readonly int DefaultThreads = Math.Clamp(Environment.ProcessorCount - 2, 1, MaxThreads);
 
     private static readonly bool Accessible = Seams();
     private static readonly Lock Gate = new();
     private static readonly ManualResetEventSlim Finished = new(false);
+    private static int _relay; // resting workers still to be woken by the ones woken already
 
     // Worker ticks on frame and background jobs, while Counting.On
     private static readonly Tally Busy = new(BackgroundCounter + 1);
@@ -62,15 +60,14 @@ internal static class WorkerPool
 
     public static Func<bool>? Background { get; set; } // one background job, true when it ran one; must not throw
 
-    // Frame jobs threw again: no more for now
     public static bool FrameOff => Volatile.Read(ref _frameFailures) >= MaxFrameFailures;
 
     public static bool BackgroundOff { get; private set; } // a background job threw past its own handler
     public static Exception? LastError { get; private set; }
-    public static int Current => _number - 1; // this thread's worker number, -1 when it is none
+    public static int Current => _number - 1;
     public static long FrameTicks => Busy.Total(FrameCounter);
     public static long BackgroundTicks => Busy.Total(BackgroundCounter);
-    public static int InBackground => Volatile.Read(ref _inBackground); // workers inside a background job now
+    public static int InBackground => Volatile.Read(ref _inBackground);
 
     // How many workers may be inside a background job at once; set by the job's owner (TessWorkers)
     public static int BackgroundLimit
@@ -78,6 +75,10 @@ internal static class WorkerPool
         get => Volatile.Read(ref _backgroundLimit);
         set => Volatile.Write(ref _backgroundLimit, Assert(value is >= 0 and <= MaxThreads) ? value : 0);
     }
+
+    // Whether a frame batch could run now: workers running, frame batches not switched off, none open (FrustumSweep's stage batch
+    // stays open across a render stage's calls)
+    public static bool Free => _job is null && !FrameOff && _number == 0 && Running > 0;
 
     public static int Running
     {
@@ -117,7 +118,15 @@ internal static class WorkerPool
 
             var grown = new Worker[wanted];
             workers.CopyTo(grown, 0);
-            for (var i = workers.Length; i < Math.Min(wanted, MaxThreads); i++) grown[i] = Spawn(world, i);
+            for (var i = workers.Length; i < Math.Min(wanted, MaxThreads); i++)
+            {
+                var worker = grown[i] = new Worker(world as ClientMain, i, Volatile.Read(ref _generation));
+                if (world is ClientMain game)
+                    Threads(game).Add(worker.Thread); // on the main thread, which DestroyGameSession iterates on
+                _ = Assert(!worker.Thread.IsAlive);
+                worker.Thread.Start();
+            }
+
             Volatile.Write(ref _workers, grown);
             _ = Assert(grown.Length <= MaxThreads);
         }
@@ -168,28 +177,12 @@ internal static class WorkerPool
         _ = Assert(Retired.Count <= MaxRetired);
     }
 
-    private static Worker Spawn(object? world, int number)
-    {
-        _ = Assert(number is >= 0 and < MaxThreads);
-        var worker = new Worker(world as ClientMain, number, Volatile.Read(ref _generation));
-        if (world is ClientMain game)
-            Threads(game).Add(worker.Thread); // on the main thread, which DestroyGameSession iterates on
-        _ = Assert(!worker.Thread.IsAlive);
-        worker.Thread.Start();
-        return worker;
-    }
-
     // Runs job(0..count-1) on the calling thread and every free worker, waking up to `helpers` resting ones; Declined when there is no
     // pool (the caller does the work its own way), Failed when an item threw (every item has ended; LastError holds the first exception)
     public static FrameResult RunFrame(Action<int> job, int count, int helpers)
     {
-        if (!NotNull(job) || !Assert(count <= MaxItems) || count < 2 || Running == 0 || FrameOff ||
-            !Assert(_number == 0) || !Assert(_job is null))
+        if (!NotNull(job) || count < 2 || !OpenFrame(job, count, Math.Min(helpers, count - 1)))
             return FrameResult.Declined;
-        (_job, _done, _error) = (job, 0, null);
-        Finished.Reset();
-        _ = Interlocked.Exchange(ref _cursor, (long)count << 32); // publishes the batch
-        _ = Assert(Wake(Math.Min(helpers, count - 1)) <= MaxThreads);
         var mine = Claim();
         _ = Assert(mine <= count);
         var spin = new SpinWait();
@@ -201,8 +194,8 @@ internal static class WorkerPool
         return Ended();
     }
 
-    // A batch the caller does not wait for: published like RunFrame's, but the call returns at once and the workers claim its items
-    // while the caller goes on. The caller takes items itself with ClaimBelow, waits for whatever it needs through the job's own
+    // A batch the caller does not wait for (RunFrame opens its batch here, then waits): the call returns at once and the workers claim
+    // its items while the caller goes on. The caller takes items itself with ClaimBelow, waits for whatever it needs through the job's own
     // bookkeeping, and ends the batch with CloseFrame before anything else opens one. False when there is no pool to run it.
     public static bool OpenFrame(Action<int> job, int count, int helpers)
     {
@@ -256,20 +249,32 @@ internal static class WorkerPool
         return FrameResult.Failed;
     }
 
-    // Up to n resting workers, woken; how many were
+    // Up to n resting workers woken: one by the caller, the rest by the relay - each woken worker wakes the next before it
+    // claims, so the caller (the main thread, for a frame batch) pays for one wake-up instead of n. Waking only hurries the
+    // workers: a batch never waits for a worker it did not claim an item for, and a resting worker looks again after IdleMs.
+    // How many the caller woke itself.
     private static int Wake(int n)
     {
-        var woken = 0;
         _ = Assert(n <= MaxItems);
+        if (n <= 0) return 0;
+        Volatile.Write(ref _relay, Math.Min(n, MaxThreads) - 1);
+        var woken = WakeOne() ? 1 : 0;
+        _ = Assert(woken <= n) && Assert(Volatile.Read(ref _relay) < MaxThreads);
+        return woken;
+    }
+
+    // One resting worker, taken from its rest (Idle 1 -> 0) so no other waker picks it too; false when none rests
+    private static bool WakeOne()
+    {
+        _ = Assert(_workers.Length <= MaxThreads);
         foreach (var worker in Volatile.Read(ref _workers).Bounded(MaxThreads))
         {
-            if (woken >= n) break;
-            if (worker.Parked || Volatile.Read(ref worker.Idle) == 0) continue;
+            if (worker.Parked || Interlocked.CompareExchange(ref worker.Idle, 0, 1) != 1) continue;
             worker.Signal.Set();
-            woken++;
+            return true;
         }
 
-        return Assert(woken <= MaxThreads) ? woken : 0;
+        return false;
     }
 
     // Resting workers woken for background work, as many as BackgroundLimit leaves room for; for the job's owner when work arrived
@@ -279,7 +284,6 @@ internal static class WorkerPool
         if (room > 0 && Background is not null && !BackgroundOff) _ = Assert(Wake(room) <= room);
     }
 
-    // Items of the open batch, claimed one by one until none is left; how many this thread ran
     private static int Claim()
     {
         var ran = 0;
@@ -367,14 +371,28 @@ internal static class WorkerPool
             _ = Assert(Thread == Thread.CurrentThread) && Assert(Volatile.Read(ref Idle) == 0);
         }
 
-        // Until woken, a batch opens, or IdleMs passed
         private void Rest()
         {
             _ = Interlocked.Exchange(ref Idle, 1);
-            if (Parked || !Open()) _ = Signal.Wait(IdleMs);
+            var woken = (Parked || !Open()) && Signal.Wait(IdleMs);
             _ = Interlocked.Exchange(ref Idle, 0);
             Signal.Reset(); // a wake that came late is not lost: the loop looks at the cursor before it rests again
+            if (woken && !Parked) Relay();
             _ = Assert(Volatile.Read(ref Idle) == 0);
+        }
+
+        private static void Relay()
+        {
+            _ = Assert(_number > 0) && Assert(Volatile.Read(ref _relay) <= MaxThreads);
+            for (var i = 0; i < MaxThreads; i++)
+            {
+                var left = Volatile.Read(ref _relay);
+                if (left <= 0) return;
+                if (Interlocked.CompareExchange(ref _relay, left - 1, left) != left) continue;
+                if (WakeOne()) return; // the one woken relays on
+                Volatile.Write(ref _relay, 0); // nobody rests any more
+                return;
+            }
         }
 
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_clientThreadsCts")]
@@ -396,7 +414,6 @@ internal static class WorkerPool
             return ran > 0;
         }
 
-        // One background job when there is room under BackgroundLimit
         private static bool Admit()
         {
             if (BackgroundOff || Background is not { } job) return false;

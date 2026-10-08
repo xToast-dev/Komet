@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime;
@@ -9,7 +8,8 @@ namespace Komet.Hud;
 
 internal sealed partial class HudOverlay
 {
-    private const int PanelCount = 10;
+    // Every row of the HUD's report: the bench's means and the debug protocol's HUD section
+    private const int PanelCount = 9;
     private const string Gen0Size = "DOTNET_GCgen0size";
     private const double Mebibyte = 1.0 / 1024 / 1024;
 
@@ -19,9 +19,6 @@ internal sealed partial class HudOverlay
     private static readonly bool DebugBuild =
         Self.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration == "Debug";
 
-    private static readonly Func<string> ServerLocal = HudText.Once("hud-server-local"),
-        ServerRemote = HudText.Once("hud-server-remote");
-
     private static string Metadata(Assembly assembly, string key)
     {
         return !NotNull(assembly) || !Assert(key.Length > 0)
@@ -30,42 +27,12 @@ internal sealed partial class HudOverlay
                 ?.Value ?? "";
     }
 
-    // "" and no colour while notices are off or nothing has been checked
-    private string UpdateText() => _settings.UpdateCheck && _update is { } check
-        ? HudText.Translate(check.Report.Notice().Key, check.Report.Detail)
-        : "";
-
-    private Rgba? UpdateColor() => _settings.UpdateCheck && _update is { } check ? check.Report.Notice().Color : null;
-
-    // Version, channel and commit as CI stamped them, and the zip the mod was loaded from: what the title badges and the update check need
     private static (string Version, bool Preview, string Commit, string SourcePath) ReadBuild(ICoreClientAPI capi)
     {
         var mod = capi.ModLoader.GetMod(KometModSystem.ModId);
         if (!NotNull(mod) || !Assert(mod.Info.Version.Length > 0)) return ("", false, "", "");
         return (mod.Info.Version, Metadata(Self, "Channel") == "preview", Metadata(Self, "Commit"),
             mod.SourcePath ?? "");
-    }
-
-    // Edition (dev build, CI preview or release) and build (version, plus commit and time when CI stamped them)
-    private (string Text, Rgba Color)[] TitleBadges()
-    {
-        var built = HudText.LocalTime(Metadata(Self, "Built"));
-        var (version, preview, commit, _) = _build;
-        // CI stamps channel and commit together
-        if (!Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0)) return [];
-        var edition = (DebugBuild, preview) switch
-        {
-            (true, _) => (HudText.Translate("hud-edition-dev"), HudCanvas.Accent),
-            (_, true) => (HudText.Translate("hud-edition-preview"), new Rgba(0.80, 0.50, 0.15, 1)),
-            _ => (HudText.Translate("hud-edition-release"), new Rgba(0.20, 0.60, 0.30, 1))
-        };
-        var build = (commit.Length > 0, built.Length > 0) switch
-        {
-            (true, true) => HudText.Translate("hud-build-stamped", version, commit, built),
-            (true, false) => HudText.Translate("hud-build-commit", version, commit),
-            _ => HudText.Translate("hud-build", version)
-        };
-        return [edition, (build, HudCanvas.Neutral)];
     }
 
     // The collector reads its configuration at startup, before any mod system runs: Komet reports the effective values it finds. The
@@ -92,11 +59,6 @@ internal sealed partial class HudOverlay
     private static long ConfigValue(IReadOnlyDictionary<string, object> config, string key) =>
         NotNull(config) && Assert(key.Length > 0) && config.TryGetValue(key, out var value) &&
         value is IConvertible number ? number.ToInt64(CultureInfo.InvariantCulture) : -1;
-
-    // The latency mode is the one setting a program may change while it runs
-    private string GcText() => Assert(_gc.Mode.Length > 0) && Assert(Enum.IsDefined(GCSettings.LatencyMode))
-        ? HudText.Translate("hud-gc-latency", _gc.Budget, GCSettings.LatencyMode)
-        : "";
 
     // Mark names without the namespaces the engine puts into them (initbebehavior-Vintagestory.GameContent.BEBehaviorFruitingBush
     // reads as initbebehavior-BEBehaviorFruitingBush), so one long type name cannot widen a whole column; the ledger's pseudo causes
@@ -150,7 +112,6 @@ internal sealed partial class HudOverlay
         return Finite(ms) && Assert(ms >= 0) ? HudText.Format(ms, "F1") : "";
     }
 
-    // One walk per game start, not per interval: running while the world loads, then done, or cancelled by leaving the world or the switch
     private static string PreJitText()
     {
         var key = PreJit.State switch
@@ -172,7 +133,6 @@ internal sealed partial class HudOverlay
             : static () => double.NaN;
     }
 
-    // The percentage part makes of part and rest together
     private static Func<double> Share(Func<double> part, Func<double> rest) =>
         NotNull(part) && NotNull(rest) ? Ratio(part, () => part() + rest(), 100) : static () => double.NaN;
 
@@ -191,47 +151,44 @@ internal sealed partial class HudOverlay
         return HudText.Translate(ChunkBudget.Capped ? "hud-uploadcap-active" : "hud-uploadcap-unpatched", millis);
     }
 
-    // The index of a panel is the key of its pinned position: the order is persisted, new panels go last
+    // Each tab's sections in the order the window lays them out
     private void BuildPanels()
     {
         if (!Assert(_panels.Count == 0) || !NotNull(_capi.ModLoader)) return;
         FramesPanel();
         GraphPanel();
         SystemPanel();
+        WorldCounters(Panel());
         PassesPanel();
+        RenderCostPanel();
+        OcclusionPanel();
+        RenderCounters(Panel());
         ModTimesPanel();
-        LogPanel("log", "client-main.log", () => _settings.ShowLog);
-        LogPanel("debuglog", "client-debug.log", () => _settings.ShowDebugLog);
-        ModsPanel();
-        RenderCounters(Panel(2, HudSettings.SlowEvery, () => _settings.ShowCounters));
-        WorldCounters(Panel(2, HudSettings.SlowEvery, () => _settings.ShowCounters));
         _ = Assert(_panels.Count == PanelCount);
     }
 
     private void FramesPanel()
     {
-        if (!Assert(_panels.Count == 0)) return;
-        _ = Panel(0)
-            .Title("title", TitleBadges())
-            .Line(UpdateText, sub: true, color: UpdateColor)
+        if (!Assert(_panels.Count < PanelCount)) return;
+        _ = Panel()
+            .Title("title", () => EditionBadge().Text)
+            .Line(() => _update is { } check ? HudText.Translate(check.Report.Notice().Key, check.Report.Detail) : "", sub: true)
             .Value("fps", () => _frames.Fps)
             .Value("low1", () => _frames.Low1Fps, final: true)
             .Value("low01", () => _frames.Low01Fps, final: true)
             .Value("frametime-avg", () => _frames.AverageMs, "ms")
             .Value("frametime-worst", () => _frames.WorstMs, "ms", final: true)
             .Value("frametime-worst-gc", () => _frames.WorstGcMs, "ms", true, final: true)
-            .Value("gpu", () => _gpu.Ms, "ms")
+            .Value("gpu", () => RenderCost.FrameGpuMs(_gpu.Ms), "ms")
             .Value("draw-calls", () => _frames.DrawCallsPerFrame);
     }
 
     // The spikes sit under the graph they explain
     private void GraphPanel()
     {
-        if (!Assert(_panels.Count == 1)) return;
-        var graph = Panel(0, enabled: () => _settings.ShowGraph);
-        _ = graph.Section("graph", HudCanvas.GraphFrames)
-            .Graph(_frames)
-            .Section("spikes", SpikeLedger.MinMs, SpikeLedger.MeanFactor)
+        if (!Assert(_panels.Count < PanelCount)) return;
+        var graph = Panel();
+        _ = graph.Section("spikes", SpikeLedger.MinMs, SpikeLedger.MeanFactor)
             .Value("spikes-count", () => _spikes.Count)
             .Value("spikes-threshold", () => _spikes.ThresholdMs, "ms", true)
             .Rows(SpikeLedger.Shown,
@@ -240,15 +197,17 @@ internal sealed partial class HudOverlay
 
     private void SystemPanel()
     {
-        if (!Assert(_panels.Count == 2)) return;
-        _ = Panel(0, HudSettings.SlowEvery, () => _settings.ShowSystem)
+        if (!Assert(_panels.Count < PanelCount)) return;
+        _ = Panel()
+            .Section("renderer")
+            .Line(VulkanMode.Renderer, sub: true)
             .Section("world")
             .Value("tris-rendered", () => _frames.RenderedTriangles)
-            .Value("tris-allocated", () => _frames.AvailableTriangles, detail: true)
+            .Value("tris-allocated", () => _frames.AvailableTriangles)
             .Value("chunks-loaded", () => RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded)
             .Value("chunks-tesselate", () => RuntimeStats.chunksAwaitingTesselation)
             .Value("chunks-upload", () => RuntimeStats.chunksAwaitingPooling)
-            .Value("entities-rendered", () => RuntimeStats.renderedEntities, detail: true)
+            .Value("entities-rendered", () => RuntimeStats.renderedEntities)
             .Value("entities-loaded", () => _capi.World.LoadedEntities.Count)
             .Section("cpu")
             .Bar("cpu-process", () => _resources.CpuPercent)
@@ -256,34 +215,37 @@ internal sealed partial class HudOverlay
             .Section("memory")
             .Bar("ram-used", () => _resources.PercentOfRam(_resources.UsedRamMb), () => _resources.UsedRamMb, "MB")
             .Value("ram-available", () => _resources.AvailableRamMb, "MB")
-            .Value("ram-total", () => _resources.TotalRamMb, "MB", detail: true)
+            .Value("ram-total", () => _resources.TotalRamMb, "MB")
             .Bar("working-set", () => _resources.PercentOfRam(_resources.WorkingSetMb), () => _resources.WorkingSetMb,
                 "MB")
             .Value("heap-used", () => _resources.ManagedUsedMb, "MB", true, true)
             .Value("heap-committed", () => _resources.ManagedCommittedMb, "MB", true, true)
             .Value("native", () => _resources.NativeMb, "MB", true, true)
             .Bar("vram", () => 100 * _gpu.VramUsedMb / _gpu.VramTotalMb, () => _gpu.VramUsedMb, "MB")
-            .Value("vram-total", () => _gpu.VramTotalMb, "MB", detail: true)
+            .Value("vram-total", () => _gpu.VramTotalMb, "MB")
             .Value("vram-evictions", () => _gpu.EvictionsPerSec, "/s", true, true)
             .Bar("gc-pause", () => _resources.GcPausePercent)
             .Value("gc-alloc", () => _resources.AllocatedMbPerSec, "MB")
             .Value("gc0", () => _resources.Gen0PerSec, "/s")
             .Value("gc2", () => _resources.Gen2PerSec, "/s")
-            .Value("climate-cache", () => ClimateCache.Capacity, sub: true, detail: true)
-            .Line(() => _gc.Mode, sub: true, detail: true)
-            .Line(GcText, sub: true, detail: true);
+            .Value("climate-cache", () => ClimateCache.Capacity, sub: true)
+            .Line(() => _gc.Mode, sub: true)
+            // the latency mode is the one setting a program may change while it runs
+            .Line(() => Assert(_gc.Mode.Length > 0) && Assert(Enum.IsDefined(GCSettings.LatencyMode))
+                ? HudText.Translate("hud-gc-latency", _gc.Budget, GCSettings.LatencyMode)
+                : "", sub: true);
     }
 
     private void PassesPanel()
     {
-        if (!Assert(_panels.Count == 3)) return;
-        var passes = Panel(1, enabled: () => _settings.ShowPasses).Section("passes");
+        if (!Assert(_panels.Count < PanelCount)) return;
+        var passes = Panel().Section("passes");
         _ = passes.Rows(RenderPassStats.Count, i => passes
                 .Line(() => HudText.Cached("hud-pass-", _passes.Key(i)), () => _passes.AverageMs(i), "ms",
-                    () => _passes.Percent(i), () => _passes.WorstPercent(i))
+                    () => _passes.Percent(i))
                 .Rows(RenderPassStats.DetailCount,
                     j => passes.Line(() => Describe(_passes.DetailName(i, j)), () => _passes.DetailMs(i, j), "ms",
-                        sub: true, detail: true)))
+                        sub: true)))
             .Section("total")
             .Value("frame", () => _passes.AverageTotalMs, "ms")
             .Section("worstframe")
@@ -295,124 +257,152 @@ internal sealed partial class HudOverlay
 
     private void ModTimesPanel()
     {
-        if (!Assert(_panels.Count == 4)) return;
-        var times = Panel(2, enabled: () => _settings.ShowModTimes).Section("modtimes");
+        if (!Assert(_panels.Count < PanelCount)) return;
+        var times = Panel().Section("modtimes");
         _ = times.Rows(ModTimes.MaxMods, i => times
             .Line(() => _timings.ModName(i), () => _timings.ModMs(i), "ms",
                 () => 100 * _timings.ModMs(i) / _frames.AverageMs)
             .Rows(ModTimes.DetailCount,
-                j => times.Line(() => _timings.DetailName(i, j), () => _timings.DetailMs(i, j), "ms", sub: true,
-                    detail: true)));
+                j => times.Line(() => _timings.DetailName(i, j), () => _timings.DetailMs(i, j), "ms", sub: true)));
     }
 
-    private void LogPanel(string key, string fileName, Func<bool> enabled)
+    // The GPU rows are one frame three frames back, the rest are means over the interval.
+    private void RenderCostPanel()
     {
-        if (!Assert(key.Length > 0) || !Assert(fileName.EndsWith(".log", StringComparison.Ordinal))) return;
-        var log = new LogStats(fileName);
-        var panel = Panel(2, HudSettings.SlowEvery, enabled, log)
-            .Section(key)
-            .Line(() => log.Offset == 0 ? "" : HudText.Translate("hud-log-scrolled", log.Offset));
-        _ = panel.Rows(LogStats.MaxRows, i => panel.Line(() => log.Row(i).Text, sub: true, color: () =>
-            log.Row(i).Level switch
-            {
-                LogLevel.Warning => HudCanvas.Warning,
-                LogLevel.Error => HudCanvas.Error,
-                LogLevel.Debug => HudCanvas.Dim,
-                _ => null
-            }));
+        if (!Assert(_panels.Count < PanelCount)) return;
+        var cost = Panel();
+        _ = cost.Section("rendercost")
+            .Warn("debug-timings", () => DebugBuild)
+            .Value("rc-cpu", PerFrame(() => RenderCost.TotalTicks, FrameClock.TickMs), "ms")
+            .Rows(RenderCost.Groups, i => cost.Value("rc-" + RenderCost.GroupKey(i),
+                PerFrame(() => RenderCost.GroupTicks(i), FrameClock.TickMs), "ms", true))
+            .Value("rc-submit", PerFrame(() => RenderCost.SubmitTicks, FrameClock.TickMs), "ms")
+            .Value("rc-draws", PerFrame(() => RenderCost.Draws))
+            .Value("rc-ranges", PerFrame(() => RenderCost.Ranges))
+            .Section("rc-gpu-section")
+            .Value("rc-gpu", () => RenderCost.GpuMs, "ms")
+            .Rows(RenderCost.Groups, i => cost.Value("rc-" + RenderCost.GroupKey(i), () => RenderCost.GroupGpuMs(i),
+                "ms", true))
+            .Value("gpu", () => RenderCost.FrameGpuMs(_gpu.Ms), "ms")
+            .Section("vulkan")
+            .Line(() => Komet.Vulkan.VulkanCore.Enabled ? Komet.Vulkan.VulkanCore.Status : VulkanOff(), sub: true)
+            .Line(() => Komet.Vulkan.VulkanRenderer.Enabled ? Komet.Vulkan.VulkanRenderer.Status : "", sub: true);
     }
 
-    private void ModsPanel()
+    // What culling the terrain on the GPU would hide, one frame three frames back: against the previous frame's depth (culling before
+    // drawing) and this frame's (the most any culling could), and what the GPU did with the opaque terrain that frame
+    private void OcclusionPanel()
     {
-        if (!Assert(_panels.Count == 7)) return;
-        var mods = Panel(1, HudSettings.SlowEvery, () => _settings.ShowMods);
-        _ = mods.Section("mods")
-            .Value("mods-loaded", () => _mods.Snapshot.Mods)
-            .Rows(ModStats.MaxMods, i => mods.Line(() => _mods.Snapshot.ModNames[i] ?? "", sub: true))
-            .Section("harmony")
-            .Line(() => KometModSystem.LocalServer ? ServerLocal() : ServerRemote())
-            .Value("harmony-methods", () => _mods.Snapshot.PatchedMethods)
-            .Value("harmony-owners", () => _mods.Snapshot.Owners)
-            .Rows(ModStats.MaxOwners,
-                i => mods.Line(() => _mods.Snapshot.OwnerList[i].Name ?? "", () => _mods.Snapshot.OwnerList[i].Methods,
-                    sub: true))
-            .Section("conflicts")
-            .Value("conflicts-count", () => _mods.Snapshot.Conflicts)
-            .Rows(ModStats.MaxConflicts, i => mods.Line(() => _mods.Snapshot.ConflictNames[i] ?? "", sub: true))
-            .Section("features")
-            .Value("features-off", () => Features.NotActive)
-            .Rows(Features.MaxShown, i => mods.Line(() => Features.Shown(i), sub: true, color: () =>
-                Features.ShownState(i) is FeatureState.HeldOff or FeatureState.StoodDown ? HudCanvas.Warning : null));
+        if (!Assert(_panels.Count < PanelCount)) return;
+        Func<double> late = () => Occlusion.Total(Occlusion.Late),
+            frames = () => Occlusion.Total(Occlusion.ComparedFrames);
+        var panel = Panel();
+        _ = panel.Section("occlusion")
+            .Warn("occ-unsupported", () => Occlusion.Detected && !Occlusion.Supported)
+            .Value("occ-ranges", () => Occlusion.Count(Occlusion.Ranges))
+            .Value("occ-triangles", () => Occlusion.Count(Occlusion.Triangles) / 1e6, "M")
+            .Bar("occ-before", () => Occlusion.Share(Occlusion.HiddenBefore, Occlusion.TrianglesBefore),
+                () => Occlusion.Count(Occlusion.HiddenBefore) / 1e6, "M")
+            .Bar("occ-late", Ratio(late, () => Occlusion.Total(Occlusion.Compared), 100), Ratio(late, frames))
+            .Value("occ-late-triangles", Ratio(() => Occlusion.Total(Occlusion.LateTriangles), frames, 1e-3), "k", true)
+            .Bar("occ-after", () => Occlusion.Share(Occlusion.HiddenAfter, Occlusion.Triangles),
+                () => Occlusion.Count(Occlusion.HiddenAfter) / 1e6, "M")
+            .Value("occ-near", () => Occlusion.Count(Occlusion.NearBefore), sub: true)
+            .Value("occ-offscreen", () => Occlusion.Count(Occlusion.OffscreenBefore), sub: true)
+            .Value("occ-infront", () => Occlusion.Count(Occlusion.InFrontBefore), sub: true)
+            .Value("occ-unmatched", PerFrame(() => Occlusion.Unmatched))
+            .Section("occ-culling")
+            .Warn("occ-culling-off", () => !OcclusionCulling.Enabled)
+            .Bar("occ-culled", () => OcclusionCulling.CulledPercent,
+                static () => OcclusionCulling.CulledTriangles / 1e6, "M")
+            .Value("occ-drawn-late", () => OcclusionCulling.LateRanges)
+            .Section("pipeline")
+            .Value("pipe-vertices", () => Occlusion.Statistic(Occlusion.Vertices) / 1e6, "M")
+            .Value("pipe-primitives", () => Occlusion.Statistic(Occlusion.Primitives) / 1e6, "M")
+            .Value("pipe-rasterized", () => Occlusion.Statistic(Occlusion.Rasterized) / 1e6, "M")
+            .Value("pipe-fragments", () => Occlusion.Statistic(Occlusion.Fragments) / 1e6, "M")
+            .Value("pipe-per-pixel",
+                () => Occlusion.Statistic(Occlusion.Fragments) / Math.Max(1, Occlusion.Pixels), "x");
     }
 
-    // Komet's feature counters on the GPU side. Each section shows its headline row; the rest wait for the detail lines.
+    private static readonly Func<string> VulkanOff = HudText.Once("hud-vulkan-off");
+
     private void RenderCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount - 1)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         _ = panel.Section("shadercache")
             .Bar("use-skipped", Share(() => ShaderUseCache.Skips, () => ShaderUseCache.Uploads),
-                PerFrame(() => ShaderUseCache.Skips), good: true)
-            .Value("use-calls", PerFrame(() => ShaderUseCache.Calls), detail: true)
-            .Value("use-uploads", PerFrame(() => ShaderUseCache.Uploads), detail: true)
-            .Value("glerror-skipped", PerFrame(() => GlErrorPoll.Skipped), detail: true)
+                PerFrame(() => ShaderUseCache.Skips))
+            .Value("use-calls", PerFrame(() => ShaderUseCache.Calls))
+            .Value("use-uploads", PerFrame(() => ShaderUseCache.Uploads))
+            .Value("glerror-skipped", PerFrame(() => GlErrorPoll.Skipped))
             .Section("frustumsweep")
             .Warn("debug-timings", () => DebugBuild)
             .Value("cull-time", PerFrame(() => FrustumSweep.Ticks, FrameClock.TickMs), "ms")
             .Bar("cull-skipped", Ratio(() => FrustumSweep.Skipped, () => FrustumSweep.Tested, 100),
-                PerFrame(() => FrustumSweep.Skipped), good: true)
-            .Value("cull-tested", PerFrame(() => FrustumSweep.Tested), detail: true)
-            .Value("cull-visible", PerFrame(() => FrustumSweep.Visible), detail: true)
-            .Value("cull-rebuilt", PerFrame(() => FrustumSweep.Rebuilds), detail: true)
-            .Value("cull-diffed", PerFrame(() => FrustumSweep.Diffed), detail: true)
-            .Value("cull-rebuilt-max", () => FrustumSweep.MaxRebuilds, detail: true)
-            .Value("cull-sorted", PerFrame(() => FrustumSweep.Settles), detail: true)
-            .Value("cull-staged", PerFrame(() => FrustumSweep.StagedCalls), detail: true)
+                PerFrame(() => FrustumSweep.Skipped))
+            .Value("cull-tested", PerFrame(() => FrustumSweep.Tested))
+            .Value("cull-visible", PerFrame(() => FrustumSweep.Visible))
+            .Value("cull-rebuilt", PerFrame(() => FrustumSweep.Rebuilds))
+            .Value("cull-diffed", PerFrame(() => FrustumSweep.Diffed))
+            .Value("cull-rebuilt-max", () => FrustumSweep.MaxRebuilds)
+            .Value("cull-sorted", PerFrame(() => FrustumSweep.Settles))
+            .Value("cull-staged", PerFrame(() => FrustumSweep.StagedCalls))
             .Peaks(FrustumSweep.ResetPeaks)
             .Section("animculling")
-            .Value("anim-idle", PerFrame(() => IdleAnimators.Skipped), detail: true)
+            .Value("anim-idle", PerFrame(() => IdleAnimators.Skipped))
             .Bar("anim-culled", Share(() => AnimatableCulling.Culled, () => AnimatableCulling.Drawn),
-                PerFrame(() => AnimatableCulling.Culled), good: true)
-            .Value("anim-drawn", PerFrame(() => AnimatableCulling.Drawn), detail: true)
+                PerFrame(() => AnimatableCulling.Culled))
+            .Value("anim-drawn", PerFrame(() => AnimatableCulling.Drawn))
+            .Bar("pot-culled", Share(() => PotCulling.Culled, () => PotCulling.Drawn), PerFrame(() => PotCulling.Culled))
             .Section("indirectdraw")
             .Warn("draw-unsupported", () => IndirectDraw.Detected && !IndirectDraw.Supported)
             .Warn("draw-unmapped", () => IndirectDraw.Supported && !IndirectDraw.Persistent)
-            .Value("draw-calls-indirect", PerFrame(() => IndirectDraw.Draws), detail: true)
-            .Value("draw-ranges", PerFrame(() => IndirectDraw.Ranges), detail: true);
+            .Value("draw-calls-indirect", PerFrame(() => IndirectDraw.Draws))
+            .Value("draw-ranges", PerFrame(() => IndirectDraw.Ranges));
         UploadCounters(panel);
     }
 
     private void UploadCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount - 1)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         _ = panel.Section("meshpool")
             .Value("pool-time", PerFrame(() => MeshPool.Ticks, FrameClock.TickMs), "ms")
-            .Value("pool-models", PerFrame(() => MeshPool.Models), detail: true)
-            .Value("pool-vertices", PerFrame(() => MeshPool.Vertices), detail: true)
-            .Value("pool-skipped", PerFrame(() => MeshPool.Skipped), detail: true)
-            .Value("frag-removed", PerFrame(() => MeshPool.Removed), detail: true)
+            .Value("pool-models", PerFrame(() => MeshPool.Models))
+            .Value("pool-vertices", PerFrame(() => MeshPool.Vertices))
+            .Value("pool-skipped", PerFrame(() => MeshPool.Skipped))
+            .Value("frag-removed", PerFrame(() => MeshPool.Removed))
             .Bar("frag-squeeze-skipped", Ratio(() => MeshPool.Skips, () => MeshPool.Squeezes, 100),
-                PerFrame(() => MeshPool.Skips), good: true, detail: true)
-            .Value("frag-recounts", PerFrame(() => MeshPool.Recounts), detail: true)
+                PerFrame(() => MeshPool.Skips))
+            .Value("frag-recounts", PerFrame(() => MeshPool.Recounts))
             .Section("meshrecycle")
             .Value("recycle-saved", PerFrame(() => MeshRecycle.Saved, 4 * Mebibyte), "MB")
-            .Value("recycle-clones", PerFrame(() => MeshRecycle.Clones), detail: true)
-            .Value("recycle-reused", PerFrame(() => MeshRecycle.Reused), detail: true)
+            .Value("recycle-clones", PerFrame(() => MeshRecycle.Clones))
+            .Value("recycle-reused", PerFrame(() => MeshRecycle.Reused))
             .Section("chunkbudget")
-            .Line(UploadCapText,
-                color: () =>
-                    ChunkBudget.Capped || ChunkBudget.CapMillis == ChunkBudget.Uncapped ? null : HudCanvas.Warning)
-            .Bar("upload-capped", PerFrame(() => ChunkBudget.CapHits, 100));
+            .Line(UploadCapText)
+            .Bar("upload-capped", PerFrame(() => ChunkBudget.CapHits, 100))
+            .Bar("upload-over", PerFrame(() => ChunkBudget.Over, 100))
+            .Value("upload-over-ms", Ratio(() => ChunkBudget.OverTicks * FrameClock.TickMs, () => ChunkBudget.Over), "ms")
+            .Bar("upload-priority-cut", PerFrame(() => ChunkBudget.PriorityCuts, 100))
+            .Value("upload-births", PerSecond(() => Komet.Vulkan.VulkanRenderer.Born))
+            .Value("upload-birth-ms", Ratio(() => Komet.Vulkan.VulkanRenderer.BirthTicks * FrameClock.TickMs,
+                () => Komet.Vulkan.VulkanRenderer.Born), "ms")
+            .Section("chunkload")
+            .Warn("chunkload-unpatched",
+                () => ChunkLoadBudget.Millis != ChunkLoadBudget.Engine && !ChunkLoadBudget.Rewritten)
+            .Bar("chunkload-stops", PerFrame(() => ChunkLoadBudget.Stops, 100))
+            .Value("chunkload-held", Ratio(() => ChunkLoadBudget.Held, () => ChunkLoadBudget.Stops));
     }
 
-    // Chunks from arrival to mesh, entities and animation, garbage avoided and the start-up compile
     private void WorldCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         Func<double> passes = () => TessAccounting.Totals().Passes, passMs = () => TessAccounting.Totals().Ms;
         var busy = PerSecond(passMs, 0.1); // percent of one thread
         _ = panel.Section("chunklookup")
-            .Bar("chunk-hitrate", Share(() => ChunkLookup.Hits, () => ChunkLookup.Misses), good: true)
-            .Value("chunk-hits", PerFrame(() => ChunkLookup.Hits), detail: true)
+            .Bar("chunk-hitrate", Share(() => ChunkLookup.Hits, () => ChunkLookup.Misses))
+            .Value("chunk-hits", PerFrame(() => ChunkLookup.Hits))
             .Section("tessaccounting")
             .Warn("tess-unpatched", () => !TessAccounting.Installed)
             .Warn("tess-partial", () => TessAccounting.Installed && !OccludedChunks.Installed)
@@ -424,93 +414,76 @@ internal sealed partial class HudOverlay
             .Value("tess-near", () => TessSchedule.NearWaiting)
             .Value("tess-mean", Ratio(passMs, passes), "ms")
             .Bar("tess-busy", () => busy() / (1 + WorkerPool.Running));
-        PoolCounters(panel);
         _ = panel
             .Bar("tess-edge", Ratio(() => TessAccounting.Totals().Edge, passes, 100),
-                PerSecond(() => TessAccounting.Totals().Edge), detail: true)
+                PerSecond(() => TessAccounting.Totals().Edge))
             .Bar("tess-zero", Ratio(() => TessAccounting.ZeroMs, passMs, 100),
-                PerSecond(() => TessAccounting.ZeroPasses), detail: true)
+                PerSecond(() => TessAccounting.ZeroPasses))
             .Value("tess-priority",
                 PerSecond(() =>
-                    TessAccounting.Count(TessBucket.PriorityFull) + TessAccounting.Count(TessBucket.PriorityEdge)),
-                detail: true)
-            .Value("tess-skipped", PerSecond(() => TessAccounting.Count(TessBucket.Skipped)), detail: true)
-            .Value("tess-requeued", PerSecond(() => TessAccounting.Count(TessBucket.Requeued)), detail: true)
-            .Value("tess-occluded", PerSecond(() => OccludedChunks.Hits), detail: true)
+                    TessAccounting.Count(TessBucket.PriorityFull) + TessAccounting.Count(TessBucket.PriorityEdge)))
+            .Value("tess-skipped", PerSecond(() => TessAccounting.Count(TessBucket.Skipped)))
+            .Value("tess-requeued", PerSecond(() => TessAccounting.Count(TessBucket.Requeued)))
+            .Value("tess-occluded", PerSecond(() => OccludedChunks.Hits))
             .Section("extendedrows")
             .Warn("extendedrows-unpatched", () => !ExtendedRows.Rewritten)
             .Warn("extendedrows-blocked", () => ExtendedRows.Rewritten && ExtendedRows.Blocked)
             .Value("extendedrows-fallbacks", PerFrame(() => ExtendedRows.Fallbacks))
-            .Value("extendedrows-rows", PerFrame(() => ExtendedRows.Decoded), detail: true)
-            .Value("extendedrows-cells", PerFrame(() => ExtendedRows.CellsDecoded), detail: true);
+            .Value("extendedrows-rows", PerFrame(() => ExtendedRows.Decoded))
+            .Value("extendedrows-cells", PerFrame(() => ExtendedRows.CellsDecoded));
         LightCounters(panel);
         EntityCounters(panel);
         GarbageCounters(panel);
     }
 
-    // Komet's worker threads: how their time splits between frame jobs (culling), tessellation and waiting, each a share of all of them
-    private void PoolCounters(HudPanel panel)
-    {
-        if (!Assert(_panels.Count == PanelCount)) return;
-        Func<double> frame = PerSecond(() => WorkerPool.FrameTicks * 1000.0 / Stopwatch.Frequency, 0.1),
-            tess = PerSecond(() => WorkerPool.BackgroundTicks * 1000.0 / Stopwatch.Frequency, 0.1);
-
-        static double PerThread(double percent) =>
-            double.IsFinite(percent) && WorkerPool.Running > 0 ? percent / WorkerPool.Running : double.NaN;
-
-        _ = panel.Section("pool")
-            .Warn("pool-frame-off", () => WorkerPool.FrameOff)
-            .Value("pool-threads", () => WorkerPool.Running)
-            .Line(() => HudText.Translate(TessWorkers.Boosted ? "hud-pool-tess-boost" : "hud-pool-tess-limit",
-                WorkerPool.BackgroundLimit, WorkerPool.InBackground), sub: true)
-            .Bar("pool-frame", () => PerThread(frame()))
-            .Bar("pool-tess", () => PerThread(tess()))
-            .Bar("pool-idle", () => PerThread(100.0 * WorkerPool.Running - frame() - tess()), detail: true);
-    }
-
     private void LightCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         _ = panel.Section("visiblefaces")
             .Warn("visiblefaces-unpatched", () => !VisibleFaces.Installed)
             .Warn("visiblefaces-other", () => VisibleFaces.StoodDown)
             .Bar("visiblefaces-engine", Share(() => VisibleFaces.Fallbacks, () => VisibleFaces.Chunks),
                 PerFrame(() => VisibleFaces.Fallbacks))
-            .Value("visiblefaces-chunks", PerFrame(() => VisibleFaces.Chunks), detail: true)
-            .Value("visiblefaces-ported", Share(() => VisibleFaces.PortedCells, () => VisibleFaces.FastCells), "%",
-                detail: true)
+            .Value("visiblefaces-chunks", PerFrame(() => VisibleFaces.Chunks))
+            .Value("visiblefaces-ported", Share(() => VisibleFaces.PortedCells, () => VisibleFaces.FastCells), "%")
+            .Section("owntess")
+            .Warn("owntess-unpatched", () => !OwnTessellation.Installed)
+            .Warn("owntess-other", () => OwnTessellation.StoodDown || OwnTessellation.JsonStoodDown)
+            .Bar("owntess-engine", Share(() => OwnTessellation.EngineBlocks, () => OwnTessellation.Blocks),
+                PerFrame(() => OwnTessellation.EngineBlocks))
+            .Value("owntess-blocks", PerFrame(() => OwnTessellation.Blocks))
+            .Value("owntess-json", PerFrame(() => OwnTessellation.JsonBlocks))
             .Section("facelight")
             .Warn("facelight-unpatched", () => !FaceLight.Installed)
             .Warn("facelight-other", () => FaceLight.StoodDown)
             .Bar("facelight-engine", Share(() => FaceLight.EngineFaces, () => FaceLight.FastFaces),
                 PerFrame(() => FaceLight.EngineFaces))
-            .Value("facelight-faces", PerFrame(() => FaceLight.FastFaces), detail: true)
-            .Value("facelight-blocks", PerFrame(() => FaceLight.FusedBlocks), detail: true)
+            .Value("facelight-faces", PerFrame(() => FaceLight.FastFaces))
+            .Value("facelight-blocks", PerFrame(() => FaceLight.FusedBlocks))
             .Section("particlelight")
             .Warn("particlelight-unpatched", () => !ParticleLight.Installed)
             .Bar("particlelight-busy", Ratio(() => ParticleLight.Busy, () => ParticleLight.Reads, 100),
                 PerFrame(() => ParticleLight.Busy))
-            .Value("particlelight-reads", PerFrame(() => ParticleLight.Reads), detail: true)
-            .Value("particlelight-packed", PerFrame(() => ParticleLight.Packed), detail: true);
+            .Value("particlelight-reads", PerFrame(() => ParticleLight.Reads))
+            .Value("particlelight-packed", PerFrame(() => ParticleLight.Packed));
     }
 
     private void EntityCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         _ = panel.Section("animframes")
             .Warn("anim-fast-blocked", () => AnimationFrames.Blocked)
-            .Bar("anim-hitrate", Share(() => AnimationFrames.Hits, () => AnimationFrames.Misses), good: true)
+            .Bar("anim-hitrate", Share(() => AnimationFrames.Hits, () => AnimationFrames.Misses))
             .Value("anim-compile-worst", () => AnimationFrames.WorstMs, "ms")
             .Line(() => AnimationFrames.WorstCode, sub: true)
-            .Value("anim-hits", PerSecond(() => AnimationFrames.Hits), "/s", detail: true)
-            .Value("anim-misses", PerSecond(() => AnimationFrames.Misses), "/s", detail: true)
-            .Value("anim-init-skipped", PerSecond(() => InitOnce.Skipped), "/s", detail: true)
+            .Value("anim-hits", PerSecond(() => AnimationFrames.Hits), "/s")
+            .Value("anim-misses", PerSecond(() => AnimationFrames.Misses), "/s")
+            .Value("anim-init-skipped", PerSecond(() => InitOnce.Skipped), "/s")
             .Peaks(AnimationFrames.ResetPeaks)
             .Section("entitytess")
             .Line(() => EntityTessBudget.Substituted || EntityTessBudget.Millis == EntityTessBudget.Engine
                     ? ""
-                    : HudText.Translate("hud-entitytess-unpatched", EntityTessBudget.Millis), sub: true,
-                color: () => HudCanvas.Warning)
+                    : HudText.Translate("hud-entitytess-unpatched", EntityTessBudget.Millis), sub: true)
             .Warn("shapememo-blocked", () => ShapeInitMemo.Blocked)
             .Value("entitytess-time", PerFrame(() => EntityTessBudget.Ticks, FrameClock.TickMs), "ms")
             .Value("entitytess-worst", () => EntityTessBudget.WorstFrameMs, "ms")
@@ -519,16 +492,32 @@ internal sealed partial class HudOverlay
                     : HudText.Translate("hud-entitytess-slowest", EntityTessBudget.SlowestCode,
                         HudText.Format(EntityTessBudget.SlowestMs, "F1")),
                 sub: true)
-            .Value("entitytess-count", PerSecond(() => EntityTessBudget.Tesselations), "/s", detail: true)
-            .Value("entitytess-deferred", PerSecond(() => EntityTessBudget.Deferred), "/s", detail: true)
-            .Value("entitytess-waited", () => EntityTessBudget.MostWaited, detail: true)
-            .Value("shapememo-skipped", PerSecond(() => ShapeInitMemo.Skipped), "/s", detail: true)
-            .Peaks(EntityTessBudget.ResetPeaks);
+            .Value("entitytess-count", PerSecond(() => EntityTessBudget.Tesselations), "/s")
+            .Value("entitytess-deferred", PerSecond(() => EntityTessBudget.Deferred), "/s")
+            .Value("entitytess-waited", () => EntityTessBudget.MostWaited)
+            .Value("shapememo-skipped", PerSecond(() => ShapeInitMemo.Skipped), "/s")
+            .Peaks(EntityTessBudget.ResetPeaks)
+            .Section("entitytimes")
+            .Warn("entitytimes-unpatched", () => !EntityTimes.Installed)
+            .Rows(EntityTimes.Parts, part => EntityTime(panel, part))
+            .Peaks(EntityTimes.ResetPeaks);
+    }
+
+    // Each part's time per frame, then its slowest single call since the peaks were reset and whose it was
+    private void EntityTime(HudPanel panel, int part)
+    {
+        if (!Index(part, EntityTimes.Parts)) return;
+        string[] keys = ["entitytimes-tick", "entitytimes-animation", "entitytimes-prepare"];
+        _ = panel.Value(keys[part], PerFrame(() => EntityTimes.Ticks(part), FrameClock.TickMs), "ms")
+            .Line(() => EntityTimes.SlowestCode(part).Length == 0
+                ? ""
+                : HudText.Translate("hud-entitytess-slowest", EntityTimes.SlowestCode(part),
+                    HudText.Format(EntityTimes.SlowestMs(part), "F1")), sub: true);
     }
 
     private void GarbageCounters(HudPanel panel)
     {
-        if (!Assert(_panels.Count == PanelCount)) return;
+        if (!Assert(_panels.Count < PanelCount)) return;
         _ = panel.Section("garbage")
             .Warn("garbage-unpatched", () =>
                 !(DecompressScratch.Rewritten && LightScratch.Rewritten && ColumnNoiseScratch.Rewritten &&
@@ -536,26 +525,25 @@ internal sealed partial class HudOverlay
                   CookingMatch.Rewritten && HandlerLists.Rewritten))
             .Value("garbage-decompress", PerFrame(() => DecompressScratch.Saved, Mebibyte), "MB")
             .Value("garbage-noise", PerFrame(() => ColumnNoiseScratch.Saved, Mebibyte), "MB")
-            .Value("garbage-light", PerFrame(() => LightScratch.Avoided), detail: true)
-            .Value("garbage-partitions", PerFrame(() => PartitionReuse.Reused), detail: true)
-            .Value("garbage-plantpos", PerFrame(() => TessBlockPos.Saved), detail: true)
+            .Value("garbage-light", PerFrame(() => LightScratch.Avoided))
+            .Value("garbage-partitions", PerFrame(() => PartitionReuse.Reused))
+            .Value("garbage-plantpos", PerFrame(() => TessBlockPos.Saved))
+            .Value("garbage-bus-swept", PerFrame(() => EventBusSweep.Swept))
+            .Value("garbage-bus-listeners", () => EventBusSweep.Listeners)
             .Section("prejit")
-            .Line(PreJitText, sub: true, color: () => PreJit.State == PreJitState.Cancelled ? HudCanvas.Warning : null)
+            .Line(PreJitText, sub: true)
             .Value("prejit-methods", () => PreJit.Prepared)
-            .Value("prejit-failed", () => PreJit.Failed, detail: true)
-            .Value("prejit-jit", () => PreJit.JitMs, "ms", detail: true)
-            .Value("prejit-wall", () => PreJit.WallMs, "ms", detail: true);
+            .Value("prejit-failed", () => PreJit.Failed)
+            .Value("prejit-jit", () => PreJit.JitMs, "ms")
+            .Value("prejit-wall", () => PreJit.WallMs, "ms");
     }
 
-    private HudPanel Panel(int column, int refreshEvery = 1, Func<bool>? enabled = null, LogStats? log = null)
+    private HudPanel Panel()
     {
-        var every = Assert(refreshEvery > 0) ? refreshEvery : 1;
-        // one panel of a cadence per interval, not all of them at once
-        var phase = _panels.Count(p => p.RefreshEvery == every);
-        var panel = new HudPanel(_capi, _settings, _fonts, _panels.Count, Index(column, Columns) ? column : 0, every,
-            phase, enabled, log);
+        _ = Assert(PanelCount > 0);
+        var panel = new HudPanel();
         _ = Assert(_panels.Count < PanelCount);
-        _panels.Add(panel); // the list owns and disposes every panel
+        _panels.Add(panel);
         return panel;
     }
 }

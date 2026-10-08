@@ -19,7 +19,7 @@ internal static class ClimateCache
     public const int EngineCapacity = 10, MaxCapacity = 144; // one entry is a MiB, so the ceiling is the memory budget
 
     public static bool Enabled { get; set; } = true;
-    public static int Capacity { get; private set; } // what the last call wanted, for the HUD
+    public static int Capacity { get; private set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "LerpedClimateMaps")]
     private static extern ref LimitedDictionary<long, int[]> Maps(ClientWorldMap map);
@@ -38,6 +38,49 @@ internal static class ClimateCache
             !Assert(maps.FieldType == typeof(LimitedDictionary<long, int[]>) && capacity.FieldType == typeof(int)))
             return; // the accessors would throw at first use
         _ = NotNull(harmony.Patch(load, new HarmonyMethod(Sized)));
+        if (AccessTools.Method(typeof(ClientWorldMap), nameof(ClientWorldMap.TryLoadLerpedClimateMap), [typeof(int), typeof(int)])
+            is { } find)
+            _ = NotNull(harmony.Patch(find, new HarmonyMethod(Recent), new HarmonyMethod(Remember)));
+    }
+
+    // TryLoadLerpedClimateMap takes the engine's lock for one dictionary read, and every climate lookup goes through it: the
+    // tesselation threads per chunk and per GetClimateAt, the cloud renderer per tile - one of the most contended locks of a world
+    // join (trace, 2026-10-08). Each thread remembers the last Remembered regions it found; consecutive chunks and cloud tiles nearly
+    // always lie in one of the few 512-block regions around them. A remembered map the engine has since evicted is the same data a
+    // new one would be (made from the region's climate map, never written afterwards); the placeholder is never in the cache, so
+    // never remembered.
+    private const int Remembered = 4;
+
+    [ThreadStatic] private static ClientWorldMap? _lastMap;
+    [ThreadStatic] private static long[]? _lastKeys;
+    [ThreadStatic] private static int[]?[]? _lastFound;
+    [ThreadStatic] private static int _lastNext;
+
+    private static bool Recent(ClientWorldMap __instance, int chunkX, int chunkZ, ref int[]? __result)
+    {
+        if (!Enabled || _lastFound is not { } found || _lastKeys is not { } keys || !ReferenceEquals(_lastMap, __instance) ||
+            !NotNull(__instance)) return true;
+        var key = __instance.MapRegionIndex2DFromClientChunkCoord(chunkX, chunkZ);
+        _ = Assert(keys.Length == Remembered) && Assert(found.Length == Remembered);
+        for (var i = 0; i < Remembered; i++)
+        {
+            if (keys[i] != key || found[i] is not { } map) continue;
+            __result = map;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void Remember(ClientWorldMap __instance, int chunkX, int chunkZ, int[]? __result, bool __runOriginal)
+    {
+        if (!__runOriginal || __result is null || !NotNull(__instance)) return;
+        if (!ReferenceEquals(_lastMap, __instance) || _lastKeys is null || _lastFound is null)
+            (_lastMap, _lastKeys, _lastFound, _lastNext) = (__instance, new long[Remembered], new int[]?[Remembered], 0);
+        var slot = _lastNext;
+        _lastNext = (slot + 1) % Remembered;
+        (_lastKeys[slot], _lastFound[slot]) = (__instance.MapRegionIndex2DFromClientChunkCoord(chunkX, chunkZ), __result);
+        _ = Assert(__result.Length > 0) && Index(slot, Remembered);
     }
 
     // Regions the tesselator can reach along one axis, squared; clamped so an extreme view distance cannot eat the heap
@@ -48,7 +91,6 @@ internal static class ClimateCache
         return Assert(perAxis > 0) ? Math.Clamp(perAxis * perAxis, EngineCapacity, MaxCapacity) : EngineCapacity;
     }
 
-    // The engine's ten while switched off, else room for every region in view
     internal static int Wanted(bool enabled, int region, int distance) =>
         enabled ? CapacityFor(region, distance) : EngineCapacity;
 
@@ -139,8 +181,6 @@ internal static class CloudTileScratch
         ];
     }
 
-    // Exactly one new Vec3d(x, y, z), stored to a local that is only read for Vec3d's fields or handed to Readers as their position.
-    // Anything else means the method changed shape, and the engine's own IL is handed back.
     internal static List<CodeInstruction> Substitute(IEnumerable<CodeInstruction> instructions)
     {
         Rewritten = false;

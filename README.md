@@ -4,8 +4,9 @@ Client-side performance mod for Vintage Story 1.22 (C#, .NET 10). Komet replaces
 produces the same result, measures itself in game and shows a HUD with frame times, lows, spikes and counters. The goal is the
 1 % and 0.1 % lows, not the average FPS.
 
-- **HUD**: F7 on/off, Shift+F7 detail rows. Panels: frame time graph, system, render passes, mod times, mods & patches,
-  Komet counters, main log, debug log.
+- **HUD**: F7 a compact overlay (FPS, 1 % low, frame time, graph, mods, a hint naming each spike's cause), Ctrl+F7 a window
+  with tabs (overview with hints that fix what they name on a click, frames, system, render, threads, mods with pinning, timing
+  and patch risks, log, settings), Ctrl+F8 the debug window (captures and the protocol, see below).
 - **Options menu**: replaces the in-game settings (Escape → Settings) with a menu in the style of Sodium for Minecraft; also
   via `.komet`. Details below. Komet's own settings live in `ModConfig/komet-hud.json`.
 - **Update notice**: once you agree, Komet checks GitHub at startup for a newer build of its own channel.
@@ -51,8 +52,8 @@ complete about 19 s sooner after joining.
 - **ChunkLookup**: `GetChunk` from a mirror instead of under `chunksLock`.
 - **DecompressScratch**: chunk layers are unpacked without a throwaway copy; about 8 MB/s less garbage while loading.
 - **TessSchedule**: nearest chunk first (weighted by view direction); near chunks wait half as long.
-- **WorkerThreads** (cores − 2, 1–8) and **TessJobs** (2, 0–8): a shared pool `komet-worker-N` for culling and tessellation.
-  Frame tasks come first; from 3,000 waiting chunks all threads tessellate. TessSafety makes shared engine state per thread or
+- **WorkerThreads** (cores − 2, 1–8, at most) and **TessPriority** (25 %, 0–100): a shared pool `komet-worker-N` for culling and tessellation; how many threads tessellate Komet decides by itself, the priority sets what comes first (0 % smooth frames, 100 % fast chunk loading).
+  Frame tasks come first; from 3,000 waiting chunks half of the threads tessellate, all of them from priority 50 %. TessSafety makes shared engine state per thread or
   locks it while workers tessellate.
 - **ExtendedRows**: the chunk and its neighbour shell are copied row by row; 400–600 instead of 820–1,250 ns per row.
 - **VisibleFaces**: a bit formula for `FaceCullMode.Default`; per chunk 370–470 → 100–120 µs underground.
@@ -138,7 +139,7 @@ var hold = KometFeatures.HoldOff("ChunkBudget", "mymod", "own upload control"); 
 hold.Release(); // the player's choice applies again
 ```
 
-While a hold is active, the switch in the options menu is locked (showing the mod and the reason); the HUD panel Mods & Patches
+While a hold is active, the switch in the options menu is locked (showing the mod and the reason); the HUD window's Mods tab
 lists all features that are not active. `KometFeatures.StateChanged` reports every change; a handler that throws is logged once and
 unsubscribed.
 
@@ -162,6 +163,40 @@ held). The id and the Harmony id are `mymod:water`, in the benchmark as well. `P
 (`EngineChanged`); a test of the mod pins the value with `KometFeatures.Fingerprint(...)` against the installed game. If `Install`
 throws, Komet removes the patches (`Failed`). When the world closes, Komet calls `Uninstall`, removes the patches and forgets the
 registration; in the next world the mod registers again.
+
+## Debugging performance
+
+`/komet debug` records everything Komet measures for 10 seconds (HUD shown or not) and writes a plain-text protocol: findings
+with the section that proves them, system, game and Komet settings, frame statistics with a histogram, the dearest frames with
+their profiler marks, memory and GC, JIT and threads, world and rendering, time per mod, every method several mods patch with its
+patch chain and risk, the log's warnings and errors, and a comparison with the previous protocol. It goes to the clipboard and to
+`Logs/komet-debug/<time>/` with `frames.csv` (every frame), `harmony.txt` (the whole patch registry) and `summary.txt`. Paths name
+no account.
+
+```text
+/komet debug                 10 s
+/komet debug 60 de           60 s, protocol in German (default English, whatever the game's language)
+/komet debug now             3 s
+/komet debug spike 40        armed until a frame takes over 40 ms, then the 20 s before it
+/komet debug stop            ends a capture early and writes it
+/komet profile <modid> [s]   times every entry point of one mod (default 10 s)
+/komet profile stop
+```
+
+`/komet profile` patches the methods the game calls in that mod (overrides of the game's classes, implementations of its
+interfaces, lambdas used as event and tick listeners, and the mod's own Harmony patches), measures calls, total and self time,
+time per frame, the longest call and the share on the main thread, then removes the patches again. The report goes to the
+clipboard and `Logs/komet-debug/profile-<modid>-<time>.txt`; a debug capture running at the same time includes it.
+
+Mod authors can add their own timings and state to the protocol through `KometDebug` (same rules as `KometOptions`):
+
+```csharp
+using (KometDebug.Measure("mymod:pathfinding")) FindPath(); // costs a field read while no capture runs
+KometDebug.AddSection("mymod", "My mod", () => $"cached paths: {_cache.Count}");
+```
+
+`Measure` works on any thread; the protocol lists each name with its total time, calls and time per call. A section's text is
+read once per protocol on a pool thread; one that throws shows its exception instead. When the world closes, Komet drops both.
 
 ## Launch settings (optional)
 

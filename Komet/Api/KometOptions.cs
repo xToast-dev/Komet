@@ -40,7 +40,6 @@ public static class KometOptions
         ApiEvents.Raise(Applied, h => h(null, EventArgs.Empty), h => Applied -= h, "KometOptions.Applied");
     }
 
-    // The world closes: its pages and subscribers go
     internal static void Clear()
     {
         Registered.Clear();
@@ -87,11 +86,9 @@ public sealed class OptionRow
 
     internal bool IsEnabled => (Enabled?.Invoke() ?? true) && Locked?.Invoke() is null;
 
-    internal string ValueText(double value)
-    {
-        if (!Finite(value) || !Assert(Unit.Length < 64)) return "";
-        return Format?.Invoke(value) ?? value.ToString("0.##", CultureInfo.InvariantCulture) + Unit;
-    }
+    internal string ValueText(double value) => Finite(value) && Assert(Unit.Length < 64)
+        ? Format?.Invoke(value) ?? value.ToString("0.##", CultureInfo.InvariantCulture) + Unit
+        : "";
 
     // A slider's value from the x fraction of its track, on its step
     internal double At(double fraction)
@@ -120,60 +117,53 @@ public sealed class OptionPage
     internal int Count => _options.Count;
     internal int Capacity { get; init; } = MaxOptions;
 
-    internal OptionRow this[int index] => Index(index, _options.Count) ? _options[index] : new OptionRow(OptionKind.Group, "?", null);
+    internal OptionRow this[int index] =>
+        Index(index, _options.Count) ? _options[index] : new OptionRow(OptionKind.Group, "?", null);
 
     // A header over the rows that follow
     public OptionPage Group(string title) =>
         NotNull(title) && Assert(title.Length > 0) ? Add(new OptionRow(OptionKind.Group, title, null)) : this;
 
-    public OptionPage Switch(string label, Func<bool> get, Action<bool> set, string? hint = null)
-    {
-        if (!NotNull(label) || !NotNull(get) || !NotNull(set)) return this;
-        return Add(new OptionRow(OptionKind.Switch, label, hint) { Get = () => get() ? 1 : 0, Set = v => set(v >= 0.5) });
-    }
+    public OptionPage Switch(string label, Func<bool> get, Action<bool> set, string? hint = null) =>
+        NotNull(label) && NotNull(get) && NotNull(set)
+            ? Add(new OptionRow(OptionKind.Switch, label, hint) { Get = () => get() ? 1 : 0, Set = v => set(v >= 0.5) })
+            : this;
 
     public OptionPage Slider(string label, double min, double max, double step, Func<double> get, Action<double> set,
-        string unit = "", string? hint = null)
-    {
-        if (!NotNull(get) || !NotNull(set) || !Assert(max > min) || !Assert(step > 0)) return this;
-        return Add(new OptionRow(OptionKind.Slider, label, hint)
-            { Get = get, Set = set, Min = min, Max = max, Step = step, Unit = unit ?? "" });
-    }
+        string unit = "", string? hint = null) =>
+        NotNull(get) && NotNull(set) && Assert(max > min) && Assert(step > 0)
+            ? Add(new OptionRow(OptionKind.Slider, label, hint)
+                { Get = get, Set = set, Min = min, Max = max, Step = step, Unit = unit ?? "" })
+            : this;
 
-    // A HUD setting's slider: its range, shown as the range formats it
-    internal OptionPage Slider(string label, HudRange range, Func<double> get, Action<double> set)
-    {
-        if (!Assert(range.Max > range.Min) || !Assert(range.Step > 0)) return this;
-        return Slider(label, range.Min, range.Max, range.Step, get, set).Format(range.Text);
-    }
+    internal OptionPage Slider(string label, HudRange range, Func<double> get, Action<double> set) =>
+        Assert(range.Max > range.Min) && Assert(range.Step > 0)
+            ? Slider(label, range.Min, range.Max, range.Step, get, set).Format(range.Text)
+            : this;
 
     public OptionPage Choice(string label, IReadOnlyList<string> names, Func<int> get, Action<int> set,
-        string? hint = null)
-    {
-        if (!NotNull(names) || !NotNull(get) || !NotNull(set) || !Assert(names.Count is > 0 and <= MaxOptions)) return this;
-        return Add(new OptionRow(OptionKind.Choice, label, hint)
-            { Get = () => get(), Set = v => set((int)v), Max = names.Count - 1, Names = [.. names] });
-    }
+        string? hint = null) =>
+        NotNull(names) && NotNull(get) && NotNull(set) && Assert(names.Count is > 0 and <= MaxOptions)
+            ? Add(new OptionRow(OptionKind.Choice, label, hint)
+                { Get = () => get(), Set = v => set((int)v), Max = names.Count - 1, Names = [.. names] })
+            : this;
 
-    public OptionPage Button(string label, string text, Action click, string? hint = null)
-    {
-        if (!NotNull(label) || !NotNull(text) || !NotNull(click)) return this;
-        return Add(new OptionRow(OptionKind.Button, label, hint) { Shows = () => text, Set = _ => click() });
-    }
+    public OptionPage Button(string label, string text, Action click, string? hint = null) =>
+        NotNull(label) && NotNull(text) && NotNull(click)
+            ? Add(new OptionRow(OptionKind.Button, label, hint) { Shows = () => text, Set = _ => click() })
+            : this;
 
     // A button whose caption changes (a reset that asks first)
-    internal OptionPage Button(string label, Func<string> text, Action click, string? hint = null)
-    {
-        if (!NotNull(label) || !NotNull(text) || !NotNull(click)) return this;
-        return Add(new OptionRow(OptionKind.Button, label, hint) { Shows = text, Set = _ => click() });
-    }
+    internal OptionPage Button(string label, Func<string> text, Action click, string? hint = null) =>
+        NotNull(label) && NotNull(text) && NotNull(click)
+            ? Add(new OptionRow(OptionKind.Button, label, hint) { Shows = text, Set = _ => click() })
+            : this;
 
     // One of the game's hotkeys by its code: the row shows what the key is bound to, warn tells whether another has the same
-    internal OptionPage Key(string label, string code, Func<string> shows, Func<bool> warn, string? hint = null)
-    {
-        if (!NotNull(label) || !NotNull(code) || !NotNull(shows) || !NotNull(warn) || !Assert(code.Length > 0)) return this;
-        return Add(new OptionRow(OptionKind.Key, label, hint) { Code = code, Shows = shows, Warn = warn });
-    }
+    internal OptionPage Key(string label, string code, Func<string> shows, Func<bool> warn, string? hint = null) =>
+        NotNull(label) && NotNull(code) && NotNull(shows) && NotNull(warn) && Assert(code.Length > 0)
+            ? Add(new OptionRow(OptionKind.Key, label, hint) { Code = code, Shows = shows, Warn = warn })
+            : this;
 
     // How the option added last shows its value (a slider's "unlimited" at its end, say)
     public OptionPage Format(System.Func<double, string> format)
@@ -206,8 +196,8 @@ public sealed class OptionPage
 
     private OptionPage Add(OptionRow option)
     {
-        if (NotNull(option.Label) && Assert(option.Label.Length > 0) && Assert(_options.Count < Math.Min(Capacity, MaxRows)))
-            _options.Add(option);
+        if (NotNull(option.Label) && Assert(option.Label.Length > 0) &&
+            Assert(_options.Count < Math.Min(Capacity, MaxRows))) _options.Add(option);
         return this;
     }
 }

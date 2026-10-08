@@ -5,12 +5,9 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Options;
 
-// The game's settings replaced by Komet's options screen, as Sodium replaces Minecraft's video settings. The escape menu's Settings
-// button and Graphics tab both run GuiCompositeSettings.OnGraphicsOptions; in game the prefix loads an empty composer named like the
-// graphics tab into the escape menu (so nothing shows behind the screen) and opens the screen over it; its buttons open the game's own
-// screens (original graphics tab, macro editor) through their handlers. The escape menu raises "leftGraphicsDlg" when its composer
-// stops being the graphics one (another tab, or closed); the screen goes with it. Stands down (the game's tab shows) when the knob is
-// off, the bodies are not 1.22.7's, or another mod patches OnGraphicsOptions (its additions would miss the controls they expect).
+// The escape menu's Settings button and Graphics tab both run OnGraphicsOptions. The prefix loads an empty composer named like the
+// graphics tab, so nothing shows behind the screen and the menu raises "leftGraphicsDlg" once its composer stops being the graphics
+// one. Stands down when another mod patches OnGraphicsOptions: its additions would miss the controls they expect.
 internal static class GraphicsMenu
 {
     internal const ulong Fingerprint = 0x4DF9587AB32B1D45UL; // the six rebuilt tabs, Vintage Story 1.22.7

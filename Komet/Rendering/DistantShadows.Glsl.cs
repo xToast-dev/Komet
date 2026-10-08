@@ -1,14 +1,10 @@
 using System.Text.RegularExpressions;
 
-
 namespace Komet.Rendering;
 
-// The shader side of the distant cascade, added to the engine's two shadow includes when they are loaded. shadowcoords.vsh computes
-// the vertex's coordinates in the distant map and its weight: what the near and far cascades leave, faded out at the map's edge.
-// fogandlight.fsh darkens by that weight like the far cascade, with four hardware-filtered taps. The fragment part compiles only with
-// KOMET_DISTANT, defined for a program whose vertex shader includes shadowcoords.vsh: a fragment input no vertex shader writes fails
-// to link. The new uniforms carry a precision qualifier, which keeps them out of the engine's uniform scan: a sampler it found would
-// take a texture unit and move the units of every sampler declared after it.
+// The fragment part compiles only with KOMET_DISTANT (an input no vertex shader writes fails to link). The uniforms carry a
+// precision qualifier, which keeps them out of the engine's uniform scan: a sampler it found would take a texture unit and shift
+// every later one.
 internal static partial class DistantShadows
 {
     internal const string VertexFile = "shadowcoords.vsh", FragmentFile = "fogandlight.fsh", Marker = "kometDistant";
@@ -64,7 +60,7 @@ internal static partial class DistantShadows
 
         """;
 
-    // Where the additions go: behind the far cascade's declarations, and behind the statement that sets its weight or brightness
+    // Anchors: behind the far cascade's declarations, and behind the statement that sets its weight or brightness
     private static readonly Regex VertexDeclared = Pattern(@"out vec4 shadowCoordsFar;\s*#endif[^\n]*\n");
     private static readonly Regex VertexWeighted =
         Pattern(@"shadowCoordsFar\.w = max\(0\.0, clamp\(1\.0 - distanceFar, 0\.0, 1\.0\) - nearSub\);[^\n]*\n" +
@@ -78,8 +74,7 @@ internal static partial class DistantShadows
             ? new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2))
             : throw new ArgumentNullException(nameof(pattern));
 
-    // The include with the distant cascade added, or null when it is not the text the additions were written for (another mod's
-    // shader pack, a new engine version): the engine's shaders then stay as they are
+    // The include with the distant cascade added, or null when it is not the expected text (shader pack, new engine version)
     internal static string? Vertex(string? source) =>
         Add(source, VertexDeclared, VertexDeclarations, VertexWeighted, VertexBody);
 

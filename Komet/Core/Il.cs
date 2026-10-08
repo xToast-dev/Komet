@@ -10,7 +10,6 @@ namespace Komet.Core;
 // at its own call site.
 internal static class Il
 {
-    // The instructions that name a local: ldloc, ldloca, stloc
     [Flags]
     public enum Uses
     {
@@ -29,15 +28,13 @@ internal static class Il
         "__instance", "__originalMethod", "__args", "__result", "__resultRef", "__state", "__exception", "__runOriginal"
     ];
 
-    // The whole body: a truncated one would be invalid IL, so a transpiler rejects a body past its cap rather than cutting it. True
-    // when it has at most `max` instructions.
+    // The whole body: a truncated one would be invalid IL, so a transpiler rejects a body past its cap rather than cutting it.
     public static bool Take(IEnumerable<CodeInstruction> instructions, int max, out List<CodeInstruction> code)
     {
         code = NotNull(instructions) ? [.. instructions] : [];
         return Assert(max is > 0 and <= MaxInstructions) && code.Count <= max;
     }
 
-    // How many instructions match; -1 for a body past MaxInstructions
     public static int Count(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match)
     {
         if (!NotNull(code) || !NotNull(match) || !Assert(code.Count <= MaxInstructions)) return -1;
@@ -46,7 +43,25 @@ internal static class Il
         return count;
     }
 
-    // The index of the one instruction that matches; -1 when none or several do
+    // A loop's test that it goes on while the field's Count is above 0: the only ldfld field, call count, ldc.i4.0, bgt that branches
+    // back to a label before it. The index of the call, -1 for none or several.
+    public static int CountLoop(List<CodeInstruction> code, FieldInfo field, MethodInfo count)
+    {
+        if (!NotNull(code) || !NotNull(field) || !NotNull(count)) return -1;
+        var site = -1;
+        for (var i = 1; i < Math.Min(code.Count - 2, MaxInstructions); i++)
+        {
+            if (!code[i].Calls(count) || !code[i - 1].LoadsField(field) || code[i + 1].opcode != OpCodes.Ldc_I4_0 ||
+                (code[i + 2].opcode != OpCodes.Bgt && code[i + 2].opcode != OpCodes.Bgt_S) ||
+                code[i + 2].operand is not Label target || code.FindIndex(0, i, c => c.labels.Contains(target)) < 0)
+                continue;
+            if (site >= 0) return -1;
+            site = i;
+        }
+
+        return site;
+    }
+
     public static int Single(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match)
     {
         if (!NotNull(code) || !NotNull(match) || !Assert(code.Count <= MaxInstructions)) return -1;
@@ -72,8 +87,7 @@ internal static class Il
         return true;
     }
 
-    // The local an ldloc, ldloca or stloc refers to when it is one of the uses asked for, -1 for anything else. The short forms come
-    // without an operand, the others with a LocalBuilder (or the bare index).
+    // The local an ldloc, ldloca or stloc refers to when it is one of the uses asked for, -1 for anything else.
     public static int Local(CodeInstruction code, Uses uses = Uses.Any)
     {
         if (!NotNull(code) || !Assert(code.opcode.Size > 0)) return -1;

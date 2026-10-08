@@ -16,18 +16,14 @@ internal enum UpdateState
     NoRelease
 }
 
-// Everything one check found out, replaced as a whole so readers on the render thread never see a half-written result.
-// Tag: the release this build belongs to ("" when GitHub has none). Newest: the newest build of the channel.
-// Installed / Published: full sha256 hex of the installed zip and of the file CI published with the release ("" when unknown).
-// Released: when GitHub published the release of this build, as local time text ("" when unknown).
+// Replaced as a whole so readers on the render thread never see a half-written result. "" in a field means unknown.
 internal sealed record UpdateReport(UpdateState State, string Detail = "", string Tag = "", string Newest = "",
     string Installed = "", string Published = "", string Released = "")
 {
-    public const int HashLength = SHA256.HashSizeInBytes * 2; // hex digits
+    public const int HashLength = SHA256.HashSizeInBytes * 2;
     public static readonly UpdateReport Pending = new(UpdateState.Checking);
     public bool Match => Installed.Length > 0 && Installed == Published;
 
-    // The HUD's update line under the title: a lang key and its colour
     public (string Key, Rgba? Color) Notice() => State switch
     {
         UpdateState.Checking => ("hud-update-checking", null),
@@ -39,22 +35,20 @@ internal sealed record UpdateReport(UpdateState State, string Detail = "", strin
         _ => ("hud-update-norelease", null)
     };
 
-    // What the checksum window's comparison says: a lang key and a colour
-    public (string Key, Rgba Color) Verdict() => State switch
+    // The lang key of what the comparison of the checksums found
+    public string Verdict() => State switch
     {
-        UpdateState.Checking => ("verify-checking", HudCanvas.Neutral),
-        UpdateState.Failed => ("verify-failed", HudCanvas.Neutral),
-        UpdateState.NoRelease => ("verify-norelease", HudCanvas.Warning),
-        _ when Match => ("verify-match", HudCanvas.Good),
-        _ when Installed.Length > 0 && Published.Length > 0 => ("verify-mismatch", HudCanvas.Error),
-        _ when Tag.Length == 0 => ("verify-norelease", HudCanvas.Warning),
-        _ when Installed.Length == 0 => ("verify-nofile", HudCanvas.Neutral),
-        _ => ("verify-nochecksum", HudCanvas.Warning)
+        UpdateState.Checking => "verify-checking",
+        UpdateState.Failed => "verify-failed",
+        UpdateState.NoRelease => "verify-norelease",
+        _ when Match => "verify-match",
+        _ when Installed.Length > 0 && Published.Length > 0 => "verify-mismatch",
+        _ when Tag.Length == 0 => "verify-norelease",
+        _ when Installed.Length == 0 => "verify-nofile",
+        _ => "verify-nochecksum"
     };
 }
 
-// Asks GitHub for the releases and compares this build (release: version, preview: commit) with the one of the same tag
-// and with the newest of its channel. Runs in the background; the HUD and the checksum window poll Report.
 internal sealed class UpdateCheck : IDisposable
 {
     private const string Repo = "xtoast-dev/Komet";
@@ -90,7 +84,6 @@ internal sealed class UpdateCheck : IDisposable
 
     public void Dispose() => _http.Dispose();
 
-    // One run at a time; a click on "check again" while one is running is ignored.
     public void Start()
     {
         if (!Assert(BuildTag.Length > 1) || Interlocked.CompareExchange(ref _running, 1, 0) != 0) return;
@@ -143,9 +136,8 @@ internal sealed class UpdateCheck : IDisposable
         }
     }
 
-    // What GitHub's answer means for this build. listed: GitHub has the release tagged like this build; newest: the newest tag of the
-    // build's channel, "" when it has none. A feed without either is still an answer: a build not published (a local or CI build
-    // ahead of every release, or a fork) is NoRelease, not a failed check.
+    // A build GitHub does not list (a local or CI build ahead of every release, or a fork) is NoRelease, not a failed check, and so
+    // is one ahead of the newest release.
     internal static UpdateReport Judge(string tag, bool listed, string newest, string installed, string published,
         string released)
     {
@@ -153,17 +145,39 @@ internal sealed class UpdateCheck : IDisposable
             return new UpdateReport(UpdateState.Failed, "bad arguments");
         var report = new UpdateReport(UpdateState.Unverified, tag, listed ? tag : "", newest, installed, published,
             released);
+        var behind = Behind(tag, newest);
         // Detail is the build's tag, which the notice names
-        if (!listed && newest.Length == 0) report = report with { State = UpdateState.NoRelease };
+        if (!listed && !behind) report = report with { State = UpdateState.NoRelease };
         else if (installed.Length > 0 && published.Length > 0)
             report = report with
             {
                 State = report.Match ? UpdateState.Verified : UpdateState.Mismatch,
                 Detail = installed[..Math.Min(ShortHash, installed.Length)]
             };
-        if (report.State != UpdateState.Mismatch && newest.Length > 0 && newest != tag)
+        if (report.State != UpdateState.Mismatch && behind)
             report = report with { State = UpdateState.Outdated, Detail = newest };
         return report;
+    }
+
+    // Whether the channel's newest tag is a later build than this one. Release tags compare as versions, a pre-release before its
+    // release: v2.0.1-pre is ahead of v2.0.0 and behind v2.0.1. Preview tags name commits, which have no order: any other is newer.
+    internal static bool Behind(string tag, string newest)
+    {
+        if (!Assert(tag.Length > 1) || !NotNull(newest) || newest.Length == 0 || newest == tag) return false;
+        if (Version(tag) is not { } mine || Version(newest) is not { } theirs) return true;
+        var order = mine.Core.CompareTo(theirs.Core);
+        if (order != 0) return order < 0;
+        if (mine.Pre.Length == 0) return false; // the release of a pre-release this build is ahead of
+        return theirs.Pre.Length == 0 || string.CompareOrdinal(theirs.Pre, mine.Pre) > 0;
+    }
+
+    private static (Version Core, string Pre)? Version(string tag)
+    {
+        if (!Assert(tag.Length > 0) || !tag.StartsWith('v')) return null;
+        var dash = tag.IndexOf('-', StringComparison.Ordinal);
+        var core = dash < 0 ? tag[1..] : tag[1..dash];
+        if (!System.Version.TryParse(core, out var version) || !Assert(version.Major >= 0)) return null;
+        return (version, dash < 0 ? "" : tag[(dash + 1)..]);
     }
 
     private async Task<string> Published(JObject release)

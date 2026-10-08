@@ -2,12 +2,8 @@ using Vintagestory.API.MathTools;
 
 namespace Komet.Options;
 
-// The window a choice with many names opens at the right, in the description's place (over the list when the frame is too narrow
-// for one), as tall as it needs up to the buttons: the option's name and hint, under them every name in one column, scrolled when
-// they do not all fit, the chosen one lit and scrolled into view as it opens. A click on a name stages it and closes the window; a
-// click in a gap does nothing, so a click that lands between two names picks neither; the ×, a click beside the window or Escape
-// closes it. The names are a texture of their own, composed when they change and moved under a scissor as they scroll: a scroll
-// composes nothing.
+// A click in a gap does nothing, so a click that lands between two names picks neither. The names are a texture of their own,
+// composed when they change and moved under a scissor as they scroll: a scroll composes nothing.
 internal sealed partial class OptionsScreen
 {
     private const int MaxCycled = 3, PickerGroup = 5, MaxNames = OptionPage.MaxOptions + MaxLanguagesShown;
@@ -18,7 +14,7 @@ internal sealed partial class OptionsScreen
     private static readonly Rgba CellBack = Rgba.White(0.04);
 
     private HudCanvas? _names;
-    private object? _namesKey; // what the names texture shows: the row, the chosen name, the sizes, the fonts
+    private object? _namesKey;
     private OptionRow? _picker; // the row whose window is open
     private double _pickScroll = double.NaN; // NaN: the chosen name in the middle, as the window opens
     private (double X, double Y, double W, double H) _pickView; // where its names show, in canvas pixels
@@ -59,12 +55,19 @@ internal sealed partial class OptionsScreen
         var width = w - pad - bar;
         _pickLayout = (cell, cell + between, width, count, total);
         _pickView = (x + pad / 2, top, w - pad, view);
-        if (!Finite(_pickScroll)) _pickScroll = (int)Math.Round(Value(row)) * (cell + between) - (view - cell) / 2;
-        _pickScroll = Math.Clamp(_pickScroll, 0, Math.Max(0, total - view));
+        _pickScroll = Scrolled(_pickScroll, (int)Math.Round(Value(row)), (cell, cell + between, view, total));
         Names(row, width, total);
     }
 
-    // The option's name on a band with the ×
+    // Where the names scroll to, within them: NaN (the window just opened) puts the chosen name in the middle
+    internal static double Scrolled(double scroll, int chosen,
+        (double Cell, double Step, double View, double Total) names)
+    {
+        if (!Finite(names.Step) || !Finite(names.View) || !Assert(names.Cell > 0)) return 0;
+        var at = double.IsNaN(scroll) ? chosen * names.Step - (names.View - names.Cell) / 2 : scroll;
+        return Math.Clamp(at, 0, Math.Max(0, names.Total - names.View));
+    }
+
     private void Head(OptionRow row, double x, double y, double w, double h)
     {
         if (!NotNull(row) || !Assert(w > h) || !Assert(h > 0)) return;
@@ -76,7 +79,6 @@ internal sealed partial class OptionsScreen
         _hits.Insert(0, new Hit(x + w - h, y, h, h, (_, _) => _picker = null, Glow: StrongGlow, Group: PickerGroup));
     }
 
-    // Every name onto the names texture, one under the other, when what it shows changed
     private void Names(OptionRow row, double width, double total)
     {
         if (!NotNull(row) || !Assert(width > 0) || !Assert(total > 0)) return;
@@ -91,7 +93,6 @@ internal sealed partial class OptionsScreen
         _namesKey = key;
     }
 
-    // A name's tile: the name at its left, the second one at its right where both fit, lit and marked while chosen
     private void Cell(HudCanvas canvas, OptionRow row, int index, double y, double w, double h, bool chosen)
     {
         if (!NotNull(row) || !Index(index, row.Names.Length)) return;
@@ -105,7 +106,6 @@ internal sealed partial class OptionsScreen
         if (aside.Length > 0 && asideW <= room) canvas.Text(w - Inset - asideW, y, h, _fonts.Text, aside, Faint);
     }
 
-    // Every frame, over the canvas: the names where the scroll puts them, cut to their view, and the bar beside them
     private void DrawNames()
     {
         var (x, y, w, h) = _pickView;
@@ -126,7 +126,6 @@ internal sealed partial class OptionsScreen
             ColorUtil.ToRgba(100, 255, 255, 255));
     }
 
-    // The name under the point, its box cut to the view; none in a gap or beside the names
     private Hit? PickAt(double x, double y)
     {
         var (vx, vy, _, vh) = _pickView;
@@ -145,7 +144,7 @@ internal sealed partial class OptionsScreen
         }, Glow: RowGlow, Group: PickerGroup);
     }
 
-    // The window's names scroll under the cursor, without composing; true when it was over them
+    // true when the cursor was over the names
     private bool ScrollNames(double delta)
     {
         var (x, y, w, h) = _pickView;

@@ -2,29 +2,29 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Vintagestory.API.Datastructures;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Rendering;
 
-// A pool's location list as flat arrays (Mirror), kept up to date with the engine's list. Between culls the list only gains and loses
-// entries (InsertAt, RemoveLocation) and nothing rewrites a row after pooling, so a changed list is diffed: survivors are matched by
-// reference and keep their geometry slot, only new rows are read. A list that changed too much is rebuilt.
+// Between culls a pool's location list only gains and loses entries and nothing rewrites a row after pooling, so a changed list is
+// diffed: survivors are matched by reference and keep their geometry slot, only new rows are read.
 internal static partial class FrustumSweep
 {
-    // By pool id; the first list to claim an id keeps it, another list under the same id is keyed weakly by the list
+    // By pool id; the first list to claim an id keeps it, another list under that id is keyed weakly by the list
     private static Mirror?[] _mirrors = new Mirror[64];
     private static readonly ConditionalWeakTable<List<ModelDataPoolLocation>, Mirror> Unnumbered = [];
 
     private static Mirror? MirrorOf(int slot, List<ModelDataPoolLocation> locations) =>
         Owned(slot, locations) is { } m ? Update(m, locations) : null;
 
-    // The mirror brought up to date with the engine's list: as it was, diffed or rebuilt. A stage batch runs it on the workers, one
-    // job per mirror: it reads the list and its locations, which only change before the render stages, and counts through Interlocked.
+    // A stage batch runs this on the workers, one job per mirror (lists only change before the render stages; counts go through
+    // Interlocked).
     private static Mirror? Update(Mirror m, List<ModelDataPoolLocation> locations)
     {
         if (!NotNull(m) || !NotNull(locations) || !Assert(locations.Count <= MaxLocations)) return null;
         var current = CollectionsMarshal.AsSpan(locations);
         var same = ReferenceEquals(m.Owner, locations);
-        if (same && MeshPool.Version(locations) == m.ListVersion)
+        if (same && Version(locations) == m.ListVersion)
         {
             Tidy(m, true);
             return m;
@@ -32,7 +32,7 @@ internal static partial class FrustumSweep
 
         var diffed = same && m.Length > 0 && Diff(m, current);
         if ((!diffed && !Rebuild(m, locations, current)) || !Assert(m.Length == current.Length)) return null;
-        (m.ListVersion, m.Quiet) = (MeshPool.Version(locations), 0);
+        (m.ListVersion, m.Quiet) = (Version(locations), 0);
         if (Counting.Hud)
         {
             _ = Interlocked.Increment(ref _rebuilds);
@@ -58,21 +58,21 @@ internal static partial class FrustumSweep
         ReadOnlySpan<ModelDataPoolLocation> locations)
     {
         var (n, w) = (locations.Length, Vector<double>.Count);
-        (m.Owner, m.Length) = (null, 0); // nobody's until every row is in
+        (m.Owner, m.Length) = (null, 0); // unowned until every row is in
         if (!NotNull(owner) || !Assert(n <= MaxLocations) || !Grow(m, n, w)) return false;
         Array.Clear(m.Refs, n, m.Refs.Length - n); // no reference keeps a removed location alive
         var (allocated, ordered) = (0, true);
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
         {
             var loc = locations[i];
-            // IsVisible reads CullVisible only while !Hide, Emit reads both: a null one goes to the engine, which throws as it would
+            // Emit reads Hide and CullVisible: a null one goes to the engine, which throws as it would
             if (!NotNull(loc) || !NotNull(loc.CullVisible))
             {
                 Array.Clear(m.Refs, 0, i);
                 return false;
             }
 
-            // LodLevel and CullVisible are written once, right after InsertAt (TesselatedChunkPart.AddModelAndStoreLocation)
+            // LodLevel and CullVisible are written once, right after InsertAt (AddModelAndStoreLocation)
             m.Refs[i] = new LocRef(loc, loc.CullVisible);
             (m.Start[i], m.Count[i], m.Lod[i]) =
                 (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart, loc.LodLevel);
@@ -88,11 +88,11 @@ internal static partial class FrustumSweep
         return true;
     }
 
-    // The new list matched against the rows (Match: the old row, or Unseen), then merged; false when a rebuild is cheaper
+    // false when a rebuild is cheaper
     private static bool Diff(Mirror m, ReadOnlySpan<ModelDataPoolLocation> list)
     {
         var (n, w) = (list.Length, Vector<double>.Count);
-        // a Settle over rows beyond what Grow sized the geometry for would find no room for its grid's padding
+        // a Settle over rows beyond Grow's sizing would find no room for its grid padding
         if (!Assert(m.Length <= m.Refs.Length) || !Assert(m.NRefs.Length == m.Refs.Length) || n == 0 ||
             n > m.Refs.Length || Geometry(n, w) > m.Cx.Length) return false;
         var (j, fresh, budget, old) = (0, 0, ScanBudget * (long)n + MaxLocations / 16, m.Length);
@@ -109,11 +109,11 @@ internal static partial class FrustumSweep
         return 4 * fresh <= n + Churn && slots <= m.Cx.Length && Merge(m, list, fresh, slots);
     }
 
-    // The old row of the location from j on, Unseen when it is new, Lost when looking would cost more than a rebuild
+    // The old row of the location from j on; Unseen when new, Lost when looking costs more than a rebuild
     private static int Find(Mirror m, ModelDataPoolLocation? target, int j, ref long budget)
     {
         var old = m.Length;
-        // the engine throws on a null one, and Rebuild lets it
+        // the engine throws on a null; Rebuild lets it
         if (!NotNull(target) || !Assert(old <= m.Refs.Length)) return Lost;
         var near = Math.Min(old, j + Window);
         for (var p = j; p < Math.Min(near, MaxLocations); p++)
@@ -127,8 +127,8 @@ internal static partial class FrustumSweep
         return Unseen;
     }
 
-    // MeshDataPool keeps poolLocations ordered by IndicesStart (TryAppend adds past the last, TrySqueezeInbetween in front of the first
-    // behind the gap). A start repeats only for an empty mesh, and that run is compared by reference.
+    // poolLocations is ordered by IndicesStart (TryAppend adds past the last, TrySqueezeInbetween before the first behind the gap).
+    // A start repeats only for an empty mesh; that run is compared by reference.
     private static int Search(Mirror m, ModelDataPoolLocation target, int from)
     {
         var (lo, hi, start) = (from, m.Length, target.IndicesStart * 4);
@@ -145,7 +145,7 @@ internal static partial class FrustumSweep
         return Unseen;
     }
 
-    // Writes the new rows into the spare arrays and swaps them in; on false the caller's Rebuild overwrites the garbage
+    // Writes new rows into the spare arrays and swaps them in; on false Rebuild overwrites the garbage
     private static bool Merge(Mirror m, ReadOnlySpan<ModelDataPoolLocation> list, int fresh, int slots)
     {
         var (n, old, at, gone, copied) = (list.Length, m.Length, m.Used, 0, 0);
@@ -221,31 +221,30 @@ internal static partial class FrustumSweep
         return m.Count[row] / 3;
     }
 
-    // A reference stored into ModelDataPoolLocation[] or Bools[] pays the covariant store check (neither class is sealed), which reads the
-    // object's method table: a cache miss per row. A struct array takes the store with a write barrier only.
+    // A reference stored into ModelDataPoolLocation[] or Bools[] pays the covariant store check (neither class is sealed): a method
+    // table cache miss per row. A struct array takes only a write barrier.
     private readonly record struct LocRef(ModelDataPoolLocation Loc, Bools Vis);
 
     // Rows are in list order, slots in geometry order (grid or list order): Slot and Inv map between them
     private sealed class Mirror
     {
-        // Whose list, as of which version, and the Render call and stage batch whose result the pool holds
+        // Whose list at which version, and the Render call and stage batch whose result the pool holds
         public object? Owner;
         public int ListVersion, Pass = -1, Groups, Batch = -1, Rendered;
 
-        // Rows: the location, its index range and LOD
         public int Length, AllocatedTris;
         public LocRef[] Refs = [];
         public int[] Start = [], Count = [], Lod = [];
         public int[] Slot = []; // row -> slot
         public bool Ordered; // the rows' starts never decrease, so Diff may bisect
 
-        // Diff: each new row's old row, and the spare row arrays it merges into before swapping them in
+        // Diff: each new row's old row, and the spare arrays it merges into before swapping
         public int[] Match = [];
         public LocRef[] NRefs = [];
         public int[] NStart = [], NCount = [], NLod = [], NSlot = [];
         public int Dead, Fresh, Quiet;
 
-        // Geometry by slot: [0, Base) the grid or list order, [Base, Used) what Diff added since, Slots padded to whole vectors
+        // Geometry by slot: [0, Base) grid or list order, [Base, Used) added by Diff since, Slots padded to whole vectors
         public float[] Cx = [], Cy = [], Cz = [], Hx = [], Hy = [], Hz = [];
         public int[] Inv = []; // slot -> row, Gone for padding and removed rows
         public int Base, Used, Slots;
@@ -253,7 +252,7 @@ internal static partial class FrustumSweep
         // The same geometry by row, while a relayout sorts it
         public float[] Sx = [], Sy = [], Sz = [], Shx = [], Shy = [], Shz = [];
 
-        // Grid: cell size and origin, each row's cell (Key), the cells' first slots (Bins) and bounds; Cells 0 = no grid
+        // Grid: cell size and origin, each row's cell (Key), the cells' first slots (Bins) and bounds; Cells 0 = none
         public int Cells, Shift, OriginX, OriginZ, Wide;
         public bool Tried; // Settle found no grid worth having for this list
         public int[] Key = [], Bins = [];
@@ -261,11 +260,12 @@ internal static partial class FrustumSweep
         public int[] BStart = [], BCount = [];
         public double[] BCx = [], BCy = [], BCz = [], BHx = [], BHy = [], BHz = [];
 
-        // The cull: outside per slot and per cell box, per row the geometry survived the planes (Cand), Emit's scratch
         public long[] Outside = [], BOutside = [];
         public ulong[] Cand = [];
+        public bool Dirty; // Cand may hold bits Candidates did not take (and clear)
         public int[] Rows = [];
         public bool[] Ok = [];
+        public int Emitted; // Rows[..Emitted]: the rows the last Emit wrote, in order
         public long SkippedRows;
     }
 }

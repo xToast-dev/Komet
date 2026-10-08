@@ -156,7 +156,6 @@ internal static class BenchReport
         return ranges;
     }
 
-    // Copies the counted frame times of the range behind what scratch already holds; returns the new length
     private static int Gather(ReadOnlySpan<BenchFrame> frames, (int From, int To) range, float[] scratch, int length)
     {
         if (range.From < 0 || !Assert(range.To <= frames.Length) || !Assert(length >= 0)) return length;
@@ -268,16 +267,8 @@ internal static class BenchReport
             (total, over) = (total + ms[i], ms[i] > OverMs ? over + 1 : over);
         ms.Sort();
         if (!Finite(total) || !Assert(ms[0] <= ms[^1])) total = double.NaN;
-        return new BenchSummary(ms.Length, total, Percentile(ms, 990), ms[^1], FrameStats.LowFps(ms, 100),
+        return new BenchSummary(ms.Length, total, FrameStats.Percentile(ms, 990), ms[^1], FrameStats.LowFps(ms, 100),
             FrameStats.LowFps(ms, 1000), over);
-    }
-
-    // Nearest rank: the smallest frame with at least that share of all frames at or below it
-    public static float Percentile(ReadOnlySpan<float> sorted, int perMille)
-    {
-        if (sorted.IsEmpty || !Assert(perMille is > 0 and <= 1000)) return float.NaN;
-        var rank = ((long)perMille * sorted.Length + 999) / 1000; // ceil(p · n), 1-based
-        return Assert(rank >= 1) && Index((int)rank - 1, sorted.Length) ? sorted[(int)rank - 1] : sorted[^1];
     }
 
     private static void Frametime(Utf8JsonWriter json, string name, BenchSummary summary)

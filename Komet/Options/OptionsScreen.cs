@@ -10,7 +10,7 @@ namespace Komet.Options;
 // game's settings (GraphicsMenu, Embed) or opens on its own (.komet).
 internal sealed partial class OptionsScreen : GuiDialog
 {
-    private const int MaxPages = 48, MaxStaged = 256, MaxQuery = 64;
+    private const int MaxPages = 48, MaxStaged = 256, MaxQuery = 64, MaxHits = 4096;
 
     private readonly KometPages _komet;
     private readonly Dictionary<OptionRow, double> _staged = [];
@@ -26,7 +26,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     private OptionPage[] _pages = [];
     private string _page = "", _query = "";
     private double _scroll;
-    private bool _dirty = true, _searching;
+    private bool _dirty = true, _searching, _advanced; // _advanced: HudSettings.ShowAdvanced as the pages were built
     private int _epoch;
     private (int Width, int Height) _frame;
     private double _bottom; // where the screen ended when it was last composed
@@ -35,14 +35,22 @@ internal sealed partial class OptionsScreen : GuiDialog
     private (IGameSettingsHandler Handler, Action<string> Tab)? _embedded;
     private OptionRow? _binding; // the key row waiting for its key
 
-    public OptionsScreen(ICoreClientAPI capi, HudSettings settings, Action dump, Action<float> bench, Action verify) :
-        base(capi)
+    public OptionsScreen(ICoreClientAPI capi, HudSettings settings, Action dump, Action<float> bench, Action verify, Action window,
+        Action debug) : base(capi)
     {
         _canvas = new HudCanvas(capi);
         _backdrop = new Backdrop(capi);
         capi.Event?.EnqueueMainThreadTask(_backdrop.Prepare, "komet-backdrop"); // where the GL context is
-        _komet = new KometPages(settings, dump, bench, verify);
-        if (NotNull(settings)) settings.Changed += () => _dirty = true;
+        _komet = new KometPages(settings, dump, bench, verify, window, debug);
+        if (NotNull(settings))
+            settings.Changed += () =>
+            {
+                _dirty = true;
+                if (settings.ShowAdvanced == _advanced) return;
+                _advanced = settings.ShowAdvanced; // other knobs show or go: the pages again, on the page that is open
+                _ = Assert(_komet is not null);
+                if (_pages.Length > 0) Fresh(_page);
+            };
         if (!NotNull(capi.ChatCommands)) return;
         _ = capi.ChatCommands.GetOrCreate("komet").WithDescription(HudText.Translate("cmd-hud"))
             .HandleWith(_ => Open(KometPages.Hud)
@@ -119,6 +127,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         if (!NotNull(page)) return;
         _pages = Pages();
+        _advanced = _komet?.Advanced ?? false;
         if (!Assert(_pages.Length > 0)) return;
         (_page, _scroll, _query, _dirty) = ((Array.Find(_pages, p => p.Id == page) ?? _pages[0]).Id, 0, "", true);
         _staged.Clear();
@@ -216,9 +225,19 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         if (!Finite(x) || !Finite(y)) return null;
         if (!row && PickAt(x, y) is { } name) return name;
-        if (_hits.Find(h => h.Row == row && h.Covers(x, y)) is { } hit) return hit;
+        if (Under(_hits, x, y, row) is { } hit) return hit;
         var (vx, vy, vw, vh) = _view;
-        return x >= vx && x < vx + vw && y >= vy && y < vy + vh ? _rows.Find(h => h.Row == row && h.Covers(x, y)) : null;
+        return x >= vx && x < vx + vw && y >= vy && y < vy + vh ? Under(_rows, x, y, row) : null;
+    }
+
+    // The first box at the point, of either kind with row null; on every mouse move, so a loop rather than a capturing Find
+    private static Hit? Under(List<Hit> hits, double x, double y, bool? row)
+    {
+        if (!NotNull(hits) || !Assert(hits.Count <= MaxHits)) return null;
+        for (var i = 0; i < Math.Min(hits.Count, MaxHits); i++)
+            if ((row is null || hits[i].Row == row) && hits[i].Covers(x, y))
+                return hits[i];
+        return null;
     }
 
     public override void OnMouseUp(MouseEvent args)

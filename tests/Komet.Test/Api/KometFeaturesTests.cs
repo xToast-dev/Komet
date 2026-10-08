@@ -1,8 +1,5 @@
 namespace Komet.Test.Api;
 
-// What another mod sees of Komet's features: their snapshot and states, holds by id or switch name that end once (or with the world),
-// the events with a handler that throws taken out, and the helpers that mirror Komet's own (Fingerprint, PatchKinds, the page ids).
-// Nothing throws into the calling mod. Every test closes the registry again.
 [NonParallelizable]
 public sealed class KometFeaturesTests
 {
@@ -51,11 +48,10 @@ public sealed class KometFeaturesTests
         });
     }
 
-    // A switch's name holds its feature: ChunkBudget at the engine's upload, until the handle goes
     [Test]
     public void ASwitchNameHoldsItsFeature()
     {
-        LoadALanguage();
+        GameLang.EnsureLoaded();
         var before = ChunkBudget.CapMillis;
         Assert.That(before, Is.Not.EqualTo(ChunkBudget.Uncapped));
         using (var hold = KometFeatures.HoldOff("UploadCap", "mymod", "measuring"))
@@ -104,7 +100,6 @@ public sealed class KometFeaturesTests
         Assert.That((fresh.IsHolding, FrustumSweep.Enabled), Is.EqualTo((true, false)));
     }
 
-    // A hold, its release and the player's switch each tell the subscribers
     [Test]
     public void StateChangedFollowsHoldsAndThePlayer()
     {
@@ -128,7 +123,6 @@ public sealed class KometFeaturesTests
         }
     }
 
-    // One handler that throws is logged once, with its assembly, and unsubscribed; the others hear every change
     [Test]
     public void AThrowingSubscriberIsLoggedOnceAndRemoved()
     {
@@ -149,7 +143,6 @@ public sealed class KometFeaturesTests
         });
     }
 
-    // After Apply or Done in the options screen; the world's close drops the subscribers
     [Test]
     public void AppliedReachesItsSubscribersUntilTheWorldCloses()
     {
@@ -185,7 +178,6 @@ public sealed class KometFeaturesTests
         });
     }
 
-    // The helper a mod pins its bodies with is Komet's own fingerprint
     [Test]
     public void TheFingerprintIsEngineShapes()
     {
@@ -203,16 +195,9 @@ public sealed class KometFeaturesTests
     [Test]
     public void ThePageIdsAreKometsPages()
     {
-        LoadALanguage();
-        var pages = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }).Build().Select(p => p.Id);
+        GameLang.EnsureLoaded();
+        var pages = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }, () => { }, () => { }).Build().Select(p => p.Id);
         string[] ids = [KometFeatures.RenderPage, KometFeatures.ChunksPage, KometFeatures.MiscPage];
         Assert.That(pages, Is.SupersetOf(ids));
-    }
-
-    // Lang.Get throws until a language is loaded: the game's English, unless one is loaded already
-    internal static void LoadALanguage()
-    {
-        if (Lang.CurrentLocale is { } locale && Lang.AvailableLanguages.ContainsKey(locale)) return;
-        GameLang.LoadEnglish();
     }
 }

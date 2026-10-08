@@ -22,8 +22,13 @@
         <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll" Private="false"/>
         <Reference Include="OpenTK.Windowing.Common" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Common.dll" Private="false"/>
         <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll" Private="false"/>
+        <!-- glfwGetProcAddress: the GL interop entry points OpenTK does not bind (Vulkan/GlInterop) -->
+        <Reference Include="OpenTK.Windowing.GraphicsLibraryFramework" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.GraphicsLibraryFramework.dll" Private="false"/>
         <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false"/>
         <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false"/>
+        <!-- the world map's database, written through raw statements (World/MapSaveScratch) -->
+        <Reference Include="Microsoft.Data.Sqlite" HintPath="$(VsInstall)/Lib/Microsoft.Data.Sqlite.dll" Private="false"/>
+        <Reference Include="SQLitePCLRaw.core" HintPath="$(VsInstall)/Lib/SQLitePCLRaw.core.dll" Private="false"/>
     </ItemGroup>
 
     <!-- Stamped by CI (see .github/workflows/build.yml); a local build carries neither and the HUD shows plain Release -->
@@ -33,10 +38,35 @@
         <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''"/>
     </ItemGroup>
 
+    <!-- The edition the HUD names, from modinfo.json's version at every build: a Debug build (VS Code's launch) is Development, a
+         version with a suffix (3.0.0-pre1, 3.0.0-rc.2) a Pre-Build, a plain major.minor.patch a Release. A version of another shape
+         fails the build. -->
+    <Target Name="KometEdition" BeforeTargets="GetAssemblyAttributes">
+        <PropertyGroup>
+            <KometModInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/modinfo.json'))</KometModInfo>
+            <KometVersion>$([System.Text.RegularExpressions.Regex]::Match($(KometModInfo), '(?&lt;="version"\s*:\s*")[^"]*'))</KometVersion>
+            <KometSuffix>$([System.Text.RegularExpressions.Regex]::Match($(KometVersion), '(?&lt;=^\d+\.\d+\.\d+-).+$'))</KometSuffix>
+            <KometEdition Condition="'$(Configuration)' == 'Debug'">dev</KometEdition>
+            <KometEdition Condition="'$(KometEdition)' == '' and '$(KometSuffix)' != ''">pre</KometEdition>
+            <KometEdition Condition="'$(KometEdition)' == ''">release</KometEdition>
+        </PropertyGroup>
+        <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch($(KometVersion), '^\d+\.\d+\.\d+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'))"
+               Text="modinfo.json: version '$(KometVersion)' is not major.minor.patch with an optional suffix (3.0.0, 3.0.0-pre1, 3.0.0-rc.2)"/>
+        <ItemGroup>
+            <AssemblyMetadata Include="Edition" Value="$(KometEdition)"/>
+        </ItemGroup>
+        <Message Importance="high" Text="Komet $(KometVersion): $(KometEdition) build"/>
+    </Target>
+
     <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build of this project; the lang files are their input -->
     <ItemGroup>
         <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
         <AdditionalFiles Include="assets/**/lang/*.json"/>
+    </ItemGroup>
+
+    <!-- The compute shaders, read by GpuShaders; the tests compile the same files to SPIR-V -->
+    <ItemGroup>
+        <EmbeddedResource Include="Gpu/Shaders/*.comp" LogicalName="Komet.Gpu.Shaders.%(Filename)%(Extension)"/>
     </ItemGroup>
 
     <ItemGroup>

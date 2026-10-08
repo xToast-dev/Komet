@@ -1,20 +1,17 @@
 using System.Diagnostics;
 using System.Runtime;
 using HarmonyLib;
-using Microsoft.Win32.SafeHandles;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Diagnostics;
 
-// One frame, start to start, every part booked to that same frame. Dt, GC pause, main-thread JIT time and run-queue wait are deltas
-// between two frame starts. Root is the profile this frame's own FrameProfiler.End() produced. Outside is the gap from this frame's
-// end to the next one's start: OpenTK's input and window events, where the engine sets no mark. NaN = not measured.
+// Deltas between two frame starts. Root is the profile this frame's own FrameProfiler.End() produced. Outside is the gap from this
+// frame's end to the next one's start: OpenTK's input and window events, where the engine sets no mark. NaN = not measured.
 internal readonly record struct FrameRecord(
     long Index, double DtMs, double GcMs, double OutsideMs, double JitMs, double RunQueueMs, ProfileEntryRange? Root);
 
-// Collections per generation (a gen2 collection counts in all three, as GC.CollectionCount does) and bytes allocated by every
-// thread and by the main thread alone, between the same two frame starts as the record's dt
+// A gen2 collection counts in all three generations, as GC.CollectionCount does
 internal readonly record struct FrameCounters(int Gen0, int Gen1, int Gen2, long Allocated, long MainAllocated)
 {
     public FrameCounters Since(in FrameCounters before) =>
@@ -31,27 +28,19 @@ internal interface IFrameSink
     void Frame(in FrameRecord frame, in FrameCounters counters);
 }
 
-// Prefix and postfix on ClientPlatformWindows.window_RenderFrame, the RenderFrame handler that brackets a frame: FrameProfiler.Begin,
-// the FPS limiter sleep, dt from frameStopWatch, ScreenManager.OnNewFrame, SwapBuffers, FrameProfiler.End. Read in the Ortho stage
-// instead, a collection in the ~85 % of a frame before Ortho lands on the previous frame's dt, and PrevRootEntry is what
-// GuiScreenRunningGame.OnMouseDown/OnMouseUp leave between frames with their own Begin("mousedown")/End(): a click's profile, all of it
-// under "end". The postfix takes the root before any input runs.
+// On window_RenderFrame, which brackets FrameProfiler.Begin..End, the limiter sleep and SwapBuffers. Read in the Ortho stage instead, a
+// collection in the ~85 % of a frame before Ortho lands on the previous frame's dt, and PrevRootEntry is what
+// GuiScreenRunningGame.OnMouseDown/OnMouseUp leave between frames with their own Begin("mousedown")/End(): a click's profile. The
+// postfix takes the root before any input runs.
 internal static class FrameClock
 {
-    private const int MaxSchedBytes = 128;
-
-    // = /proc/self/task/<tid>/schedstat of the thread that opens it
-    private const string SchedStat = "/proc/thread-self/schedstat";
-
-    private static readonly byte[] Sched = new byte[MaxSchedBytes];
     internal static readonly double TickMs = 1000.0 / Stopwatch.Frequency;
     private static long _start, _end;
     private static TimeSpan _pause, _jit;
     private static double _runDelayNs;
     private static ProfileEntryRange? _root, _seen;
-    private static SafeFileHandle? _schedstat;
     private static FrameCounters _counters;
-    private static bool _schedTried, _counted;
+    private static bool _counted;
 
     // The HUD is looking; with no sink either, both patches return at once
     public static bool Stats { get; set; }
@@ -61,12 +50,15 @@ internal static class FrameClock
 
     public static FrameRecord Last { get; private set; }
 
+    // When this frame began (window_RenderFrame), on every frame; 0 before the first
+    public static long FrameStart { get; private set; }
+
     // Records so far; a reader compares it to see whether Last is new
     public static long Completed { get; private set; }
 
     public static void Install(Harmony harmony)
     {
-        (_start, _end, _root, _seen, Last, Completed, Sink, _counted) = (0, 0, null, null, default, 0, null, false);
+        (_start, _end, _root, _seen, Last, Completed, Sink, _counted, FrameStart) = (0, 0, null, null, default, 0, null, false, 0);
         var frame = AccessTools.Method(typeof(ClientPlatformWindows), "window_RenderFrame");
         if (!NotNull(harmony) || !NotNull(frame) || !Assert(frame.GetParameters().Length == 1)) return;
         _ = NotNull(harmony.Patch(frame, new HarmonyMethod(Begin), new HarmonyMethod(End)));
@@ -77,6 +69,8 @@ internal static class FrameClock
     // previous start read the counters too, so the frame it joined in is skipped.
     internal static void Begin()
     {
+        FrameStart = Stopwatch.GetTimestamp();
+        Komet.Tessellation.TessGovernor.Frame(); // every frame, HUD or not: the tessellation workers follow the main thread
         var sink = Sink;
         if (!Stats && sink is null)
         {
@@ -85,7 +79,7 @@ internal static class FrameClock
         }
 
         var now = Stopwatch.GetTimestamp();
-        var (pause, jit, delay) = (GC.GetTotalPauseDuration(), JitInfo.GetCompilationTime(true), RunDelayNs());
+        var (pause, jit, delay) = (GC.GetTotalPauseDuration(), JitInfo.GetCompilationTime(true), SchedStat.MainWaitNs() is >= 0 and var ns ? ns : double.NaN);
         var counters = sink is null
             ? default
             : new FrameCounters(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
@@ -120,57 +114,6 @@ internal static class FrameClock
         if (_root != null && !Assert(_root.ElapsedTicks >= 0)) _root = null;
     }
 
-    // Stopwatch ticks in milliseconds, for the profiler's lengths and tick totals
     internal static double ToMs(long ticks) =>
         Assert(ticks >= 0) && Assert(Stopwatch.Frequency > 0) ? ticks * 1000.0 / Stopwatch.Frequency : 0;
-
-    // Time the main thread was runnable but waited for a core (schedstat field 2, ns). One pread through a handle opened once, on
-    // the render thread, ~1.2 µs; Linux only.
-    private static double RunDelayNs()
-    {
-        if (!_schedTried) OpenSchedStat();
-        if (_schedstat is null) return double.NaN;
-        int read;
-        try
-        {
-            read = RandomAccess.Read(_schedstat, Sched, 0);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            // a throw here would leave window_RenderFrame's prefix and end the game; the column goes blank instead
-            _schedstat.Dispose();
-            _schedstat = null;
-            return double.NaN;
-        }
-
-        long value = 0, delay = -1;
-        var field = 0;
-        for (var i = 0; i < Math.Min(read, MaxSchedBytes); i++)
-        {
-            var c = Sched[i];
-            if (c is >= (byte)'0' and <= (byte)'9') value = value * 10 + (c - '0');
-            else if (field++ == 1)
-            {
-                delay = value;
-                break;
-            }
-            else value = 0;
-        }
-
-        return Assert(read > 0) && Assert(delay >= 0) ? delay : double.NaN;
-    }
-
-    private static void OpenSchedStat()
-    {
-        _schedTried = true;
-        if (!OperatingSystem.IsLinux() || !Assert(_schedstat is null)) return;
-        try
-        {
-            _schedstat = File.OpenHandle(SchedStat);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
-        {
-            _schedstat = null; // no run-queue column, everything else still works
-        }
-    }
 }

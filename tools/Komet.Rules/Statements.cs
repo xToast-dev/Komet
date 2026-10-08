@@ -39,10 +39,7 @@ internal static class Statements
     }
 
     private static void Report(SyntaxNodeAnalysisContext context, DiagnosticDescriptor rule, SyntaxToken at,
-        params object[] args)
-    {
-        context.ReportDiagnostic(Diagnostic.Create(rule, at.GetLocation(), args));
-    }
+        params object[] args) => context.ReportDiagnostic(Diagnostic.Create(rule, at.GetLocation(), args));
 
     private static void Directives(SyntaxTreeAnalysisContext context)
     {
@@ -81,12 +78,9 @@ internal static class Statements
     }
 
     // A call of Contracts.Bounded: the collection itself, or a spread `[.. items.Bounded(n)]` in a collection expression
-    private static bool IsBounded(SyntaxNodeAnalysisContext context, ExpressionSyntax expression)
-    {
-        return Symbols.Unparenthesized(expression) is InvocationExpressionSyntax call &&
-               Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol,
-                   "Bounded");
-    }
+    private static bool IsBounded(SyntaxNodeAnalysisContext context, ExpressionSyntax expression) =>
+        Symbols.Unparenthesized(expression) is InvocationExpressionSyntax call &&
+        Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol, "Bounded");
 
     private static void Length(SyntaxNodeAnalysisContext context)
     {
@@ -112,15 +106,12 @@ internal static class Statements
                 Rules.MaxLines.ToString(CultureInfo.InvariantCulture));
     }
 
-    private static string Owner(AccessorDeclarationSyntax accessor)
+    private static string Owner(AccessorDeclarationSyntax accessor) => accessor.Parent?.Parent switch
     {
-        return accessor.Parent?.Parent switch
-        {
-            PropertyDeclarationSyntax p => p.Identifier.ValueText,
-            EventDeclarationSyntax e => e.Identifier.ValueText,
-            _ => "this[]"
-        };
-    }
+        PropertyDeclarationSyntax p => p.Identifier.ValueText,
+        EventDeclarationSyntax e => e.Identifier.ValueText,
+        _ => "this[]"
+    };
 }
 
 // A for loop is bounded when its integer variable, declared in the initializer and not a ref local, is compared with less-than or
@@ -263,54 +254,41 @@ internal static class ForLoop
         };
     }
 
-    private static ISymbol? Member(INamedTypeSymbol type, IdentifierNameSyntax name)
-    {
-        return type.GetMembers(name.Identifier.ValueText).FirstOrDefault();
-    }
+    private static ISymbol? Member(INamedTypeSymbol type, IdentifierNameSyntax name) =>
+        type.GetMembers(name.Identifier.ValueText).FirstOrDefault();
 
-    private static bool IsStaticArray(IFieldSymbol field)
-    {
-        return field is { IsStatic: true, IsReadOnly: true, Type: IArrayTypeSymbol };
-    }
+    private static bool IsStaticArray(IFieldSymbol field) =>
+        field is { IsStatic: true, IsReadOnly: true, Type: IArrayTypeSymbol };
 
-    private static decimal? Constant(ExpressionSyntax expression, SemanticModel model, CancellationToken token)
-    {
-        var value = model.GetConstantValue(expression, token);
-        return value.HasValue ? Integer(value.Value) : null;
-    }
+    private static decimal? Constant(ExpressionSyntax expression, SemanticModel model, CancellationToken token) =>
+        model.GetConstantValue(expression, token) is { HasValue: true, Value: var value } ? Integer(value) : null;
 
-    private static decimal? Integer(object? value)
+    private static decimal? Integer(object? value) => value switch
     {
-        return value switch
-        {
-            int i => i,
-            long l => l,
-            uint u => u,
-            ulong ul => ul,
-            short s => s,
-            ushort us => us,
-            byte b => b,
-            sbyte sb => sb,
-            char c => c,
-            _ => null
-        };
-    }
+        int i => i,
+        long l => l,
+        uint u => u,
+        ulong ul => ul,
+        short s => s,
+        ushort us => us,
+        byte b => b,
+        sbyte sb => sb,
+        char c => c,
+        _ => null
+    };
 
-    private static decimal? MaxValue(ITypeSymbol type)
+    private static decimal? MaxValue(ITypeSymbol type) => type.SpecialType switch
     {
-        return type.SpecialType switch
-        {
-            SpecialType.System_SByte => sbyte.MaxValue,
-            SpecialType.System_Byte => byte.MaxValue,
-            SpecialType.System_Int16 => short.MaxValue,
-            SpecialType.System_UInt16 or SpecialType.System_Char => ushort.MaxValue,
-            SpecialType.System_Int32 => int.MaxValue,
-            SpecialType.System_UInt32 => uint.MaxValue,
-            SpecialType.System_Int64 => long.MaxValue,
-            SpecialType.System_UInt64 => ulong.MaxValue,
-            _ => null
-        };
-    }
+        SpecialType.System_SByte => sbyte.MaxValue,
+        SpecialType.System_Byte => byte.MaxValue,
+        SpecialType.System_Int16 => short.MaxValue,
+        SpecialType.System_UInt16 or SpecialType.System_Char => ushort.MaxValue,
+        SpecialType.System_Int32 => int.MaxValue,
+        SpecialType.System_UInt32 => uint.MaxValue,
+        SpecialType.System_Int64 => long.MaxValue,
+        SpecialType.System_UInt64 => ulong.MaxValue,
+        _ => null
+    };
 
     private static (decimal Step, (string, Location)? Problem) Step(ForStatementSyntax loop, ILocalSymbol variable,
         SemanticModel model, CancellationToken token)
@@ -353,9 +331,8 @@ internal static class ForLoop
     }
 
     // Vector<T>.Count is at least 1 and a constant to the JIT; its largest value is the step that decides overflow
-    private static decimal VectorCount(ExpressionSyntax step, SemanticModel model, CancellationToken token)
-    {
-        return model.GetSymbolInfo(step, token).Symbol is IPropertySymbol
+    private static decimal VectorCount(ExpressionSyntax step, SemanticModel model, CancellationToken token) =>
+        model.GetSymbolInfo(step, token).Symbol is IPropertySymbol
         {
             Name: "Count", IsStatic: true,
             ContainingType:
@@ -367,10 +344,7 @@ internal static class ForLoop
                     ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true }
                 }
             }
-        }
-            ? MaxVectorCount
-            : 0m;
-    }
+        } ? MaxVectorCount : 0m;
 
     // The references data flow does not follow: `&i` and `__makeref(i)`
     private static Location? Escape(ForStatementSyntax loop, ILocalSymbol variable, SemanticModel model,
@@ -380,8 +354,8 @@ internal static class ForLoop
         {
             var operand = node switch
             {
-                PrefixUnaryExpressionSyntax address when address.IsKind(SyntaxKind.AddressOfExpression) => address
-                    .Operand,
+                PrefixUnaryExpressionSyntax address when address.IsKind(SyntaxKind.AddressOfExpression) =>
+                    address.Operand,
                 MakeRefExpressionSyntax reference => reference.Expression,
                 _ => null
             };
@@ -391,10 +365,8 @@ internal static class ForLoop
         return null;
     }
 
-    private static bool Writes(DataFlowAnalysis? flow, ILocalSymbol variable)
-    {
-        return flow is null || !flow.Succeeded || flow.WrittenInside.Contains(variable, SymbolEqualityComparer.Default);
-    }
+    private static bool Writes(DataFlowAnalysis? flow, ILocalSymbol variable) =>
+        flow is null || !flow.Succeeded || flow.WrittenInside.Contains(variable, SymbolEqualityComparer.Default);
 
     private static Location WriteSite(StatementSyntax body, ILocalSymbol variable, SemanticModel model,
         CancellationToken token)
@@ -421,10 +393,7 @@ internal static class ForLoop
     }
 
     private static bool Is(ExpressionSyntax expression, ILocalSymbol variable, SemanticModel model,
-        CancellationToken token)
-    {
-        return Symbols.Unparenthesized(expression) is IdentifierNameSyntax name &&
-               name.Identifier.ValueText == variable.Name &&
-               SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
-    }
+        CancellationToken token) =>
+        Symbols.Unparenthesized(expression) is IdentifierNameSyntax name && name.Identifier.ValueText == variable.Name &&
+        SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
 }

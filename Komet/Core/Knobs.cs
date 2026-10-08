@@ -2,7 +2,8 @@ namespace Komet.Core;
 
 // Page and Group place the knob in the settings dialog (null: bench only), its label is the lang key "settings-" + lower-case Key.
 // Engine is the value that leaves the game's own behaviour. Json is the komet-hud.json key when it differs from Key (kept from before
-// a rename, so saved settings survive). Order is the knob's index in the table, Owner that of its feature in Features. Another mod's
+// a rename, so saved settings survive). Order is the knob's index in the table (declaration order, set by Knobs), Owner that of its
+// feature in Features. Another mod's
 // knob is keyed modid:name and carries its definition's page id and group as given (Features.AddRows).
 internal sealed record Knob(
     string Key, string? Page, string? Group, int Min, int Max, int Engine, Func<int> Get, Action<int> Set,
@@ -22,7 +23,7 @@ internal sealed record Knob(
 // that the last release writes.
 internal static class Knobs
 {
-    public const int MaxKnobs = 64;
+    public const int MaxKnobs = 160;
 
     private static readonly Knob[] Table = Collect();
     private static readonly List<Knob> Added = [];
@@ -36,18 +37,16 @@ internal static class Knobs
 
     public static ReadOnlySpan<Knob> BuiltIn => Table;
 
-    // Each feature's knobs at their Order, which runs 0..N-1 without a gap or a twin
+    // Komet's knobs in declaration order (feature by feature), each with its index and its feature
     private static Knob[] Collect()
     {
         var features = Features.All;
-        var table = new Knob?[MaxKnobs];
+        var table = new List<Knob>(MaxKnobs);
         for (var f = 0; f < Math.Min(features.Length, Features.MaxFeatures); f++)
             foreach (var knob in features[f].Knobs.Bounded(MaxKnobs))
-                if (Index(knob.Order, MaxKnobs) && Assert(table[knob.Order] is null))
-                    table[knob.Order] = knob with { Owner = f };
-        var count = Array.FindLastIndex(table, k => k is not null) + 1;
-        _ = Assert(Array.IndexOf(table, null, 0, count) < 0);
-        return [.. table.OfType<Knob>()];
+                if (Assert(table.Count < MaxKnobs) && Assert(table.TrueForAll(k => k.Key != knob.Key)))
+                    table.Add(knob with { Order = table.Count, Owner = f });
+        return [.. table];
     }
 
     public static Knob At(int knob)
@@ -97,7 +96,6 @@ internal static class Knobs
         return changed;
     }
 
-    // Whether the static changed; only a difference is written (see Apply)
     public static bool Write(int knob, int value)
     {
         if (!Index(knob, Count) || !Assert(Count <= MaxKnobs)) return false;
@@ -127,7 +125,6 @@ internal static class Knobs
         if (At(knob).Get() != Wanted[knob]) At(knob).Set(Wanted[knob]);
     }
 
-    // Another mod's knob, placed after the others; its index, -1 when the table is full
     internal static int Add(Knob knob)
     {
         if (!NotNull(knob) || !Assert(Added.Count < MaxKnobs) || Count >= MaxKnobs) return -1;
@@ -135,7 +132,6 @@ internal static class Knobs
         return Count - 1;
     }
 
-    // The world closes: other mods' knobs go
     internal static void Truncate()
     {
         Added.Clear();

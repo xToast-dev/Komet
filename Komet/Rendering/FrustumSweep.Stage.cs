@@ -1,21 +1,16 @@
 using System.Runtime.InteropServices;
 using Plane = Vintagestory.API.Client.Plane;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Rendering;
 
-// ChunkRenderer draws a stage as one Render call per pass and atlas, all with the frustum the stage set up: the shadow passes four
-// passes each, the camera the opaque passes and later, with the same planes, liquids and the transparent passes. Culled one call at a
-// time, the main thread waited for every call's pools and culled a share of them itself. A stage batch culls them all at once: the
-// stage's first call hands the workers the pools of every manager this stage called last frame, its own first, and waits only for its
-// own; each later call finds its pools culled or nearly, while the main thread drew in between.
+// ChunkRenderer draws a stage as one Render call per pass and atlas, all with the frustum the stage set up. Culled call by call,
+// the main thread waited for every call's pools; a stage batch hands the workers, at the stage's first call, the pools of every
+// manager this stage called last frame, so later calls find theirs culled or nearly.
 //
-// A stage is what the sweep and emit read of the culler - planes, player position, view distance, LOD biases, shadow ranges - and the
-// mode: a call that differs begins the next stage, and the managers a stage called become the plan of the stage in its place next frame
-// (the nth stage of a mode). The results of a batch are the ones the call's own cull would have written: the pools are the same (they
-// only change before the stages and in the tasks after them, and the frame's start and end close every batch), the culler's state is
-// the same, and the flags the emit reads (Hide, CullVisible) are written by the chunk culler's thread, never in step with a frame. A
-// pool is only used when its list is unchanged since. A call whose manager the batch does not hold closes it and culls alone; so does
-// every call that cannot cull on the workers, as the engine's loop must never cull a pool beside a worker.
+// A batch's results equal the call's own cull: the pools only change before the stages and in the tasks after them (the frame's
+// start and end close every batch), the culler's state is the same (SameStage), and the flags the emit reads (Hide, CullVisible)
+// are written by the chunk culler's thread, never in step with a frame. The engine's loop must never cull a pool beside a worker.
 internal static partial class FrustumSweep
 {
     private const int MaxStage = 64, Modes = 5, MaxOrdinals = 8, MaxWaits = 1 << 24, MaxJobs = MaxPools * MaxStage;
@@ -29,33 +24,26 @@ internal static partial class FrustumSweep
     private static int _stageX, _stageY, _stageZ, _stageDimension, _stageView;
     private static float _stageLod0;
     private static double _stageLod2, _stageRangeX, _stageRangeZ;
-    private static bool _staging, _staged, _stagePlayer, _open;
+    private static bool _staging, _staged, _stagePlayer, _stageCasting, _open;
     private static int _stage, _ordinal;
 
-    // Stages of each mode so far this frame; the managers the stage under way called, and what each (mode, ordinal) stage called
+    // Stages per mode this frame; the managers the stage under way called, and what each (mode, ordinal) stage called
     private static readonly int[] Ordinals = new int[Modes];
     private static readonly MeshDataPoolManager?[] Called = new MeshDataPoolManager?[MaxStage];
     private static readonly MeshDataPoolManager?[] Plans = new MeshDataPoolManager?[Modes * MaxOrdinals * MaxStage];
     private static readonly int[] PlanLengths = new int[Modes * MaxOrdinals];
     private static int _called;
 
-    // The open batch: its managers in batch order, each one's first job (and the end of the last), pool count and jobs done
+    // The open batch: managers in order, each one's first job (and the last's end), pool count and jobs done
     private static readonly MeshDataPoolManager?[] Batched = new MeshDataPoolManager?[MaxStage];
     private static readonly int[] BatchStart = new int[MaxStage + 1], BatchPools = new int[MaxStage];
     private static readonly int[] BatchDone = new int[MaxStage];
     private static int _batched;
 
     public static bool Stages { get; set; } = true;
-    internal static long StagedCalls { get; private set; } // Render calls a stage batch culled, while Counting.Hud
+    internal static long StagedCalls { get; private set; } // calls a stage batch culled, while Counting.Hud
 
-    // Install turns it on with the frame hooks; a test that ends its frames by hand with EndFrame may too
-    internal static bool Staging
-    {
-        get => _staging;
-        set => _staging = value && Assert(_parallel);
-    }
-
-    // Prefix and postfix on ClientMain.MainRenderLoop: every batch ends with the frame, before the next one uploads a mesh
+    // Prefix and postfix on ClientMain.MainRenderLoop: every batch ends with the frame
     internal static void EndFrame()
     {
         EndStage();
@@ -63,16 +51,15 @@ internal static partial class FrustumSweep
         _ = Assert(!_open) && Assert(!_staged);
     }
 
-    // Prefix on MeshDataPool.TryAdd and RemoveLocation: a list is about to change, so no worker may be reading one. ChunkRenderer
-    // removes the locations queued for removal between the shadow stages and the opaque one (OnBeforeRenderOpaque, the master pool's
-    // OnFrame); the rest of the stage under way culls call by call.
+    // Prefix on MeshDataPool.TryAdd and RemoveLocation: no worker may read a list about to change. ChunkRenderer removes queued
+    // locations between the shadow stages and the opaque one; the rest of the stage under way culls call by call.
     internal static void Unbatch()
     {
         Shut();
         _ = Assert(!_open);
     }
 
-    // True when a stage batch culled this call's pools: they are stamped for this call's FrustumCull, as Alone's are
+    // True when a stage batch culled this call's pools (stamped for its FrustumCull, as Alone's are)
     private static bool Staged(MeshDataPoolManager manager, List<MeshDataPool> pools, FrustumCulling culler,
         EnumFrustumCullMode mode)
     {
@@ -91,7 +78,7 @@ internal static partial class FrustumSweep
 
         Record(manager);
         if (_open && Consume(manager, pools)) return true;
-        Shut(); // from here on this stage culls call by call
+        Shut(); // this stage now culls call by call
         return false;
     }
 
@@ -99,7 +86,7 @@ internal static partial class FrustumSweep
     {
         var index = (int)mode;
         _ordinal = Index(index, Modes) && Ordinals[index] < MaxOrdinals ? Ordinals[index]++ : -1;
-        (_staged, _stageCuller, _stageMode) = (true, culler, mode);
+        (_staged, _stageCuller, _stageMode, _stageCasting) = (true, culler, mode, Casting);
         Planes(culler).AsSpan(0, PlaneCount).CopyTo(StagePlanes);
         var player = PlayerPos(culler);
         _stagePlayer = player is not null;
@@ -110,12 +97,13 @@ internal static partial class FrustumSweep
         _ = Assert(_called == 0) && Assert(_batched == 0);
     }
 
-    // Everything the sweep and the emit read of the culler, as Begin saw it; the planes bit for bit
+    // Everything the sweep and emit read of the culler, as Begin saw it; planes bit for bit
     private static bool SameStage(FrustumCulling culler, EnumFrustumCullMode mode)
     {
         var (planes, player) = (Planes(culler), PlayerPos(culler));
         if (!ReferenceEquals(culler, _stageCuller) || mode != _stageMode || !NotNull(planes) ||
-            !Assert(planes.Length >= PlaneCount) || (player is not null) != _stagePlayer) return false;
+            !Assert(planes.Length >= PlaneCount) || (player is not null) != _stagePlayer || Casting != _stageCasting)
+            return false;
         if (player is not null &&
             (player.X != _stageX || player.Y != _stageY || player.Z != _stageZ || player.dimension != _stageDimension))
             return false;
@@ -135,7 +123,7 @@ internal static partial class FrustumSweep
         if (_called < MaxStage) Called[_called++] = manager;
     }
 
-    // The stage's plan as one batch, `first` in front; false when it is not worth the workers or there are none
+    // The stage's plan as one batch, `first` in front; false when not worth the workers
     private static bool Open(MeshDataPoolManager first, FrustumCulling culler, EnumFrustumCullMode mode)
     {
         (_jobCount, _batched) = (0, 0);
@@ -166,8 +154,8 @@ internal static partial class FrustumSweep
         return Assert(BatchStart[k + 1] >= BatchStart[k]) ? rows : 0;
     }
 
-    // This call's pools out of the open batch: its jobs the workers have not claimed yet the main thread runs itself, then it waits
-    // for the rest. False when the batch does not hold the manager as it is now.
+    // This call's pools out of the open batch: the main thread runs the jobs no worker claimed, then waits for the rest. False when
+    // the batch does not hold the manager as it is now.
     private static bool Consume(MeshDataPoolManager manager, List<MeshDataPool> pools)
     {
         var k = Array.IndexOf(Batched, manager, 0, _batched);
@@ -182,20 +170,20 @@ internal static partial class FrustumSweep
         return true;
     }
 
-    // A pool the batch culled with its list as it still is: its fields as the engine's FrustumCull leaves them, stamped for this call
+    // A pool the batch culled with its list unchanged: fields as the engine's FrustumCull leaves them, stamped for this call
     private static void Stamp(int j)
     {
         var (pool, m) = (_jobPools[j], _jobMirrors[j]);
         if (!NotNull(pool) || !NotNull(m) || m.Batch != _stage) return;
-        var locations = MeshPool.Locations(pool);
-        if (!ReferenceEquals(m.Owner, locations) || MeshPool.Version(locations) != m.ListVersion) return;
+        var locations = Locations(pool);
+        if (!ReferenceEquals(m.Owner, locations) || Version(locations) != m.ListVersion) return;
         (pool.indicesGroupsCount, pool.RenderedTriangles, pool.AllocatedTris) = (m.Groups, m.Rendered, m.AllocatedTris);
         m.Pass = _pass;
         if (Counting.Hud) (Skipped, m.SkippedRows) = (Skipped + m.SkippedRows, 0);
     }
 
-    // On a worker (or the main thread in Consume): one pool of the open batch. Its manager's count goes up whatever happens, so the
-    // call that waits for it never waits for a job that threw; the pool is only stamped with the stage when it was culled.
+    // One pool of the open batch, on a worker or in Consume. Its manager's count goes up whatever happens, so a waiting call never
+    // waits on a job that threw; the pool is stamped with the stage only when culled.
     private static void CullStaged(int j)
     {
         var k = Index(j, _jobCount) ? _jobManager[j] : -1;
@@ -203,7 +191,7 @@ internal static partial class FrustumSweep
         {
             var (pool, m, culler) = k >= 0 ? (_jobPools[j], _jobMirrors[j], _jobCuller) : (null, null, null);
             if (pool is null || m is null || culler is null) return;
-            var locations = MeshPool.Locations(pool);
+            var locations = Locations(pool);
             if (locations is null || !ReferenceEquals(Update(m, locations)?.Owner, locations)) return;
             var groups = Swept(m, culler, _jobMode, pool.indicesStartsByte, pool.indicesSizes, out var rendered);
             if (groups >= 0) (m.Groups, m.Rendered, m.Batch) = (groups, rendered, _stage);
@@ -214,7 +202,7 @@ internal static partial class FrustumSweep
         }
     }
 
-    // The stage under way ends: its batch is closed and what it called is the plan of its place next frame
+    // The stage ends: its batch is closed and what it called is its place's plan next frame
     private static void EndStage()
     {
         Shut();
@@ -231,7 +219,7 @@ internal static partial class FrustumSweep
         (_staged, _called, _stageCuller) = (false, 0, null);
     }
 
-    // The open batch, if any, closed: every job a thread claimed has ended, the others never run
+    // Closes the open batch: claimed jobs have ended, the others never run
     private static void Shut()
     {
         if (!_open) return;
@@ -250,14 +238,6 @@ internal static partial class FrustumSweep
         Array.Clear(Batched, 0, _batched);
         _batched = 0;
         _ = Assert(_jobCount == 0);
-    }
-
-    // A new world: no manager of the last one stays reachable through a plan
-    private static void ForgetPlans()
-    {
-        Array.Clear(Plans);
-        Array.Clear(PlanLengths);
-        _ = Assert(!_staged) && Assert(_called == 0);
     }
 
     private static int Plan(EnumFrustumCullMode mode, int ordinal)

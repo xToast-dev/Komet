@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using Cairo;
 
 namespace Komet.Hud;
@@ -11,33 +12,26 @@ internal readonly record struct Rgba(double R, double G, double B, double A)
 internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
 {
     public const int GraphFrames = 240;
-    private const int SizeStep = 32, MaxSize = 16384, MaxGridLines = MaxSize / 8, MaxGuides = 4;
+    private const int SizeStep = 32, MaxSize = 16384, MaxGridLines = MaxSize / 8;
 
-    private const double BarW = 120, BarH = 6, GraphMinScaleMs = 20, GraphHeadroom = 1.1;
+    // The options screen's and the update check's colours
+    public static readonly Rgba Accent = new(0.16, 0.45, 0.85, 1), Warning = new(1.0, 0.72, 0.25, 1), Error = new(1.0, 0.38, 0.35, 1),
+        Good = new(0.35, 0.75, 0.45, 1);
 
-    public static readonly Rgba Accent = new(0.16, 0.45, 0.85, 1), Neutral = new(0.35, 0.35, 0.35, 1),
-        Disabled = Neutral with { A = 0.4 }, Warning = new(1.0, 0.72, 0.25, 1), Error = new(1.0, 0.38, 0.35, 1),
-        Good = new(0.35, 0.75, 0.45, 1), Dim = Rgba.White(0.5);
+    private static readonly Rgba GridLine = Rgba.White(0.07), GridMajor = Rgba.White(0.18);
 
-    private static readonly (double Ms, string Label)[] GraphGuides =
-        [(1000.0 / 60, "60 fps"), (1000.0 / 120, "120 fps")];
-
-    private static readonly Rgba PanelBackground = new(0.05, 0.06, 0.09, 1), BarTrack = Rgba.White(0.12),
-        BarMarker = Rgba.White(0.8), HeaderBackground = Rgba.White(0.08), RuleLine = Rgba.White(0.3),
-        GridLine = Rgba.White(0.07), GridMajor = Rgba.White(0.18), GraphBackground = Rgba.White(0.06),
-        GuideLine = Rgba.White(0.25), GuideText = Rgba.White(0.6), Plot = Rgba.White(0.9);
     private Context? _ctx;
     private CairoFont? _font; // set up on _ctx since Begin() or BeginMeasure()
 
     private ImageSurface? _surface;
     private LoadedTexture _texture = new(capi);
+    private readonly Vintagestory.API.MathTools.Vec4f _tint = new();
+    private byte[] _utf8 = new byte[256]; // the text for Cairo, used by whichever thread draws this canvas
 
     public double Width { get; private set; }
     public double Height { get; private set; }
     public double X { get; private set; }
     public double Y { get; private set; }
-
-    public static double BarWidth => scaled(BarW);
 
     public bool Ready => _texture.TextureId != 0; // End() has uploaded at least once
 
@@ -67,10 +61,8 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
     {
         if (text.Length == 0 || !NotNull(_ctx) || !Assert(font.UnscaledFontsize > 0)) return 0;
         _ = Use(font);
-        return _ctx.TextExtents(text).XAdvance;
+        return _ctx.TextExtents(Utf8(text)).XAdvance;
     }
-
-    public double BadgeWidth(HudFonts fonts, string text) => TextWidth(fonts.Header, text) + HudFonts.BadgePadding;
 
     public bool Contains(double px, double py) =>
         Finite(px) && Finite(py) && px >= X && px < X + Width && py >= Y && py < Y + Height;
@@ -89,13 +81,93 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Operator = Operator.Over;
     }
 
-    // A panel's or dialog's surface: cleared, with the translucent rounded background. False when Begin() refused the size
-    public bool BeginPanel(double width, double height, double opacity)
+    // A straight line; dash > 0 draws it dashed (the mockup's guide lines)
+    public void Line(double x1, double y1, double x2, double y2, Rgba color, double width = 1, double dash = 0)
     {
-        Begin(width, height);
-        if (!Assert(Width >= width) || !Assert(opacity is >= 0 and <= 1)) return false;
-        Fill(0, 0, Width, Height, PanelBackground with { A = opacity }, scaled(4));
+        if (!Finite(x1 + y1 + x2 + y2) || !Assert(width > 0) || !Source(color)) return;
+        _ctx.LineWidth = width;
+        if (dash > 0) _ctx.SetDash([dash, dash], 0);
+        _ctx.MoveTo(x1, y1);
+        _ctx.LineTo(x2, y2);
+        _ctx.Stroke();
+        if (dash > 0) _ctx.SetDash([], 0);
+    }
+
+    // count points through at; NaN y leaves a gap
+    public void Polyline(int count, System.Func<int, (double X, double Y)> at, Rgba color, double width)
+    {
+        if (!NotNull(at) || !Assert(count is >= 0 and <= MaxSize) || count < 2 || !Source(color)) return;
+        var open = false;
+        for (var i = 0; i < Math.Min(count, MaxSize); i++)
+        {
+            var (px, py) = at(i);
+            if (!double.IsFinite(py)) open = false;
+            else if (!open) (open, _) = (true, Move(px, py));
+            else _ctx.LineTo(px, py);
+        }
+
+        _ctx.LineWidth = width;
+        _ctx.Stroke();
+    }
+
+    // The area under count points down to bottom, a gradient from color at top to clear at bottom; NaN y counts as the bottom
+    public void Area(int count, System.Func<int, (double X, double Y)> at, double top, double bottom, Rgba color)
+    {
+        if (!NotNull(at) || !NotNull(_ctx) || !Assert(count is >= 0 and <= MaxSize) || count < 2 || !Assert(bottom > top)) return;
+        var (x0, _) = at(0);
+        _ctx.MoveTo(x0, bottom);
+        var last = x0;
+        for (var i = 0; i < Math.Min(count, MaxSize); i++)
+        {
+            var (px, py) = at(i);
+            _ctx.LineTo(px, double.IsFinite(py) ? py : bottom);
+            last = px;
+        }
+
+        _ctx.LineTo(last, bottom);
+        _ctx.ClosePath();
+        using var gradient = new LinearGradient(0, top, 0, bottom);
+        _ = gradient.AddColorStop(0, new Color(color.R, color.G, color.B, color.A));
+        _ = gradient.AddColorStop(1, new Color(color.R, color.G, color.B, 0));
+        _ctx.SetSource(gradient);
+        _ctx.Fill();
+    }
+
+    private bool Move(double x, double y)
+    {
+        if (!NotNull(_ctx) || !Finite(x + y)) return false;
+        _ctx.MoveTo(x, y);
         return true;
+    }
+
+    public void Circle(double cx, double cy, double r, Rgba color)
+    {
+        if (!Finite(cx + cy) || !Assert(r > 0) || !Source(color)) return;
+        _ctx.Arc(cx, cy, r, 0, 2 * Math.PI);
+        _ctx.Fill();
+    }
+
+    // A warning sign: a filled triangle pointing up, its box size wide
+    public void Triangle(double x, double y, double size, Rgba color)
+    {
+        if (!Finite(x + y) || !Assert(size > 0) || !Source(color)) return;
+        _ctx.MoveTo(x + size / 2, y);
+        _ctx.LineTo(x + size, y + size);
+        _ctx.LineTo(x, y + size);
+        _ctx.ClosePath();
+        _ctx.Fill();
+    }
+
+    // A disclosure caret in a box of size: pointing right when closed, down when open
+    public void Caret(double x, double y, double size, bool down, Rgba color)
+    {
+        if (!Finite(x + y) || !Assert(size > 0) || !Source(color)) return;
+        _ctx.MoveTo(x, y);
+        if (down) _ctx.LineTo(x + size, y);
+        else _ctx.LineTo(x + size, y + size / 2);
+        _ctx.LineTo(down ? x + size / 2 : x, y + size);
+        _ctx.ClosePath();
+        _ctx.Fill();
     }
 
     public void Text(double x, double y, double rowHeight, CairoFont font, string text, Rgba? color = null)
@@ -106,7 +178,7 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         if (color is { } c && !Source(c)) return;
         var extents = _ctx.FontExtents;
         _ctx.MoveTo(x, y + (rowHeight - extents.Height * font.LineHeightMultiplier) / 2 + extents.Ascent);
-        _ctx.ShowText(text);
+        _ctx.ShowText(Utf8(text));
     }
 
     public void Fill(double x, double y, double width, double height, Rgba color, double radius = 0)
@@ -117,14 +189,13 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Fill();
     }
 
-    // A cleared surface of the size, for a subclass that paints its own background; false when Begin() refused the size
+    // False when Begin() refused the size
     public bool Blank(double width, double height)
     {
         Begin(width, height);
         return Assert(Width >= width) && Assert(Height >= height);
     }
 
-    // Drawing outside the rectangle is dropped until Unclip(): a scrolled list stays in its viewport
     public void Clip(double x, double y, double width, double height)
     {
         if (!NotNull(_ctx) || !Assert(width >= 0) || !Assert(height >= 0)) return;
@@ -137,7 +208,6 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         if (NotNull(_ctx)) _ctx.ResetClip();
     }
 
-    // A one-pixel line around the rectangle
     public void Outline(double x, double y, double width, double height, Rgba color)
     {
         if (!Finite(x) || !Finite(y) || !Assert(width > 1) || !Assert(height > 1) || !Source(color)) return;
@@ -146,45 +216,6 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ctx.Stroke();
     }
 
-    public void Header(double x, double y, double width, double rowHeight, HudFonts fonts, string text)
-    {
-        if (!Finite(x) || !Finite(y) || !Assert(width > 0) || !Assert(rowHeight > 0)) return;
-        var pad = HudFonts.HeaderPadding;
-        Fill(x - pad, y, width + 2 * pad, rowHeight, HeaderBackground, scaled(2));
-        Text(x, y, rowHeight, fonts.Header, text);
-    }
-
-    public void Rule(double x, double y, double width, double rowHeight)
-    {
-        if (!Finite(x) || !Finite(y) || !Assert(width > 0) || !Assert(rowHeight > 0)) return;
-        var thickness = Math.Max(1, scaled(1));
-        Fill(x, y + (rowHeight - thickness) / 2, width, thickness, RuleLine);
-    }
-
-    // fraction and marker are 0..1; good: a full bar is the good outcome (a hit rate), so the green-to-red ramp runs the other way
-    public void Bar(double x, double y, double rowHeight, double w, double fraction, double marker, bool good)
-    {
-        if (!Finite(x) || !Finite(y) || !Assert(w > 0) || !Assert(rowHeight > 0) ||
-            !Assert(marker is >= 0 and <= 1)) return;
-        double h = scaled(BarH), top = y + (rowHeight - h) / 2, tick = Math.Max(1, scaled(1));
-        var tone = good ? 1 - fraction : fraction;
-        Fill(x, top, w, h, BarTrack);
-        if (fraction > 0 && Assert(fraction <= 1))
-            Fill(x, top, w * fraction, h, new Rgba(Math.Min(1, tone * 2), Math.Min(1, (1 - tone) * 2), 0.15, 0.9));
-        if (marker > 0) Fill(x + w * marker - tick, top - tick, tick, h + 2 * tick, BarMarker);
-    }
-
-    public double Badge(double x, double y, double rowHeight, HudFonts fonts, string text, Rgba color,
-        double? width = null)
-    {
-        double w = width ?? BadgeWidth(fonts, text), h = fonts.BadgeRow, top = y + (rowHeight - h) / 2;
-        if (!Finite(x) || !Finite(y) || !Assert(w > 0) || !Assert(h > 0) || !Assert(rowHeight > 0)) return 0;
-        Fill(x, top, w, h, color, scaled(3));
-        Text(x + (w - TextWidth(fonts.Header, text)) / 2, top, h, fonts.Header, text);
-        return w;
-    }
-
-    // Every fourth line a major one, each axis to its own extent
     public static HudCanvas Grid(ICoreClientAPI capi, double step)
     {
         var canvas = new HudCanvas(capi);
@@ -200,54 +231,12 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         return canvas;
     }
 
-    public void Graph(double x, double y, double w, double h, HudFonts fonts, FrameStats frames)
-    {
-        if (!Finite(x) || !Finite(y) || !Assert(w > 0) || !Assert(h > 0) ||
-            !Assert(frames.HistoryLength >= GraphFrames)) return;
-        var first = frames.HistoryLength - GraphFrames;
-        // a slot the ring has not written yet is not a 0 ms frame
-        var skip = GraphFrames - Math.Min(frames.Recorded, GraphFrames);
-        double maxMs = 0;
-        Fill(x, y, w, h, GraphBackground);
-        for (var i = skip; i < GraphFrames; i++) maxMs = Math.Max(maxMs, frames.HistoryMs(first + i));
-        var scaleMs = Math.Max(GraphMinScaleMs, maxMs * GraphHeadroom);
-        if (!Assert(scaleMs > 0)) return; // NaN fails too
-
-        double textHeight = fonts.TextRow, lastTextTop = double.MaxValue;
-        foreach (var (guideMs, label) in GraphGuides.Bounded(MaxGuides))
-        {
-            var lineY = ToY(guideMs);
-            Fill(x, lineY, w, 1, GuideLine);
-            var textTop = lineY - textHeight;
-            if (textTop < y || Math.Abs(textTop - lastTextTop) < textHeight) continue;
-            Text(x + scaled(3), textTop, textHeight, fonts.Text, label, GuideText);
-            lastTextTop = textTop;
-        }
-
-        if (!Source(Plot)) return;
-        for (var i = skip; i < GraphFrames; i++)
-        {
-            double px = x + w * i / (GraphFrames - 1), py = ToY(frames.HistoryMs(first + i));
-            if (i == skip) _ctx.MoveTo(px, py);
-            else _ctx.LineTo(px, py);
-        }
-
-        _ctx.LineWidth = 1;
-        _ctx.Antialias = Antialias.Fast; // 240 jagged segments: 1.2 ms with the default, 0.4 ms with Fast
-        _ctx.Stroke();
-        _ctx.Antialias = Antialias.Default;
-        return;
-
-        double ToY(double value) => Assert(value >= 0) ? y + h - value / scaleMs * h : y + h;
-    }
-
     public void End()
     {
         if (!NotNull(_surface) || !Assert(Width > 0)) return; // End() without Begin()
         capi.Gui.LoadOrUpdateCairoTexture(_surface, false, ref _texture);
     }
 
-    // Kept on screen; the texture is a 32px-rounded superset of the logical size
     // z: the depth among the GUI's own draws (the hotbar's item stacks sit above the default)
     public void Draw(double x, double y, float z = 50)
     {
@@ -255,6 +244,30 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         X = Math.Clamp(x, 0, Math.Max(0, capi.Render.FrameWidth - Width));
         Y = Math.Clamp(y, 0, Math.Max(0, capi.Render.FrameHeight - Height));
         capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, X, Y, _texture.Width, _texture.Height, z);
+    }
+
+    // Where Draw puts it: inside the frame
+    public (double X, double Y) Within(double x, double y) => !Finite(x + y) ? (0, 0) :
+        (Math.Clamp(x, 0, Math.Max(0, capi.Render.FrameWidth - Width)), Math.Clamp(y, 0, Math.Max(0, capi.Render.FrameHeight - Height)));
+
+    // Faded by alpha and scaled about its centre, the windows' opening; X and Y stay where a click lands
+    public void Fade(double x, double y, float z, double alpha, double scale)
+    {
+        if (!Finite(alpha + scale) || !Assert(scale > 0) || !Assert(_texture.TextureId != 0)) return;
+        (X, Y) = Within(x, y);
+        var a = (float)Math.Clamp(alpha, 0, 1);
+        _ = _tint.Set(a, a, a, a);
+        var (w, h) = (_texture.Width * scale, _texture.Height * scale);
+        capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, X + Width * (1 - scale) / 2, Y + Height * (1 - scale) / 2, w, h,
+            z, _tint);
+    }
+
+    // This canvas stretched over a box and tinted: on a plain white canvas a quad of any colour (premultiplied: the colour times alpha)
+    public void Stretch(double x, double y, double w, double h, float z, Rgba color)
+    {
+        if (!Finite(x + y) || w <= 0 || h <= 0 || color.A <= 0 || !Assert(_texture.TextureId != 0)) return;
+        _ = _tint.Set((float)(color.R * color.A), (float)(color.G * color.A), (float)(color.B * color.A), (float)color.A);
+        capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, x, y, w, h, z, _tint);
     }
 
     // Where it is put, partly off the frame too: a list taller than its view, moved by its scroll under a scissor
@@ -285,6 +298,17 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         _ = Assert(width <= MaxSize && height <= MaxSize);
     }
 
+    // ShowText(string) and TextExtents(string) encode into a new array on every call; an array that ends in 0 they take as it is,
+    // and Cairo reads it up to the first 0
+    private byte[] Utf8(string text)
+    {
+        var need = Encoding.UTF8.GetMaxByteCount(text.Length) + 1;
+        if (_utf8.Length < need) _utf8 = new byte[Math.Max(need, 2 * _utf8.Length)];
+        var n = Encoding.UTF8.GetBytes(text, _utf8);
+        (_utf8[n], _utf8[^1]) = (0, 0);
+        return Assert(n < _utf8.Length) ? _utf8 : [0];
+    }
+
     // What SetupContext sets from the font: RGB or RGBA, nothing for a font without a colour
     private void FontColor(double[]? color)
     {
@@ -305,12 +329,11 @@ internal sealed class HudCanvas(ICoreClientAPI capi) : IDisposable
         Assert(value is > 0 and <= MaxSize) ? (int)Math.Ceiling(value / SizeStep) * SizeStep : SizeStep;
 }
 
-// The HUD's three fonts at the settings' font scale and the row heights measured from them. Rebuilt when the font scale or the game's
-// GUI scale changed (RuntimeEnv.GUIScale changes without an event, and CairoFont scales by it); Epoch counts the rebuilds, so panels
-// and dialogs know their measurements are stale. Main thread: CairoFont measures on the engine's shared context.
+// Rebuilt when the font scale or the game's GUI scale changed (RuntimeEnv.GUIScale changes without an event, and CairoFont scales by
+// it). Main thread: CairoFont measures on the engine's shared context.
 internal sealed class HudFonts
 {
-    private const double BaseFontSize = 14, BaseTitleSize = 16, HeaderPad = 2, BadgePad = 3, RuleH = 9;
+    private const double BaseFontSize = 14, BaseTitleSize = 16, HeaderPad = 2, BadgePad = 3;
     private int _gui;
     private long _scale = BitConverter.DoubleToInt64Bits(double.NaN);
 
@@ -319,14 +342,9 @@ internal sealed class HudFonts
     public CairoFont Title { get; } = CairoFont.WhiteSmallText().WithWeight(FontWeight.Bold);
     public int Epoch { get; private set; }
     public double TextRow { get; private set; }
-    public double HeaderRow { get; private set; } // a section header: the Header font on its band
-    public double BadgeRow { get; private set; } // a badge: the Header font in its box
-    public double TitleRow { get; private set; } // the Title font beside its badges
-    public double RuleRow { get; private set; }
-    public static double BadgePadding => 2 * scaled(BadgePad);
-    public static double HeaderPadding => scaled(HeaderPad);
+    public double HeaderRow { get; private set; }
+    public double BadgeRow { get; private set; }
 
-    // Checked once per measure pass and per dialog frame; a rebuild bumps Epoch
     public void Update(double fontScale)
     {
         var (scale, gui) = (BitConverter.DoubleToInt64Bits(fontScale),
@@ -337,20 +355,17 @@ internal sealed class HudFonts
         Text.UnscaledFontsize = Header.UnscaledFontsize = BaseFontSize * fontScale;
         Title.UnscaledFontsize = BaseTitleSize * fontScale;
         var header = Height(Header);
-        (TextRow, HeaderRow, BadgeRow, RuleRow) =
-            (Height(Text), header + 2 * HeaderPadding, header + BadgePadding, scaled(RuleH));
-        TitleRow = Math.Max(Height(Title), BadgeRow);
+        (TextRow, HeaderRow, BadgeRow) = (Height(Text), header + 2 * scaled(HeaderPad), header + 2 * scaled(BadgePad));
         Epoch++;
-        _ = Assert(TextRow > 0 && TitleRow > 0);
+        _ = Assert(TextRow > 0 && BadgeRow > 0);
     }
 
     private static double Height(CairoFont font) =>
         Assert(font.UnscaledFontsize > 0) ? font.GetFontExtents().Height * font.LineHeightMultiplier : 0;
 }
 
-// The grid drawn under a drag, by the HUD and lent to its checksum window: one full-screen texture (2560x1440 is a 14.7 MB surface and a
-// TexImage2D), built on the first drag and again only when the frame size or the GUI scale changed; the surface goes once uploaded.
-// built is told of each build, a frame of its own cost.
+// One full-screen texture (2560x1440 is a 14.7 MB surface and a TexImage2D), built on the first drag and again only when the frame
+// size or the GUI scale changed; built is told of each build, a frame of its own cost.
 internal sealed class SnapGrid(ICoreClientAPI capi, Action built) : IDisposable
 {
     private HudCanvas? _canvas;

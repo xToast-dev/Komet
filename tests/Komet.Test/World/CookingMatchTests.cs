@@ -15,10 +15,7 @@ public sealed class CookingMatchTests
     private readonly Dictionary<string, Item> _items = [];
 
     [TearDown]
-    public void Restore()
-    {
-        (CookingMatch.Enabled, GlobalConstants.IgnoredStackAttributes) = (true, Ignored);
-    }
+    public void Restore() => (CookingMatch.Enabled, GlobalConstants.IgnoredStackAttributes) = (true, Ignored);
 
     [Test]
     public void Installs()
@@ -84,7 +81,6 @@ public sealed class CookingMatchTests
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    // Per input and recipe: match and servings; per stack and ingredient: the index of the stack it matched
     private static List<string> Replies(CookingRecipe[] recipes, ItemStack?[][] inputs)
     {
         var answers = new List<string>();
@@ -104,66 +100,50 @@ public sealed class CookingMatchTests
         return answers;
     }
 
-    private CookingRecipe[] Recipes()
-    {
-        return
-        [
-            new CookingRecipe
-            {
-                Code = "soup",
-                Ingredients =
-                [
-                    Ingredient("water", 1, 1, 1f, Exact("waterportion", 100)),
-                    Ingredient("veg", 1, 2, 0, Wild("vegetable-*")),
-                    Ingredient("meat", 0, 1, 0, Cooked("redmeat-raw", "redmeat-cooked"))
-                ]
-            },
-            new CookingRecipe
-            {
-                Code = "porridge",
-                Ingredients =
-                [
-                    Ingredient("grain", 1, 2, 0, Wild("grain-*"), Exact("flour", 2)),
-                    Ingredient("fruit", 0, 2, 0, Wild("fruit-*"))
-                ]
-            },
-            new CookingRecipe
-            {
-                Code = "stew",
-                Ingredients =
-                [
-                    Ingredient("meat", 2, 3, 0, Cooked("redmeat-raw", "redmeat-cooked")),
-                    Ingredient("veg", 0, 2, 0, Wild("vegetable-*"))
-                ]
-            }
-        ];
-    }
+    private CookingRecipe[] Recipes() =>
+    [
+        new()
+        {
+            Code = "soup",
+            Ingredients =
+            [
+                Ingredient("water", 1, 1, 1f, Exact("waterportion", 100)),
+                Ingredient("veg", 1, 2, 0, Wild("vegetable-*")),
+                Ingredient("meat", 0, 1, 0, Cooked("redmeat-raw", "redmeat-cooked"))
+            ]
+        },
+        new()
+        {
+            Code = "porridge",
+            Ingredients =
+            [
+                Ingredient("grain", 1, 2, 0, Wild("grain-*"), Exact("flour", 2)),
+                Ingredient("fruit", 0, 2, 0, Wild("fruit-*"))
+            ]
+        },
+        new()
+        {
+            Code = "stew",
+            Ingredients =
+            [
+                Ingredient("meat", 2, 3, 0, Cooked("redmeat-raw", "redmeat-cooked")),
+                Ingredient("veg", 0, 2, 0, Wild("vegetable-*"))
+            ]
+        }
+    ];
 
     private static CookingRecipeIngredient Ingredient(string code, int min, int max, float litres,
-        params CookingRecipeStack[] stacks)
-    {
-        return new CookingRecipeIngredient
-        {
-            Code = code, MinQuantity = min, MaxQuantity = max, PortionSizeLitres = litres, ValidStacks = stacks
-        };
-    }
+        params CookingRecipeStack[] stacks) =>
+        new() { Code = code, MinQuantity = min, MaxQuantity = max, PortionSizeLitres = litres, ValidStacks = stacks };
 
-    private CookingRecipeStack Exact(string code, int size)
+    private CookingRecipeStack Exact(string code, int size) => new()
     {
-        return new CookingRecipeStack
-        {
-            Code = new AssetLocation("game", code), Type = EnumItemClass.Item, StackSize = size,
-            ResolvedItemstack = new ItemStack(Item(code), size)
-        };
-    }
+        Code = new AssetLocation("game", code), Type = EnumItemClass.Item, StackSize = size,
+        ResolvedItemstack = new ItemStack(Item(code), size)
+    };
 
-    private static CookingRecipeStack Wild(string code)
-    {
-        return new CookingRecipeStack
-        {
-            Code = new AssetLocation("game", code), Type = EnumItemClass.Item, StackSize = 1
-        };
-    }
+    private static CookingRecipeStack Wild(string code) =>
+        new() { Code = new AssetLocation("game", code), Type = EnumItemClass.Item, StackSize = 1 };
 
     private CookingRecipeStack Cooked(string raw, string cooked)
     {

@@ -6,9 +6,8 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The game's graphics tab as three option pages, each control with what the engine's own handler does besides setting the property
-// (GuiCompositeSettings, Vintage Story 1.22.7): a shader reload, a framebuffer rebuild, the window mode, the preset turned "custom".
-// The watchers the engine registers on ClientSettings do the rest, and ClientSettings saves itself. Labels and hints are the game's.
+// Each control does what the engine's own handler (GuiCompositeSettings, Vintage Story 1.22.7) does besides setting the property,
+// the watchers the engine registers on ClientSettings do the rest, and ClientSettings saves itself.
 internal static partial class EngineOptions
 {
     private const string Custom = "preset-custom";
@@ -46,18 +45,20 @@ internal static partial class EngineOptions
         if (!NotNull(capi) || !NotNull(presets) || !Assert(presets.Count > 0)) return page;
         _ = Presets(capi, page)
             .Slider(Name("viewdist"), 32, 1536, 32, () => ClientSettings.ViewDistance,
-                v => Apply(capi, () => ClientSettings.ViewDistance = (int)v, Effect.Custom), " " + T("unit-blocks"),
+                v => Apply(() => ClientSettings.ViewDistance = (int)v, Effect.Custom), " " + T("unit-blocks"),
                 Hover(capi.IsSinglePlayer ? "viewdist-singleplayer" : "viewdist"))
-            .Slider(Name("fov"), 20, 150, 1, () => ClientSettings.FieldOfView, v => ClientSettings.FieldOfView = (int)v,
-                "°", Hover("fov"))
+            .Setting("fov", 20, 150, 1, () => ClientSettings.FieldOfView, v => ClientSettings.FieldOfView = (int)v, "°")
             .Choice(Name("windowmode"), Names("windowmode-", "normal", "fullscreen", "maxborderless", "fullscreen-ontop"),
-                () => ClientSettings.GameWindowMode, WindowMode)
+                () => ClientSettings.GameWindowMode, mode =>
+                {
+                    if (Index(mode, 4) && NotNull(SetWindowMode)) SetWindowMode(mode);
+                })
             .Choice(Name("windowborder"), Names("windowborder-", "resizable", "fixed", "hidden"),
                 () => ClientSettings.WindowBorder, Border)
             .Choice(Name("vsync"), [Lang.Get("Off"), Lang.Get("On"), Lang.Get("On + Sleep")],
                 () => ClientSettings.VsyncMode, i => ClientSettings.VsyncMode = i, Hover("vsync"))
-            .Slider(Name("maxfps"), 15, 241, 1, () => Math.Clamp(ClientSettings.MaxFPS, 15, 241),
-                v => ClientSettings.MaxFPS = (int)v, "", Hover("maxfps"))
+            .Setting("maxfps", 15, 241, 1, () => Math.Clamp(ClientSettings.MaxFPS, 15, 241),
+                v => ClientSettings.MaxFPS = (int)v)
             .Format(v => v >= 241 ? Lang.Get("unlimited") : ((int)v).ToString(CultureInfo.InvariantCulture));
         return Appearance(capi, page);
     }
@@ -72,24 +73,23 @@ internal static partial class EngineOptions
         return page.Slider(Name("preset"), 0, steps.Length - 1, 1,
                 () => Array.FindIndex(steps, p => p.PresetId == ClientSettings.GraphicsPresetId),
                 v => Preset(capi, steps[Math.Clamp((int)Math.Round(v), 0, steps.Length - 1)].PresetId), "", T("preset-hint"))
-            .Format(v => Index((int)Math.Round(v), steps.Length) ? Lang.Get(steps[(int)Math.Round(v)].Langcode) : custom);
+            // -1 (no preset matches: the player's own settings) is a normal state, not a failed assertion
+            .Format(v => (int)Math.Round(v) is var i && (uint)i < (uint)steps.Length ? Lang.Get(steps[i].Langcode) : custom);
     }
 
-    // Gamma and colour grading; sepia and contrast follow the day while the dynamic grading is on
+    // Sepia and contrast follow the day while the dynamic grading is on
     private static OptionPage Appearance(ICoreClientAPI capi, OptionPage page)
     {
         if (!NotNull(capi) || !NotNull(page) || !Assert(page.Count > 0)) return page;
         return page.Group(Lang.Get("setting-column-appear"))
-            .Slider(Name("gamma"), 30, 300, 5, () => Math.Round(ClientSettings.GammaLevel * 100),
-                v => ClientSettings.GammaLevel = (float)(v / 100), "", Hover("gamma"))
-            .Switch(Name("dynamiccolorgrading"), () => ClientSettings.DynamicColorGrading, on => Grading(capi, on),
-                Hover("dynamiccolorgrading"))
-            .Slider(Name("contrast"), 100, 200, 10, () => Math.Round(ClientSettings.ExtraContrastLevel * 100) + 100,
-                v => Apply(capi, () => ClientSettings.ExtraContrastLevel = (float)((v - 100) / 100), Effect.Custom), "%",
-                Hover("contrast"))
+            .Setting("gamma", 30, 300, 5, () => Math.Round(ClientSettings.GammaLevel * 100),
+                v => ClientSettings.GammaLevel = (float)(v / 100))
+            .Setting("dynamiccolorgrading", () => ClientSettings.DynamicColorGrading, on => Grading(capi, on))
+            .Setting("contrast", 100, 200, 10, () => Math.Round(ClientSettings.ExtraContrastLevel * 100) + 100,
+                v => Apply(() => ClientSettings.ExtraContrastLevel = (float)((v - 100) / 100), Effect.Custom), "%")
             .EnabledWhen(() => !ClientSettings.DynamicColorGrading)
-            .Slider(Name("sepia"), 0, 100, 5, () => Math.Round(ClientSettings.SepiaLevel * 100),
-                v => ClientSettings.SepiaLevel = (float)(v / 100), "", Hover("sepia"))
+            .Setting("sepia", 0, 100, 5, () => Math.Round(ClientSettings.SepiaLevel * 100),
+                v => ClientSettings.SepiaLevel = (float)(v / 100))
             .EnabledWhen(() => !ClientSettings.DynamicColorGrading);
     }
 
@@ -102,23 +102,21 @@ internal static partial class EngineOptions
         if (!NotNull(capi) || !Assert(shadows.Length == 5 && ssao.Length == 3)) return page;
         _ = page.Group(Lang.Get("setting-column-graphics"))
             .Slider(Name("shadows"), 0, 4, 1, () => ClientSettings.ShadowMapQuality,
-                v => Apply(capi, () => ClientSettings.ShadowMapQuality = (int)v, Effect.Rebuild | Effect.Reload | Effect.Custom),
+                v => Apply(() => ClientSettings.ShadowMapQuality = (int)v, Effect.Rebuild | Effect.Reload | Effect.Custom),
                 "", Hover("dynashade")).Format(v => Named(shadows, v))
-            .Switch(Name("smoothshadows"), () => ClientSettings.SmoothShadows,
-                on => Apply(capi, () => ClientSettings.SmoothShadows = on, Effect.Custom), Hover("smoothshadows"))
-            .Slider(Name("ssao"), 0, 2, 1, () => ClientSettings.SSAOQuality, // in game the engine's watcher reloads and rebuilds
-                v => Apply(capi, () => ClientSettings.SSAOQuality = (int)v, Effect.Custom), "", Hover("ssao"))
+            .Setting("smoothshadows", () => ClientSettings.SmoothShadows,
+                on => Apply(() => ClientSettings.SmoothShadows = on, Effect.Custom))
+            .Setting("ssao", 0, 2, 1, () => ClientSettings.SSAOQuality, // in game the engine's watcher reloads and rebuilds
+                v => Apply(() => ClientSettings.SSAOQuality = (int)v, Effect.Custom))
             .Format(v => Named(ssao, v))
-            .Switch(Name("bloom"), () => ClientSettings.Bloom,
-                on => Apply(capi, () => ClientSettings.Bloom = on, Effect.Reload | Effect.Custom), Hover("bloom"))
-            .Slider(Name("abloom"), 0, 100, 10, () => ClientSettings.AmbientBloomLevel,
-                v => Apply(capi, () => ClientSettings.AmbientBloomLevel = (float)v, Effect.Reload | Effect.Custom), "%",
-                Hover("abloom"))
-            .Switch(Name("godrays"), () => ClientSettings.GodRayQuality > 0,
-                on => Apply(capi, () => ClientSettings.GodRayQuality = on ? 1 : 0, Effect.Reload | Effect.Custom),
-                Hover("godrays"))
-            .Switch(Name("fxaa"), () => ClientSettings.FXAA,
-                on => Apply(capi, () => ClientSettings.FXAA = on, Effect.Reload | Effect.Custom), Hover("fxaa"));
+            .Setting("bloom", () => ClientSettings.Bloom,
+                on => Apply(() => ClientSettings.Bloom = on, Effect.Reload | Effect.Custom))
+            .Setting("abloom", 0, 100, 10, () => ClientSettings.AmbientBloomLevel,
+                v => Apply(() => ClientSettings.AmbientBloomLevel = (float)v, Effect.Reload | Effect.Custom), "%")
+            .Setting("godrays", () => ClientSettings.GodRayQuality > 0,
+                on => Apply(() => ClientSettings.GodRayQuality = on ? 1 : 0, Effect.Reload | Effect.Custom))
+            .Setting("fxaa", () => ClientSettings.FXAA,
+                on => Apply(() => ClientSettings.FXAA = on, Effect.Reload | Effect.Custom));
         return Effects(capi, page);
     }
 
@@ -128,21 +126,17 @@ internal static partial class EngineOptions
         return page.Choice(Name("clouds"), Names("settings-clouds-", "off", "volumetric", "classic"),
                 () => ClientSettings.CloudRenderMode, i => ClientSettings.CloudRenderMode = i,
                 Lang.Get("settings-hover-" + "clouds"))
-            .Switch(Name("grasswaves"), () => ClientSettings.WavingFoliage,
-                on => Apply(capi, () => ClientSettings.WavingFoliage = on, Effect.Reload | Effect.Custom),
-                Hover("grasswaves"))
-            .Switch(Name("foamandshinyeffect"), () => ClientSettings.LiquidFoamAndShinyEffect,
-                on => Apply(capi, () => ClientSettings.LiquidFoamAndShinyEffect = on, Effect.Reload | Effect.Custom),
-                Hover("foamandshinyeffect"))
-            .Slider(Name("particles"), 0, 100, 2, () => ClientSettings.ParticleLevel,
-                v => Apply(capi, () => ClientSettings.ParticleLevel = (int)v, Effect.Custom), "%", Hover("particles"))
-            .Slider(Name("dynalight"), 0, 100, 1, () => ClientSettings.MaxDynamicLights,
-                v => Apply(capi, () => ClientSettings.MaxDynamicLights = (int)v, Effect.Reload | Effect.Custom), "",
-                Hover("dynalight"))
+            .Setting("grasswaves", () => ClientSettings.WavingFoliage,
+                on => Apply(() => ClientSettings.WavingFoliage = on, Effect.Reload | Effect.Custom))
+            .Setting("foamandshinyeffect", () => ClientSettings.LiquidFoamAndShinyEffect,
+                on => Apply(() => ClientSettings.LiquidFoamAndShinyEffect = on, Effect.Reload | Effect.Custom))
+            .Setting("particles", 0, 100, 2, () => ClientSettings.ParticleLevel,
+                v => Apply(() => ClientSettings.ParticleLevel = (int)v, Effect.Custom), "%")
+            .Setting("dynalight", 0, 100, 1, () => ClientSettings.MaxDynamicLights,
+                v => Apply(() => ClientSettings.MaxDynamicLights = (int)v, Effect.Reload | Effect.Custom))
             .Format(v => v <= 0 ? Lang.Get("disabled") : ((int)v).ToString(CultureInfo.InvariantCulture))
-            .Slider(Name("resolution"), 25, 100, 25, () => Math.Round(ClientSettings.SSAA * 100),
-                v => Apply(capi, () => ClientSettings.SSAA = (float)(v / 100), Effect.Rebuild | Effect.Custom), "%",
-                Hover("resolution"));
+            .Setting("resolution", 25, 100, 25, () => Math.Round(ClientSettings.SSAA * 100),
+                v => Apply(() => ClientSettings.SSAA = (float)(v / 100), Effect.Rebuild | Effect.Custom), "%");
     }
 
     private static OptionPage Performance(string section)
@@ -152,20 +146,17 @@ internal static partial class EngineOptions
         return page.Choice(Name("optimizeram"), [Lang.Get("Optimize somewhat"), Lang.Get("Aggressively optimize ram")],
                 () => Math.Clamp(ClientSettings.OptimizeRamMode - 1, 0, 1), i => ClientSettings.OptimizeRamMode = i + 1,
                 Hover("optimizeram"))
-            .Switch(Name("occlusionculling"), () => ClientSettings.Occlusionculling,
-                on => ClientSettings.Occlusionculling = on, Hover("occlusionculling"))
-            .Slider(Name("lodbiasfar"), 35, 100, 1, () => Math.Round(ClientSettings.LodBiasFar * 100),
-                v => Apply(null, () => ClientSettings.LodBiasFar = (float)(v / 100), Effect.Custom), "%",
-                Hover("lodbiasfar"));
+            .Setting("occlusionculling", () => ClientSettings.Occlusionculling, on => ClientSettings.Occlusionculling = on)
+            .Setting("lodbiasfar", 35, 100, 1, () => Math.Round(ClientSettings.LodBiasFar * 100),
+                v => Apply(() => ClientSettings.LodBiasFar = (float)(v / 100), Effect.Custom), "%");
     }
 
-    // Set, then what the engine's handler does after it
-    private static void Apply(ICoreClientAPI? capi, Action set, Effect effect)
+    private static void Apply(Action set, Effect effect)
     {
         if (!NotNull(set) || !Assert((effect & ~(Effect.Reload | Effect.Rebuild | Effect.Custom)) == 0)) return;
         set();
         if ((effect & Effect.Custom) != 0 && CustomPreset() is { } custom) ClientSettings.GraphicsPresetId = custom;
-        Run(capi ?? _capi, effect);
+        Run(_capi, effect);
     }
 
     // Several settings applied at once (the options window's Apply): one rebuild and one shader reload for all of them
@@ -231,11 +222,6 @@ internal static partial class EngineOptions
         return custom is not null && Assert(custom.PresetId >= 0) ? custom.PresetId : null;
     }
 
-    private static void WindowMode(int mode)
-    {
-        if (Index(mode, 4) && NotNull(SetWindowMode)) SetWindowMode(mode);
-    }
-
     // OnWindowBorderChanged: a border other than hidden ends the borderless mode
     private static void Border(int border)
     {
@@ -259,6 +245,13 @@ internal static partial class EngineOptions
         AccessTools.Method(typeof(GuiCompositeSettings), "SetWindowMode", [typeof(int)]) is { } method
             ? AccessTools.MethodDelegate<Action<int>>(method)
             : null;
+
+    private static OptionPage Setting(this OptionPage page, string id, Func<bool> get, Action<bool> set) =>
+        Assert(id.Length > 0) && NotNull(get) ? page.Switch(Name(id), get, set, Hover(id)) : page;
+
+    private static OptionPage Setting(this OptionPage page, string id, double min, double max, double step, Func<double> get,
+        Action<double> set, string unit = "") =>
+        Assert(id.Length > 0) && NotNull(get) ? page.Slider(Name(id), min, max, step, get, set, unit, Hover(id)) : page;
 
     private static string Name(string id) =>
         NotNull(id) && Assert(id.Length > 0) ? Lang.Get("setting-name-" + id) : "";

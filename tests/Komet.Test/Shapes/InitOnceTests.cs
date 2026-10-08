@@ -1,4 +1,3 @@
-
 namespace Komet.Test.Shapes;
 
 // EntityPlayer.OnTesselation runs Shape.InitForAnimations twice on the local player's shape, the second time with no disable
@@ -75,10 +74,7 @@ public sealed class InitOnceTests
         shape.InitForAnimations(AnimationShapes.Log, name, disable, joints);
     }
 
-    private static EntityPlayer Player()
-    {
-        return (EntityPlayer)RuntimeHelpers.GetUninitializedObject(typeof(EntityPlayer));
-    }
+    private static EntityPlayer Player() => (EntityPlayer)RuntimeHelpers.GetUninitializedObject(typeof(EntityPlayer));
 
     // The two inits exactly as EntityPlayer.OnTesselation makes them, the window driven the way its patches drive it. The first
     // LoadAnimator builds its animator right after its init, and AnimatorBase's constructor lower-cases every animation code.
@@ -102,38 +98,24 @@ public sealed class InitOnceTests
         }
     }
 
-    [Test]
-    public void InTheWindowTheSecondInitOfTheSameShapeIsSkipped()
+    // The duplicate, alone, is skipped: the same shape, joints and disable list (or none) once base has returned
+    private static IEnumerable<TestCaseData> SecondInits()
     {
-        Patch();
-        var shape = AnimationShapes.Synthetic();
-        var (before, after) = Tesselate(shape, Player());
-        Assert.Multiple(() =>
-        {
-            Assert.That(InitOnce.Blocked, Is.False);
-            Assert.That(after, Is.SameAs(before), "the second init ran");
-            Assert.That(Skipped, Is.EqualTo(1));
-        });
+        static TestCaseData Case(string name, bool skipped, string[]? joints = null, string[]? disable = null,
+            bool otherShape = false, bool based = true) =>
+            new TestCaseData(joints, disable, otherShape, based, skipped).SetName(name);
+
+        yield return Case("InTheWindowTheSecondInitOfTheSameShapeIsSkipped", true);
+        yield return Case("TheSameDisableListIsSkippedToo", true, disable: ["cape"]);
+        yield return Case("OtherJointsRunTheSecondInit", false, OtherJoints);
+        yield return Case("AnotherDisableListRunsTheSecondInit", false, disable: OtherDisable);
+        yield return Case("AnotherShapeRunsTheSecondInit", false, otherShape: true);
+        yield return Case("AnInitBeforeBaseReturnedRunsAgain", false, based: false);
     }
 
-    [Test]
-    public void TheSameDisableListIsSkippedToo()
-    {
-        Patch();
-        var (before, after) = Tesselate(AnimationShapes.Synthetic(), Player(), secondDisable: ["cape"]);
-        Assert.That(after, Is.SameAs(before));
-    }
-
-    private static IEnumerable<TestCaseData> Differences()
-    {
-        yield return new TestCaseData(OtherJoints, null, false, true).SetName("OtherJointsRunTheSecondInit");
-        yield return new TestCaseData(null, OtherDisable, false, true).SetName("AnotherDisableListRunsTheSecondInit");
-        yield return new TestCaseData(null, null, true, true).SetName("AnotherShapeRunsTheSecondInit");
-        yield return new TestCaseData(null, null, false, false).SetName("AnInitBeforeBaseReturnedRunsAgain");
-    }
-
-    [TestCaseSource(nameof(Differences))]
-    public void AnythingButTheDuplicateRuns(string[]? joints, string[]? disable, bool otherShape, bool based)
+    [TestCaseSource(nameof(SecondInits))]
+    public void OnlyTheDuplicateIsSkipped(string[]? joints, string[]? disable, bool otherShape, bool based,
+        bool skipped)
     {
         Patch();
         var other = AnimationShapes.Synthetic();
@@ -142,8 +124,9 @@ public sealed class InitOnceTests
             otherShape ? other : null, based);
         Assert.Multiple(() =>
         {
-            Assert.That(after, Is.Not.SameAs(before));
-            Assert.That(Skipped, Is.Zero);
+            Assert.That(InitOnce.Blocked, Is.False);
+            Assert.That(after, skipped ? Is.SameAs(before) : Is.Not.SameAs(before), "whether the second init ran");
+            Assert.That(Skipped, Is.EqualTo(skipped ? 1 : 0));
         });
     }
 

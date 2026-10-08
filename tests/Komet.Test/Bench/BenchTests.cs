@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Vintagestory.Server.Systems;
+using Komet.Test.Diagnostics;
 using static Komet.Testing.Profiles;
 
 namespace Komet.Test.Bench;
@@ -14,7 +15,8 @@ public sealed class BenchConfigTests
         "\"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\", \"set\": { \"FrustumSweep\": false } } ]";
 
     private static readonly string Root = Path.Combine(Path.GetTempPath(), "komet-bench-test");
-    private static readonly string[] Profiles = ["smoke", "aa", "full", "tess", "gcreg", "hud"], OnOff = ["on", "off"];
+    private static readonly string[] Profiles = ["quick", "load", "debug", "smoke", "aa", "full", "tess", "gcreg", "culling", "culling1440", "hud", "vulkan"],
+        OnOff = ["on", "off"];
 
     internal static string Json(string extra = "", string? output = null,
         string world = "{ \"savegameId\": \"75695bba\" }")
@@ -25,10 +27,7 @@ public sealed class BenchConfigTests
             $$"""{ "output": "{{output}}", "modDir": "{{mods}}", "world": {{world}}{{(extra.Length > 0 ? ", " + extra : "")}} }""");
     }
 
-    private static string BenchJson()
-    {
-        return Path.Combine(Paths.Repo, "scripts", "bench.json");
-    }
+    private static string BenchJson() => Path.Combine(Paths.Repo, "scripts", "bench.json");
 
     [TearDown]
     public void Restore()
@@ -246,10 +245,8 @@ public sealed class BenchRecorderTests
     [Test]
     public void FrameClockHandsEveryLaterFrameToTheSinkWithItsOwnCollection()
     {
-        var (stats, profiler) = (FrameClock.Stats, ScreenManager.FrameProfiler);
-        (FrameClock.Stats, ScreenManager.FrameProfiler) = (true, null!);
         var recorder = Started();
-        try
+        Clock.With(true, null, () =>
         {
             FrameClock.Begin();
             FrameClock.Sink = recorder;
@@ -263,13 +260,7 @@ public sealed class BenchRecorderTests
                 FrameClock.End();
                 FrameClock.Begin();
             }
-        }
-        finally
-        {
-            FrameClock.Sink = null;
-            (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, profiler);
-            FrameClock.Begin();
-        }
+        });
 
         var frames = recorder.Frames.ToArray();
         Assert.Multiple(() =>
@@ -426,7 +417,7 @@ public sealed class BenchScenarioTests
         [BenchKind.LapSettle, BenchKind.Still, BenchKind.Out, BenchKind.Turn, BenchKind.Back, BenchKind.Turn];
 
     private static readonly BenchKind[] LapWithoutRoute = [BenchKind.LapSettle, BenchKind.Rotate];
-    private static readonly int[] Abba = [0, 1, 1, 0, 0, 1, 1, 0], Warmups = [0, 1], Abccba = [0, 1, 2, 2, 1, 0];
+    private static readonly int[] Abba = [0, 1, 1, 0, 0, 1, 1, 0];
 
     private static BenchSegment[] Expand(string extra)
     {
@@ -455,27 +446,22 @@ public sealed class BenchScenarioTests
         });
     }
 
-    [Test]
-    public void MeasuredLapsRunInMirroredBlocks()
+    // A B B A A B B A for two arms, A B C C B A for three; every arm warms up once
+    [TestCase(BenchConfigTests.TwoArms, new[] { 0, 1, 1, 0, 0, 1, 1, 0 }, new[] { 0, 1 })]
+    [TestCase("\"laps\": 6, \"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\" }, { \"name\": \"C\" } ]",
+        new[] { 0, 1, 2, 2, 1, 0 }, new[] { 0, 1, 2 })]
+    public void MeasuredLapsRunInMirroredBlocks(string arms, int[] measured, int[] warmups)
     {
-        var segments = Expand(BenchConfigTests.TwoArms);
+        var segments = Expand(arms);
         Assert.Multiple(() =>
         {
-            Assert.That(LapArms(segments, false), Is.EqualTo(Abba), "A B B A A B B A");
-            Assert.That(LapArms(segments, true), Is.EqualTo(Warmups), "every arm warms up once");
+            Assert.That(LapArms(segments, false), Is.EqualTo(measured));
+            Assert.That(LapArms(segments, true), Is.EqualTo(warmups));
             Assert.That(
                 segments.Where(s => s.Lap >= 0).GroupBy(s => (s.Lap, s.Warmup))
                     .All(lap => lap.Select(s => s.Arm).Distinct().Count() == 1),
                 "a lap never switches arms");
         });
-    }
-
-    [Test]
-    public void ThreeArmsMirrorToo()
-    {
-        var segments =
-            Expand("\"laps\": 6, \"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\" }, { \"name\": \"C\" } ]");
-        Assert.That(LapArms(segments, false), Is.EqualTo(Abccba));
     }
 
     // The driver switches a lap's arm when it enters the lap's LapSettle, so every lap needs one even without settle time: a lap

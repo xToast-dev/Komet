@@ -3,28 +3,31 @@ using HarmonyLib;
 
 namespace Komet.Rendering;
 
-// MeshData.CloneUsingRecycler hands a tesselated chunk a mesh with its basic arrays kept, but CloneExtraData clones the extra data from
-// scratch and DisposeExtraData drops it: two thirds of the client's allocations. A recyclable mesh keeps those arrays as capacity for the
-// next clone, and custom parts copy Count values instead of the whole tesselator buffer SetFrom clones. Fields the source lacks get the
-// state of a fresh mesh: null, TextureIds empty.
+// MeshData.CloneUsingRecycler keeps a mesh's basic arrays, but CloneExtraData clones the extra data from scratch and
+// DisposeExtraData drops it: two thirds of the client's allocations. A recyclable mesh keeps those arrays as capacity for the next
+// clone, and custom parts copy Count values instead of the whole tesselator buffer SetFrom clones. Fields the source lacks get a
+// fresh mesh's state: null, TextureIds empty.
 //
-// The recycler hands out meshes by size alone, while each render pass has its own custom parts (liquid two floats and two ints per
-// vertex, top soil an int and two shorts, the others one int): a top soil mesh reused for an opaque part drops its shorts, and the next
-// top soil part allocates them again, three quarters of which are still queued for upload when a collection comes. So values a clone
-// drops or outgrows go to a few spare slots per element type, and a part needing a new buffer first takes the smallest spare that fits.
-// Only CloneExtraData moves arrays: its destination is a new mesh (Clone) or one back from the recycler, whose parts nothing else holds.
+// The recycler hands out meshes by size alone, while each pass has its own custom parts (liquid 2 floats + 2 ints per vertex, top
+// soil an int and two shorts, others one int): a top soil mesh reused for an opaque part drops its shorts, which the next top soil
+// part allocates again. So values a clone drops or outgrows go to a few spare slots per element type, and a part needing a new
+// buffer first takes the smallest spare that fits. Only CloneExtraData moves arrays: its destination is a new or recycled mesh
+// whose parts nothing else holds.
 internal static class MeshRecycle
 {
     private static readonly DataConversion ShortConversion = new CustomMeshDataPartShort().Conversion;
     private static readonly DataConversion IntConversion = new CustomMeshDataPartInt().Conversion;
 
-    // A mesh in the recycler carries buffers, so the clone has to keep clearing what a source lacks
+    // A recycled mesh carries buffers, so the clone must keep clearing what a source lacks
     private static bool _kept;
 
-    // Totals while Counting.Hud; Interlocked: the tesselation and the main thread clone
+    // Totals while Counting.Hud; Interlocked: tesselation and main thread clone
     private static long _clones, _reused, _saved;
 
     public static bool Enabled { get; set; } = true;
+
+    // Both patches are in: CloneExtraData nulls what a source lacks on a reused destination (ClutterMeshes' scratch relies on it)
+    public static bool Patched { get; private set; }
     public static long Clones => Interlocked.Read(ref _clones);
     public static long Reused => Interlocked.Read(ref _reused);
     public static long Saved => Interlocked.Read(ref _saved);
@@ -37,7 +40,7 @@ internal static class MeshRecycle
 
     public static void Install(Harmony harmony)
     {
-        _kept = false; // the previous world's recycler is gone
+        (_kept, Patched) = (false, false); // the previous world's recycler is gone
         var clone = AccessTools.Method(typeof(MeshData), "CloneExtraData");
         var dispose = AccessTools.Method(typeof(MeshData), "DisposeExtraData");
         var part = typeof(CustomMeshDataPart<float>);
@@ -48,9 +51,10 @@ internal static class MeshRecycle
             return; // the Allocation accessors would throw at first use
         _ = NotNull(harmony.Patch(clone, prefix));
         _ = NotNull(harmony.Patch(dispose, new HarmonyMethod(DisposeExtraData)));
+        Patched = true;
     }
 
-    // The engine copies TextureIds only along with TextureIndices, and throws when those come without ids: that case stays its own
+    // The engine copies TextureIds only with TextureIndices and throws on indices without ids: that case stays its own
     internal static bool CloneExtraData(MeshData __instance, MeshData dest)
     {
         if ((!Enabled && !_kept) || !NotNull(__instance) || !NotNull(dest) || ReferenceEquals(__instance, dest))
@@ -75,7 +79,7 @@ internal static class MeshRecycle
         return false;
     }
 
-    // Only a mesh on its way back to the recycler keeps anything; every other dispose is the engine's
+    // Only a mesh going back to the recycler keeps anything
     internal static bool DisposeExtraData(MeshData __instance)
     {
         if (!Enabled || !NotNull(__instance) || !__instance.Recyclable) return true;
@@ -91,7 +95,7 @@ internal static class MeshRecycle
         return false;
     }
 
-    // The counts CloneExtraData writes, exactly the ones it writes: Normals carries none, the two colour maps share theirs
+    // Exactly the counts CloneExtraData writes: Normals none, the two colour maps share theirs
     private static void Counts(MeshData source, MeshData dest)
     {
         if (!Assert(source.XyzFacesCount >= 0) || !Assert(source.RenderPassCount >= 0)) return;
@@ -102,7 +106,7 @@ internal static class MeshRecycle
         if (source.RenderPassesAndExtraBits != null) dest.RenderPassCount = source.RenderPassCount;
     }
 
-    // An array the engine sizes to the count: reused only at that exact length, so Length keeps meaning what it did
+    // An array the engine sizes to the count: reused only at that exact length
     private static T[]? Exact<T>(T[]? existing, T[]? source, int count) where T : unmanaged
     {
         if (source is null) return null;
@@ -114,11 +118,10 @@ internal static class MeshRecycle
         return target;
     }
 
-    // Each engine Clone is new TPart() plus SetFrom; a part without values is left to exactly that
+    // Each engine Clone is new TPart() plus SetFrom; a part without values is left to that
     private static TPart? Part<TPart, T>(TPart? dest, TPart? source)
         where TPart : CustomMeshDataPart<T>, new() where T : unmanaged
     {
-        // the destination's own values are dropped with its part unless Filled reuses them
         var engine = source?.Values is null || !Assert(source.Count >= 0 && source.Count <= source.Values.Length);
         if (engine && Enabled && dest?.Values is { } dropped) Spare<T>.Put(dropped);
         if (source is null) return null;
@@ -132,7 +135,7 @@ internal static class MeshRecycle
         return part;
     }
 
-    // Values is addressed through Count and its length is only ever read as capacity, so the buffer may be larger than the source's
+    // Values is addressed through Count and its length only read as capacity, so the buffer may exceed the source's
     private static TPart Filled<TPart, T>(TPart dest, CustomMeshDataPart<T> source)
         where TPart : CustomMeshDataPart<T> where T : unmanaged
     {
@@ -152,10 +155,9 @@ internal static class MeshRecycle
         return dest;
     }
 
-    // A fresh buffer is sized to what this mesh holds plus room to grow, not to the tesselator buffer the engine's SetFrom copies whole
+    // A fresh buffer holds what this mesh has plus room, not the whole tesselator buffer SetFrom copies
     private static int Capacity(int count) => Assert(count >= 0) ? Math.Max(4, count + count / 4) : 4;
 
-    // A buffer for count values in place of one too small (null: none yet), which goes to the spares
     private static T[] Grown<T>(T[]? small, int count) where T : unmanaged
     {
         if (!Enabled) return GC.AllocateUninitializedArray<T>(Capacity(count));
@@ -167,13 +169,12 @@ internal static class MeshRecycle
         return spare;
     }
 
-    // Values no mesh holds any more, by element type; the tesselation threads and the main thread clone at once
+    // Values no mesh holds any more, by element type; tesselation threads and main thread clone at once
     private static class Spare<T> where T : unmanaged
     {
         private const int Slots = 16;
         private static readonly T[]?[] Kept = new T[]?[Slots]; // also the lock: one per element type
 
-        // The smallest spare that holds count values, taken out; null for none
         public static T[]? Take(int count)
         {
             lock (Kept)
@@ -189,7 +190,6 @@ internal static class MeshRecycle
             }
         }
 
-        // Into a free slot; with every slot taken a larger array displaces the smallest, a smaller one is left to the collector
         public static void Put(T[] array)
         {
             if (!NotNull(array)) return;
@@ -212,7 +212,7 @@ internal static class MeshRecycle
         }
     }
 
-    // The fields SetFrom copies behind AllocationSize, the GL buffer size of the part
+    // The fields SetFrom copies behind AllocationSize
     private static class Allocation<T>
     {
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "customAllocationSize")]

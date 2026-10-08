@@ -8,21 +8,14 @@ using static Komet.Tessellation.TessSeams;
 
 namespace Komet.Tessellation;
 
-// ChunkTesselator.NowProcessChunk runs the whole pipeline for solid rock deep underground - 27 chunks unpacked, the extended arrays
-// built, six neighbours tested for each of 32 768 blocks, every position walked again in BuildBlockPolygons - to end with zero
-// vertices. For FaceCullMode Default, CalculateVisibleFaces gives a block a face only where the neighbour's side toward it is not
-// opaque (other modes, JSONAndWater's 0x40 flag and the snow rule on the up side are excluded below). So if every block of the chunk
-// and every block touching it across its six faces is opaque on that side, every face flag is 0, BuildBlockPolygons tessellates
-// nothing and populateTesselatedChunkPart hands out the tesselator's shared empty part array for the centre and the edge, with the
-// start bounds. The prefix hands that back without the pipeline, only when: the tesselator started and has no shape reload pending;
-// a dimension-0 chunk inside the map, not Empty, without decors, the one in the map at its position; every block-layer position
-// holds a palette index whose block is Default, opaque on all six sides and neither JSONAndWater nor JSONAndSnowLayer (ids at or past
-// Blocks.Count are air, as ClearPaletteOutsideMaxValue makes them; indices past the palette count are unknown); its fluid layer holds
-// only air; each face neighbour is loaded and not Empty (the engine substitutes air), with every block of the touching slab opaque
-// toward it and no JSONAndSnowLayer block above. The world's lowest chunks need no neighbour below: BuildBlockPolygons clears their
-// bottom layer's down faces. What the skipped pipeline leaves for later passes to read is reproduced (Leave); what else it would have
-// done - unpacking, clearing pools, recycling meshes, the extended arrays and face flags - the next pass redoes, and an edge-only one
-// reads only the shell it writes itself.
+// Solid rock deep underground runs ChunkTesselator.NowProcessChunk's whole pipeline to end with zero vertices. For FaceCullMode
+// Default, CalculateVisibleFaces gives a block a face only where the neighbour's side toward it is not opaque (other modes,
+// JSONAndWater's 0x40 flag and the snow rule on the up side are excluded), so if every block of the chunk and every block touching it
+// across its six faces is opaque on that side, populateTesselatedChunkPart hands out the tesselator's shared empty part array for the
+// centre and the edge, with the start bounds. Ids at or past Blocks.Count are air, as ClearPaletteOutsideMaxValue makes them; indices
+// past the palette count are unknown; a missing or Empty neighbour fails because the engine substitutes air. What the skipped
+// pipeline leaves for later passes to read is reproduced (Leave); what else it would have done - unpacking, clearing pools, recycling
+// meshes, the extended arrays and face flags - the next pass redoes, and an edge-only one reads only the shell it writes itself.
 internal static class OccludedChunks
 {
     private const int Words = Size * Size, MaxBits = 15, MaxIndices = 1 << MaxBits, MaxBad = 32, AllSides = -1;
@@ -43,7 +36,7 @@ internal static class OccludedChunks
         (992, 1, 32, -1)
     ];
 
-    private static readonly Tally Counts = new(1); // a total while Counting.Hud, every tessellation thread
+    private static readonly Tally Counts = new(1);
     private static MethodBase?[] _skipped = [];
 
     public static bool Enabled { get; set; } = true;
@@ -52,7 +45,7 @@ internal static class OccludedChunks
     // Another mod patches the pipeline this skips: the engine runs every pass
     public static bool StoodDown { get; private set; }
 
-    public static long Hits => Counts.Total(0); // passes the prefix answered
+    public static long Hits => Counts.Total(0);
 
     public static void Install(Harmony harmony, ILogger? logger = null, ulong shape = Shape)
     {
@@ -78,15 +71,16 @@ internal static class OccludedChunks
     internal static void Recheck()
     {
         if (!Installed || !Assert(_skipped.Length > 1)) return;
+        // Komet's own: what they change of a chunk without faces is nothing (no part for FaceSorting, no block for TessBlockPos)
         var foreign = EngineShape.Foreign(_skipped.AsSpan(0, 1), EngineShape.Kinds.Body, null) ||
                       EngineShape.Foreign(_skipped.AsSpan(1), EngineShape.Kinds.All, null, typeof(ExtendedRows),
-                          typeof(VisibleFaces), typeof(TessSafety));
+                          typeof(VisibleFaces), typeof(TessSafety), typeof(TessBlockPos), typeof(Rendering.FaceSorting));
         StoodDown = EngineShape.Report(Logger, nameof(OccludedChunks), StoodDown, foreign);
     }
 
     // NowProcessChunk first, then the bodies whose result it hands back: BeginProcessChunk (the state Leave reproduces), the extended
     // copy with the palette clearing and the neighbour lookup, the face culling, the polygon walk and the part population, and the
-    // chunk readers whose output Fits and FluidFree reproduce: ExtendedRows' rows and decoders, and GetOne with GetSolidBlock for the
+    // chunk readers whose output Fits reproduces (for blocks and fluids): ExtendedRows' rows and decoders, and GetOne with GetSolidBlock for the
     // east and west slabs
     internal static MethodBase?[] Shaped()
     {
@@ -157,9 +151,8 @@ internal static class OccludedChunks
     internal static bool Enclosed(ChunkTesselator tesselator, int x, int y, int z, TesselatedChunk tessChunk)
     {
         if (!Started(tesselator) || Reload(tesselator) || !NotNull(tessChunk)) return false;
-        var blocks = BlocksFast(tesselator);
-        var map = Game(tesselator)?.WorldMap;
-        var count = Game(tesselator)?.Blocks?.Count ?? 0;
+        var (blocks, game) = (BlocksFast(tesselator), Game(tesselator));
+        var (map, count) = (game?.WorldMap, game?.Blocks?.Count ?? 0);
         if (blocks is not { Length: > 0 } || map is null || !Assert(count <= blocks.Length)) return false;
         if (x < 0 || y < 0 || z < 0 || x >= MapX(tesselator) || y >= MapY(tesselator) ||
             z >= MapZ(tesselator)) return false;
@@ -167,7 +160,7 @@ internal static class OccludedChunks
         if (chunk is not { Empty: false } || !NoDecors(chunk) ||
             !ReferenceEquals(map.GetChunk(x, y, z), chunk)) return false;
         if (chunk.Data is not ChunkData data || !Fits(data.blocksLayer, blocks, count, AllSides) ||
-            !FluidFree(data.fluidsLayer, blocks)) return false;
+            !Fits(data.fluidsLayer, blocks, count, AllSides, true)) return false;
         for (var side = 0; side < Faces; side++)
         {
             // BuildBlockPolygons clears the down faces of the world's bottom layer
@@ -189,18 +182,19 @@ internal static class OccludedChunks
     }
 
     // True when no position of the layer (side AllSides) or of the slab touching this chunk (side 0-5, the neighbour across it) holds
-    // a palette index whose block fails Good
-    internal static bool Fits(ChunkDataLayer? layer, Block[] blocks, int count, int side)
+    // a palette index whose block fails Good; for the fluid layer (fluids), when no position holds a fluid: every index in use maps to
+    // the air block, as CalculateVisibleFaces_Fluids compares. Without a layer or bits every position reads 0, air.
+    internal static bool Fits(ChunkDataLayer? layer, Block[] blocks, int count, int side, bool fluids = false)
     {
-        // No layer: air
-        if (layer?.palette is not { } palette || !Assert(side is >= AllSides and < Faces)) return false;
+        if (layer?.palette is not { } palette || !Assert(side is >= AllSides and < Faces)) return fluids;
         Span<int> bad = stackalloc int[MaxBad];
         layer.readWriteLock.AcquireReadLock();
         try
         {
             var (bits, planes) = (Bitsize(layer), DataBits(layer));
-            if (bits <= 0 || !Planes(planes, bits)) return false; // no bits: every position reads 0, air
-            var n = Bad(palette, layer.paletteCount, bits, blocks, count, side, bad);
+            if (bits <= 0) return fluids;
+            if (!Planes(planes, bits)) return false;
+            var n = Bad(palette, layer.paletteCount, bits, blocks, count, side, fluids, bad);
             var (first, step, words, mask) = side == AllSides ? (0, 1, Words, -1) : Slabs[side];
             return n >= 0 && !Uses(planes!, bits, bad[..n], first, step, words, mask);
         }
@@ -210,42 +204,18 @@ internal static class OccludedChunks
         }
     }
 
-    // True when no position holds a fluid: every index in use maps to the air block, as CalculateVisibleFaces_Fluids compares
-    private static bool FluidFree(ChunkDataLayer? layer, Block[] blocks)
-    {
-        if (layer?.palette is not { } palette || !NotNull(blocks)) return true;
-        Span<int> bad = stackalloc int[MaxBad];
-        layer.readWriteLock.AcquireReadLock();
-        try
-        {
-            var (bits, planes) = (Bitsize(layer), DataBits(layer));
-            if (bits <= 0) return true;
-            if (!Planes(planes, bits)) return false;
-            var n = 0;
-            for (var i = 0; i < Math.Min(1 << bits, MaxIndices); i++)
-            {
-                var value = i < palette.Length ? palette[i] : -1;
-                if (value >= 0 && value < blocks.Length && ReferenceEquals(blocks[value], blocks[0])) continue;
-                if (n >= MaxBad) return false;
-                bad[n++] = i;
-            }
-
-            return !Uses(planes!, bits, bad[..n], 0, 1, Words, -1);
-        }
-        finally
-        {
-            layer.readWriteLock.ReleaseReadLock();
-        }
-    }
-
-    // The palette indices whose block fails Good, or -1 when there are more than the scan takes
-    private static int Bad(int[] palette, int used, int bits, Block[] blocks, int count, int side, Span<int> bad)
+    // The palette indices whose block fails Good (or, of fluids, is not air), or -1 when there are more than the scan takes
+    private static int Bad(int[] palette, int used, int bits, Block[] blocks, int count, int side, bool fluids,
+        Span<int> bad)
     {
         if (!Assert(bits is > 0 and <= MaxBits) || !Assert(bad.Length == MaxBad)) return -1;
         var n = 0;
         for (var i = 0; i < Math.Min(1 << bits, MaxIndices); i++)
         {
-            if (i < used && i < palette.Length && Good(Lookup(blocks, palette[i], count), side)) continue;
+            var value = i < palette.Length ? palette[i] : -1;
+            if (fluids
+                    ? value >= 0 && value < blocks.Length && ReferenceEquals(blocks[value], blocks[0])
+                    : i < used && i < palette.Length && Good(Lookup(blocks, value, count), side)) continue;
             if (n >= MaxBad) return -1;
             bad[n++] = i;
         }

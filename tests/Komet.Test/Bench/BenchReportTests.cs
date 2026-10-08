@@ -280,7 +280,7 @@ public sealed class BenchReportTests
     public void PercentilesAreNearestRank(int n, int perMille, float expected)
     {
         var sorted = Enumerable.Range(1, n).Select(i => (float)i).ToArray();
-        Assert.That(BenchReport.Percentile(sorted, perMille), Is.EqualTo(expected));
+        Assert.That(FrameStats.Percentile(sorted, perMille), Is.EqualTo(expected));
     }
 
     [Test]

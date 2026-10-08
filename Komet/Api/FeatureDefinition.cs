@@ -69,19 +69,17 @@ public sealed class FeatureKnob
     // Register refuses a feature with an invalid knob
     internal bool Valid => Min < Max && Engine >= Min && Engine <= Max;
 
-    public static FeatureKnob Switch(Func<bool> get, Action<bool> set, Action<bool> apply)
-    {
-        if (!NotNull(get) || !NotNull(set) || !NotNull(apply)) return Refused();
-        return new FeatureKnob(0, 1, 0, "", () => get() ? 1 : 0, v => set(v != 0), v => apply(v != 0));
-    }
+    public static FeatureKnob Switch(Func<bool> get, Action<bool> set, Action<bool> apply) =>
+        NotNull(get) && NotNull(set) && NotNull(apply)
+            ? new FeatureKnob(0, 1, 0, "", () => get() ? 1 : 0, v => set(v != 0), v => apply(v != 0))
+            : Refused();
 
     // engine lies in min..max; unit follows the value in the row (ms)
     public static FeatureKnob Range(int min, int max, int engine, Func<int> get, Action<int> set, Action<int> apply,
-        string unit = "")
-    {
-        if (!NotNull(get) || !NotNull(set) || !NotNull(apply) || !NotNull(unit)) return Refused();
-        return new FeatureKnob(min, max, engine, unit, get, set, apply);
-    }
+        string unit = "") =>
+        NotNull(get) && NotNull(set) && NotNull(apply) && NotNull(unit)
+            ? new FeatureKnob(min, max, engine, unit, get, set, apply)
+            : Refused();
 
     private static FeatureKnob Refused()
     {

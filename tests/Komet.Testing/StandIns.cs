@@ -54,10 +54,7 @@ public static class Profiles
 {
     public const string Tesselate = "esr-tesseleateshape";
 
-    public static long Ticks(double ms)
-    {
-        return (long)(ms * Stopwatch.Frequency / 1000);
-    }
+    public static long Ticks(double ms) => (long)(ms * Stopwatch.Frequency / 1000);
 
     public static ProfileEntryRange Frame(double totalMs, params (string Code, double Ms)[] marks)
     {

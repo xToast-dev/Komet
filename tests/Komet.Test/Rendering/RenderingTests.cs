@@ -17,14 +17,11 @@ public sealed class MeshRecycleTests
             mesh.NormalsCount = vertices;
         }
 
-        mesh.XyzFaces = [.. Enumerable.Range(0, vertices / 4 + 1).Select(_ => (byte)r.Next(6))];
-        mesh.XyzFacesCount = vertices / 4 + 1;
-        mesh.TextureIndices = [.. Enumerable.Range(0, vertices / 4 + 1).Select(_ => (byte)r.Next(4))];
-        mesh.TextureIndicesCount = vertices / 4 + 1;
+        var q = vertices / 4 + 1;
+        byte[] Bytes(int below) => [.. Enumerable.Range(0, q).Select(_ => (byte)r.Next(below))];
+        (mesh.XyzFaces, mesh.XyzFacesCount, mesh.TextureIndices, mesh.TextureIndicesCount) = (Bytes(6), q, Bytes(4), q);
         mesh.TextureIds = [.. Enumerable.Range(0, r.Next(1, 5)).Select(_ => r.Next())];
-        mesh.ClimateColorMapIds = [.. Enumerable.Range(0, vertices / 4 + 1).Select(_ => (byte)r.Next(8))];
-        mesh.SeasonColorMapIds = [.. Enumerable.Range(0, vertices / 4 + 1).Select(_ => (byte)r.Next(8))];
-        mesh.ColorMapIdsCount = vertices / 4 + 1;
+        (mesh.ClimateColorMapIds, mesh.SeasonColorMapIds, mesh.ColorMapIdsCount) = (Bytes(8), Bytes(8), q);
         mesh.RenderPassesAndExtraBits = [.. Enumerable.Range(0, vertices / 4).Select(_ => (short)r.Next(6))];
         mesh.RenderPassCount = vertices / 4;
         if (withCustomInts)
@@ -44,23 +41,20 @@ public sealed class MeshRecycleTests
     private static void AssertMatchesEngineClone(MeshData source, MeshData mine)
     {
         var engine = source.Clone();
+        static void Same<T>(T[]? mine, T[]? engine, int count, string what) =>
+            Assert.That(mine?.Take(count), Is.EqualTo(engine?.Take(count)), what);
         Assert.Multiple(() =>
         {
-            Assert.That(mine.Normals?.Take(source.NormalsCount), Is.EqualTo(engine.Normals?.Take(source.NormalsCount)),
-                "normals");
-            Assert.That(mine.XyzFaces?.Take(source.XyzFacesCount),
-                Is.EqualTo(engine.XyzFaces?.Take(source.XyzFacesCount)), "xyz faces");
+            Same(mine.Normals, engine.Normals, source.NormalsCount, "normals");
+            Same(mine.XyzFaces, engine.XyzFaces, source.XyzFacesCount, "xyz faces");
             Assert.That(mine.XyzFacesCount, Is.EqualTo(engine.XyzFacesCount));
-            Assert.That(mine.TextureIndices?.Take(source.TextureIndicesCount),
-                Is.EqualTo(engine.TextureIndices?.Take(source.TextureIndicesCount)), "texture indices");
+            Same(mine.TextureIndices, engine.TextureIndices, source.TextureIndicesCount, "texture indices");
             Assert.That(mine.TextureIds, Is.EqualTo(engine.TextureIds), "texture ids");
-            Assert.That(mine.ClimateColorMapIds?.Take(source.ColorMapIdsCount),
-                Is.EqualTo(engine.ClimateColorMapIds?.Take(source.ColorMapIdsCount)), "climate map");
-            Assert.That(mine.SeasonColorMapIds?.Take(source.ColorMapIdsCount),
-                Is.EqualTo(engine.SeasonColorMapIds?.Take(source.ColorMapIdsCount)), "season map");
+            Same(mine.ClimateColorMapIds, engine.ClimateColorMapIds, source.ColorMapIdsCount, "climate map");
+            Same(mine.SeasonColorMapIds, engine.SeasonColorMapIds, source.ColorMapIdsCount, "season map");
             Assert.That(mine.ColorMapIdsCount, Is.EqualTo(engine.ColorMapIdsCount));
-            Assert.That(mine.RenderPassesAndExtraBits?.Take(source.RenderPassCount),
-                Is.EqualTo(engine.RenderPassesAndExtraBits?.Take(source.RenderPassCount)), "render passes");
+            Same(mine.RenderPassesAndExtraBits, engine.RenderPassesAndExtraBits, source.RenderPassCount,
+                "render passes");
             Assert.That(mine.RenderPassCount, Is.EqualTo(engine.RenderPassCount));
             AssertPart(mine.CustomInts, engine.CustomInts, source.CustomInts?.Count ?? 0);
             AssertPart(mine.CustomFloats, engine.CustomFloats, source.CustomFloats?.Count ?? 0);
@@ -207,6 +201,7 @@ public sealed class MeshRecycleTests
 public sealed class ShaderUseCacheTests
 {
     private const int Calls = 10_000, Passes = 3;
+    private const string UseCache = "Komet.Rendering.ShaderUseCache, Komet";
 
     private static readonly string[] Includes =
         ["fogandlight.fsh", "fogandlight.vsh", "shadowcoords.vsh", "vertexwarp.vsh", "colormap.vsh"];
@@ -326,12 +321,12 @@ public sealed class ShaderUseCacheTests
         var program = Program(102);
         (ClientSettings.ViewDistance, ClientSettings.LodBias) = (256, 0.5f);
         ShaderUseCache.NextFrame();
-        Assert.That(ShaderUseCache.FrameSettings, Is.EqualTo((256f, 128f)));
+        Assert.That(FrameSettings(), Is.EqualTo((256f, 128f)));
         ClientSettings.ViewDistance = 1024;
         _ = ShaderUseCache.Stage(program);
-        Assert.That(ShaderUseCache.FrameSettings, Is.EqualTo((256f, 128f)), "read again within the frame");
+        Assert.That(FrameSettings(), Is.EqualTo((256f, 128f)), "read again within the frame");
         ShaderUseCache.NextFrame();
-        Assert.That(ShaderUseCache.FrameSettings, Is.EqualTo((1024f, 320f)),
+        Assert.That(FrameSettings(), Is.EqualTo((1024f, 320f)),
             "the view distance is capped at 640 for LOD 0");
     }
 
@@ -345,10 +340,19 @@ public sealed class ShaderUseCacheTests
         ShaderUseCache.NextFrame();
         ShaderUseCache.Enabled = true;
         Assert.That(ShaderUseCache.Stage(program), Is.Not.Null);
-        Assert.That(ShaderUseCache.FrameSettings.ViewDistance, Is.EqualTo(384f));
+        Assert.That(FrameSettings().ViewDistance, Is.EqualTo(384f));
     }
 
-    private sealed class CountingUbo : UBORef
+    private static (float ViewDistance, float Lod0) FrameSettings() =>
+        (ViewDistance(null), ViewDistanceLod0(null));
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_viewDistance")]
+    private static extern ref float ViewDistance([UnsafeAccessorType(UseCache)] object? cache);
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_viewDistanceLod0")]
+    private static extern ref float ViewDistanceLod0([UnsafeAccessorType(UseCache)] object? cache);
+
+    private sealed class CountingUbo : NoUbo
     {
         private static int _next;
         public static List<int>? Order { get; set; }
@@ -359,22 +363,6 @@ public sealed class ShaderUseCacheTests
         {
             Binds++;
             Order?.Add(Id);
-        }
-
-        public override void Unbind()
-        {
-        }
-
-        public override void Update<T>(T data)
-        {
-        }
-
-        public override void Update<T>(T data, int offset, int size)
-        {
-        }
-
-        public override void Update(object data, int offset, int size)
-        {
         }
     }
 }

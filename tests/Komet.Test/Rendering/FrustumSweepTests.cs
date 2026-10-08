@@ -1,9 +1,12 @@
+using Plane = Vintagestory.API.Client.Plane;
+
 namespace Komet.Test.Rendering;
 
 // Golden test: the engine's ModelDataPoolLocation.IsVisible decides, Komet's sweep has to agree on every location, in order
 public sealed class FrustumSweepTests
 {
     private const int Locations = 777, Seeds = 25; // not a multiple of any vector width
+    private const string Sweep = "Komet.Rendering.FrustumSweep, Komet";
 
     private static FrustumCulling Culler(Random r)
     {
@@ -23,30 +26,28 @@ public sealed class FrustumSweepTests
         return culler;
     }
 
-    private static ModelDataPoolLocation Location(Random r, int index)
+    private static ModelDataPoolLocation Location(Random r, int index) => new()
     {
-        return new ModelDataPoolLocation
-        {
-            FrustumCullSphere = new Sphere(r.Next(200, 900) + r.NextSingle(), r.Next(0, 250) + r.NextSingle(),
-                r.Next(200, 900) + r.NextSingle(), r.Next(1, 33), r.Next(1, 33), r.Next(1, 33)),
-            IndicesStart = index * 600,
-            IndicesEnd = index * 600 + r.Next(3, 600),
-            LodLevel = r.Next(0, 5),
-            Hide = r.Next(10) == 0,
-            CullVisible = new Bools(r.Next(4) != 0, r.Next(4) != 0)
-        };
-    }
+        FrustumCullSphere = new Sphere(r.Next(200, 900) + r.NextSingle(), r.Next(0, 250) + r.NextSingle(),
+            r.Next(200, 900) + r.NextSingle(), r.Next(1, 33), r.Next(1, 33), r.Next(1, 33)),
+        IndicesStart = index * 600,
+        IndicesEnd = index * 600 + r.Next(3, 600),
+        LodLevel = r.Next(0, 5),
+        Hide = r.Next(10) == 0,
+        CullVisible = new Bools(r.Next(4) != 0, r.Next(4) != 0)
+    };
 
     // A pool is only sorted into the grid once it has gone several culls without a change, so the golden test has to cull often
     // enough to reach both layouts: the first pass runs on the engine's order, the last on the grid.
     private static void AssertSameAsEngine(FrustumCulling culler, EnumFrustumCullMode mode,
-        List<ModelDataPoolLocation> list, int slot = 0, int passes = 12, string? message = null)
+        List<ModelDataPoolLocation> list, int slot = 0, int passes = 12, string? message = null,
+        System.Func<ModelDataPoolLocation, bool>? casts = null)
     {
         int[] starts = new int[2 * list.Count], sizes = new int[list.Count];
         int groups = 0, rendered = 0, allocated = 0;
         for (var pass = 0; pass < passes; pass++)
             groups = FrustumSweep.Cull(culler, mode, list, slot, starts, sizes, out rendered, out allocated);
-        var expected = list.Where(l => l.IsVisible(mode, culler)).ToList();
+        var expected = list.Where(l => l.IsVisible(mode, culler) && (casts?.Invoke(l) ?? true)).ToList();
         Assert.Multiple(() =>
         {
             Assert.That(groups, Is.EqualTo(expected.Count), message);
@@ -101,6 +102,44 @@ public sealed class FrustumSweepTests
             Assert.That(grown.Settles, Is.EqualTo(Seeds));
             Assert.That(grown.Diffed, Is.EqualTo(Seeds));
             Assert.That(grown.Rebuilds, Is.EqualTo(2 * Seeds));
+        });
+    }
+
+    // Given the camera's view, a shadow pass also leaves out what lies outside one of its planes, moved out by ShadowView.Reach,
+    // that the light (the pass's near plane) does not cross inward
+    [TestCase(EnumFrustumCullMode.CullInstantShadowPassNear)]
+    [TestCase(EnumFrustumCullMode.CullInstantShadowPassFar)]
+    public void TheViewLeavesOutCastersThatCannotReachIt(EnumFrustumCullMode mode)
+    {
+        var (kept, left) = (0, 0);
+        try
+        {
+            for (var seed = 0; seed < Seeds; seed++)
+            {
+                var r = new Random(seed);
+                var (culler, view) = (Culler(r), Culler(r));
+                var list = Enumerable.Range(0, Locations).Select(i => Location(r, i)).ToList();
+                ShadowView.Use(view);
+                var light = Fields.Planes(culler)[0];
+                var casters = Fields.Planes(view).Take(5)
+                    .Where(p => p.normalX * light.normalX + p.normalY * light.normalY + p.normalZ * light.normalZ <= 0)
+                    .Select(p => new Plane { normalX = p.normalX, normalY = p.normalY, normalZ = p.normalZ, D = p.D + ShadowView.Reach })
+                    .ToArray();
+                bool Casts(ModelDataPoolLocation l) => !casters.Any(p => p.AABBisOutside(l.FrustumCullSphere));
+                AssertSameAsEngine(culler, mode, list, slot: 5, casts: Casts);
+                kept += list.Count(l => l.IsVisible(mode, culler) && Casts(l));
+                left += list.Count(l => l.IsVisible(mode, culler) && !Casts(l));
+            }
+        }
+        finally
+        {
+            ShadowView.Use(null);
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(kept, Is.Positive, "casters kept");
+            Assert.That(left, Is.Positive, "casters left out");
         });
     }
 
@@ -219,12 +258,17 @@ public sealed class FrustumSweepTests
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "pools")]
     private static extern ref List<MeshDataPool> Pools(MeshDataPoolManager manager);
 
+    // Install turns stage batches on with the frame hooks; these tests end frames by hand
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_staging")]
+    private static extern ref bool Staging([UnsafeAccessorType(Sweep)] object? sweep);
+
     // The engine-driven golden test. The pools are the engine's own – MeshDataPoolManager.AddModel places every mesh first fit and squeezes
     // it into a gap once a pool has fragmented, MeshDataPoolMasterManager.RemoveDataPoolLocations hides a chunk's meshes at once and
     // removes them three OnFrame calls later – and a player walks through them, so whole strips of columns unload at every chunk
     // boundary. Every pool is culled by FrustumSweep and by MeshDataPool.FrustumCull in every mode, every frame, in the engine's order:
     // both shadow passes, OnFrame with its removals, then the camera. Occlusion buffers swap and Hide flips along the way.
     [Test]
+    [Category("Slow")]
     public void MatchesEngineWhileStreaming()
     {
         const int frames = 2400;
@@ -250,84 +294,35 @@ public sealed class FrustumSweepTests
         });
     }
 
-    // The same walk with every Render call culled on Komet's worker pool first, as MeshDataPoolManager.Render's prefix does in game
-    [Test]
-    public void TheWorkersMatchTheEngineWhileStreaming()
+    // The same walk with every Render call culled on Komet's worker pool first, as MeshDataPoolManager.Render's prefix does in game:
+    // call by call; or a stage at a time, each stage's first call handing every manager the stage called last frame to the workers at
+    // once and each call taking its own pools out of that batch; or with stages whose managers come in another order each frame,
+    // some left out, so that a call the batch does not hold ends it and culls alone and the next frame plans from what came. The
+    // engine has to agree on every pool, and the workers (or the batches) must have culled more than `least` calls.
+    [TestCase(9, 7, 600, false, false, 1000, TestName = "TheWorkersMatchTheEngineWhileStreaming")]
+    [TestCase(11, 7, 600, true, false, 2000, TestName = "TheStageBatchesMatchTheEngineWhileStreaming")]
+    [TestCase(13, 6, 400, true, true, 0, TestName = "StageBatchesFollowWhateverTheStagesCall")]
+    [Category("Slow")]
+    public void TheWorkersMatchTheEngine(int seed, int radius, int frames, bool staging, bool shuffled, int least)
     {
         FrustumSweep.Clear();
-        var (threshold, calls) = (FrustumSweep.ParallelRows, FrustumSweep.ParallelCalls);
-        FrustumSweep.ParallelRows = 0;
+        long Calls() => staging ? FrustumSweep.StagedCalls : FrustumSweep.ParallelCalls;
+        var (threshold, calls) = (FrustumSweep.ParallelRows, Calls());
+        (FrustumSweep.ParallelRows, Staging(null), Counting.Hud) = (0, staging, staging);
         WorkerPool.Resize(null, 4);
         try
         {
-            var walk = new Walk(9, 7) { Parallel = true };
-            var failure = walk.Run(0, 600);
-
+            var failure = new Walk(seed, radius) { Parallel = true, Shuffled = shuffled }.Run(0, frames);
             Assert.Multiple(() =>
             {
                 Assert.That(failure, Is.Null);
-                Assert.That(FrustumSweep.ParallelCalls - calls, Is.GreaterThan(1000), "the workers culled");
-            });
-        }
-        finally
-        {
-            FrustumSweep.ParallelRows = threshold;
-            _ = WorkerPool.Stop();
-        }
-    }
-
-    // The same walk culled a stage at a time: each stage's first call hands every manager the stage called last frame to the workers at
-    // once, each call takes its own pools out of that batch, and the engine has to agree on every one of them
-    [Test]
-    public void TheStageBatchesMatchTheEngineWhileStreaming()
-    {
-        FrustumSweep.Clear();
-        var (threshold, staged) = (FrustumSweep.ParallelRows, FrustumSweep.StagedCalls);
-        (FrustumSweep.ParallelRows, FrustumSweep.Staging, Counting.Hud) = (0, true, true);
-        WorkerPool.Resize(null, 4);
-        try
-        {
-            var walk = new Walk(11, 7) { Parallel = true };
-            var failure = walk.Run(0, 600);
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(failure, Is.Null);
-                Assert.That(FrustumSweep.StagedCalls - staged, Is.GreaterThan(2000), "the stage batches culled");
+                Assert.That(Calls() - calls, Is.GreaterThan(least), "the workers culled");
             });
         }
         finally
         {
             FrustumSweep.EndFrame();
-            (FrustumSweep.ParallelRows, FrustumSweep.Staging) = (threshold, false);
-            _ = WorkerPool.Stop();
-        }
-    }
-
-    // Stages whose managers come in another order each frame, some left out: a call the batch does not hold ends it and culls alone,
-    // the next frame plans from what came, and every call still agrees with the engine
-    [Test]
-    public void StageBatchesFollowWhateverTheStagesCall()
-    {
-        FrustumSweep.Clear();
-        var (threshold, staged) = (FrustumSweep.ParallelRows, FrustumSweep.StagedCalls);
-        (FrustumSweep.ParallelRows, FrustumSweep.Staging, Counting.Hud) = (0, true, true);
-        WorkerPool.Resize(null, 4);
-        try
-        {
-            var walk = new Walk(13, 6) { Parallel = true, Shuffled = true };
-            var failure = walk.Run(0, 400);
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(failure, Is.Null);
-                Assert.That(FrustumSweep.StagedCalls - staged, Is.Positive, "some calls still came out of a batch");
-            });
-        }
-        finally
-        {
-            FrustumSweep.EndFrame();
-            (FrustumSweep.ParallelRows, FrustumSweep.Staging) = (threshold, false);
+            (FrustumSweep.ParallelRows, Staging(null)) = (threshold, false);
             _ = WorkerPool.Stop();
         }
     }
@@ -395,6 +390,7 @@ public sealed class FrustumSweepTests
     // Should the OnFrame postfix not install, the relayout budget is spent in the first frame and never refills. Mirrors then run out
     // of room behind their grid and are rebuilt in full, which costs speed and nothing else.
     [Test]
+    [Category("Slow")]
     public void MatchesEngineWithoutTheFrameTick()
     {
         FrustumSweep.Clear();
@@ -416,6 +412,7 @@ public sealed class FrustumSweepTests
     // The frame a chunk strip unloads: nearly every pool loses a few rows at once. They are diffed, not read again, the grids the pools
     // had settled into survive it, and the few mirrors it leaves too untidy are laid down again on a budget, not all at once.
     [Test]
+    [Category("Slow")]
     public void AStripUnloadingIsDiffedNotRebuilt()
     {
         FrustumSweep.Clear();
@@ -590,18 +587,20 @@ public sealed class FrustumSweepTests
     // The sweep's totals only grow: a test takes where they stood when it began counting, and the growth since
     private readonly record struct Counters(long Rebuilds, long Diffed, long Relayouts, long Settles, long Skipped)
     {
-        public static Counters Now()
-        {
-            return new Counters(FrustumSweep.Rebuilds, FrustumSweep.Diffed, FrustumSweep.Relayouts,
-                FrustumSweep.Settles, FrustumSweep.Skipped);
-        }
+        public static Counters Now() => new(FrustumSweep.Rebuilds, FrustumSweep.Diffed, SweepRelayouts(),
+            FrustumSweep.Settles, FrustumSweep.Skipped);
 
-        public Counters Since()
+        public Counters Since() => Now() with
         {
-            var now = Now();
-            return new Counters(now.Rebuilds - Rebuilds, now.Diffed - Diffed, now.Relayouts - Relayouts,
-                now.Settles - Settles, now.Skipped - Skipped);
-        }
+            Rebuilds = FrustumSweep.Rebuilds - Rebuilds, Diffed = FrustumSweep.Diffed - Diffed,
+            Relayouts = SweepRelayouts() - Relayouts, Settles = FrustumSweep.Settles - Settles,
+            Skipped = FrustumSweep.Skipped - Skipped
+        };
+
+        private static long SweepRelayouts() => Interlocked.Read(ref RelayoutCount(null));
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_relayouts")]
+        private static extern ref long RelayoutCount([UnsafeAccessorType(Sweep)] object? sweep);
     }
 
     // A player walking through chunk columns, on the engine's pools. A section is tesselated into a mesh per pass and LOD, added through
@@ -621,6 +620,8 @@ public sealed class FrustumSweepTests
         private readonly Random _r;
         private readonly int _radius;
         private readonly int[] _starts = new int[2 * MaxParts], _sizes = new int[MaxParts];
+        private readonly Komet.Rendering.Occlusion.Range[] _swept = new Komet.Rendering.Occlusion.Range[MaxParts],
+            _walked = new Komet.Rendering.Occlusion.Range[MaxParts];
         private (int X, int Z) _at;
         private double _x, _z, _heading;
 
@@ -678,7 +679,6 @@ public sealed class FrustumSweepTests
             return before.Count(key => !_columns.ContainsKey(key));
         }
 
-        // Frames from to before end, each after a step on (when moving); the first disagreement, null when all agreed
         public string? Run(int from, int end, bool moving = true)
         {
             for (var f = from; f < end; f++)
@@ -690,7 +690,7 @@ public sealed class FrustumSweepTests
             return null;
         }
 
-        // One frame in the engine's order, every pool against the engine in every mode; null when all agreed
+        // One frame in the engine's order
         private string? Render(int frame)
         {
             FrustumSweep.EndFrame(); // MainRenderLoop's prefix: no batch lives into the next frame
@@ -716,16 +716,38 @@ public sealed class FrustumSweepTests
             {
                 var groups = FrustumSweep.Cull(_culler, mode, PoolLocations(pool), FrustumSweep.SlotOf(pool), _starts,
                     _sizes, out var rendered, out var allocated);
-                pool.FrustumCull(_culler, mode);
-                if (groups != pool.indicesGroupsCount || rendered != pool.RenderedTriangles ||
-                    allocated != pool.AllocatedTris)
-                    return
-                        $"{mode}, pool {FrustumSweep.SlotOf(pool)}: {groups} ranges, the engine {pool.indicesGroupsCount}";
-                for (var i = 0; i < groups; i++)
-                    if (_starts[2 * i] != pool.indicesStartsByte[2 * i] || _sizes[i] != pool.indicesSizes[i])
-                        return $"{mode}, pool {FrustumSweep.SlotOf(pool)}: range {i} differs";
+                if (Compare(mode, pool, (groups, rendered, allocated), true) is { } failure) return failure;
             }
 
+            return null;
+        }
+
+        private string? Compare(EnumFrustumCullMode mode, MeshDataPool pool, (int Groups, int Rendered, int Allocated) komet,
+            bool boxed)
+        {
+            pool.FrustumCull(_culler, mode);
+            var at = $"{mode}, pool {FrustumSweep.SlotOf(pool)}";
+            if (komet != (pool.indicesGroupsCount, pool.RenderedTriangles, pool.AllocatedTris))
+                return $"{at}: {komet.Groups} ranges, {komet.Rendered} of {komet.Allocated} triangles, the engine " +
+                       $"{pool.indicesGroupsCount}, {pool.RenderedTriangles} of {pool.AllocatedTris}";
+            for (var i = 0; i < komet.Groups; i++)
+                if (_starts[2 * i] != pool.indicesStartsByte[2 * i] || _sizes[i] != pool.indicesSizes[i])
+                    return $"{at}: range {i} differs";
+            return Boxed(pool, boxed) is { } boxes ? $"{at}: {boxes}" : null;
+        }
+
+        // The occlusion culling's boxes from the mirror against those of the walk over the engine's locations: equal to the bit
+        // whenever the mirror gives them, and given whenever the mirror wrote the pool's ranges (expected)
+        private string? Boxed(MeshDataPool pool, bool expected)
+        {
+            var camera = (_x, 90.25, _z);
+            var swept = FrustumSweep.Boxes(pool, _swept, camera);
+            var walked = Komet.Rendering.Occlusion.Match(pool.indicesStartsByte, pool.indicesSizes,
+                pool.indicesGroupsCount, PoolLocations(pool), _walked, camera, out var unmatched);
+            if (swept < 0) return expected && unmatched == 0 ? "no boxes from the mirror" : null;
+            if (swept != walked || unmatched != 0) return $"{swept} boxes from the mirror, {walked} walked";
+            for (var i = 0; i < swept; i++)
+                if (_swept[i] != _walked[i]) return $"box {i}: {_swept[i]} from the mirror, {_walked[i]} walked";
             return null;
         }
 
@@ -739,19 +761,11 @@ public sealed class FrustumSweepTests
                 FrustumSweep.Precull(manager, mode);
                 foreach (var pool in Pools(manager))
                 {
-                    var (groups, rendered, allocated) =
-                        (pool.indicesGroupsCount, pool.RenderedTriangles, pool.AllocatedTris);
+                    var groups = pool.indicesGroupsCount;
                     Array.Copy(pool.indicesStartsByte, _starts, 2 * groups);
                     Array.Copy(pool.indicesSizes, _sizes, groups);
-                    pool.FrustumCull(_culler, mode);
-                    if (groups != pool.indicesGroupsCount || rendered != pool.RenderedTriangles ||
-                        allocated != pool.AllocatedTris)
-                        return $"{mode}, pool {FrustumSweep.SlotOf(pool)}: {groups} ranges, {rendered} of " +
-                               $"{allocated} triangles on the workers, the engine {pool.indicesGroupsCount}, " +
-                               $"{pool.RenderedTriangles} of {pool.AllocatedTris}";
-                    for (var i = 0; i < groups; i++)
-                        if (_starts[2 * i] != pool.indicesStartsByte[2 * i] || _sizes[i] != pool.indicesSizes[i])
-                            return $"{mode}, pool {FrustumSweep.SlotOf(pool)}: range {i} differs";
+                    if (Compare(mode, pool, (groups, pool.RenderedTriangles, pool.AllocatedTris), false) is { } failure)
+                        return failure;
                 }
 
                 FrustumSweep.Culled();
@@ -797,11 +811,8 @@ public sealed class FrustumSweepTests
             }
         }
 
-        private bool Near((int X, int Z) column)
-        {
-            return (column.X - _at.X) * (column.X - _at.X) + (column.Z - _at.Z) * (column.Z - _at.Z) <=
-                   _radius * _radius;
-        }
+        private bool Near((int X, int Z) column) =>
+            (column.X - _at.X) * (column.X - _at.X) + (column.Z - _at.Z) * (column.Z - _at.Z) <= _radius * _radius;
 
         private void Unload((int X, int Z) key)
         {

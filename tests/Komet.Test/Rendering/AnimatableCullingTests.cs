@@ -1,5 +1,28 @@
 namespace Komet.Test.Rendering;
 
+internal class NoUbo : UBORef
+{
+    public override void Bind()
+    {
+    }
+
+    public override void Unbind()
+    {
+    }
+
+    public override void Update<T>(T data)
+    {
+    }
+
+    public override void Update<T>(T data, int offset, int size)
+    {
+    }
+
+    public override void Update(object data, int offset, int size)
+    {
+    }
+}
+
 // AnimatableRenderer skips only a draw that lies wholly outside the stage's clip volume - the model's reach taken through its joint
 // matrices, its scale and the shader's warps - and a skipped draw leaves the GL state exactly as the engine's drawn one does
 public sealed class AnimatableCullingTests
@@ -33,15 +56,17 @@ public sealed class AnimatableCullingTests
         });
     }
 
-    // In front of the camera it draws, behind it it does not; a model 400 blocks behind still draws when a joint carries it 800 blocks
-    // forward, or when it is scaled up that far, or placed there by its custom transform
+    // In front of the camera it draws, behind it it does not; a model 400 blocks behind still draws when a joint its vertices read
+    // carries it 800 blocks forward, or when it is scaled up that far, or placed there by its custom transform. A joint no vertex
+    // reads (ElementTransforms.values[jointId] in the shaders) does not keep it.
     [Test]
     public void CullsOnlyWhatCannotReachTheView()
     {
         using var harmony = new TestHarmony("komet-test-animatableculling");
         AnimatableCulling.Install(harmony, new QuietLogger());
         var (ahead, behind) = (Renderer(new Vec3d(0, 0, -100)), Renderer(new Vec3d(0, 0, 400)));
-        var carried = Renderer(new Vec3d(0, 0, 400), joint: 800);
+        var carried = Renderer(new Vec3d(0, 0, 400), joint: 800, jointId: 1);
+        var unread = Renderer(new Vec3d(0, 0, 400), joint: 800);
         var scaled = Renderer(new Vec3d(0, 0, 400));
         scaled.ScaleZ = 1000;
         var placed = Renderer(new Vec3d(0, 0, 400));
@@ -51,6 +76,7 @@ public sealed class AnimatableCullingTests
             Assert.That(AnimatableCulling.Frame(ahead, EnumRenderStage.Opaque), Is.True, "ahead");
             Assert.That(AnimatableCulling.Frame(behind, EnumRenderStage.Opaque), Is.False, "behind");
             Assert.That(AnimatableCulling.Frame(carried, EnumRenderStage.Opaque), Is.True, "carried by its joint");
+            Assert.That(AnimatableCulling.Frame(unread, EnumRenderStage.Opaque), Is.False, "carried by a joint none reads");
             Assert.That(AnimatableCulling.Frame(scaled, EnumRenderStage.Opaque), Is.True, "scaled");
             Assert.That(AnimatableCulling.Frame(placed, EnumRenderStage.Opaque), Is.True, "custom transform");
         });
@@ -111,7 +137,6 @@ public sealed class AnimatableCullingTests
         });
     }
 
-    // The last value of each state the draw set; a state it never touched is missing
     private string Final()
     {
         var last = new SortedDictionary<string, string>();
@@ -148,7 +173,6 @@ public sealed class AnimatableCullingTests
         return renderer;
     }
 
-    // Two joints: 0 as the engine leaves it (identity), 1 carrying its elements `forward` blocks towards -z
     private static ClientAnimator Animator(int forward)
     {
         var animator = (ClientAnimator)RuntimeHelpers.GetUninitializedObject(typeof(ClientAnimator));
@@ -161,17 +185,20 @@ public sealed class AnimatableCullingTests
         return animator;
     }
 
-    private static MultiTextureMeshRef Uploaded()
-    {
-        return new MultiTextureMeshRef([new Resident()], [1]);
-    }
+    private static MultiTextureMeshRef Uploaded() => new([new NoMesh()], [1]);
 
     // A camera at the origin looking down -z, 70 degrees high, planes as MainRenderLoop computes them
-    private ICoreClientAPI Client()
+    internal static FrustumCulling Culler()
     {
         var culler = new FrustumCulling();
         var projection = Mat4d.Perspective(Mat4d.Create(), 70 * GameMath.DEG2RAD, 16 / 9.0, 0.1, 1536);
         culler.CalcFrustumEquations(new BlockPos(0), projection, Mat4d.Create());
+        return culler;
+    }
+
+    private ICoreClientAPI Client()
+    {
+        var culler = Culler();
         var shader = Answers.Of<IShaderProgram>(new() { ["get_UBOs"] = _ => Ubos() });
         var render = Answers.Of<IRenderAPI>(new()
         {
@@ -205,36 +232,6 @@ public sealed class AnimatableCullingTests
         return null;
     }
 
-    private static Vintagestory.API.Datastructures.OrderedDictionary<string, UBORef> Ubos()
-    {
-        return new Vintagestory.API.Datastructures.OrderedDictionary<string, UBORef> { ["Animation"] = new NoUbo() };
-    }
-
-    private sealed class Resident : MeshRef
-    {
-        public override bool Initialized => true;
-    }
-
-    private sealed class NoUbo : UBORef
-    {
-        public override void Bind()
-        {
-        }
-
-        public override void Unbind()
-        {
-        }
-
-        public override void Update<T>(T data)
-        {
-        }
-
-        public override void Update<T>(T data, int offset, int size)
-        {
-        }
-
-        public override void Update(object data, int offset, int size)
-        {
-        }
-    }
+    private static Vintagestory.API.Datastructures.OrderedDictionary<string, UBORef> Ubos() =>
+        new() { ["Animation"] = new NoUbo() };
 }

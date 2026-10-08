@@ -50,7 +50,7 @@ internal sealed class SpikeLedger
     // The collector, the JIT and the scheduler stop the thread inside some mark, so each wins when it alone covers at least half of
     // what the frame took over the mean. Otherwise the dearest mark or range, where the time between frames competes as the pseudo
     // mark Outside (RenderPassStats ranks it in); without a profile, Outside when it covers that half, else Unprofiled.
-    internal static string CauseOf(in FrameRecord frame, ReadOnlySpan<(string? Name, double Ms)> top, double excessMs)
+    private static string CauseOf(in FrameRecord frame, ReadOnlySpan<(string? Name, double Ms)> top, double excessMs)
     {
         if (!Assert(excessMs >= 0) || !Assert(top.Length <= TopN.MaxRank)) return Unprofiled;
         var half = excessMs / 2;

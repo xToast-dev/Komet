@@ -4,17 +4,15 @@ using HarmonyLib;
 using Vintagestory.API.Datastructures;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Tessellation;
 
-// The order in which chunks are tessellated. The engine's tick (ChunkTesselatorManager.OnSeperateThreadGameTick, on the
-// "tesselateterrain" thread) works dirtyChunksPriority (block edits near the player) completely, then game.dirtyChunks in arrival order
-// up to a vertex budget, then five marks of dirtyChunksLast, where SystemRenderTerrain.OnPlayerLeaveChunk moves the whole backlog after
-// a jump of more than five chunks. Distance counts only at upload, so a chunk next to the player waited behind all that came before it.
-// Here the tick is Komet's: the priority loop as the engine runs it, then every normal and last mark moves into a TessQueue that hands
-// out the nearest chunk (weighted by the angle to the camera) within the engine's vertex budget. The passes, the budget, the early
-// return while priority chunks wait, the recycling and the requeues (back in the next tick) stay the engine's. Switched off, what
-// waits goes back into game.dirtyChunks.
+// The engine's tick (ChunkTesselatorManager.OnSeperateThreadGameTick) works game.dirtyChunks in arrival order, and dirtyChunksLast,
+// where SystemRenderTerrain.OnPlayerLeaveChunk moves the whole backlog after a jump of more than five chunks. Distance counts only at
+// upload, so a chunk next to the player waited behind all that came before it. Here normal and last marks move into a TessQueue that
+// hands out the nearest chunk; the priority loop, the passes, the vertex budget, the early return while priority chunks wait, the
+// recycling and the requeues (back in the next tick) stay the engine's.
 // The tick and its state (Batch, Busy, the aim) belong to the tessellation thread, the tick's only caller. Komet's worker threads
 // (TessWorkers) take normal passes from the same queue (Work), whose lock hands each chunk to one thread at a time; the tessellation
 // thread keeps the priority marks and the passes the workers hand back. The main thread reads only the published count and the bound
@@ -38,7 +36,7 @@ internal static class TessSchedule
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
     public static int NearWaiting => Volatile.Read(ref _near); // marks within NearRadius columns of the player
-    public static int Backlog => Waiting.Count; // marks waiting for a normal pass
+    public static int Backlog => Waiting.Count;
     private static bool Active => Installed && Enabled;
 
     public static void Install(Harmony harmony)
@@ -238,7 +236,6 @@ internal static class TessSchedule
         return Assert(vertices >= 0) ? vertices : 0;
     }
 
-    // Everything the engine queued since the last tick moves over, and last tick's requeues come back
     private static void Collect(ClientMain game)
     {
         if (!Assert(Batch.Count == 0)) Batch.Clear(); // emptied at the end of every Collect
@@ -272,10 +269,9 @@ internal static class TessSchedule
         _aimedAt = 0;
         _game = game;
         Aim(game, true);
-        _ = Assert(Waiting.Count == 0); // a world starts with nothing waiting
+        _ = Assert(Waiting.Count == 0);
     }
 
-    // Scores again when the player is in another chunk or looks elsewhere, at most every AimMs
     private static void Aim(ClientMain game, bool force)
     {
         if (View(game) is not { } v) return;
@@ -295,7 +291,6 @@ internal static class TessSchedule
             (int)Math.Floor(pos.Z / 32), fx, fz);
     }
 
-    // Switched off: what still waits goes back into game.dirtyChunks
     private static void GiveBack(ClientMain game)
     {
         var gate = DirtyLock(game);
@@ -337,8 +332,6 @@ internal static class TessSchedule
     private static bool Is(Type owner, string name, Type type) =>
         AccessTools.DeclaredField(owner, name) is { IsStatic: false } field && field.FieldType == type;
 
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
-    private static extern ref ClientMain? Game(ClientSystem system);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "dirtyChunks")]
     private static extern ref UniqueQueue<long> Dirty(ClientMain game);

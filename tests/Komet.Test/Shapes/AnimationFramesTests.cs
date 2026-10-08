@@ -1,14 +1,13 @@
 namespace Komet.Test.Shapes;
 
 // A cache hit hands an animator a compiled pose tree that ClientAnimator.calculateMatrices walks by position, so a descriptor that
-// fails to separate two shapes silently animates one entity with another's poses: the first half pins the separations that matter.
-// The second half pins the corners of Animation.GenerateAllFrames the vanilla shapes do not reach, each against the engine itself
-// (the seeks' tie-breaking, the t that divides by zero, the flag set on one axis, every input the engine throws on, where the compile
-// has to decline so the engine's own exception comes through), and the plumbing: the patch, the seam guard, the cache, concurrency.
+// fails to separate two shapes silently animates one entity with another's poses.
 public sealed class AnimationFramesTests
 {
     private static readonly FieldInfo JointsDone =
         typeof(Animation).GetField("jointsDone", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+    private const string Frames = "Komet.Shapes.AnimationFrames, Komet";
 
     private static int _foreignCalls;
 
@@ -39,15 +38,35 @@ public sealed class AnimationFramesTests
         AnimationFrames.Install(_harmony, logger, fingerprint);
     }
 
+    // The key as the cache compares it, null for a shape it does not describe. Two shapes describe the same only when
+    // GenerateAllFrames compiles them the same: the animator indexes a pose tree by position, so a descriptor that misses a
+    // difference is a wrong pose.
+    internal static byte[]? Descriptor(Animation animation, ShapeElement[] roots, bool recursive = true)
+    {
+        lock (Gate(null))
+            return Describe(null, animation, roots, recursive) ? Buffer(null).AsSpan(0, At(null)).ToArray() : null;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Gate")]
+    private static extern ref Lock Gate([UnsafeAccessorType(Frames)] object? frames);
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "Describe")]
+    private static extern bool Describe([UnsafeAccessorType(Frames)] object? frames, Animation animation,
+        ShapeElement[] roots, bool recursive);
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_buffer")]
+    private static extern ref byte[] Buffer([UnsafeAccessorType(Frames)] object? frames);
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_at")]
+    private static extern ref int At([UnsafeAccessorType(Frames)] object? frames);
+
     private static ShapeElement Bare(string name, params ShapeElement[] children)
     {
         return new ShapeElement { Name = name, Children = children.Length == 0 ? null : children };
     }
 
-    private static AnimationKeyFrameElement Turned(double rotationX)
-    {
-        return new AnimationKeyFrameElement { RotationX = rotationX };
-    }
+    private static AnimationKeyFrameElement Turned(double rotationX) =>
+        new AnimationKeyFrameElement { RotationX = rotationX };
 
     private static Animation Walk(params (string Element, double Rotation)[] elements)
     {
@@ -61,128 +80,98 @@ public sealed class AnimationFramesTests
         };
     }
 
-    private static byte[] Describe(Animation animation, params ShapeElement[] roots)
+    // Two descriptors and whether they must be equal: the same for what compiles the same, different for what does not
+    private static IEnumerable<TestCaseData> Descriptions()
     {
-        var descriptor = AnimationFrames.Descriptor(animation, roots);
-        Assert.That(descriptor, Is.Not.Null, "the descriptor must be computable for a well formed shape");
-        return descriptor!;
+        static TestCaseData Case(string name, bool same, Func<byte[]?> one, Func<byte[]?> two) =>
+            new TestCaseData(one, two, same).SetName(name);
+
+        var walk = Walk(("upperarm", 30));
+        var two = Walk(("upperarm", 30), ("lowerarm", 10));
+        static ShapeElement[] Arms() => [Bare("upperarm"), Bare("lowerarm")];
+        yield return Case("TheSameShapeAndAnimationDescribeTheSame", true,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () => Descriptor(Walk(("upperarm", 30)), [Bare("upperarm")]));
+        // Keyframe elements are a Dictionary, whose iteration order is not part of its content
+        yield return Case("KeyframeElementOrderDoesNotChangeTheDescriptor", true,
+            () => Descriptor(two, Arms()),
+            () => Descriptor(Walk(("lowerarm", 10), ("upperarm", 30)), Arms()));
+        // AnimationKeyFrame.Resolve maps keyframe elements onto shape elements by name, so a rename changes the compile
+        yield return Case("ARenamedElementDescribesDifferently", false,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () => Descriptor(walk, [Bare("lowerarm")]));
+        // This is the gear case: Shape.StepParentShape reparents a gear element as a child of a named element
+        yield return Case("StepParentedGearDescribesDifferentlyFromTheBareShape", false,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () => Descriptor(walk, [Bare("upperarm", Bare("sleeve"))]));
+        // Without the depth written alongside each name, a child and a sibling would describe identically
+        yield return Case("AChildDescribesDifferentlyFromASibling", false,
+            () => Descriptor(walk, [Bare("upperarm", Bare("sleeve"))]),
+            () => Descriptor(walk, [Bare("upperarm"), Bare("sleeve")]));
+        yield return Case("TwoGearPiecesOnDifferentParentsDescribeDifferently", false,
+            () => Descriptor(two, [Bare("upperarm", Bare("plate")), Bare("lowerarm")]),
+            () => Descriptor(two, [Bare("upperarm"), Bare("lowerarm", Bare("plate"))]));
+        // StepParentShape merges the gear's keyframes into the parent animation, changing content as well as count
+        yield return Case("AChangedKeyframeValueDescribesDifferently", false,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () => Descriptor(Walk(("upperarm", 31)), [Bare("upperarm")]));
+        yield return Case("AnAddedKeyframeDescribesDifferently", false,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () =>
+            {
+                var added = Walk(("upperarm", 30));
+                var key = new AnimationKeyFrame
+                { Frame = 15, Elements = new() { ["upperarm"] = Turned(60) } };
+                key.Resolve(new Dictionary<string, ShapeElement>()); // stamps its Frame on the element, as every init does
+                added.KeyFrames = [added.KeyFrames[0], key];
+                return Descriptor(added, [Bare("upperarm")]);
+            });
+        // GenerateFrameForElement interpolates against QuantityFrames, so the same keyframes over a different span differ
+        yield return Case("ADifferentQuantityFramesDescribesDifferently", false,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () =>
+            {
+                var slow = Walk(("upperarm", 30));
+                slow.QuantityFrames = 60;
+                return Descriptor(slow, [Bare("upperarm")]);
+            });
+        // An unset double? and a set one are different inputs to getTwoKeyFramesElementForFlag, which tests IsSet
+        yield return Case("AnUnsetValueDescribesDifferentlyFromASetOne", false,
+            () => Descriptor(Walk(("upperarm", 0)), [Bare("upperarm")]),
+            () =>
+            {
+                var unset = Walk();
+                unset.KeyFrames[0].Elements["upperarm"] = new AnimationKeyFrameElement();
+                return Descriptor(unset, [Bare("upperarm")]);
+            });
+        yield return Case("NonRecursiveDescribesDifferentlyFromRecursive", false,
+            () => Descriptor(walk, [Bare("upperarm", Bare("sleeve"))]),
+            () => Descriptor(walk, [Bare("upperarm", Bare("sleeve"))], false));
+        // Element geometry never reaches the compiled pose: the model matrix GenerateFrame threads through is not stored,
+        // and the two AnimationFrame methods that once consumed it are [Obsolete] no-ops. So it stays out of the key.
+        yield return Case("ElementGeometryDoesNotChangeTheDescriptor", true,
+            () => Descriptor(walk, [Bare("upperarm")]),
+            () =>
+            {
+                var moved = Bare("upperarm");
+                moved.From = [1, 2, 3];
+                moved.RotationX = 45;
+                return Descriptor(walk, [moved]);
+            });
     }
 
-    [Test]
-    public void TheSameShapeAndAnimationDescribeTheSame()
+    [TestCaseSource(nameof(Descriptions))]
+    public void TheDescriptorSeparatesWhatCompilesDifferently(Func<byte[]?> one, Func<byte[]?> two, bool same)
     {
-        var animation = Walk(("upperarm", 30));
-        var a = Describe(animation, Bare("upperarm"));
-        var b = Describe(Walk(("upperarm", 30)), Bare("upperarm"));
-        Assert.That(a, Is.EqualTo(b));
-    }
-
-    // Keyframe elements are a Dictionary, whose iteration order is not part of its content
-    [Test]
-    public void KeyframeElementOrderDoesNotChangeTheDescriptor()
-    {
-        var a = Describe(Walk(("upperarm", 30), ("lowerarm", 10)), Bare("upperarm"), Bare("lowerarm"));
-        var b = Describe(Walk(("lowerarm", 10), ("upperarm", 30)), Bare("upperarm"), Bare("lowerarm"));
-        Assert.That(a, Is.EqualTo(b));
-    }
-
-    // AnimationKeyFrame.Resolve maps keyframe elements onto shape elements by name, so a rename changes the compile
-    [Test]
-    public void ARenamedElementDescribesDifferently()
-    {
-        var animation = Walk(("upperarm", 30));
-        Assert.That(Describe(animation, Bare("upperarm")), Is.Not.EqualTo(Describe(animation, Bare("lowerarm"))));
-    }
-
-    // This is the gear case: Shape.StepParentShape reparents a gear element as a child of a named element
-    [Test]
-    public void StepParentedGearDescribesDifferentlyFromTheBareShape()
-    {
-        var animation = Walk(("upperarm", 30));
-        var bare = Describe(animation, Bare("upperarm"));
-        var geared = Describe(animation, Bare("upperarm", Bare("sleeve")));
-        Assert.That(geared, Is.Not.EqualTo(bare));
-    }
-
-    // Without the depth written alongside each name, a child and a sibling would describe identically
-    [Test]
-    public void AChildDescribesDifferentlyFromASibling()
-    {
-        var animation = Walk(("upperarm", 30));
-        var nested = Describe(animation, Bare("upperarm", Bare("sleeve")));
-        var siblings = Describe(animation, Bare("upperarm"), Bare("sleeve"));
-        Assert.That(nested, Is.Not.EqualTo(siblings));
-    }
-
-    [Test]
-    public void TwoGearPiecesOnDifferentParentsDescribeDifferently()
-    {
-        var animation = Walk(("upperarm", 30), ("lowerarm", 10));
-        var onUpper = Describe(animation, Bare("upperarm", Bare("plate")), Bare("lowerarm"));
-        var onLower = Describe(animation, Bare("upperarm"), Bare("lowerarm", Bare("plate")));
-        Assert.That(onUpper, Is.Not.EqualTo(onLower));
-    }
-
-    // StepParentShape merges the gear's keyframes into the parent animation, changing content as well as count
-    [Test]
-    public void AChangedKeyframeValueDescribesDifferently()
-    {
-        var root = Bare("upperarm");
-        Assert.That(Describe(Walk(("upperarm", 30)), root), Is.Not.EqualTo(Describe(Walk(("upperarm", 31)), root)));
-    }
-
-    [Test]
-    public void AnAddedKeyframeDescribesDifferently()
-    {
-        var root = Bare("upperarm");
-        var one = Walk(("upperarm", 30));
-        var two = Walk(("upperarm", 30));
-        var added = new AnimationKeyFrame
-        { Frame = 15, Elements = new Dictionary<string, AnimationKeyFrameElement> { ["upperarm"] = Turned(60) } };
-        added.Resolve(new Dictionary<string, ShapeElement>()); // stamps its Frame on the element, as every init does
-        two.KeyFrames = [two.KeyFrames[0], added];
-        Assert.That(Describe(two, root), Is.Not.EqualTo(Describe(one, root)));
-    }
-
-    // GenerateFrameForElement interpolates against QuantityFrames, so the same keyframes over a different span differ
-    [Test]
-    public void ADifferentQuantityFramesDescribesDifferently()
-    {
-        var root = Bare("upperarm");
-        var slow = Walk(("upperarm", 30));
-        slow.QuantityFrames = 60;
-        Assert.That(Describe(slow, root), Is.Not.EqualTo(Describe(Walk(("upperarm", 30)), root)));
-    }
-
-    // An unset double? and a set one are different inputs to getTwoKeyFramesElementForFlag, which tests IsSet
-    [Test]
-    public void AnUnsetValueDescribesDifferentlyFromASetOne()
-    {
-        var root = Bare("upperarm");
-        var unset = Walk();
-        unset.KeyFrames[0].Elements["upperarm"] = new AnimationKeyFrameElement();
-        Assert.That(Describe(unset, root), Is.Not.EqualTo(Describe(Walk(("upperarm", 0)), root)));
-    }
-
-    [Test]
-    public void NonRecursiveDescribesDifferentlyFromRecursive()
-    {
-        var animation = Walk(("upperarm", 30));
-        ShapeElement[] roots = [Bare("upperarm", Bare("sleeve"))];
-        Assert.That(AnimationFrames.Descriptor(animation, roots, false),
-            Is.Not.EqualTo(AnimationFrames.Descriptor(animation, roots)));
-    }
-
-    // Element geometry never reaches the compiled pose: the model matrix GenerateFrame threads through is not stored,
-    // and the two AnimationFrame methods that once consumed it are [Obsolete] no-ops. So it stays out of the key.
-    [Test]
-    public void ElementGeometryDoesNotChangeTheDescriptor()
-    {
-        var animation = Walk(("upperarm", 30));
-        var moved = Bare("upperarm");
-        moved.From = [1, 2, 3];
-        moved.RotationX = 45;
-        Assert.That(Describe(animation, moved), Is.EqualTo(Describe(animation, Bare("upperarm"))));
+        ArgumentNullException.ThrowIfNull(one);
+        ArgumentNullException.ThrowIfNull(two);
+        var (a, b) = (one(), two());
+        Assert.Multiple(() =>
+        {
+            Assert.That(a, Is.Not.Null, "the descriptor must be computable for a well formed shape");
+            Assert.That(b, Is.Not.Null, "the descriptor must be computable for a well formed shape");
+            Assert.That(a, same ? Is.EqualTo(b) : Is.Not.EqualTo(b));
+        });
     }
 
     private static ShapeElement Element(string name, params ShapeElement[] children)
@@ -227,10 +216,8 @@ public sealed class AnimationFramesTests
         return shape;
     }
 
-    private static ShapeElement[] Arm()
-    {
-        return [Element("upper", Element("lower", Element("hand")), Element("sleeve")), Element("head")];
-    }
+    private static ShapeElement[] Arm() =>
+        [Element("upper", Element("lower", Element("hand")), Element("sleeve")), Element("head")];
 
     // The engine's compile, then Komet's on the same Animation, compared to the bit; the result is Komet's
     private static AnimationFrame[][] SameAsEngine(Shape shape, bool recursive = true)
@@ -245,7 +232,6 @@ public sealed class AnimationFramesTests
         return animation.PrevNextKeyFrameByFrame!;
     }
 
-    // Poses of one element at every keyframe, in keyframe order, found by walking the compiled tree
     private static List<ElementPose> PosesOf(AnimationFrame[][] compiled, string name)
     {
         return
@@ -283,7 +269,7 @@ public sealed class AnimationFramesTests
         var shared = Full(40);
         var shape = Build(10, Arm(), Key(0, ("lower", Full(10))), Key(3, ("upper", shared)),
             Key(second, ("upper", shared)));
-        Assert.That(AnimationFrames.Descriptor(shape.Animations[0], shape.Elements), Is.Null);
+        Assert.That(Descriptor(shape.Animations[0], shape.Elements), Is.Null);
     }
 
     [Test]
@@ -342,7 +328,7 @@ public sealed class AnimationFramesTests
         shape.Elements = [shape.Elements[0], shape.Elements[1], hand];
         var compiled = SameAsEngine(shape);
         Assert.That(PosesOf(compiled, "hand"), Has.Count.EqualTo(2 * 2)); // two keyframes, twice each
-        Assert.That(AnimationFrames.Descriptor(shape.Animations[0], shape.Elements), Is.Null,
+        Assert.That(Descriptor(shape.Animations[0], shape.Elements), Is.Null,
             "names cannot tell it from two hands");
     }
 
@@ -363,16 +349,14 @@ public sealed class AnimationFramesTests
     [Test]
     public void AnElementSubclassIsLeftToTheEngine()
     {
-        static ShapeElement Hand()
-        {
-            return new ByName { Name = "hand", From = [1, 2, 3], To = [4, 5, 6], RotationOrigin = [0, 0, 0] };
-        }
+        static ShapeElement Hand() =>
+            new ByName { Name = "hand", From = [1, 2, 3], To = [4, 5, 6], RotationOrigin = [0, 0, 0] };
 
         var shape = Build(8, [Element("upper", Hand()), Element("lower", Hand())], Key(0, ("hand", Full(10))),
             Key(4, ("hand", Full(30))));
         var animation = shape.Animations[0];
         Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Assert.That(AnimationFrames.Descriptor(animation, shape.Elements), Is.Null,
+        Assert.That(Descriptor(animation, shape.Elements), Is.Null,
             "a plain shape with its names compiles otherwise");
         Patch();
         animation.GenerateAllFrames(shape.Elements, shape.JointsById);
@@ -493,6 +477,7 @@ public sealed class AnimationFramesTests
 
     // No statics and nothing written but the result: the singleplayer server compiles on its own thread through the same prefix
     [Test]
+    [Category("Slow")]
     public void FourThreadsCompilingOneShapeAgreeWithTheEngine()
     {
         GameInstall.RequireAssets();
@@ -711,10 +696,8 @@ public sealed class AnimationFramesTests
     // override. Here two "hand" elements are equal by name, so the engine poses both from the one the keyframes name.
     private sealed class ByName : ShapeElement
     {
-        public override bool Equals(object? obj)
-        {
-            return obj is ShapeElement other && string.Equals(other.Name, Name, StringComparison.Ordinal);
-        }
+        public override bool Equals(object? obj) =>
+            obj is ShapeElement other && string.Equals(other.Name, Name, StringComparison.Ordinal);
 
         public override int GetHashCode()
         {

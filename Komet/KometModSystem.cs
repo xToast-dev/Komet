@@ -6,8 +6,7 @@ namespace Komet;
 public sealed class KometModSystem : ModSystem, IDisposable
 {
     internal const string ModId = "komet";
-    private const int HudStageCount = 3;
-    private const int PoolMs = 250; // how often the worker pool follows its knob and the world
+    private const int HudStageCount = 3, PoolMs = 250;
 
     private static readonly EnumRenderStage[] HudStages =
         [EnumRenderStage.Before, EnumRenderStage.Ortho, EnumRenderStage.Done];
@@ -63,8 +62,6 @@ public sealed class KometModSystem : ModSystem, IDisposable
         }
     }
 
-    // The features in Features' order: Main, other mods' registered before Komet started, then the bench, the HUD's renderers and
-    // last PreJit
     private void Install(ICoreClientAPI api)
     {
         LocalServer = api.IsSinglePlayer;
@@ -76,19 +73,16 @@ public sealed class KometModSystem : ModSystem, IDisposable
         Features.InstallQueued(_context);
         Features.Install(_context, FeatureStage.Tail);
         api.Event.LevelFinalize += Features.Recheck;
-        _pool = api.Event.RegisterGameTickListener(SteerPool, PoolMs);
+        _pool = api.Event.RegisterGameTickListener(dt =>
+        {
+            if (!NotNull(_api) || !Finite(dt)) return;
+            WorkerPool.Steer(_api.World as ClientMain);
+            Features.Poll();
+        }, PoolMs);
         if (NotNull(_context.Overlay))
             foreach (var stage in HudStages.Bounded(HudStageCount))
                 api.Event.RegisterRenderer(_context.Overlay, stage, "komet-hud");
         Mod.Logger.Notification("Komet HUD ready – F7 toggles it, .komet or Escape → Settings opens the options");
         Features.Install(_context, FeatureStage.Last);
-    }
-
-    // The worker pool follows its knob and the world being played, on the main thread; the features' states follow too
-    private void SteerPool(float dt)
-    {
-        if (!NotNull(_api) || !Finite(dt)) return;
-        WorkerPool.Steer(_api.World as ClientMain);
-        Features.Poll();
     }
 }

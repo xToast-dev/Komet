@@ -7,10 +7,7 @@ using Vintagestory.Common;
 
 namespace Komet.Diagnostics;
 
-// Times every renderer (the engine's TriggerRenderStage loop, replayed with a timestamp pair per renderer) and every main-thread game
-// tick listener, books it to the mod whose assembly owns the code and ranks the mods for the mod-times panel, smoothed and reordered
-// like the passes so rows don't jump. The three patches go in the first time the panel is switched on after the level is finalized,
-// and until then the engine runs untouched.
+// The patches go in the first time the panel is switched on after the level is finalized; until then the engine runs untouched
 internal sealed class ModTimes
 {
     public const int MaxMods = TopN.MaxRank, DetailCount = 3;
@@ -147,11 +144,14 @@ internal sealed class ModTimes
         }
 
         var debug = ___game.extendedDebugInfo;
-        // Count is re-read: a renderer may unregister itself
+        // Count is re-read: a renderer may unregister itself. An idle animatable is left out as the engine's (transpiled) loop leaves
+        // it out, without clock, check or mark: replayed, ~12,900 of them a frame made the sampled frame several ms slower and filled the
+        // renderer rows with calls that did nothing.
         for (var i = 0; i < Math.Min(list.Count, MaxRenderers); i++)
         {
+            if (IdleAnimators.Skip(list, i)) continue;
             var handler = list[i];
-            if (!NotNull(handler.Renderer)) continue;
+            if (!NotNull(handler.Renderer) || IdleAnimators.TrySkip(handler.Renderer)) continue;
             var start = Stopwatch.GetTimestamp();
             handler.Renderer.OnRenderFrame(dt, stage);
             Book(handler.Renderer is DummyRenderer dummy ? dummy.action.Method : handler.Renderer.GetType(), start);
@@ -229,9 +229,24 @@ internal sealed class ModTimes
         mod = assembly.GetName().Name ?? "?";
         if (!Assert(mod.Length > 0)) mod = "?";
         if (mod.StartsWith("Vintagestory", StringComparison.Ordinal)) mod = "game";
-        foreach (var candidate in (_loader?.Mods ?? []).Bounded(ModStats.MaxLoadedMods))
+        foreach (var candidate in (_loader?.Mods ?? []).Bounded(HarmonyAudit.MaxLoadedMods))
             if (candidate is ModContainer container && container.Assembly == assembly) mod = candidate.Info.ModID;
         return ModByAssembly[assembly] = mod;
+    }
+
+    // Any mod's time per frame as of the last update, 0 when none of its renderers or handlers ran; main thread
+    public double MsOf(string mod) => NotNull(mod) && _byMod.TryGetValue(mod, out var ms) && Assert(ms >= 0) ? ms : 0;
+
+    // Every mod's time but one's (the game's own), from the same sums as MsOf
+    public double TotalExcept(string mod)
+    {
+        double total = 0;
+        using (var mods = _byMod.GetEnumerator())
+        {
+            for (var i = 0; i < MaxEntries && mods.MoveNext(); i++)
+                if (mods.Current.Key != mod) total += mods.Current.Value;
+        }
+        return Assert(total >= 0) ? total : 0;
     }
 
     public string ModName(int place) => Index(place, MaxMods) ? _mods[place].Mod ?? "" : "";
@@ -247,7 +262,6 @@ internal sealed class ModTimes
         ? _top[place][rank].Entry?.SmoothMs ?? double.NaN
         : double.NaN;
 
-    // Once per HUD interval: smooth every entry into its mod's sum; every ReorderEvery intervals rank the mods and their entries anew
     public void Update(int frames, float seconds)
     {
         if (!Assert(frames > 0) || !Assert(seconds > 0) || !Assert(Entries.Count <= MaxEntries)) return;
@@ -278,7 +292,6 @@ internal sealed class ModTimes
             if (_mods[i].Mod is { } mod) _mods[i].Ms = _byMod.GetValueOrDefault(mod);
     }
 
-    // The dearest mods, then each one's dearest entries in one pass over the entries
     private void Reorder()
     {
         if (!Assert(_byMod.Count <= MaxEntries)) return;
@@ -313,88 +326,5 @@ internal sealed class ModTimes
         public int Calls;
         public double SmoothMs, CallsPerSecond;
         public long Ticks;
-    }
-}
-
-// One walk's result. Never changed after it is published, so the panel reads it on the main thread while the next walk runs.
-internal sealed class ModSnapshot
-{
-    public static readonly ModSnapshot Empty = new();
-    public int Mods { get; init; }
-    public int PatchedMethods { get; init; }
-    public int Owners { get; init; }
-    public int Conflicts { get; init; }
-    public string?[] ModNames { get; } = new string[ModStats.MaxMods];
-    public string?[] ConflictNames { get; } = new string[ModStats.MaxConflicts];
-    public (string? Name, int Methods)[] OwnerList { get; } = new (string?, int)[ModStats.MaxOwners];
-}
-
-// Walks the mod loader and Harmony's patch registry on a pool thread: on the main thread the first walk paid System.Text.Json's
-// warm-up inside HarmonySharedState.GetPatchInfo (PatchInfoSerialization.Deserialize), 16-26 ms in one frame. GetPatchInfo takes
-// Harmony's own lock, and ModLoader.Mods no longer changes once the game runs.
-internal sealed class ModStats
-{
-    public const int MaxMods = 24, MaxOwners = 12, MaxConflicts = 12, MaxLoadedMods = 512;
-    private const int MaxPatched = 4096, MaxOwnersPerMethod = 64;
-    private ModSnapshot _snapshot = ModSnapshot.Empty;
-    private Task? _walk;
-
-    public ModSnapshot Snapshot => Volatile.Read(ref _snapshot);
-    public bool Walking => _walk is { IsCompleted: false };
-    public bool Walked => !ReferenceEquals(Snapshot, ModSnapshot.Empty);
-
-    // At most one walk at a time; a request while one runs is already answered by it. A failed walk is logged when it fails: the
-    // next request may be a whole showing of the panel away.
-    public void Request(ICoreClientAPI capi, string ownId)
-    {
-        if (!Assert(ownId.Length > 0) || !NotNull(capi.ModLoader) || Walking) return;
-        _walk = Task.Run(() =>
-        {
-            if (Walk(capi.ModLoader, ownId) is { } snapshot) Volatile.Write(ref _snapshot, snapshot);
-        }).ContinueWith(
-            failed => capi.Logger.Warning("Komet HUD: mod walk failed ({0})",
-                failed.Exception?.GetBaseException().Message),
-            CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
-    }
-
-    internal static ModSnapshot? Walk(IModLoader loader, string ownId)
-    {
-        if (!Assert(ownId.Length > 0) || !NotNull(loader)) return null;
-        var names = new string?[MaxMods];
-        var mods = 0;
-        foreach (var info in loader.Mods.Select(mod => mod.Info).Bounded(MaxLoadedMods))
-        {
-            if (mods < MaxMods) names[mods] = info.Name + " " + info.Version;
-            mods++;
-        }
-
-        if (!Assert(mods > 0)) return null; // this mod is loaded at the very least
-
-        var byOwner = new Dictionary<string, int>();
-        var conflicts = new List<(bool Own, string Text)>();
-        var patched = 0;
-        foreach (var method in Harmony.GetAllPatchedMethods().Bounded(MaxPatched))
-        {
-            var patches = Harmony.GetPatchInfo(method);
-            if (!NotNull(patches) || patches.Owners.Count == 0) continue;
-            patched++;
-            foreach (var owner in patches.Owners.Bounded(MaxOwnersPerMethod))
-                byOwner[owner] = byOwner.GetValueOrDefault(owner) + 1;
-            if (patches.Owners.Count > 1)
-                conflicts.Add((patches.Owners.Contains(ownId),
-                    $"{method.DeclaringType?.Name}.{method.Name}: {string.Join(", ", patches.Owners)}"));
-        }
-
-        if (!Assert(byOwner.ContainsKey(ownId))) return null; // our own patches are registered
-
-        var ranked = byOwner.OrderByDescending(owner => owner.Value).Take(MaxOwners).ToArray();
-        conflicts.Sort((a, b) => b.Own.CompareTo(a.Own));
-        var snapshot = new ModSnapshot
-        { Mods = mods, PatchedMethods = patched, Owners = byOwner.Count, Conflicts = conflicts.Count };
-        names.CopyTo(snapshot.ModNames, 0);
-        for (var i = 0; i < Math.Min(MaxOwners, ranked.Length); i++)
-            snapshot.OwnerList[i] = (ranked[i].Key, ranked[i].Value);
-        for (var i = 0; i < Math.Min(MaxConflicts, conflicts.Count); i++) snapshot.ConflictNames[i] = conflicts[i].Text;
-        return snapshot;
     }
 }

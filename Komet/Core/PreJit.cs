@@ -24,11 +24,10 @@ internal enum PreJitState
 // Every new tier-0 method also restarts the runtime's call-counting delay (TC_CallCountingDelayMs, 100 ms), and while first calls keep
 // trickling in, no hot method anywhere in the process is promoted to tier 1.
 //
-// One background thread compiles the engine up front while the world loads. RuntimeHelpers.PrepareMethod compiles without executing:
-// no static constructor runs, the code is the tier-0 code a first call would have produced, and tiering promotes it as usual later.
-// Methods come from the metadata tables rather than reflection, so the walk does not build 40k MethodInfo objects. Left out are methods
-// without IL (abstract, extern, runtime-implemented), generic code (it only compiles for an instantiation) and everything Harmony has
-// patched by then, whose code MonoMod owns. A method patched later is patched over compiled code, which is Harmony's normal case. The
+// RuntimeHelpers.PrepareMethod compiles without executing: no static constructor runs, the code is the tier-0 code a first call would
+// have produced, and tiering promotes it as usual later. Methods come from the metadata tables rather than reflection, so the walk does
+// not build 40k MethodInfo objects. Left out are methods without IL (abstract, extern, runtime-implemented), generic code (it only
+// compiles for an instantiation) and everything Harmony has patched by then, whose code MonoMod owns. A method patched later is patched over compiled code, which is Harmony's normal case. The
 // exception is inlining: tier-0 inlines nothing, but the JIT compiles a few methods fully optimized at once (9 of ~42k in 1.22.7 by
 // their MethodLoad tier), and those can keep an inlined copy of a callee that a mod patches only after the walk compiled them.
 // The game does the same when it calls them before the patch; the walk only makes it earlier.
@@ -58,7 +57,6 @@ internal static partial class PreJit
     public static double JitMs { get; private set; } // compile time on the walking thread only
     public static double WallMs { get; private set; }
 
-    // Idle again, the totals zeroed and a cancel withdrawn: the next Start or Walk runs
     internal static void Reset()
     {
         // the walk owns them
@@ -161,7 +159,6 @@ internal static partial class PreJit
         }
     }
 
-    // Stops within CheckEvery methods of a cancel or a switch-off
     private static void Walk(MetadataReader md, Module module, IReadOnlySet<(Guid, int)> patched)
     {
         var count = md.GetTableRowCount(TableIndex.MethodDef);
@@ -177,7 +174,6 @@ internal static partial class PreJit
         }
     }
 
-    // PrepareMethod needs IL, and an exact instantiation for anything generic; patched methods belong to Harmony
     internal static bool Eligible(MetadataReader md, MethodDefinitionHandle handle, Guid module,
         IReadOnlySet<(Guid, int)> patched)
     {
@@ -187,7 +183,6 @@ internal static partial class PreJit
                !patched.Contains((module, MetadataTokens.GetToken(handle)));
     }
 
-    // A generic method, or any method of a generic type or of a type nested in one
     private static bool IsGeneric(MetadataReader md, MethodDefinition method)
     {
         if (method.GetGenericParameters().Count > 0) return true;

@@ -3,13 +3,11 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The screen's parts, each drawn into the canvas with its hit boxes
 internal sealed partial class OptionsScreen
 {
     [GeneratedRegex("<[^>]*>", RegexOptions.CultureInvariant, 1000)]
     private static partial Regex Markup();
 
-    // The search field over the sidebar and the list, the close box at its right
     private void Search(Columns c)
     {
         double h = S(SearchHeight), close = c.Desc > 0 ? h : 0, w = c.Side + c.Gap + c.Content - (close > 0 ? 0 : h + c.Gap);
@@ -38,7 +36,6 @@ internal sealed partial class OptionsScreen
         return Assert(_staged.Count == 0) && TryClose();
     }
 
-    // Each section with its name and version, its pages under it; the page at the top of the list lit, with a bar at the right
     private void Sidebar(Columns c, string current)
     {
         var (bottom, rowH) = (c.Height - (c.Desc > 0 ? 0 : 3 * (S(ButtonHeight) + c.Gap)), S(RowHeight));
@@ -67,7 +64,6 @@ internal sealed partial class OptionsScreen
         _canvas.Unclip();
     }
 
-    // A section's name, and under it the version of the game or of the mod it names
     private void SectionName(double y, string section)
     {
         var half = S(SectionHeight) / 2;
@@ -90,7 +86,6 @@ internal sealed partial class OptionsScreen
         (_page, _scroll, _query, _searching, _picker, _dirty) = (page.Id, 0, "", false, null, true);
     }
 
-    // The list, scrolled and cut to its column
     private void Content(Columns c, List<Item> items)
     {
         var x = c.Side + c.Gap;
@@ -147,7 +142,6 @@ internal sealed partial class OptionsScreen
         }
     }
 
-    // One option: its name at the left (struck through while it cannot be changed), its value or control at the right
     private void Row(OptionRow row, double x, double y, double w, double h)
     {
         var (hovered, enabled) = (ReferenceEquals(row, _hover) || ReferenceEquals(_drag?.Option, row), row.IsEnabled);
@@ -183,8 +177,6 @@ internal sealed partial class OptionsScreen
 
     private static string Caption(OptionRow row) => NotNull(row) ? "›  " + (row.Shows?.Invoke() ?? "") : "";
 
-    // What a key is bound to (in the warning colour when another has it too); a click waits for a new one, a right click puts back
-    // the game's default. Lit while it waits
     private void Key(OptionRow row, double x, double y, double w, double h, double right, bool enabled)
     {
         if (!NotNull(row) || !Finite(right)) return;
@@ -208,7 +200,6 @@ internal sealed partial class OptionsScreen
         return ReferenceEquals(row, _binding) ? T("key-waiting") : row.Shows?.Invoke() ?? "";
     }
 
-    // A box, filled when on; the whole row flips it
     private void Check(OptionRow row, double x, double y, double w, double h, double right, bool enabled)
     {
         if (!NotNull(row)) return;
@@ -220,8 +211,6 @@ internal sealed partial class OptionsScreen
         if (enabled) _rows.Insert(0, new Hit(x, y, w, h, (_, _) => Stage(row, on ? 0 : 1), Option: row));
     }
 
-    // The chosen name; a click steps on (or, with more than a few, opens the window of all of them at the right), a right click back.
-    // While its window is open the row is lit, with a bar at the side it opened on
     private void Choice(OptionRow row, double x, double y, double w, double h, double right, bool enabled)
     {
         var names = row.Names;
@@ -239,7 +228,6 @@ internal sealed partial class OptionsScreen
         }, Option: row));
     }
 
-    // What a choice's row shows: the chosen name, with an arrow while a click opens a window of them
     private string Shown(OptionRow row)
     {
         var names = row.Names;
@@ -248,7 +236,6 @@ internal sealed partial class OptionsScreen
         return names.Length > MaxCycled ? name + "  ›" : name;
     }
 
-    // The value; hovered, a track of fixed width just left of it to drag it along
     private void Slider(OptionRow row, double y, double right, double h, bool hovered, bool enabled)
     {
         var value = Value(row);
@@ -311,7 +298,6 @@ internal sealed partial class OptionsScreen
         return text[..Math.Max(1, cut)].TrimEnd() + "…";
     }
 
-    // A row lit as chosen, with a bar at its right
     private void Lit(double x, double y, double w, double h)
     {
         if (!Finite(y) || !Assert(w > 0)) return;
@@ -319,7 +305,6 @@ internal sealed partial class OptionsScreen
         _canvas.Fill(x + w - S(AccentBar), y, S(AccentBar), h, HudCanvas.Accent);
     }
 
-    // A title's band, with a bar at its left
     private void Band(double x, double y, double w, double h)
     {
         if (!Finite(y) || !Assert(w > 0)) return;
@@ -332,7 +317,6 @@ internal sealed partial class OptionsScreen
         if (NotNull(text) && Finite(right)) _canvas.Text(right - _canvas.TextWidth(_fonts.Text, text), y, h, _fonts.Text, text, color);
     }
 
-    // The hovered option's name and what it does
     private void Description(Columns c)
     {
         if (c.Desc <= 0 || _picker is not null || _hover is not { } row) return; // an open window shows the hint itself
@@ -358,7 +342,6 @@ internal sealed partial class OptionsScreen
         }
     }
 
-    // Undo (only with changes), Apply (dim without), Done: at the bottom of the description column, or of the sidebar
     private void Buttons(Columns c)
     {
         double w = c.Desc > 0 ? Math.Min(c.Desc, S(ButtonWidth)) : c.Side, h = S(ButtonHeight);

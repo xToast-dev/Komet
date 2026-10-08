@@ -2,14 +2,14 @@
   "_comment": [
     "Komet benchmark profiles for scripts/bench.sh. The script merges world + profiles.<name>, adds output, modDir, revision and",
     "env, and hands the result to the game as KOMET_BENCH. Only overrides belong here: the defaults and ranges live in",
-    "Komet/Bench/BenchConfig.cs. Arm knobs are the names in Komet/Core/Knobs.cs, with their ranges; flags take true/false.",
+    "Komet/Bench/BenchConfig.cs. Arm knobs are the names in Komet/Core/Features.cs, with their ranges; flags take true/false.",
     "\"engine\": true starts the arm from every knob's engine value. Laps must be a multiple of the arm count.",
     "sandbox is read by the script only: window size, windowMode (0 windowed, 1 fullscreen), vsync, fps cap, view distance,",
     "boot timeout, extra environment for the game process, and hud: keys merged into komet-hud.json (e.g. Visible)."
   ],
   "world": {
     "save": "testwelt",
-    "savegameId": "75695bba-910a-4a52-93dd-df4024a5ad1a"
+    "savegameId": "806d5110-14b7-4d83-abce-e5f36c65b931"
   },
   "sandbox": {
     "window": [1920, 1080],
@@ -20,6 +20,31 @@
     "env": {}
   },
   "profiles": {
+    "quick": {
+      "_comment": "about three minutes with loading: a quick look at one build, or a quick A/B with --arm twice (no statistics worth the name)",
+      "settle": { "seconds": 10, "lapSeconds": 3 },
+      "lap": { "still": 3, "rotate": 4, "leg": 12, "turn": 1 },
+      "laps": 2,
+      "warmupLaps": 1,
+      "arms": [{ "name": "A" }]
+    },
+    "load": {
+      "_comment": "how fast the world's terrain comes in: 90 s at the spawn, then one short lap; one arm a run (loading happens once a process)",
+      "settle": { "seconds": 90, "lapSeconds": 3 },
+      "lap": { "still": 3, "rotate": 3, "leg": 3, "turn": 1 },
+      "laps": 1,
+      "warmupLaps": 0,
+      "arms": [{ "name": "A" }]
+    },
+    "debug": {
+      "_comment": "the HUD's debug capture under the freeze watchdog: one of 15 s started at every lap, its end (files, clipboard, window) mid-lap",
+      "settle": { "seconds": 10, "lapSeconds": 3 },
+      "lap": { "still": 3, "rotate": 4, "leg": 12, "turn": 1 },
+      "laps": 4,
+      "warmupLaps": 0,
+      "gui": "debug",
+      "arms": [{ "name": "A" }]
+    },
     "smoke": {
       "_comment": "about three minutes: proves the harness end to end, A/A so the two arms must agree",
       "settle": { "seconds": 30, "lapSeconds": 5 },
@@ -54,6 +79,19 @@
       "warmupLaps": 2,
       "arms": [{ "name": "all" }, { "name": "lean", "set": { "ShapeInitMemo": false, "EntityTessBudget": 0, "ParticleLight": false } }]
     },
+    "culling": {
+      "_comment": "OcclusionCulling (terrain culled on the GPU against a depth pyramid, two passes) off against on, in one process, A B B A A B B A: frame time, lows, the tessellation it must not disturb",
+      "warmupLaps": 3,
+      "laps": 8,
+      "arms": [{ "name": "off" }, { "name": "on", "set": { "OcclusionCulling": true } }]
+    },
+    "culling1440": {
+      "_comment": "culling, but at 2560x1440 as the player plays, where the GPU is the limit more often",
+      "sandbox": { "window": [2560, 1440] },
+      "warmupLaps": 3,
+      "laps": 8,
+      "arms": [{ "name": "off" }, { "name": "on", "set": { "OcclusionCulling": true } }]
+    },
     "hud": {
       "_comment": "the HUD itself in game: every panel shown, one lap, to catch what unit tests cannot (Cairo, GL uploads, the frame clock)",
       "sandbox": {
@@ -73,6 +111,28 @@
       "lap": { "still": 20, "rotate": 20, "leg": 30 },
       "laps": 1,
       "warmupLaps": 0
+    },
+    "vulkan": {
+      "_comment": "the terrain drawn by OpenGL (gl), by Vulkan with every pass (vk), the opaque pass only (vk-opaque) and the depth passes only (vk-depth: shadow maps, liquid depth), with a screenshot where every measured lap starts: the frames must look alike, the times say what each pass costs or saves",
+      "settle": { "seconds": 60, "lapSeconds": 5 },
+      "shots": true,
+      "warmupLaps": 2,
+      "laps": 4,
+      "arms": [
+        { "name": "gl", "set": { "VulkanCore": true, "VulkanTerrain": false } },
+        {
+          "name": "vk",
+          "set": { "VulkanCore": true, "VulkanTerrain": true, "VulkanOpaque": true, "VulkanShadows": true, "VulkanLiquidDepth": true }
+        },
+        {
+          "name": "vk-opaque",
+          "set": { "VulkanCore": true, "VulkanTerrain": true, "VulkanOpaque": true, "VulkanShadows": false, "VulkanLiquidDepth": false }
+        },
+        {
+          "name": "vk-depth",
+          "set": { "VulkanCore": true, "VulkanTerrain": true, "VulkanOpaque": false, "VulkanShadows": true, "VulkanLiquidDepth": true }
+        }
+      ]
     }
   }
 }

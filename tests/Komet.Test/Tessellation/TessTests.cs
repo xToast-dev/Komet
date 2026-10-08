@@ -3,8 +3,30 @@ using System.Security.Cryptography;
 
 namespace Komet.Test.Tessellation;
 
-// The buckets a pass lands in, the cumulative totals the benchmark takes differences of, and the patches on the engine's real
-// TesselateChunk
+internal static class TessManager
+{
+    public static ChunkTesselatorManager Of(ChunkRig rig)
+    {
+        var manager = (ChunkTesselatorManager)RuntimeHelpers.GetUninitializedObject(typeof(ChunkTesselatorManager));
+        ChunkRig.Set(manager, "game", rig.Game);
+        return manager;
+    }
+
+    public static ChunkTesselatorManager Ticking(ChunkRig rig)
+    {
+        var (manager, game) = (Of(rig), rig.Game);
+        (game.TerrainChunkTesselator, game.ShouldTesselateTerrain) = (rig.Tesselator, true);
+        game.frustumCuller = (FrustumCulling)RuntimeHelpers.GetUninitializedObject(typeof(FrustumCulling));
+        foreach (var name in (string[])["dirtyChunksPriority", "dirtyChunks", "dirtyChunksLast"])
+        {
+            ChunkRig.Set(game, name, new UniqueQueue<long>());
+            ChunkRig.Set(game, name + "Lock", new object());
+        }
+
+        return manager;
+    }
+}
+
 public sealed class TessAccountingTests
 {
     [SetUp]
@@ -30,10 +52,8 @@ public sealed class TessAccountingTests
     [TestCase(true, false, false, true, 1)]
     [TestCase(true, false, true, false, 2)]
     [TestCase(true, false, true, true, 3)]
-    public void APassLandsInItsBucket(bool processed, bool requeue, bool priority, bool edge, int expected)
-    {
+    public void APassLandsInItsBucket(bool processed, bool requeue, bool priority, bool edge, int expected) =>
         Assert.That(TessAccounting.Classify(processed, requeue, priority, edge), Is.EqualTo((TessBucket)expected));
-    }
 
     [Test]
     public void OnlyFullPassesWithoutVerticesCountAsZero()
@@ -77,8 +97,7 @@ public sealed class TessAccountingTests
     public void ThePatchesCountTheEnginesCalls()
     {
         using var rig = new ChunkRig();
-        var manager = (ChunkTesselatorManager)RuntimeHelpers.GetUninitializedObject(typeof(ChunkTesselatorManager));
-        ChunkRig.Set(manager, "game", rig.Game);
+        var manager = TessManager.Of(rig);
         using var harmony = new TestHarmony("komet-test-tessaccounting");
         TessAccounting.Install(harmony);
         Assert.That(TessAccounting.Installed, Is.True);
@@ -104,79 +123,56 @@ public sealed class TessSafetyTests
 {
     private const int Rounds = 300;
 
+    [TearDown]
+    public void Clear()
+    {
+        TessSafety.Clear();
+        TessSchedule.Clear();
+        TessWorkers.Stop();
+    }
+
     [Test]
     public void EveryPatchFindsItsSites()
     {
-        var harmony = new Harmony("komet-test-tesssafety-sites");
-        try
+        using var harmony = new TestHarmony("komet-test-tesssafety-sites");
+        TessSafety.Install(harmony);
+        TessSchedule.Install(harmony);
+        TessWorkers.Install(harmony);
+        Assert.Multiple(() =>
         {
-            TessSafety.Install(harmony);
-            TessSchedule.Install(harmony);
-            TessWorkers.Install(harmony);
-            Assert.Multiple(() =>
-            {
-                Assert.That(TessSafety.Installed, Is.True, "an engine method no longer looks as TessSafety expects");
-                Assert.That(TessWorkers.Installed, Is.True,
-                    "TesselateChunk no longer reads game.TerrainChunkTesselator once");
-            });
-        }
-        finally
-        {
-            harmony.UnpatchAll(harmony.Id);
-            TessSafety.Clear();
-            TessSchedule.Clear();
-            TessWorkers.Stop();
-        }
+            Assert.That(TessSafety.Installed, Is.True, "an engine method no longer looks as TessSafety expects");
+            Assert.That(TessWorkers.Installed, Is.True, "TesselateChunk no longer reads game.TerrainChunkTesselator once");
+        });
     }
 
-    // A failed install leaves nothing behind: with one transpiler finding another count of sites, every patch made so far goes again
     [Test]
     public void AnIncompleteInstallUnpatchesEverything()
     {
-        var harmony = new Harmony("komet-test-tesssafety-partial");
-        var blocker = new Harmony("komet-test-tesssafety-blocker");
-        var cross = AccessTools.DeclaredMethod(typeof(CrossTesselator), nameof(CrossTesselator.DrawCross));
-        try
+        using var harmony = new TestHarmony("komet-test-tesssafety-partial");
+        using var blocker = new TestHarmony("komet-test-tesssafety-blocker");
+        _ = blocker.Patch(AccessTools.DeclaredMethod(typeof(CrossTesselator), nameof(CrossTesselator.DrawCross)),
+            transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreLoad)));
+        TessSafety.Install(harmony);
+        var decoder = AccessTools.DeclaredMethod(typeof(BlockChunkDataLayer), "getBlockOne");
+        Assert.Multiple(() =>
         {
-            _ = blocker.Patch(cross, transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreLoad)));
-            TessSafety.Install(harmony);
-            var decoder = AccessTools.DeclaredMethod(typeof(BlockChunkDataLayer), "getBlockOne");
-            Assert.Multiple(() =>
-            {
-                Assert.That(TessSafety.Installed, Is.False);
-                Assert.That(Harmony.GetPatchInfo(decoder)?.Owners ?? [], Does.Not.Contain(harmony.Id),
-                    "the decoders read the engine's table");
-            });
-        }
-        finally
-        {
-            harmony.UnpatchAll(harmony.Id);
-            blocker.UnpatchAll(blocker.Id);
-            TessSafety.Clear();
-        }
+            Assert.That(TessSafety.Installed, Is.False);
+            Assert.That(Harmony.GetPatchInfo(decoder)?.Owners ?? [], Does.Not.Contain(harmony.Id),
+                "the decoders read the engine's table");
+        });
     }
 
     // Another mod's transpiler arriving later makes Harmony run TessSafety's again: a count that no longer fits keeps the workers off
     [Test]
     public void ALaterForeignTranspilerBreaksTheWorkers()
     {
-        var harmony = new Harmony("komet-test-tesssafety-late");
-        var blocker = new Harmony("komet-test-tesssafety-late-blocker");
-        try
-        {
-            TessSafety.Install(harmony);
-            Assert.That((TessSafety.Installed, TessSafety.Broken), Is.EqualTo((true, false)));
-            _ = blocker.Patch(AccessTools.DeclaredMethod(typeof(CrossTesselator), nameof(CrossTesselator.DrawCross)),
-                transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreLoad))
-                { priority = Priority.First });
-            Assert.That(TessSafety.Broken, Is.True);
-        }
-        finally
-        {
-            harmony.UnpatchAll(harmony.Id);
-            blocker.UnpatchAll(blocker.Id);
-            TessSafety.Clear();
-        }
+        using var harmony = new TestHarmony("komet-test-tesssafety-late");
+        using var blocker = new TestHarmony("komet-test-tesssafety-late-blocker");
+        TessSafety.Install(harmony);
+        Assert.That((TessSafety.Installed, TessSafety.Broken), Is.EqualTo((true, false)));
+        _ = blocker.Patch(AccessTools.DeclaredMethod(typeof(CrossTesselator), nameof(CrossTesselator.DrawCross)),
+            transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreLoad)) { priority = Priority.First });
+        Assert.That(TessSafety.Broken, Is.True);
     }
 
     // Another mod's transpiler that reads CrossTesselator.startRot once more
@@ -190,31 +186,22 @@ public sealed class TessSafetyTests
     // Two chunks whose palettes hold stone and granite in opposite order: with the engine's one static table, a thread decoding its
     // chunk while the other built the table for its own reads the other palette, and stone becomes granite
     [Test]
+    [Category("Slow")]
     public void TwoThreadsDecodeTheirOwnPalettes()
     {
-        var harmony = new Harmony("komet-test-tesssafety-palette");
+        using var harmony = new TestHarmony("komet-test-tesssafety-palette");
         using var a = new ChunkRig();
         using var b = new ChunkRig();
-        try
-        {
-            TessSafety.Install(harmony);
-            Assert.That(TessSafety.Installed, Is.True);
-            var chunkA = a.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Stone : ChunkRig.Granite);
-            var chunkB = b.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Granite : ChunkRig.Stone);
-            var expectedA = Extended(a, chunkA);
-            var expectedB = Extended(b, chunkB);
-            Assert.That(expectedA, Is.Not.EqualTo(expectedB),
-                "the two chunks must differ for the test to mean anything");
-            var mismatches = 0;
-            Parallel.Invoke(() => Interlocked.Add(ref mismatches, Repeat(a, chunkA, expectedA)),
-                () => Interlocked.Add(ref mismatches, Repeat(b, chunkB, expectedB)));
-            Assert.That(mismatches, Is.Zero);
-        }
-        finally
-        {
-            harmony.UnpatchAll(harmony.Id);
-            TessSafety.Clear();
-        }
+        TessSafety.Install(harmony);
+        Assert.That(TessSafety.Installed, Is.True);
+        var chunkA = a.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Stone : ChunkRig.Granite);
+        var chunkB = b.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Granite : ChunkRig.Stone);
+        var (expectedA, expectedB) = (Extended(a, chunkA), Extended(b, chunkB));
+        Assert.That(expectedA, Is.Not.EqualTo(expectedB), "the two chunks must differ for the test to mean anything");
+        var mismatches = 0;
+        Parallel.Invoke(() => Interlocked.Add(ref mismatches, Repeat(a, chunkA, expectedA)),
+            () => Interlocked.Add(ref mismatches, Repeat(b, chunkB, expectedB)));
+        Assert.That(mismatches, Is.Zero);
     }
 
     private static int Repeat(ChunkRig rig, ClientChunk chunk, string[] expected)
@@ -226,7 +213,6 @@ public sealed class TessSafetyTests
         return wrong;
     }
 
-    // The centre of the extended block array after the engine's BuildExtendedChunkData, as block codes
     private static string[] Extended(ChunkRig rig, ClientChunk chunk)
     {
         BuildExtended(rig.Tesselator, chunk, 1, 1, 1, false, false);
@@ -256,17 +242,22 @@ public sealed class TessParallelTests
         MaxTicks = 100000;
 
     private const int Cross = ChunkRig.Glass;
-    private static readonly int[] OneAtlas = [0]; // texture id 0
+    private static readonly int[] OneAtlas = [0];
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Made")]
+    private static extern ref ChunkTesselator?[] Made(
+        [UnsafeAccessorType("Komet.Tessellation.TessWorkers, Komet")] object? workers);
 
     [Test]
+    [Category("Slow")]
     public void ManyThreadsTessellateAsOne()
     {
         using var rig = new ChunkRig(Extra);
         Fill(rig);
         var manager = Manager(rig);
         var harmony = new Harmony("komet-test-tessparallel");
-        var (background, jobs) = (WorkerPool.Background, TessWorkers.Jobs);
-        TessWorkers.Jobs = Threads; // all four at once: without a backlog the default lets two
+        var (background, priority) = (WorkerPool.Background, TessWorkers.Priority);
+        TessWorkers.Priority = 100; // every pool thread at once: without a backlog the default lets fewer
         try
         {
             Install(harmony);
@@ -291,7 +282,7 @@ public sealed class TessParallelTests
             TessSafety.Clear();
             TessSchedule.Clear();
             TessWorkers.Stop();
-            (WorkerPool.Background, TessWorkers.Jobs) = (background, jobs);
+            (WorkerPool.Background, TessWorkers.Priority) = (background, priority);
         }
     }
 
@@ -317,7 +308,7 @@ public sealed class TessParallelTests
         for (var i = 0; i < Chunks; i++)
             dirty.Enqueue(ChunkRig.Key(i % ChunkRig.ChunksX, i / ChunkRig.ChunksX % ChunkRig.ChunksY, i / 16));
         TessWorkers.Steer(rig.Game, manager, true); // binds the world, which drops any instance an earlier world had
-        for (var i = 0; i < workers.Length; i++) TessWorkers.Provide(i, workers[i]);
+        for (var i = 0; i < workers.Length; i++) Volatile.Write(ref Made(null)[i], workers[i]); // as Make would leave them
         WorkerPool.Resize(null, workers.Length);
         var (counting, before) = (Counting.Bench, WorkerPool.BackgroundTicks);
         Counting.Bench = true; // the pool's time on background jobs: the workers must have run passes
@@ -355,7 +346,6 @@ public sealed class TessParallelTests
         return result;
     }
 
-    // The engine's own pool setup (UpdateForAtlasses, one atlas) and block tesselators for cubes and crosses, AO on
     private static ChunkTesselator Mesher(ChunkRig rig, ChunkTesselator tesselator)
     {
         var tesselators = new IBlockTesselator[40];
@@ -368,25 +358,15 @@ public sealed class TessParallelTests
         return tesselator;
     }
 
-    // The manager's upload queue collects the results; the rest is the state the tick and TesselateChunk read
     private static ChunkTesselatorManager Manager(ChunkRig rig)
     {
-        var manager = (ChunkTesselatorManager)RuntimeHelpers.GetUninitializedObject(typeof(ChunkTesselatorManager));
-        var game = rig.Game;
-        ChunkRig.Set(manager, "game", game);
+        var (manager, game) = (TessManager.Ticking(rig), rig.Game);
         ChunkRig.Set(manager, "chunksize", ChunkRig.Size);
         ChunkRig.Set(manager, "tessChunksQueueLock", new object());
         ChunkRig.Set(manager, "tessChunksQueue", new SortableQueue<TesselatedChunk>());
         var platform = (ClientPlatformWindows)RuntimeHelpers.GetUninitializedObject(typeof(ClientPlatformWindows));
         ChunkRig.Set(platform, "uptimeStopWatch", Stopwatch.StartNew());
-        (game.Platform, game.TerrainChunkTesselator, game.ShouldTesselateTerrain) = (platform, rig.Tesselator, true);
-        game.frustumCuller = (FrustumCulling)RuntimeHelpers.GetUninitializedObject(typeof(FrustumCulling));
-        foreach (var name in new[] { "dirtyChunksPriority", "dirtyChunks", "dirtyChunksLast" })
-        {
-            ChunkRig.Set(game, name, new UniqueQueue<long>());
-            ChunkRig.Set(game, name + "Lock", new object());
-        }
-
+        game.Platform = platform;
         game.FastBlockTextureSubidsByBlockAndFace = [.. rig.Blocks.Select(_ => new int[6])];
         var positions = new[] { new TextureAtlasPosition { x1 = 0, y1 = 0, x2 = 1, y2 = 1 } };
         ChunkRig.Set(game.BlockAtlasManager, "TextureAtlasPositionsByTextureSubId", positions);
@@ -394,7 +374,6 @@ public sealed class TessParallelTests
         return manager;
     }
 
-    // Rock with caves and ores below, a surface of hills with crosses on it, sky with a few floating crosses above
     private static void Fill(ChunkRig rig)
     {
         foreach (var block in rig.Blocks)
@@ -424,8 +403,7 @@ public sealed class TessParallelTests
         return pick < 9 ? ChunkRig.Granite : ChunkRig.Stone;
     }
 
-    // A chunk's meshes, part by part in the engine's order, hashed; and its vertex count
-    private sealed record Digest(int Vertices, string Hash)
+    internal sealed record Digest(int Vertices, string Hash)
     {
         public static Digest Of(TesselatedChunk tess)
         {
@@ -460,25 +438,24 @@ public sealed class TessParallelTests
                 return 0;
             }
 
-            int v = mesh.VerticesCount, n = mesh.IndicesCount, c = mesh.CustomInts?.Count ?? -1;
-            Add(hash, v, n, c);
+            int v = mesh.VerticesCount, n = mesh.IndicesCount, c = mesh.CustomInts?.Count ?? -1,
+                s = mesh.CustomShorts?.Count ?? -1, f = mesh.CustomFloats?.Count ?? -1;
+            Add(hash, v, n, c, s, f);
             hash.AppendData(MemoryMarshal.AsBytes(mesh.xyz.AsSpan(0, 3 * v)));
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Uv.AsSpan(0, 2 * v)));
             hash.AppendData(mesh.Rgba.AsSpan(0, 4 * v));
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Flags.AsSpan(0, v)));
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Indices.AsSpan(0, n)));
             if (c > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomInts!.Values.AsSpan(0, c)));
+            if (s > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomShorts!.Values.AsSpan(0, s))); // TopSoil's overlay
+            if (f > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomFloats!.Values.AsSpan(0, f))); // Liquid's
             return v;
         }
 
-        private static void Add(IncrementalHash hash, params int[] values)
-        {
+        private static void Add(IncrementalHash hash, params int[] values) =>
             hash.AppendData(MemoryMarshal.AsBytes(values.AsSpan()));
-        }
 
-        public override string ToString()
-        {
-            return string.Create(CultureInfo.InvariantCulture, $"{Vertices} vertices, {Hash}");
-        }
+        public override string ToString() =>
+            string.Create(CultureInfo.InvariantCulture, $"{Vertices} vertices, {Hash}");
     }
 }

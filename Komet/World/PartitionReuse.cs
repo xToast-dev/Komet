@@ -5,23 +5,15 @@ using Vintagestory.API.Common.Entities;
 
 namespace Komet.World;
 
-// EntityPartitioning (VSEssentials) sorts every loaded entity into 8x8-block cells 31 times a second, on the client and on the server
-// of a singleplayer world alike. PartitionEntities clears its dictionary and builds everything anew: an EntityPartitionChunk with a
-// List<Entity>[16] per occupied chunk, a List<Entity>(4) per occupied cell and its growth, and a second array per chunk that holds an
-// inanimate entity - 7 MB/s of garbage on the server of the bench world, a quarter of which is still referenced from the dictionary
-// when a collection comes and is copied into gen 1 each time. The rewrite swaps only those allocations; the partitioning itself, the
-// order of the entities in each list and every value it writes stay the engine's.
+// EntityPartitioning.PartitionEntities rebuilds every chunk, cell list and array 31 times a second on client and server alike: 7 MB/s
+// of garbage on the bench world's server, a quarter of it still referenced at each collection and promoted to gen 1. Only those
+// allocations are pooled; the partitioning, the entity order and every value written stay the engine's.
 //
-// Dictionary.Clear becomes Retire: the chunks the call before last put into the dictionary go back to its pool, every list taken out
-// of their two arrays, emptied and pooled, the Entities slots nulled and InanimateEntities (emptied too) pooled and nulled; the chunks
-// of the last call take their place, and the dictionary is cleared as before. The chunk constructor, the array in
-// EntityPartitionChunk.Add and the list in FetchOrCreateList take from that pool, but only inside the call (a finalizer closes it).
-// So a chunk, list or array handed out looks as a new one would: Entities all null, InanimateEntities null, a list empty (a larger
-// capacity is never read). Nothing outside the partitioning keeps a chunk or a list across its calls: WalkEntities and the lookups
-// built on it read the dictionary in place, on the thread that partitions, and EntityPlayer.entityListForPartitioning, the one list
-// kept on an entity, is replaced on every call and only ever has its own player removed from it (RePartitionPlayer, which partitions
-// right after). What a call hands out stays as it is through the next call too, so a reader on another thread would have a whole
-// tick. The pools belong to the dictionary (client and server keep one each, on their own threads) and go with it.
+// Reuse is safe because nothing outside the partitioning keeps a chunk or list across calls: WalkEntities and the lookups built on it
+// read the dictionary in place on the partitioning thread, and EntityPlayer.entityListForPartitioning is replaced on every call and
+// only ever has its own player removed (RePartitionPlayer, which partitions right after). Chunks are recycled one call late, so a
+// reader on another thread still has a whole tick. A pooled object looks new: Entities all null, InanimateEntities null, lists empty
+// (a larger capacity is never read). The pools belong to the dictionary (client and server each own one, on their own threads).
 internal static class PartitionReuse
 {
     private const string Partitioning = "Vintagestory.GameContent.EntityPartitioning";
@@ -35,7 +27,6 @@ internal static class PartitionReuse
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => _rewritten == AllBits;
 
-    // Chunks, lists and arrays handed out again instead of allocated, a total while Counting.Hud
     public static long Reused => Interlocked.Read(ref _reused);
 
     public static void Install(Harmony harmony)
@@ -53,14 +44,11 @@ internal static class PartitionReuse
             finalizer: new HarmonyMethod(Close)));
     }
 
-    // Both arrays a chunk holds, as Recycle reads and clears them, and the constructor Take stands in for
     private static bool Fields(Type chunk) =>
         Assert(AccessTools.DeclaredField(chunk, "Entities")?.FieldType == typeof(List<Entity>[])) &&
         Assert(AccessTools.DeclaredField(chunk, "InanimateEntities")?.FieldType == typeof(List<Entity>[])) &&
         Assert(chunk.IsClass && AccessTools.DeclaredConstructor(chunk, []) is not null);
 
-    // The one Dictionary<long, chunk>.Clear becomes Retire and the one chunk constructor after it Take; any other shape keeps the
-    // engine's IL
     internal static List<CodeInstruction> RewritePartition(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~PartitionBit;
@@ -78,7 +66,6 @@ internal static class PartitionReuse
         return code;
     }
 
-    // The one array Add makes, InanimateEntities; any other shape keeps the engine's IL
     internal static List<CodeInstruction> RewriteAdd(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~AddBit;
@@ -89,7 +76,6 @@ internal static class PartitionReuse
         return code;
     }
 
-    // The one list FetchOrCreateList makes; any other shape keeps the engine's IL
     internal static List<CodeInstruction> RewriteFetch(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~FetchBit;
@@ -101,7 +87,7 @@ internal static class PartitionReuse
         return code;
     }
 
-    // Stands in for partitions.Clear() at the start of every PartitionEntities: this dictionary's pool serves the call
+    // Stands in for partitions.Clear() at the start of every PartitionEntities
     internal static void Retire<TChunk>(Dictionary<long, TChunk> partitions) where TChunk : class, new()
     {
         if (!NotNull(partitions)) return;
@@ -123,7 +109,6 @@ internal static class PartitionReuse
     // exception untouched
     internal static void Close() => Spares.Current = null;
 
-    // Stands in for new EntityPartitionChunk(): the pool's, else a new one
     internal static TChunk Take<TChunk>() where TChunk : class, new()
     {
         if (!Enabled || Spares.Current is not Pool<TChunk> pool || !pool.Free.TryPop(out var chunk))
@@ -132,7 +117,6 @@ internal static class PartitionReuse
         return chunk;
     }
 
-    // Stands in for new List<Entity>[length] in Add
     internal static List<Entity>[] TakeArray(int length)
     {
         if (!Enabled || Spares.Current is not { } spares || !spares.Arrays.TryPeek(out var array) ||
@@ -141,7 +125,6 @@ internal static class PartitionReuse
         return spares.Arrays.Pop();
     }
 
-    // Stands in for new List<Entity>(capacity) in FetchOrCreateList
     internal static List<Entity> TakeList(int capacity)
     {
         if (!Enabled || Spares.Current is not { } spares || !spares.Lists.TryPop(out var list))
@@ -155,14 +138,12 @@ internal static class PartitionReuse
         if (Counting.Hud) _ = Interlocked.Increment(ref _reused);
     }
 
-    // What the thread's partitioning takes lists and arrays from, while one runs
     private class Spares
     {
         [ThreadStatic] internal static Spares? Current;
         public readonly Stack<List<Entity>[]> Arrays = new();
         public readonly Stack<List<Entity>> Lists = new();
 
-        // Every list out of the array, emptied into the pool (past its cap it is left to the collector), and the slots nulled
         protected void Empty(List<Entity>[] array)
         {
             if (!NotNull(array)) return;
@@ -188,7 +169,6 @@ internal static class PartitionReuse
     {
         public readonly Stack<TChunk> Free = new();
 
-        // The chunks the last call handed out, each once
         private readonly HashSet<TChunk> _last = new(ReferenceEqualityComparer.Instance);
 
         // The chunks of the call before last are no longer in the dictionary nor in anyone's hands: emptied, they are free. A chunk
@@ -210,7 +190,6 @@ internal static class PartitionReuse
             _ = Assert(Free.Count <= MaxChunks);
         }
 
-        // The chunks the last call put into the dictionary, before Clear drops them
         public void Remember(Dictionary<long, TChunk> partitions)
         {
             using var chunks = partitions.Values.GetEnumerator();
@@ -230,7 +209,6 @@ internal static class PartitionReuse
             return NotNull(pool) ? pool : new Pool<TChunk>();
         }
 
-        // Switched off: the dictionary's pool goes, and with it every chunk and list it held
         public static void Forget(Dictionary<long, TChunk> partitions)
         {
             if (NotNull(partitions)) _ = Table.Remove(partitions);

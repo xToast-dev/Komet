@@ -10,6 +10,7 @@ public sealed class EngineSeamTests
 {
     private static readonly Type[] NoArgs = [];
     private static readonly Type[] Coords = [typeof(int), typeof(int), typeof(int)];
+    private static readonly Type[] Renderer = [typeof(IRenderer), typeof(EnumRenderStage), typeof(string)];
 
     private static IEnumerable<TestCaseData> Methods()
     {
@@ -39,6 +40,11 @@ public sealed class EngineSeamTests
         yield return Case<ChunkTesselatorManager>("TesselateChunk",
             [typeof(int), typeof(int), typeof(int), typeof(bool), typeof(bool), typeof(bool).MakeByRefType()]);
         yield return Case<ClientWorldMap>("LoadOrCreateLerpedClimateMapOffthread", null);
+        yield return Case<ClientWorldMap>("LoadChunkFromPacket", null);
+        yield return Case<ClientMain>("ExecuteMainThreadTasks", null);
+        yield return Case<ClientChunk>("InitBlockEntitiesFromPacket", [typeof(ClientMain)]);
+        yield return Case<ClientWorldMap>("GetClientChunk", Coords);
+        yield return Case<Vintagestory.GameContent.BlockEntityGroundStorage>("UpdateIgnitable", NoArgs);
     }
 
     private static IEnumerable<TestCaseData> Fields()
@@ -53,11 +59,17 @@ public sealed class EngineSeamTests
         yield return Field<ClientWorldMap>("chunksLock", typeof(object));
         yield return Field<ClientWorldMap>("LerpedClimateMaps");
         yield return Field<ClientWorldMap>("LerpedClimateMapsLock");
+        yield return Field<ClientMain>("reversedQueue", typeof(Queue<ClientTask>));
+        yield return Field<ProcessPacketTask>("packet", typeof(Packet_Server));
+        yield return Field<ClientEventManager>("EventBusListeners", typeof(List<EventBusListener>));
         yield return Field<SystemRenderSunMoon>("occlQueryId");
         yield return Field<SystemRenderSunMoon>("firstTickDone");
         yield return Field<SystemRenderSunMoon>("nowQuerying");
         yield return Field<SystemRenderSunMoon>("targetSunSpec");
         yield return Field<List<int>>("_version");
+        // IdleAnimators' accessors: the count's offset is measured at install, the version is read by every parked stage
+        yield return Field<AnimatorBase>("activeAnimCount", typeof(int));
+        yield return Field<List<RenderHandler>>("_version", typeof(int)).SetName("List<RenderHandler>._version");
         // TessSchedule's accessors: a mismatch would throw on the tessellation thread, which ends the game
         yield return Field<ClientSystem>("game", typeof(ClientMain));
         yield return Field<ChunkTesselator>("started", typeof(bool));
@@ -68,17 +80,12 @@ public sealed class EngineSeamTests
         }
     }
 
-    private static TestCaseData Case<T>(string member, Type[]? args)
-    {
-        return new TestCaseData(typeof(T), member, args).SetName(
-            $"{typeof(T).Name}.{member}{(args == null ? "" : $"({args.Length})")}");
-    }
+    private static TestCaseData Case<T>(string member, Type[]? args) => new TestCaseData(typeof(T), member, args).SetName(
+        $"{typeof(T).Name}.{member}{(args == null ? "" : $"({args.Length})")}");
 
     // A field type is given where an UnsafeAccessor binds it, which needs the exact type
-    private static TestCaseData Field<T>(string member, Type? type = null)
-    {
-        return new TestCaseData(typeof(T), member, type).SetName($"{typeof(T).Name}.{member}");
-    }
+    private static TestCaseData Field<T>(string member, Type? type = null) =>
+        new TestCaseData(typeof(T), member, type).SetName($"{typeof(T).Name}.{member}");
 
     [TestCaseSource(nameof(Methods))]
     public void MethodExists(Type type, string name, Type[]? args)
@@ -98,7 +105,6 @@ public sealed class EngineSeamTests
             Assert.That(field.FieldType, Is.EqualTo(fieldType), $"{type.FullName}.{name} changed its type");
     }
 
-    // Each engine method with the Komet patch whose parameters Harmony binds to its arguments and fields by name
     private static IEnumerable<TestCaseData> Patches()
     {
         yield return Patch<SystemRenderSunMoon>("OnRenderFrame3DPost", null, typeof(SunOcclusion), "Prefix");
@@ -121,13 +127,32 @@ public sealed class EngineSeamTests
         yield return Patch<ChunkTesselatorManager>("TesselateChunk", null, typeof(TessAccounting), "Begin");
         yield return Patch<ChunkTesselatorManager>("TesselateChunk", null, typeof(TessAccounting), "End");
         yield return Patch<ClientEventManager>("TriggerRenderStage", null, typeof(ModTimes), "RenderStage");
+        yield return Patch<AnimationUtil>("StartAnimation", null, typeof(IdleAnimators), "Woken");
+        yield return Patch<ClientMain>("ExecuteMainThreadTasks", null, typeof(EventBusSweep), "Sweep");
+        yield return Patch<BlockEntity>("OnBlockUnloaded", null, typeof(EventBusSweep), "Died");
+        yield return Patch<BlockEntity>("OnBlockRemoved", null, typeof(EventBusSweep), "Died");
+        yield return Patch<BlockEntity>("Initialize", null, typeof(EventBusSweep), "Revived");
+        yield return Patch<ClientEventAPI>("RegisterEventBusListener", null, typeof(EventBusSweep), "Registered");
+        yield return Patch<WorldChunk>("GetLocalBlockEntityAtBlockPos", null, typeof(BlockEntityBudget), "Accessed");
+        yield return Patch<EventManager>("AddGameTickListenerBlockInternal", null, typeof(ListenerSlots), "AddTick");
+        yield return Patch<EventManager>("RemoveGameTickListener", null, typeof(ListenerSlots), "RemovingTick");
+        yield return Patch<EventManager>("RemoveGameTickListener", null, typeof(ListenerSlots), "RemovedTick");
+        yield return Patch<ClientEventManager>("RegisterRenderer", Renderer, typeof(ListenerSlots), "Rendering");
+        yield return Patch<ClientEventManager>("RegisterRenderer", Renderer, typeof(ListenerSlots), "Rendered");
+        yield return Patch<ClientEventManager>("UnregisterRenderer", null, typeof(ListenerSlots), "Unrendering");
+        yield return Patch<ClientEventManager>("UnregisterRenderer", null, typeof(ListenerSlots), "Unrendered");
+        yield return Patch<DummyRenderer>("set_RenderOrder", null, typeof(ListenerSlots), "Moved");
+        yield return Patch<ClientEventAPI>("RegisterEventBusListener", null, typeof(ListenerSlots), "Listening");
+        yield return Patch<ClientEventAPI>("RegisterEventBusListener", null, typeof(ListenerSlots), "Listened");
+        yield return Patch<ClientEventAPI>("UnregisterEventBusListener", null, typeof(ListenerSlots), "Unlistening");
+        yield return Patch<ClientEventAPI>("UnregisterEventBusListener", null, typeof(ListenerSlots), "Unlistened");
+        yield return Patch<Vintagestory.GameContent.BlockEntityFirepit>("getOrCreateMesh", null, typeof(BlockEntityCaches),
+            "Mesh");
     }
 
-    private static TestCaseData Patch<T>(string member, Type[]? args, Type komet, string patch)
-    {
-        return new TestCaseData(typeof(T), member, args, komet, patch).SetName(
+    private static TestCaseData Patch<T>(string member, Type[]? args, Type komet, string patch) =>
+        new TestCaseData(typeof(T), member, args, komet, patch).SetName(
             $"{typeof(T).Name}.{member} by {komet.Name}.{patch}");
-    }
 
     [TestCaseSource(nameof(Patches))]
     public void PatchBindsByName(Type type, string name, Type[]? args, Type komet, string patch)
@@ -165,9 +190,7 @@ public sealed class EngineSeamTests
     }
 }
 
-// The engine-seam guard itself: a fingerprint is stable for a body and tells bodies apart, pins many bodies at once, and the patch
-// check counts exactly the patches of the kinds asked that are not the caller's own. The features' fingerprints are pinned in
-// FeaturesTests, each feature tests its own stand-down.
+// The features' fingerprints are pinned in FeaturesTests, each feature tests its own stand-down.
 public sealed class EngineShapeTests
 {
     [Test]
@@ -194,10 +217,7 @@ public sealed class EngineShapeTests
         });
     }
 
-    private static bool RunOriginal()
-    {
-        return true;
-    }
+    private static bool RunOriginal() => true;
 
     // The guard's patch check on the sweep's method, counted as each copy it replaces counts: a prefix of the same class is its own
     // (VisibleFaces, FaceLight, ExtendedRows), one of another class under the same id is not; under an own id no patch is
@@ -228,15 +248,15 @@ public sealed class EngineShapeTests
             Assert.That(EngineShape.Foreign([target], body, null), Is.False, "a prefix leaves the body");
             Assert.That(EngineShape.Foreign([target], all, null), Is.True, "any patch");
         });
-        _ = other.Patch(target, postfix: new HarmonyMethod(typeof(Other), nameof(Other.After)));
+        _ = other.Patch(target, postfix: Foreign.Postfix);
         Assert.Multiple(() =>
         {
             Assert.That(EngineShape.Foreign([target], replacing, own.Id), Is.False, "a postfix sees the same result");
             Assert.That(EngineShape.Foreign([target], all, own.Id), Is.True);
-            Assert.That(EngineShape.Foreign([target], all, null, typeof(EngineShapeTests), typeof(Other)), Is.False,
+            Assert.That(EngineShape.Foreign([target], all, null, typeof(EngineShapeTests), typeof(Foreign)), Is.False,
                 "both classes own");
         });
-        _ = other.Patch(target, transpiler: new HarmonyMethod(typeof(Other), nameof(Other.Same)));
+        _ = other.Patch(target, transpiler: Foreign.Transpiler);
         Assert.Multiple(() =>
         {
             Assert.That(EngineShape.Foreign([target], body, null), Is.True, "a rewritten body");
@@ -244,7 +264,6 @@ public sealed class EngineShapeTests
         });
     }
 
-    // A replacement that reproduces many bodies, constructors among them, pins them all in one fingerprint
     [Test]
     public void ManyBodiesAndConstructorsHaveAFingerprint()
     {
@@ -264,7 +283,6 @@ public sealed class EngineShapeTests
         });
     }
 
-    // A changed body: nothing is patched, the engine runs, and the log says why
     [TestCaseSource(nameof(Declining))]
     public void AChangedEngineDeclinesTheInstall(string name, Action<Harmony, ILogger> install, Func<bool> installed)
     {
@@ -293,28 +311,11 @@ public sealed class EngineShapeTests
                 () => ExtendedRows.Rewritten)
         ];
 
-        static TestCaseData Case(string name, Action<Harmony, ILogger> install, Func<bool> installed)
-        {
-            return new TestCaseData(name, install, installed).SetArgDisplayNames(name);
-        }
-    }
-
-    private static class Other
-    {
-        public static void After()
-        {
-            // only its presence on the method counts
-        }
-
-        public static IEnumerable<CodeInstruction> Same(IEnumerable<CodeInstruction> instructions)
-        {
-            return instructions;
-        }
+        static TestCaseData Case(string name, Action<Harmony, ILogger> install, Func<bool> installed) =>
+            new TestCaseData(name, install, installed).SetArgDisplayNames(name);
     }
 }
 
-// Komet's worker pool: frame batches run every item exactly once and never wait for a worker busy in a background job, background jobs
-// go on between batches, exceptions stay inside the pool, and moving to another world or stopping ends the threads
 public sealed class WorkerPoolTests
 {
     private const int Items = 4096;
@@ -414,7 +415,6 @@ public sealed class WorkerPoolTests
         });
     }
 
-    // An open batch holds the pool: nothing else opens one or runs a frame batch until it is closed
     [Test]
     public void AnOpenBatchExcludesEveryOther()
     {
@@ -429,9 +429,8 @@ public sealed class WorkerPoolTests
         Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Done));
     }
 
-    // Every worker sits in a background job far longer than the batch takes: the caller runs the batch alone and does not wait for them,
-    // and the background jobs go on
     [Test]
+    [Category("Slow")]
     public void ABatchCompletesWhileEveryWorkerIsInABackgroundJob()
     {
         WorkerPool.Background = static () =>
@@ -518,7 +517,6 @@ public sealed class WorkerPoolTests
         _throwAt = -1;
     }
 
-    // A background job that throws past its own handler stops background jobs; the threads and frame batches go on
     [Test]
     public void AThrowingBackgroundJobStopsOnlyBackgroundJobs()
     {

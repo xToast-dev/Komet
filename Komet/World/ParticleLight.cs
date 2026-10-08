@@ -5,34 +5,25 @@ using Vintagestory.Common;
 
 namespace Komet.World;
 
-// Particles on the render thread read their light every third physics step: ParticleGeneric.TickNow calls
-// BlockAccessorReadLockfree.GetLightRGBsAsInt, which, lock-free in name only, ends in WorldChunk.Unpack_AndReadLight and takes the
-// chunk's packUnpackLock. Three client threads hold that lock for a millisecond or more at a time: the visibility calculation
-// (ClientChunk.TemporaryUnpack), the chunk compressor (WorldChunk.Pack, zstd under the lock) and the tesselator reading neighbours.
-// With ~150 bee particles alive the render thread slept in Monitor.Enter for 8-13 ms of a frame.
-//
-// A particle's light is shading and nothing else. So on the render thread the read only takes the lock when it is free: when another
-// thread holds it, or the chunk is packed (reading would decompress it on the render thread and keep it unpacked), the particle gets
-// the last light read in that chunk instead (a neighbour's, for a particle of the same swarm), or else the last read anywhere, for the
-// three physics steps until its next read. Monitor.TryEnter is no cheap test either (it spins in TryEnter_Slowpath), so a chunk found
-// busy is not tried again for BackoffMs. Every other reader, and every read the lock is free for, runs the engine's method unchanged:
-// the prefix holds the lock it took across the original, which enters it again without waiting. Only the render thread reaches the
-// state below.
+// ParticleGeneric.TickNow reads light through BlockAccessorReadLockfree.GetLightRGBsAsInt, which, lock-free in name only, ends in
+// WorldChunk.Unpack_AndReadLight under the chunk's packUnpackLock. The visibility calculation (ClientChunk.TemporaryUnpack), the chunk
+// compressor (WorldChunk.Pack, zstd under the lock) and the tesselator hold it for a millisecond or more; with ~150 bee particles the
+// render thread slept in Monitor.Enter for 8-13 ms of a frame. A particle's light is only shading, so on the render thread a busy
+// chunk, or a packed one (reading would unpack it on the render thread), serves the last light read there, else the last read
+// anywhere. Monitor.TryEnter spins in TryEnter_Slowpath, hence the BackoffMs before a busy chunk is tried again.
 internal static class ParticleLight
 {
     public const int BackoffMs = 20;
     private const int Remembered = 8;
 
-    private static readonly Slot[] Slots = new Slot[Remembered]; // the chunks read or found busy lately, round robin
+    private static readonly Slot[] Slots = new Slot[Remembered];
     private static int _next, _last;
     private static bool _hasLast;
 
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
-    public static long Reads { get; private set; } // render-thread reads the prefix saw, totals while Counting.Hud
-    public static long Busy { get; private set; } // the lock was taken: served the last light instead of waiting
-
-    // The chunk was packed: served the last light instead of unpacking it
+    public static long Reads { get; private set; }
+    public static long Busy { get; private set; }
     public static long Packed { get; private set; }
 
     public static void Install(Harmony harmony)

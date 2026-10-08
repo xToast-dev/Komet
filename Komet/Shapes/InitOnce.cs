@@ -17,12 +17,7 @@ namespace Komet.Shapes;
 // init keys Shape.AnimationsByCrc32 by the code it finds then. Vanilla codes are lower case already; a code that is not would get an
 // entry only the second init makes, so the second init then runs.
 //
-// So a [ThreadStatic] window around EntityPlayer.OnTesselation remembers the last InitForAnimations inside its base call that
-// completed, and ShapeInitMemo's prefix skips the first one after base returns when it is the same shape with the same joints, no
-// other disable list and the same animation codes. Everything else runs: another shape, other joints, a renamed animation, an init
-// inside base that threw, a nested tesselation, a second init after the skipped one, a subclass of EntityPlayer (which may override
-// the protected OnTesselation and change the shape after the first init), and all of it while another mod patches one of the
-// tesselation, animation manager and head controller methods between the two calls, or anything inside the skipped init.
+// So the second init is skipped only for the same shape with the same joints, no other disable list and the same animation codes.
 internal static class InitOnce
 {
     // EngineShape of Shaped() in Vintage Story 1.22.7

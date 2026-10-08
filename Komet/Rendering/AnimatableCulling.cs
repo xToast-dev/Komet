@@ -5,25 +5,17 @@ using Vintagestory.API.MathTools;
 
 namespace Komet.Rendering;
 
-// AnimatableRenderer, the API's renderer for block entities with a running animation (doors, chests, translocators, the machinery in
-// ruins), draws in Opaque, ShadowFar and ShadowNear (and OIT with transparent parts) every frame wherever the block entity is: no
-// frustum test, no range. Each draw is a shader switch, a dozen uniforms, the joint matrices into a uniform buffer and a draw call. The
-// bench world keeps 15 of them running 256 to 768 blocks away: 45 draws a frame, 38 of them outside the view or the shadow map, a
-// tenth of the main thread. The prefix skips a draw whose geometry lies wholly outside the volume the stage's own matrices clip to.
+// AnimatableRenderer draws in Opaque, OIT, ShadowFar and ShadowNear every frame with no frustum test. The bench world keeps 15
+// running 256 to 768 blocks away: 45 draws a frame, 38 outside the view or shadow map, a tenth of the main thread. The default
+// culler holds the right planes for each stage: MainRenderLoop sets the camera's right before Opaque, SystemRenderShadowMap the
+// light's before any other shadow renderer.
 //
-// That volume is FrustumCulling's: MainRenderLoop computes its planes from the camera's matrices right before Opaque (and OIT follows
-// without a change), SystemRenderShadowMap from the light's before any other ShadowFar or ShadowNear renderer (render order 0), all in
-// world coordinates; the terrain culls against the same planes. The sphere tested holds every vertex the shader can place: the mesh's
-// radius around its centre (measured when mainThreadInit uploads it), widened by each joint matrix the animator holds now (the one
-// uploaded next: |M(v - c)| + |Mc - c| <= |M|F * r + |Mc - c|), taken through the model matrix as the draw builds it and widened again
-// by what vertexwarp.vsh can add - wind bend, water waves, the drunk warp and the temporal glitch, from the uniforms it reads. A mesh
-// whose joint ids reach past the animator's matrices, and any stage other than those four, is drawn as the engine draws it.
+// The sphere holds every vertex the shader can place: the mesh radius widened by each joint matrix
+// (|M(v - c)| + |Mc - c| <= |M|F * r + |Mc - c|), taken through the model matrix, plus what vertexwarp.vsh can add.
 //
-// A skipped draw leaves the GL state a drawn one leaves behind (the engine does not restore it, and a later renderer may draw with
-// it): outside OIT the depth mask on, blend on in its standard mode, and face culling off - or on, in Opaque and ShadowNear, for a
-// renderer without backface culling. Its shader switch ends on the shader that was active before, so there is nothing to restore;
-// textures, the VAO and the uniform buffer are bound by whoever draws next. The skipped body is the one this was written against
-// (EngineShape), and another mod's patch on it, which the skip would bypass, leaves every draw to the engine.
+// A skipped draw leaves the GL state a drawn one does (the engine does not restore it): outside OIT depth mask on, standard
+// blending, face culling off, or on in Opaque and ShadowNear for a renderer without backface culling. Textures, VAO and uniform
+// buffer are bound by whoever draws next.
 internal static class AnimatableCulling
 {
     // EngineShape of Shaped() in Vintage Story 1.22.7
@@ -40,12 +32,12 @@ internal static class AnimatableCulling
 
     public static bool Enabled { get; set; } = true;
 
-    // The engine's body is not the one verified, or another mod patches it: every draw is the engine's
+    // Body not verified or patched by another mod: every draw is the engine's
     internal static bool Blocked { get; private set; } = true;
 
     internal static bool Matched => _shaped;
 
-    // Draws skipped and drawn, totals while Counting.Hud (main thread)
+    // Totals while Counting.Hud (main thread)
     public static long Culled { get; private set; }
     public static long Drawn { get; private set; }
 
@@ -69,7 +61,7 @@ internal static class AnimatableCulling
         Recheck();
     }
 
-    // The draw the prefix may skip and the upload whose mesh it measures; KometModSystem asks again on LevelFinalize
+    // KometModSystem asks again on LevelFinalize
     internal static void Recheck()
     {
         var seamed = _shaped && Assert(_seams.Length == 2);
@@ -90,14 +82,12 @@ internal static class AnimatableCulling
         return Assert(seams.Length == 2) ? seams : [];
     }
 
-    // The body whose GL state a skipped draw reproduces
     internal static MethodBase?[] Shaped()
     {
         MethodBase?[] shaped = [.. Seams().AsSpan(0, 1)];
         return Assert(shaped.Length <= EngineShape.MaxMethods) ? shaped : [];
     }
 
-    // Postfix on mainThreadInit: the mesh's centre and radius, and the highest joint id it uses (0 without joint ids)
     internal static void Measured(AnimatableRenderer __instance, MeshData meshdata)
     {
         if (!NotNull(__instance) || meshdata?.xyz is not { } xyz) return;
@@ -122,7 +112,7 @@ internal static class AnimatableCulling
         if (Finite(radius)) Known.AddOrUpdate(__instance, bounds);
     }
 
-    // The highest joint id a vertex reads, from CustomInts, which the shader binds as jointId; none means it reads 0
+    // CustomInts is bound as jointId
     private static int Joints(CustomMeshDataPartInt? ints)
     {
         if (ints?.Values is not { } values || !Assert(ints.Count >= 0)) return 0;
@@ -132,7 +122,6 @@ internal static class AnimatableCulling
         return low < 0 ? MaxJoints : top; // a negative id is no joint this reasons about
     }
 
-    // Prefix on OnRenderFrame: false skips a draw that would put nothing on screen or into a shadow map
     internal static bool Frame(AnimatableRenderer __instance, EnumRenderStage stage)
     {
         if (!Enabled || Blocked || !NotNull(__instance) || !__instance.ShouldRender ||
@@ -151,7 +140,6 @@ internal static class AnimatableCulling
         return false;
     }
 
-    // Whether the sphere around everything the draw can put anywhere touches the stage's clip volume
     private static bool Visible(AnimatableRenderer renderer)
     {
         var (capi, animator, pos) = (Capi(renderer), Animator(renderer), Pos(renderer));
@@ -160,16 +148,19 @@ internal static class AnimatableCulling
         if (!Assert(matrices.Length % MatrixFloats == 0) || bounds.TopJoint >= matrices.Length / MatrixFloats)
             return true;
         var reach = Reach(matrices, bounds);
-        var (centre, scale) = Place(renderer, pos, bounds.Centre);
+        var (x, y, z, scale) = Place(renderer, pos, bounds.Centre);
         var radius = scale * reach + Warp(capi.Render.ShaderUniforms);
-        return !Finite(radius) || culler.SphereInFrustum(centre.X, centre.Y, centre.Z, radius);
+        return !Finite(radius) || culler.SphereInFrustum(x, y, z, radius);
     }
 
-    // The farthest any joint matrix can take a vertex from the mesh's centre: |M(v - c)| + |Mc - c| over all of them
+    // Only joints up to the mesh's highest id: the animator holds a matrix per animatable element, most read by no vertex, and
+    // walking them all was most of a culled draw's cost
     private static float Reach(float[] matrices, Bounds bounds)
     {
         var (c, reach) = (bounds.Centre, 0f);
-        for (var j = 0; j < Math.Min(matrices.Length / MatrixFloats, MaxJoints); j++)
+        var read = Math.Min(bounds.TopJoint + 1, matrices.Length / MatrixFloats);
+        _ = Assert(read >= 1 || matrices.Length == 0);
+        for (var j = 0; j < Math.Min(read, MaxJoints); j++)
         {
             var m = matrices.AsSpan(j * MatrixFloats, MatrixFloats);
             var (x, y, z) = (m[0] * c.X + m[4] * c.Y + m[8] * c.Z + m[12] - c.X,
@@ -181,9 +172,8 @@ internal static class AnimatableCulling
         return Assert(reach >= 0) ? reach : float.PositiveInfinity;
     }
 
-    // The mesh centre in world coordinates and the largest stretch of the model matrix, built as OnRenderFrame builds it without the
-    // camera offset: the custom transform, or the half-block turn about Y with the renderer's scale
-    private static (Vec3d Centre, float Scale) Place(AnimatableRenderer renderer, Vec3d pos, Vec3f c)
+    // The model matrix as OnRenderFrame builds it, without the camera offset; the centre as three doubles, not a Vec3d per draw
+    private static (double X, double Y, double Z, float Scale) Place(AnimatableRenderer renderer, Vec3d pos, Vec3f c)
     {
         var model = Model;
         _ = Mat4f.Identity(model);
@@ -196,15 +186,14 @@ internal static class AnimatableCulling
             _ = Mat4f.Translate(model, model, -0.5f, 0f, -0.5f);
         }
 
-        var centre = new Vec3d(pos.X + model[0] * c.X + model[4] * c.Y + model[8] * c.Z + model[12],
+        return (pos.X + model[0] * c.X + model[4] * c.Y + model[8] * c.Z + model[12],
             pos.Y + model[1] * c.X + model[5] * c.Y + model[9] * c.Z + model[13],
-            pos.Z + model[2] * c.X + model[6] * c.Y + model[10] * c.Z + model[14]);
-        return (centre, Frobenius(model));
+            pos.Z + model[2] * c.X + model[6] * c.Y + model[10] * c.Z + model[14], Frobenius(model));
     }
 
-    // How far vertexwarp.vsh can move a vertex, per its uniforms: the wind bend (at most 4) and its wiggle, water waves, the global
-    // warp, the drunk warp (at most the intensity per axis) and the temporal glitch (at most 50 * (waviness - 0.1) per axis)
-    private static float Warp(DefaultShaderUniforms? uniforms)
+    // How far vertexwarp.vsh can move a vertex: wind bend (at most 4) and wiggle, water waves, global warp, drunk warp (at most
+    // the intensity per axis), temporal glitch (at most 50 * (waviness - 0.1) per axis)
+    internal static float Warp(DefaultShaderUniforms? uniforms)
     {
         if (!NotNull(uniforms)) return float.PositiveInfinity;
         var wind = 6f + 6f * Math.Abs(uniforms.WindWaveIntensity) * (1 + Math.Abs(uniforms.WindSpeed)) +
@@ -214,18 +203,21 @@ internal static class AnimatableCulling
         return wind + Root3 * warp;
     }
 
-    // The GL state OnRenderFrame leaves behind when it draws, set without drawing
+    // Depth mask on, standard blending, face culling on or off
     private static void Leave(AnimatableRenderer renderer, EnumRenderStage stage)
     {
         if (stage == EnumRenderStage.OIT || Capi(renderer)?.Render is not { } render) return;
+        var cull = stage is EnumRenderStage.Opaque or EnumRenderStage.ShadowNear && !renderer.backfaceCulling;
+        _ = Assert(stage != EnumRenderStage.OIT);
+        if (LeftState.Holds(cull ? LeftState.Kind.Culling : LeftState.Kind.Unculled)) return;
         render.GLDepthMask(true);
         render.GlToggleBlend(true);
-        if (stage is EnumRenderStage.Opaque or EnumRenderStage.ShadowNear && !renderer.backfaceCulling)
-            render.GlEnableCullFace();
+        if (cull) render.GlEnableCullFace();
         else render.GlDisableCullFace();
+        LeftState.Left(cull ? LeftState.Kind.Culling : LeftState.Kind.Unculled);
     }
 
-    // At least the largest stretch of the matrix's 3x3 part
+    // At least the largest stretch of the 3x3 part
     private static float Frobenius(ReadOnlySpan<float> m) => MathF.Sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2] +
         m[4] * m[4] + m[5] * m[5] + m[6] * m[6] + m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
 

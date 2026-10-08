@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Komet.Diagnostics;
 
-// Maps the engine profiler's marks to render passes. Queries address a place in the list sorted by cost.
+// Queries address a place in the list sorted by cost
 internal sealed class RenderPassStats
 {
     // MaxMarks: marks read per frame and range, and names kept per pass and interval
@@ -30,8 +30,7 @@ internal sealed class RenderPassStats
 
     private readonly int[] _order = new int[Keys.Length];
 
-    private readonly double[] _sumMs = new double[Keys.Length], _worstMs = new double[Keys.Length],
-        _frameMs = new double[Keys.Length];
+    private readonly double[] _sumMs = new double[Keys.Length], _frameMs = new double[Keys.Length];
 
     private readonly (string? Name, double Ms)[][] _topMarks =
         Array.ConvertAll(Keys, _ => new (string?, double)[DetailCount]);
@@ -51,7 +50,7 @@ internal sealed class RenderPassStats
 
     public double AverageTotalMs => _frames == 0 ? 0 : _sumTotalMs / _frames;
 
-    // The worst steady frame with its dearest marks (_worstTop); _worstMs is each pass's own worst, which can come from any frame
+    // The worst steady frame with its dearest marks (_worstTop)
     public double WorstFrameMs { get; private set; }
 
     // The dearest marks and ranges of the frame added last, the time between frames ranked in as Outside; empty when it had no profile
@@ -63,9 +62,6 @@ internal sealed class RenderPassStats
 
     public double Percent(int place) =>
         Index(place, Count) && AverageTotalMs > 0 ? AverageMs(place) / AverageTotalMs * 100 : 0;
-
-    public double WorstPercent(int place) =>
-        Index(place, Count) && AverageTotalMs > 0 ? _worstMs[_order[place]] / AverageTotalMs * 100 : 0;
 
     public string DetailName(int place, int rank) =>
         Index(place, Count) && Index(rank, DetailCount) ? _topMarks[_order[place]][rank].Name ?? "–" : "";
@@ -107,11 +103,7 @@ internal sealed class RenderPassStats
         if (outside > 0) TopN.Rank(_frameTop, Outside, outside);
         var assigned = outside + AddMarks(frame.Marks) + AddRanges(frame.ChildRanges);
         _frameMs[(int)Pass.Other] += Math.Max(0, total - assigned);
-        for (var i = 0; i < Keys.Length; i++)
-        {
-            _sumMs[i] += _frameMs[i];
-            _worstMs[i] = Math.Max(_worstMs[i], _frameMs[i]);
-        }
+        for (var i = 0; i < Keys.Length; i++) _sumMs[i] += _frameMs[i];
 
         _hasFrame = true;
         if (!steady || total <= WorstFrameMs) return;
@@ -234,7 +226,6 @@ internal sealed class RenderPassStats
     {
         (_frames, _sumTotalMs) = (0, 0);
         Array.Clear(_sumMs);
-        Array.Clear(_worstMs);
         for (var i = 0; i < Keys.Length; i++) _marks[i].Clear();
     }
 
@@ -255,7 +246,7 @@ internal static class TopN
 {
     public const int MaxRank = 8;
 
-    // Insertion into top-N slots sorted descending: a new item enters at its rank, the last one falls off, an equal one stays behind
+    // Top-N sorted descending: an equal item stays behind the one already there
     public static void Rank<T>(Span<(T? Item, double Ms)> top, T item, double ms) where T : class
     {
         if (!Assert(top.Length is > 0 and <= MaxRank) || !Assert(ms >= 0) || !NotNull(item)) return;

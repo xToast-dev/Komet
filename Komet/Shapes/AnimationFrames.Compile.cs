@@ -10,9 +10,7 @@ namespace Komet.Shapes;
 // The compile the cache cannot answer. Animation.GenerateAllFrames is O(K² · E · m): for every keyframe, element and flag
 // getTwoKeyFramesElementForFlag runs seekRightKeyFrame over all K keyframes and seekLeftKeyFrame back, and every probe is
 // AnimationKeyFrame.GetKeyFrameElement, a linear FastSmallDictionary scan over the m elements a keyframe moves. This produces the same
-// PrevNextKeyFrameByFrame in O(K · E): each keyframe's resolved table is read once into one row per element, and per element and flag
-// the ascending keyframe indices at which the flag is set answer both seeks with the engine's tie-breaking (right is the first of them
-// past the frame, else the first; left the one before it, cyclically); the pose then goes through the engine's float expressions.
+// PrevNextKeyFrameByFrame in O(K · E).
 //
 // The same output is every float bit, the RotShortestDistance flags, ForElement and child order of every pose, FrameNumber, and which
 // AnimationFrame objects PrevNextKeyFrameByFrame shares; the golden tests compare all of it with the engine. Where the engine would

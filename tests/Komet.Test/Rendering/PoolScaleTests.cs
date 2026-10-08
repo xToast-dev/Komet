@@ -7,10 +7,7 @@ public sealed class PoolScaleTests
     private const int Vertices = 1000, Indices = 1500, Parts = 16, Quads = 100;
 
     [TearDown]
-    public void Restore()
-    {
-        PoolScale.Scale = PoolScale.DefaultScale;
-    }
+    public void Restore() => PoolScale.Scale = PoolScale.DefaultScale;
 
     [Test]
     public void Installs()

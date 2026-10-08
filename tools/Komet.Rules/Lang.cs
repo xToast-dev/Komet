@@ -99,12 +99,9 @@ internal static class Lang
                     missing));
     }
 
-    private static IOperation? Argument(ImmutableArray<IArgumentOperation> arguments, string parameter)
-    {
-        return arguments
-            .FirstOrDefault(a => string.Equals(a.Parameter?.Name, parameter, StringComparison.OrdinalIgnoreCase))
+    private static IOperation? Argument(ImmutableArray<IArgumentOperation> arguments, string parameter) =>
+        arguments.FirstOrDefault(a => string.Equals(a.Parameter?.Name, parameter, StringComparison.OrdinalIgnoreCase))
             ?.Value;
-    }
 
     private static void Mismatch(AdditionalFileAnalysisContext context, LangFile[] langs)
     {
@@ -128,20 +125,12 @@ internal static class Lang
 // A language file: a flat JSON object {"key": "text", ...}. The reader is tolerant, not a validator (a test parses the assets with
 // Newtonsoft): it collects every string key with its string value and skips anything else up to the next separator. Like Newtonsoft,
 // which the game reads the files with, it accepts // and /* */ comments and single-quoted strings.
-internal sealed class LangFile
+internal sealed class LangFile(string path, SourceText text)
 {
     private readonly Dictionary<string, (string Text, TextSpan Span)> _entries = new(StringComparer.Ordinal);
 
-    private LangFile(string path, SourceText text)
-    {
-        Path = path;
-        Name = System.IO.Path.GetFileName(path);
-        Text = text;
-    }
-
-    public string Path { get; }
-    public string Name { get; }
-    public SourceText Text { get; }
+    public string Path { get; } = path;
+    public string Name { get; } = System.IO.Path.GetFileName(path);
     public IEnumerable<string> Keys => _entries.Keys;
 
     public bool TryGet(string key, out string text)
@@ -154,7 +143,7 @@ internal sealed class LangFile
     public Location Where(string key)
     {
         var span = _entries[key].Span;
-        return Location.Create(Path, span, Text.Lines.GetLinePositionSpan(span));
+        return Location.Create(Path, span, text.Lines.GetLinePositionSpan(span));
     }
 
     // The language files among the additional files, in ordinal path order

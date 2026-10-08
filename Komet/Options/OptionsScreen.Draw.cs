@@ -4,10 +4,8 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The screen's picture: one canvas over the columns (search bar, sidebar, scrolled list, description, buttons), recomposed only when
-// something it shows changed, over the game blurred (Backdrop) and dimmed; it ends above the hotbar. The highlight under the cursor is
-// one translucent rectangle over the canvas, so hovering never recomposes: each frame it eases toward what is under the cursor,
-// fading in and out and gliding from row to row within a column; a click briefly flashes it brighter.
+// One canvas, recomposed only when something it shows changed. The highlight under the cursor is one translucent rectangle over the
+// canvas, so hovering never recomposes.
 internal sealed partial class OptionsScreen
 {
     // Sizes before the GUI scale
@@ -115,8 +113,9 @@ internal sealed partial class OptionsScreen
         var (bottom, top) = (height - scaled(Margin), (double)height);
         var gui = capi.Gui?.OpenedGuis;
         if (gui is null || capi.World?.Player?.WorldData?.CurrentGameMode == EnumGameMode.Spectator) return bottom;
-        foreach (var dialog in gui.Take(MaxDialogs).Bounded(MaxDialogs))
+        for (var i = 0; i < Math.Min(gui.Count, MaxDialogs); i++) // every frame: no enumerator
         {
+            var dialog = gui[i];
             var bounds = dialog switch
             {
                 HudHotbar => dialog.Composers["hotbar"]?.Bounds,
@@ -150,7 +149,6 @@ internal sealed partial class OptionsScreen
         return new Columns(total, bottom - scaled(Margin), side, content, desc, scaled(SearchHeight) + gap, gap);
     }
 
-    // What the list shows: the chosen page under its title, or what the search found in every page
     private List<Item> Items()
     {
         if (_query.Length > 0) return Found();
@@ -197,7 +195,7 @@ internal sealed partial class OptionsScreen
         (row.Label.Contains(_query, StringComparison.CurrentCultureIgnoreCase) ||
          (row.Hint ?? "").Contains(_query, StringComparison.CurrentCultureIgnoreCase));
 
-    // The scroll clamped to the list; returns the page the sidebar lights (none while searching)
+    // Returns the page the sidebar lights (none while searching)
     private string Scroll(List<Item> items, Columns c)
     {
         double total = 0;
@@ -210,7 +208,6 @@ internal sealed partial class OptionsScreen
 
     private static double S(double size) => Finite(size) ? scaled(size) : 0;
 
-    // Words onto lines no wider than width; a line break in the text starts a line
     private List<string> Wrap(string text, CairoFont font, double width)
     {
         List<string> lines = [];
@@ -236,13 +233,12 @@ internal sealed partial class OptionsScreen
         return lines;
     }
 
-    // What the highlight heads for: the box under the cursor that does something (a row only inside the list's view), or nothing
     private void Retarget()
     {
         var (x, y) = _mouse;
-        var hit = PickAt(x, y) ?? _hits.Find(h => h.Covers(x, y)); // the open window's gaps (no glow) hide what is under them
+        var hit = PickAt(x, y) ?? Under(_hits, x, y, null); // the open window's gaps (no glow) hide what is under them
         var (vx, vy, vw, vh) = _view;
-        if (hit is null && x >= vx && x < vx + vw && y >= vy && y < vy + vh) hit = _rows.Find(h => h.Row && h.Covers(x, y));
+        if (hit is null && x >= vx && x < vx + vw && y >= vy && y < vy + vh) hit = Under(_rows, x, y, true);
         if (hit is null || !Assert(hit.Glow >= 0) || hit.Glow <= 0)
         {
             _target = _target with { Alpha = 0 };
@@ -254,7 +250,6 @@ internal sealed partial class OptionsScreen
         _target = new Light(hit.X, top, hit.W, Math.Max(0, bottom - top), hit.Glow, hit.Group);
     }
 
-    // One frame of easing, then the rectangle over the canvas
     private void Glow(float deltaTime)
     {
         if (!Finite(deltaTime) || !Assert(deltaTime >= 0)) return;

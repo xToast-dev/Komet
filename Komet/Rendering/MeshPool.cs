@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using HarmonyLib;
 using Vintagestory.API.MathTools;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Rendering;
 
@@ -31,21 +32,6 @@ internal static class MeshPool
     public static long Squeezes { get; private set; }
     public static long Skips { get; private set; } // squeezes answered by the bounds without a walk
     public static long Recounts { get; private set; }
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "poolLocations")]
-    internal static extern ref List<ModelDataPoolLocation> Locations(MeshDataPool pool);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "poolId")]
-    internal static extern ref int PoolId(MeshDataPool pool);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "poolOrigin")]
-    internal static extern ref Vec3i? Origin(MeshDataPool pool);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "modelRef")]
-    private static extern ref MeshRef Model(MeshDataPool pool);
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_version")]
-    internal static extern ref int Version(List<ModelDataPoolLocation> list);
 
     // The fields of the accessors FrustumSweep shares (modelRef is MeshPool's alone); an accessor on a missing field throws at first use
     internal static bool Seams()
@@ -87,13 +73,13 @@ internal static class MeshPool
         return false;
     }
 
-    // MeshDataPool.InsertAt in its order, with the rebase a vector wide and the fragmentation from the sums
+    // MeshDataPool.InsertAt in its order
     private static bool InsertAt(MeshDataPool __instance, ICoreClientAPI capi, MeshData modeldata, Vec3i modelOrigin,
         Sphere frustumCullSphere, int indexPosition, int vertexPosition, int listPosition,
         ref ModelDataPoolLocation __result)
     {
         if (!Enabled || !NotNull(capi) || !NotNull(modeldata) || !NotNull(__instance)) return true;
-        var (locations, model) = (Locations(__instance), Model(__instance));
+        var (locations, model) = (Locations(__instance), ModelRef(__instance));
         if (!NotNull(locations) || !NotNull(model) || !NotNull(modeldata.xyz) ||
             !NotNull(modeldata.Indices)) return true;
         if (!Assert(indexPosition >= 0) || !Assert(vertexPosition >= 0) ||
@@ -130,7 +116,7 @@ internal static class MeshPool
     private static void Rebase(ICoreClientAPI capi, MeshDataPool pool, MeshData modeldata, Vec3i modelOrigin,
         int vertexPosition)
     {
-        var origin = Origin(pool);
+        var origin = PoolOrigin(pool);
         if (vertexPosition > 0)
         {
             if (KeepsIndices(capi, modeldata)) Shift(modeldata.Indices, modeldata.IndicesCount, vertexPosition);
@@ -359,7 +345,6 @@ internal static class MeshPool
         return -1;
     }
 
-    // What CalcFragmentation would write, from the sums instead of a pass
     private static void Publish(MeshDataPool pool, List<ModelDataPoolLocation> list, State state)
     {
         (pool.UsedVertices, pool.CurrentFragmentation) =

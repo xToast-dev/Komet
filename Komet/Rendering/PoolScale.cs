@@ -2,17 +2,15 @@ using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Rendering;
 
-// ChunkRenderer keeps each pass's chunk meshes in pools of ClientSettings.ModelDataPoolMaxVertexSize vertices (500 000 by default),
-// and every pool is a buffer of its own: one draw call per pool and pass, one culling job, one origin uniform. At the bench world's
-// view distance the big passes hold about 110 pools each, 1300 draws a frame over all of them. A chunk pass's second pool is now twice
-// the size and every later one Scale times (vertices, indices and parts alike), so the same meshes fill a quarter of the pools: in the
-// bench 134 -> 144 FPS, 1 % low 41 -> 45, frames over 25 ms 26 -> 15 a minute. A pass that never fills its first pool (liquids, meta
-// blocks) keeps the size it had, so the memory held for nothing grows by at most one large pool per big pass. Where a mesh lands does
-// not change what is drawn: every pass depth tests or blends order-independently, and the engine's own placement is first fit. The
-// size is read when a pool is made, so a change applies to the pools made after it, fully after rejoining; Scale 1 is the engine.
+// Each pool of ChunkRenderer's passes (ClientSettings.ModelDataPoolMaxVertexSize, 500 000 vertices) costs a draw call, a culling job
+// and an origin uniform; the bench world's big passes hold ~110 pools each. A pass's second pool is now twice the size and every
+// later one Scale times (vertices, indices, parts), so the same meshes fill a quarter of the pools (bench 134 -> 144 FPS). A pass
+// that never fills its first pool keeps its size. Placement does not change what is drawn (order-independent depth test or
+// blend). The size is read when a pool is made, so changes apply to later pools; Scale 1 is the engine.
 internal static class PoolScale
 {
     public const int Engine = 1, MaxScale = 8, DefaultScale = 4;
@@ -24,9 +22,6 @@ internal static class PoolScale
 
     public static int Scale { get; set; } = DefaultScale;
     public static bool Rewritten => _sites > 0;
-
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "pools")]
-    private static extern ref List<MeshDataPool> Pools(MeshDataPoolManager manager);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "defaultVertexPoolSize")]
     private static extern ref int VertexSize(MeshDataPoolManager manager);
@@ -50,13 +45,12 @@ internal static class PoolScale
         _ = NotNull(harmony.Patch(add, transpiler: new HarmonyMethod(Rewrite)));
     }
 
-    // Postfix on the ChunkRenderer constructor and RuntimeAddBlockTextureAtlas: its pool managers are the chunk passes
     internal static void Registered(ChunkRenderer __instance)
     {
         if (!NotNull(__instance) || __instance.poolsByRenderPass is not { } passes) return;
         foreach (var pass in passes.Bounded(MaxSites * MaxSites))
             foreach (var manager in (pass ?? []).Bounded(MaxSites * MaxSites))
-                if (manager is not null) Chunks.AddOrUpdate(manager, Marker);
+                if (manager is not null) Register(manager);
     }
 
     internal static void Register(MeshDataPoolManager manager)
@@ -64,7 +58,7 @@ internal static class PoolScale
         if (NotNull(manager)) Chunks.AddOrUpdate(manager, Marker);
     }
 
-    // AddModel reads the pool sizes only where it makes a new pool: each read goes through Vertices, Indices or Parts
+    // AddModel's pool-size reads go through Vertices, Indices or Parts
     internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         _sites = 0;
@@ -86,12 +80,10 @@ internal static class PoolScale
         return code;
     }
 
-    // A null manager throws as the engine's ldfld did
     internal static int Vertices(MeshDataPoolManager manager) => VertexSize(manager) * Factor(manager);
     internal static int Indices(MeshDataPoolManager manager) => IndexSize(manager) * Factor(manager);
     internal static int Parts(MeshDataPoolManager manager) => PartCount(manager) * Factor(manager);
 
-    // A chunk pass's first pool as configured, its second twice that, every later one Scale times
     internal static int Factor(MeshDataPoolManager manager)
     {
         var scale = Math.Clamp(Scale, Engine, MaxScale);

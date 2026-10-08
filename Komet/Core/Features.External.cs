@@ -28,7 +28,6 @@ internal static partial class Features
         return feature < Table.Length ? Table[feature] : Added[feature - Table.Length].Feature;
     }
 
-    // After Komet's main stage: the features other mods registered before Komet started, in registration order
     public static void InstallQueued(FeatureContext context)
     {
         if (!NotNull(context) || !Assert(Added.Count <= MaxExternal)) return;
@@ -39,7 +38,6 @@ internal static partial class Features
         Poll();
     }
 
-    // KometFeatures.Register: refused with the reason logged, else queued or installed at once
     internal static bool Register(FeatureDefinition definition)
     {
         if (!NotNull(definition) || !Assert(Added.Count <= MaxExternal)) return false;
@@ -58,7 +56,6 @@ internal static partial class Features
         return true;
     }
 
-    // Why the definition cannot be registered; null when it can
     private static string? Refusal(FeatureDefinition definition)
     {
         if (!NotNull(definition) || !Assert(Count <= MaxFeatures)) return "it is null";
@@ -77,7 +74,6 @@ internal static partial class Features
             : null;
     }
 
-    // Its entry in Komet's loops: installed by Mount, rechecked by Watch, stopped by Unmount; its knob, if any, after Komet's
     private static Feature Describe(External external)
     {
         var (definition, slot) = (external.Definition, external.Slot);
@@ -107,8 +103,6 @@ internal static partial class Features
         };
     }
 
-    // The fingerprint, the patches under the feature's own Harmony id, the player's value, the stand-down check; whatever of the
-    // mod's throws takes its patches out again
     private static void Mount(FeatureContext context, External external)
     {
         var definition = external.Definition;
@@ -133,7 +127,6 @@ internal static partial class Features
         }
     }
 
-    // Whether the bodies the feature replaces are those its mod pinned; logged when not
     private static bool Shaped(FeatureDefinition definition, ILogger logger)
     {
         if (!NotNull(definition.Shaped) || !NotNull(logger)) return false;
@@ -180,7 +173,6 @@ internal static partial class Features
     }
 
     // The knob's static, what the mod's patches read, told to the mod while its patches are in (Mount tells it the value in place).
-    // A throw fails the feature.
     private static void Apply(External external, int value)
     {
         if (!NotNull(external.Definition.Knob) || !Assert(external.Knob >= 0)) return;
@@ -266,7 +258,6 @@ internal static partial class Features
         Unpatch(external);
     }
 
-    // Close: other mods' features, their knobs and every mod's hold go, registrations open again
     private static void Drop()
     {
         if (!Assert(Added.Count <= MaxExternal) || !Assert(Handles.Count <= MaxHolds)) return;
@@ -277,7 +268,6 @@ internal static partial class Features
         Handles.Clear();
         Knobs.Truncate();
         (_context, _sealed) = (null, false);
-        Rows();
     }
 
     // KometFeatures.HoldOff: a handle holds only a feature with a knob; one hold of MaxHolds is kept for a stand-down
@@ -307,7 +297,6 @@ internal static partial class Features
     internal static bool Holding(FeatureHold hold) =>
         NotNull(hold) && Assert(Handles.Count <= MaxHolds) && Handles.Contains(hold);
 
-    // The first hold still in place on the feature
     private static FeatureHold? Holder(int feature)
     {
         if (!Assert(Handles.Count <= MaxHolds) || !Assert(feature >= -1)) return null;
@@ -317,7 +306,6 @@ internal static partial class Features
         return null;
     }
 
-    // KometFeatures.Snapshot: every feature in index order, each state evaluated now
     internal static FeatureInfo[] Snapshot()
     {
         var infos = new FeatureInfo[Math.Min(Count, MaxFeatures)];
@@ -368,7 +356,6 @@ internal static partial class Features
         return page;
     }
 
-    // A registered feature: its definition, the entry Komet's loops run, what its install and checks found
     private sealed class External(FeatureDefinition definition, int slot)
     {
         public FeatureDefinition Definition { get; } = definition;

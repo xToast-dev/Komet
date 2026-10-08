@@ -1,0 +1,38 @@
+#version 460 core
+// One level of the depth pyramid: each texel is the farthest depth of the 2x2 texels below it, so a box nearer than a texel's
+// value may be in front of something there, and one farther than it is behind everything there. Level 0 reads the scene's depth
+// buffer, every other level the level above. Level 0 rounds up (a texel past the depth buffer's edge repeats its last row or
+// column); later levels halve as the mip chain does, rounding down, so the last texel of a level whose level above is odd also
+// takes the row or column the halving left over.
+// Written for OpenGL and Vulkan alike: explicit bindings no two resources share, no loose uniforms.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(std140, binding = 14) uniform Params
+{
+    ivec4 sizes; // source width, height, destination width, height
+    ivec4 flags; // x: 1 = the source is the depth buffer
+};
+
+layout(binding = 30) uniform sampler2D depthBuffer;
+layout(r32f, binding = 6) uniform readonly image2D above;
+layout(r32f, binding = 7) uniform writeonly image2D level;
+
+float Source(ivec2 at)
+{
+    ivec2 clamped = min(at, sizes.xy - 1);
+    return flags.x == 1 ? texelFetch(depthBuffer, clamped, 0).r : imageLoad(above, clamped).r;
+}
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(texel, sizes.zw))) return;
+    ivec2 from = texel * 2;
+    float farthest = max(max(Source(from), Source(from + ivec2(1, 0))),
+                         max(Source(from + ivec2(0, 1)), Source(from + ivec2(1, 1))));
+    bvec2 odd = bvec2(texel.x == sizes.z - 1 && from.x + 2 < sizes.x, texel.y == sizes.w - 1 && from.y + 2 < sizes.y);
+    if (odd.x) farthest = max(farthest, max(Source(from + ivec2(2, 0)), Source(from + ivec2(2, 1))));
+    if (odd.y) farthest = max(farthest, max(Source(from + ivec2(0, 2)), Source(from + ivec2(1, 2))));
+    if (all(odd)) farthest = max(farthest, Source(from + 2));
+    imageStore(level, texel, vec4(farthest));
+}

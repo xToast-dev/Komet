@@ -1,5 +1,7 @@
+using System.Numerics;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
@@ -22,7 +24,11 @@ namespace Komet.Tessellation;
 // - Block.OnJsonTesselation, which JsonTesselator.doMesh and BleedingJsonTesselator.DoMeshWithBleeding call on the block's shared
 //   mesh: the overrides write per-position flags into it or fill block fields lazily, so a block with an override is meshed by one
 //   thread at a time (a lock on the block). BlockFenceStackAware shares its mesh cache and swaps a texture id across the fence family:
-//   one lock for all of those. Block's own method ORs the same wind bits every time and takes no lock.
+//   one lock for all of those. Block's own method ORs the same wind bits every time and takes no lock, nor does an override that
+//   does nothing (BlockFence's, every fence). The overrides that only
+//   rewrite the flags from the position (FlagWriters: plants, ferns, seaweed, leaves - most of a forest) get the thread's own copy of
+//   the mesh, every array shared but the flags, refilled from the shared ones before each call, and no lock: while a world loaded,
+//   half of every tessellation thread's time went into waiting for these blocks' locks (trace, 2026-10-07).
 // - BuildDecorPolygons raises a shared block's VertexFlags.ZOffset around a call and puts it back: one lock.
 // - Lazy shapes and meshes: UnloadableShape.Load marks a shape loaded before it parses it (shapes are unloaded when
 //   ClientSettings.OptimizeRamMode is 2), and a block's default mesh is built on first use: ShapeTesselator.TesselateShape (the
@@ -30,14 +36,16 @@ namespace Komet.Tessellation;
 //   run under one lock.
 // - TerrainIlluminator.SunRelightChunk (one ChunkIlluminator and its scratch, light written into neighbour columns), the
 //   MeshDataRecycler (unsynchronised sorted lists), the texture atlas and BlendedTextureManager (unsynchronised dictionaries, a shared
-//   Random) and LoadOrCreateLerpedClimateMapOffthread (the placeholder map is published before it is filled): one lock each.
+//   Random) and LoadOrCreateLerpedClimateMapOffthread (the placeholder map is published before it is filled): one lock each. Two of
+//   them were the most contended of a world join (trace, 2026-10-08) and are taken less: the recycler's DoRecycling, housekeeping,
+//   is skipped by a thread that finds the recycler busy, and a climate map the engine's cache holds is handed back without the lock.
 // The locks are taken only by threads whose passes are guarded (Guard): a worker thread always, the tessellation thread while Parallel is
 // on. The main thread keeps the races with the tessellation thread it always had. Lock order: decor, block (or fence family), block
 // entity, shape, then the leaves climate, relight, recycler, textures - no thread takes an earlier one while holding a later one.
 internal static class TessSafety
 {
     private const int PaletteBuildSites = 4, DecoderSites = 1, CrossSites = 8, EntitySites = 1, MaxPatches = 64;
-    private const int MaxBlocks = 1 << 20, MaxDepth = 32; // MaxDepth: of a block's class hierarchy
+    private const int MaxBlocks = 1 << 20, MaxDepth = 32, MaxEmpty = 16; // MaxDepth: of a block's class hierarchy
     private const string SharedFamily = "Vintagestory.GameContent.BlockFenceStackAware";
 
     private static readonly Lock EntityGate = new(), TableGate = new();
@@ -62,11 +70,33 @@ internal static class TessSafety
     private static readonly MethodInfo? JsonHook =
         AccessTools.DeclaredMethod(typeof(Block), nameof(Block.OnJsonTesselation), JsonArgs);
 
+    private static readonly string[] FlagWriters =
+    [
+        "Vintagestory.GameContent.BlockPlant", "Vintagestory.GameContent.BlockFern", "Vintagestory.GameContent.BlockFernTree",
+        "Vintagestory.GameContent.BlockSeaweed", "Vintagestory.GameContent.BlockWithLeavesMotion",
+        "Vintagestory.GameContent.BlockHangingLichen" // MeshData.ToggleWindModeSetWindData: the flags, from the xyz
+    ];
+
+    private static readonly object OwnFlags = new(); // GateOf's answer for a FlagWriters block: no lock, the thread's own flags
+    private static readonly System.Func<object, object>? Shallow = AccessTools.Method(typeof(object), "MemberwiseClone") is { } clone
+        ? AccessTools.MethodDelegate<System.Func<object, object>>(clone)
+        : null;
+
+    [ThreadStatic] private static Dictionary<MeshData, MeshData>? _own;
+    private const int MaxOwn = 4096, JsonSites = 1;
+
     [ThreadStatic] private static Block[]? _palette;
     [ThreadStatic] private static Vec3f? _start, _end;
     [ThreadStatic] private static bool _guarded; // this thread's passes take the locks
     private static readonly List<(MethodBase Target, MethodInfo Patch)> Patched = [];
     private static BlockGate?[] _gates = [];
+
+    // How often a block type's lock was busy when a thread came for it (logged at each power of four from WaitReport): which block
+    // overrides still serialise the passes
+    private const int WaitReport = 256, MaxWaitTypes = 4096;
+    private static readonly Dictionary<string, long> Waits = [];
+    private static readonly Lock WaitGate = new();
+    private static ILogger? _logger;
     private static int _parallel, _sites;
 
     // Every patch below is in: the only state in which TessWorkers runs passes
@@ -75,7 +105,7 @@ internal static class TessSafety
     // A rewrite found another count when Harmony ran it again: no workers
     public static bool Broken { get; private set; }
 
-    public static bool Parallel => Volatile.Read(ref _parallel) != 0; // workers may pass
+    public static bool Parallel => Volatile.Read(ref _parallel) != 0;
 
     // The table BuildFastBlockAccessArray built on this thread, or the engine's while TessSafety is not installed
     public static Block[]? Palette() => Installed ? _palette : BlockChunkDataLayer.blocksByPaletteIndex;
@@ -106,6 +136,8 @@ internal static class TessSafety
     public static void Install(Harmony harmony, ILogger? logger = null)
     {
         Clear();
+        _logger = logger;
+        lock (WaitGate) Waits.Clear();
         if (!NotNull(harmony) || !NotNull(PaletteField) || !NotNull(StartField) || !NotNull(EndField) ||
             !NotNull(EntityCall) || !NotNull(JsonHook)) return;
         if (Transpilers(harmony) && Locks(harmony))
@@ -139,6 +171,10 @@ internal static class TessSafety
         ok &= Transpile(harmony, TessSeams.Method(typeof(JsonTesselator), nameof(JsonTesselator.Tesselate), vars));
         ok &= Transpile(harmony,
             TessSeams.Method(typeof(BleedingJsonTesselator), nameof(BleedingJsonTesselator.Tesselate), vars));
+        ok &= Transpile(harmony,
+            TessSeams.Method(typeof(JsonTesselator), nameof(JsonTesselator.doMesh), vars, typeof(MeshData), typeof(int)));
+        ok &= Transpile(harmony,
+            TessSeams.Method(typeof(BleedingJsonTesselator), "DoMeshWithBleeding", vars, typeof(MeshData), typeof(int)));
         return ok;
     }
 
@@ -182,7 +218,7 @@ internal static class TessSafety
                Around(harmony, TessSeams.Method(recycler, nameof(MeshDataRecycler.GetOrCreateMesh), i),
                    nameof(EnterRecycle)) &&
                Around(harmony, TessSeams.Method(recycler, nameof(MeshDataRecycler.DoRecycling)),
-                   nameof(EnterRecycle)) &&
+                   nameof(TryRecycle)) &&
                Around(harmony, TessSeams.Method(atlas, nameof(TextureAtlasManager.AllocateTextureSpace), allocate),
                    nameof(EnterTexture)) &&
                Around(harmony, TessSeams.Method(atlas, nameof(TextureAtlasManager.GetOrInsertTexture), insert),
@@ -230,6 +266,12 @@ internal static class TessSafety
                 false);
         else if (original.DeclaringType == typeof(BlockChunkDataLayer))
             sites = Rewrite(code, DecoderSites, PaletteField, nameof(GetPalette), null, null, false);
+        else if (original.Name is "doMesh" or "DoMeshWithBleeding")
+        {
+            var own = AccessTools.Method(typeof(TessSafety), nameof(Json));
+            var at = NotNull(JsonHook) ? Il.Single(code, c => c.Calls(JsonHook)) : -1;
+            sites = at >= 0 && NotNull(own) && Il.Substitute(code, at, own) ? JsonSites : 0;
+        }
         else
         {
             // EntitySites is 1: the single call, as Il.Single finds it
@@ -287,7 +329,9 @@ internal static class TessSafety
     // After the lock is taken, each checks the lock order (a leaf finds its own gate held, and no other leaf's)
     private static void EnterBlock(TCTCache? vars, out object? __state)
     {
-        __state = _guarded && vars?.block is { } block && GateOf(block) is { } gate ? Take(gate) : null;
+        __state = _guarded && vars?.block is { } block && GateOf(block) is { } gate && !ReferenceEquals(gate, OwnFlags)
+            ? TakeBlock(gate, block)
+            : null;
         _ = Assert(__state is null ||
                    (!EntityGate.IsHeldByCurrentThread && !Monitor.IsEntered(ShapeGate) && LeavesHeld == 0));
     }
@@ -315,9 +359,43 @@ internal static class TessSafety
         _ = Assert(__state is null || LeavesHeld == 0);
     }
 
-    private static void EnterClimate(out object? __state) => __state = Leaf(ClimateGate);
+    // A map the engine's cache holds already (TryLoadLerpedClimateMap, under the engine's own lock) is filled and needs no gate:
+    // handed back without the method. Only a miss, which may publish the placeholder before filling it, goes through the gate.
+    private static bool EnterClimate(ClientWorldMap __instance, int chunkX, int chunkZ, ref int[] __result,
+        out object? __state)
+    {
+        __state = null;
+        if (_guarded && NotNull(__instance) && __instance.TryLoadLerpedClimateMap(chunkX, chunkZ) is { } known)
+        {
+            __result = known;
+            return false;
+        }
+
+        __state = Leaf(ClimateGate);
+        return true;
+    }
     private static void EnterRelight(out object? __state) => __state = Leaf(RelightGate);
     private static void EnterRecycle(out object? __state) => __state = Leaf(RecycleGate);
+
+    // DoRecycling sorts what was handed back into the size lists: housekeeping the next call does as well. Most calls find nothing
+    // queued, where the engine returns at once: answered here without the lock. A guarded thread that finds another one in the
+    // recycler goes on instead of waiting (the queue it would have sorted is a ConcurrentQueue and stays).
+    private static bool TryRecycle(MeshDataRecycler __instance, out object? __state)
+    {
+        __state = null;
+        if (!_guarded) return true;
+        _ = Assert(Installed) && Assert(LeavesHeld == 0); // lock order: a leaf, entered with no other
+        if (NotNull(__instance) && !Disposed(__instance) && Queued(__instance) is { IsEmpty: true }) return false;
+        if (!Monitor.TryEnter(RecycleGate)) return false;
+        __state = RecycleGate;
+        return true;
+    }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "forRecycling")]
+    private static extern ref System.Collections.Concurrent.ConcurrentQueue<MeshData>? Queued(MeshDataRecycler recycler);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "disposed")]
+    private static extern ref bool Disposed(MeshDataRecycler recycler);
     private static void EnterTexture(out object? __state) => __state = Leaf(TextureGate);
 
     private static object? Leaf(object gate)
@@ -329,9 +407,33 @@ internal static class TessSafety
 
     private static Exception? Leave(Exception? __exception, object? __state)
     {
-        if (__state is null || !Assert(Monitor.IsEntered(__state))) return __exception;
-        Monitor.Exit(__state);
+        if (__state is not null && Assert(Monitor.IsEntered(__state))) Monitor.Exit(__state);
         return __exception;
+    }
+
+    // A block's lock; a busy one is counted for its block type before the thread waits
+    private static object TakeBlock(object gate, Block block)
+    {
+        _ = Assert(_guarded); // EnterBlock asked
+        if (Monitor.TryEnter(gate)) return gate;
+        if (NotNull(block)) Waited(ReferenceEquals(gate, FenceGate) ? "fence family" : block.GetType().Name);
+        return Take(gate);
+    }
+
+    private static void Waited(string name)
+    {
+        if (!Assert(name.Length > 0)) return;
+        long count;
+        lock (WaitGate)
+        {
+            if (!Waits.TryGetValue(name, out count) && Waits.Count >= MaxWaitTypes) return;
+            Waits[name] = ++count;
+        }
+
+        // 256, 1024, 4096, ...: a power of four from WaitReport on
+        if (count >= WaitReport && (count & (count - 1)) == 0 && (BitOperations.TrailingZeroCount(count) & 1) == 0)
+            _logger?.Notification("Komet TessSafety: blocks of type {0} found their lock busy {1} times", name, count);
+        _ = Assert(count > 0);
     }
 
     private static object Take(object gate)
@@ -341,7 +443,45 @@ internal static class TessSafety
         return gate;
     }
 
-    // The leaf locks this thread holds
+    // A FlagWriters block, whose override doMesh calls through Json (JsonMesher draws it and calls Json as doMesh would): not while a
+    // rewrite is broken, where doMesh may still call the override on the shared mesh
+    internal static bool WritesFlags(Block block) => !Broken && NotNull(block) && ReferenceEquals(GateOf(block), OwnFlags);
+
+    // In place of the virtual call in doMesh and DoMeshWithBleeding: the same dispatch (a null block throws as the callvirt did), a
+    // FlagWriters block on the thread's own copy of the mesh it was handed (the block's, or one of its alternates)
+    internal static void Json(Block block, ref MeshData sourceMesh, ref int[] lights, BlockPos pos, Block[] blocks, int index)
+    {
+        if (_guarded && sourceMesh is { Flags: not null } shared && ReferenceEquals(GateOf(block), OwnFlags))
+            sourceMesh = Own(shared);
+        _ = Assert(index >= 0);
+        block.OnJsonTesselation(ref sourceMesh, ref lights, pos, blocks, index);
+    }
+
+    private static MeshData Own(MeshData shared)
+    {
+        var own = _own ??= new Dictionary<MeshData, MeshData>(ReferenceEqualityComparer.Instance);
+        if (!own.TryGetValue(shared, out var mine) || !Alike(mine, shared))
+        {
+            if (own.Count >= MaxOwn || Shallow is null) own.Clear();
+            if (Shallow?.Invoke(shared) is not MeshData copy) return shared;
+            copy.Flags = new int[shared.Flags.Length];
+            own[shared] = mine = copy;
+        }
+
+        // only the flags in use: the overrides and the mesher index below VerticesCount, the rest of the array is capacity
+        var used = Math.Min(Math.Max(shared.VerticesCount, shared.FlagsCount),
+            Math.Min(shared.Flags.Length, mine.Flags.Length));
+        Array.Copy(shared.Flags, mine.Flags, Math.Max(used, 0));
+        return Assert(mine.Flags.Length == shared.Flags.Length) ? mine : shared;
+    }
+
+    // Every array but the flags still the shared mesh's, and its counts: else the shared mesh was rebuilt in place and is copied anew
+    private static bool Alike(MeshData mine, MeshData shared) =>
+        NotNull(mine.Flags) && ReferenceEquals(mine.xyz, shared.xyz) && ReferenceEquals(mine.Uv, shared.Uv) &&
+        ReferenceEquals(mine.Rgba, shared.Rgba) && ReferenceEquals(mine.Indices, shared.Indices) &&
+        mine.VerticesCount == shared.VerticesCount && mine.IndicesCount == shared.IndicesCount &&
+        mine.FlagsCount == shared.FlagsCount && mine.Flags.Length == shared.Flags.Length;
+
     private static int LeavesHeld => (Monitor.IsEntered(ClimateGate) ? 1 : 0) +
         (Monitor.IsEntered(RelightGate) ? 1 : 0) + (Monitor.IsEntered(RecycleGate) ? 1 : 0) +
         (Monitor.IsEntered(TextureGate) ? 1 : 0);
@@ -383,12 +523,41 @@ internal static class TessSafety
                 JsonArgs);
             var own = hook?.DeclaringType == typeof(Block) &&
                       !EngineShape.Foreign([JsonHook], EngineShape.Kinds.All, null);
-            return own ? null : block;
+            if (own || (hook is not null && Empty(hook))) return null;
+            return FlagsOnly(type) ? OwnFlags : block;
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
             return block;
         }
+    }
+
+    // An override that does nothing (BlockFence's): no IL but nops before its ret, and no other mod's patch on it
+    private static bool Empty(MethodInfo hook)
+    {
+        if (!NotNull(hook)) return false;
+        var il = hook.GetMethodBody()?.GetILAsByteArray();
+        if (il is not { Length: > 0 } || il[^1] != (byte)OpCodes.Ret.Value) return false;
+        for (var i = 0; i < Math.Min(il.Length - 1, MaxEmpty); i++)
+            if (il[i] != (byte)OpCodes.Nop.Value)
+                return false;
+        return il.Length - 1 <= MaxEmpty && !EngineShape.Foreign([hook], EngineShape.Kinds.All, null);
+    }
+
+    // Every override on the way down to Block's own is one of FlagWriters, and no other mod patches one of them
+    private static bool FlagsOnly(Type type)
+    {
+        var family = type;
+        for (var depth = 0; depth < MaxDepth && family is not null && family != typeof(Block); depth++)
+        {
+            var declared = family.GetMethod(nameof(Block.OnJsonTesselation),
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, JsonArgs);
+            if (declared is not null && (Array.IndexOf(FlagWriters, family.FullName) < 0 ||
+                                         EngineShape.Foreign([declared], EngineShape.Kinds.All, null))) return false;
+            family = family.BaseType;
+        }
+
+        return Assert(family is null || family == typeof(Block)) && family is not null;
     }
 
     private sealed record BlockGate(Block Owner, object? Monitor);

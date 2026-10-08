@@ -8,12 +8,9 @@ using Vintagestory.Common;
 
 namespace Komet.Tessellation;
 
-// ChunkTesselator.BuildExtendedChunkData copies a chunk and a one-block shell of its neighbours into the tesselator's three 34^3
-// arrays (solid block, fluid block, ToRgba of the light) through ClientChunkData.GetRange_Faster (the chunk's rows) and GetRange (the
-// y/z shell): three delegate calls per cell, each taking the layer's FastRWLock again from two planes up. The rewrite replaces those
-// five calls in place by helpers that decode a whole row at once: every plane word the engine's decoder reads is loaded once, each
-// layer's read lock is taken once per row in the engine's own nesting (blocks, then light2Lock, then light, then fluids), and ToRgba
-// runs once per run of equal light values. What the engine decides is taken as the engine finds it:
+// Replaces the five GetRange_Faster/GetRange calls of ChunkTesselator.BuildExtendedChunkData by helpers that decode a whole row at
+// once. Each layer's read lock is taken once per row in the engine's own nesting (blocks, then light2Lock, then light, then fluids).
+// What the engine decides is taken as the engine finds it:
 // - GetRange_Faster: the decoder GetBlockAsBlock holds (getBlockOne..Five and getBlockGeneralCase over the layer it was built for,
 //   which may no longer be blocksLayer, or getBlockAir), the palette table BlockChunkDataLayer.blocksByPaletteIndex (the thread's own
 //   once TessSafety made it one per thread, TessSafety.Palette) with its stale entries, the hand-over to GetRange when
@@ -31,6 +28,7 @@ namespace Komet.Tessellation;
 // used here), so no wait cycle can form. What the engine re-reads per cell and only a writer racing the copy could change (light2, the
 // layer fields, blockAir, the shared table, the palettes) is read once per row; with such a race the engine's result depends on timing
 // just the same.
+[SkipLocalsInit]
 internal static class ExtendedRows
 {
     private const int RowLength = 32, RowCount = 1024, Cells = RowLength * RowCount, MaxPlanes = 15, FieldPlanes = 4;
@@ -50,7 +48,6 @@ internal static class ExtendedRows
     private static readonly (MethodInfo? Method, Decoder Kind)[] Decoders = DecoderTable();
     private static readonly ulong[] Spreads = SpreadTable(); // bit j of a byte moved to bit 0 of byte j
 
-    // Totals while Counting.Hud, every tessellation thread
     private static readonly Tally Counts = new(FallbacksCounter + 1);
 
     // Per tesselator, so per thread: the last one whose tables were long enough
@@ -59,14 +56,14 @@ internal static class ExtendedRows
     private static MethodBase?[] _bypassed = [];
 
     public static bool Enabled { get; set; } = true;
-    public static bool Rewritten { get; private set; } // the five calls
+    public static bool Rewritten { get; private set; }
 
     // Another mod patches a method the rows would bypass: the engine's methods run
     public static bool Blocked { get; private set; }
 
-    public static long Decoded => Counts.Total(RowsCounter); // rows decoded
+    public static long Decoded => Counts.Total(RowsCounter);
     public static long CellsDecoded => Counts.Total(CellsCounter);
-    public static long Fallbacks => Counts.Total(FallbacksCounter); // rows handed to the engine's method
+    public static long Fallbacks => Counts.Total(FallbacksCounter);
 
     public static void Install(Harmony harmony, ILogger? logger = null, ulong shape = Shape)
     {
@@ -95,7 +92,6 @@ internal static class ExtendedRows
         return NotNull(method) && Assert(method.ReturnType == typeof(void)) ? method : null;
     }
 
-    // ClientChunkData's GetRange_Faster and GetRange: the calls the rewrite replaces
     internal static MethodInfo?[] EngineMethods()
     {
         Type[] row =
@@ -227,7 +223,6 @@ internal static class ExtendedRows
         return Assert(n > 0);
     }
 
-    // A row inside one row of the chunk, 1 to 32 cells, arrays of exactly their declared type and long enough for every store
     private static bool Callable(ChunkData? data, Block[]? blocksExt, Block[]? fluidsExt, int[]? rgbsExt, int ext,
         int index3D, int end, Block[]? blocksFast, ColorUtil.LightUtil? converter)
     {
@@ -253,9 +248,7 @@ internal static class ExtendedRows
         return Assert(ReferenceEquals(_converter, converter));
     }
 
-    // One row's cells [index3D, index3D + blocks.Length): gathered under the engine's locks into stack buffers and checked, then
-    // written. Nothing is written unless every cell decoded.
-    [SkipLocalsInit]
+    // Nothing is written unless every cell decoded
     private static bool Decode(ChunkData data, bool range, int index3D, Span<Block> blocks, Span<Block> fluids,
         Span<int> rgbs, Block[] blocksFast, ColorUtil.LightUtil converter)
     {
@@ -299,11 +292,12 @@ internal static class ExtendedRows
             !Fits(SolidMode.Values, null, blocksFast, fluid, fluidSame)) return false;
         // Built on the stack and copied in one move: the copy marks the cards of the range once instead of once per cell
         var (solidRow, fluidRow) = (new BlockRow(), new BlockRow());
-        Span<Block> solidCells = solidRow, fluidCells = fluidRow;
-        WriteSolid(mode, air, table, blocksFast, solid, solidSame, solidCells[..n]);
-        WriteBlocks(blocksFast, fluid, fluidSame, fluidCells[..n]);
-        solidCells[..n].CopyTo(blocks);
-        fluidCells[..n].CopyTo(fluids);
+        Span<Block> solidCells = solidRow[..n], fluidCells = fluidRow[..n];
+        if (mode == SolidMode.Air) solidCells.Fill(air!);
+        else WriteBlocks(mode == SolidMode.Values || !NotNull(table) ? blocksFast : table, solid, solidSame, solidCells);
+        WriteBlocks(blocksFast, fluid, fluidSame, fluidCells);
+        solidCells.CopyTo(blocks);
+        fluidCells.CopyTo(fluids);
         Rgba(converter, light, lightSame, rgbs);
         return true;
     }
@@ -470,7 +464,14 @@ internal static class ExtendedRows
     private static bool Indices(ReadOnlySpan<int> words, int x0, Span<int> indices)
     {
         _ = Assert(words.Length <= MaxPlanes) && Assert(x0 + indices.Length <= RowLength);
-        if (indices.Length == 1) return Single(words, x0, indices);
+        if (indices.Length == 1)
+        {
+            var index = 0;
+            for (var k = 0; k < Math.Min(words.Length, MaxPlanes); k++) index |= (int)(((uint)words[k] >> x0) & 1) << k;
+            indices[0] = index;
+            return true;
+        }
+
         int constant = 0, mixed = 0;
         for (var k = 0; k < Math.Min(words.Length, MaxPlanes); k++)
         {
@@ -490,17 +491,8 @@ internal static class ExtendedRows
         return false;
     }
 
-    private static bool Single(ReadOnlySpan<int> words, int x0, Span<int> indices)
-    {
-        var index = 0;
-        for (var k = 0; k < Math.Min(words.Length, MaxPlanes); k++) index |= (int)(((uint)words[k] >> x0) & 1) << k;
-        indices[0] = index;
-        return Assert(indices.Length == 1);
-    }
-
     // Up to eight planes: each byte of a plane word spreads to eight bytes, one per cell, shifted to the plane's bit; the 32 bytes
     // are the cells' indices
-    [SkipLocalsInit]
     private static void Spread(ReadOnlySpan<int> words, int x0, Span<int> indices)
     {
         var spread = Spreads;
@@ -541,7 +533,6 @@ internal static class ExtendedRows
         return Assert(table[255] == ulong.MaxValue / 255) && Assert(table[1] == 1) ? table : new ulong[SpreadEntries];
     }
 
-    // Every index inside the table or blocksFast it is looked up in
     private static bool Fits(SolidMode mode, Block[]? table, Block[] blocksFast, ReadOnlySpan<int> values, bool same)
     {
         if (mode == SolidMode.Air) return true;
@@ -552,14 +543,6 @@ internal static class ExtendedRows
         return Assert(limit > 0);
     }
 
-    private static void WriteSolid(SolidMode mode, Block? air, Block[]? table, Block[] blocksFast,
-        ReadOnlySpan<int> solid, bool same, Span<Block> blocks)
-    {
-        if (mode == SolidMode.Air) blocks.Fill(air!);
-        else WriteBlocks(mode == SolidMode.Values || !NotNull(table) ? blocksFast : table, solid, same, blocks);
-    }
-
-    // lookup[value] per cell: blocksFast or the palette table
     private static void WriteBlocks(Block[] lookup, ReadOnlySpan<int> values, bool same, Span<Block> blocks)
     {
         if (!Assert(values.Length == blocks.Length)) return;

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Komet.Host;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
@@ -71,11 +72,11 @@ internal static class Benchmark
     private static string? Refusal(ICoreClientAPI capi, BenchConfig config)
     {
         if (!NotNull(capi) || !NotNull(config)) return "no client api";
-        if (!capi.IsSinglePlayer) return "a benchmark runs only in singleplayer";
+        if (!capi.IsSinglePlayer && !HostLaunch.Hosting) return "a benchmark runs only in singleplayer";
         var assembly = typeof(Benchmark).Assembly;
         if (!Under(assembly.Location, config.ModDir))
             return $"Komet was loaded from {assembly.Location}, not from {config.ModDir}";
-        var mods = capi.ModLoader.Mods.Bounded(ModStats.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometModSystem.ModId)
+        var mods = capi.ModLoader.Mods.Bounded(HarmonyAudit.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometModSystem.ModId)
             .ToList();
         if (mods.Count != 1)
             return $"{mods.Count} enabled mods have the id komet, the build under test must be the only one";
@@ -96,8 +97,7 @@ internal static class Benchmark
         Assert(assembly.GetName().Name == "Komet") &&
         assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
 
-    // What a result states about the build, the runtime (GCSettings: what the runtime applied of the script's environment), the
-    // world, and the client settings that change frame times
+    // GCSettings: what the runtime applied of the script's environment
     public static void Collect(ICoreClientAPI capi, BenchRun run)
     {
         var (assembly, mod) = (typeof(Benchmark).Assembly, capi.ModLoader.GetMod(KometModSystem.ModId));
@@ -160,7 +160,7 @@ internal static class Benchmark
             capi.Logger.Error("Komet bench: {0} not written: {1}", output, e.Message);
         }
 
-        if (!exit || !capi.IsSinglePlayer || capi.World is not ClientMain game || !NotNull(capi.Event)) return;
+        if (!exit || (!capi.IsSinglePlayer && !HostLaunch.Hosting) || capi.World is not ClientMain game || !NotNull(capi.Event)) return;
         capi.Event.LevelFinalize += () => Exit(game, "komet bench refused");
     }
 

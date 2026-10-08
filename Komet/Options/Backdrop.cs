@@ -3,12 +3,8 @@ using Vintagestory.API.MathTools;
 
 namespace Komet.Options;
 
-// The game behind the options screen, blurred. Each frame the picture so far (the world and the HUD under the screen) is copied from
-// the framebuffer being drawn, shrunk to a quarter (each pixel the mean of 4x4), blurred there by a separable Gaussian, across then
-// down, twice, and drawn back over the whole frame; the screen's dim and its canvas go over it. At a quarter each pass touches a
-// sixteenth of the frame's pixels, so it runs every frame and the world keeps moving behind it. The last pass turns the picture upright
-// (a framebuffer's rows run bottom up, a GUI texture's top down). The GL state it touches is put back as it was. Should the driver
-// refuse the shaders or the framebuffers, the screen keeps its plain dim and the log says why, once.
+// Blurred at a quarter size: each pass touches a sixteenth of the frame's pixels, so it runs every frame and the world keeps moving
+// behind it. The last pass turns the picture upright (a framebuffer's rows run bottom up, a GUI texture's top down).
 internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
 {
     private const int Shrink = 4, Rounds = 2, Buffers = 2, MaxSize = 16384;
@@ -54,6 +50,8 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
         """;
 
     private readonly int[] _small = new int[Buffers], _smallFb = new int[Buffers]; // the quarter picture, ping-ponged by the passes
+    private readonly int[] _viewport = new int[4];
+    private readonly Vec4f _tint = new(1, 1, 1, 1); // Render2DTexture reads it into a uniform during the call
     private int _program, _vao, _full, _fullFb, _source, _step, _shrink, _flip;
     private (int Width, int Height) _size;
     private bool _failed;
@@ -84,7 +82,7 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
     {
         if (!Enabled || _failed || !Finite(z) || !Finite(amount) || amount <= 0) return false;
         amount = Math.Min(1, amount);
-        var viewport = new int[4];
+        var viewport = _viewport;
         GL.GetInteger(GetPName.Viewport, viewport);
         var (width, height) = (viewport[2], viewport[3]);
         if (width < Shrink || height < Shrink || !Assert(width <= MaxSize && height <= MaxSize)) return false;
@@ -122,12 +120,11 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
             if (scissor) GL.Enable(EnableCap.ScissorTest);
         }
 
-        capi.Render.Render2DTexture(_small[0], 0, 0, capi.Render.FrameWidth, capi.Render.FrameHeight, z,
-            new Vec4f(1, 1, 1, (float)amount));
+        _tint.W = (float)amount;
+        capi.Render.Render2DTexture(_small[0], 0, 0, capi.Render.FrameWidth, capi.Render.FrameHeight, z, _tint);
         return true;
     }
 
-    // Shrink into the first quarter texture, then each round across into the second and down back into the first, taps spread by amount
     private void Passes(int width, int height, float amount)
     {
         var (w, h) = (width / Shrink, height / Shrink);
@@ -187,7 +184,6 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
         return 0;
     }
 
-    // The full-size copy and the two quarter textures with their framebuffers, for this frame size
     private bool Targets(int width, int height)
     {
         if (!Assert(width >= Shrink && height >= Shrink)) return false;

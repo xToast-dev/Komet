@@ -7,16 +7,15 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
 
-// ClientPlatformWindows.RenderMesh's glMultiDrawElements hands the driver a client-side range list, which most drivers walk on the CPU
-// one draw at a time; as indirect commands in a GPU buffer it is one command. Needs GL_ARB_multi_draw_indirect (core 4.3), else the
-// engine path stays (macOS). The commands go into a ring in one buffer mapped for the process (GL_ARB_buffer_storage, core 4.4), so a
-// frame allocates nothing; without that extension every draw orphans a fresh store.
+// ClientPlatformWindows.RenderMesh's glMultiDrawElements hands the driver a client-side range list that most drivers walk on the
+// CPU one draw at a time; as indirect commands in a GPU buffer it is one command. Needs GL_ARB_multi_draw_indirect (else the engine
+// path stays, e.g. macOS). Commands go into a ring in one persistently mapped buffer (GL_ARB_buffer_storage), else every draw
+// orphans a fresh store.
 internal static class IndirectDraw
 {
     private const int MaxRanges = 65536, CommandBytes = 20, MaxErrors = 64;
     private const long SyncTimeoutNs = 1_000_000_000; // the GPU is wedged long before this
 
-    // A segment takes the largest draw there can be
     private const int Segments = 4, SegmentBytes = MaxRanges * CommandBytes;
 
     private static readonly IntPtr[] Fences = new IntPtr[Segments];
@@ -31,9 +30,17 @@ internal static class IndirectDraw
     public static long Draws { get; private set; } // totals while Counting.Hud, main thread
     public static long Ranges { get; private set; }
 
+    // Sees every draw first, feature on or off: true holds it back (OcclusionCulling issues it later)
+    internal static System.Func<MeshRef, bool, bool>? Intercept { get; set; }
+
+    // A renderer that draws the pool itself (Vulkan); true when it did. Range starts are two ints each, as glMultiDrawElements takes.
+    internal delegate bool Drawing(MeshRef modelRef, int[] indices, int[] sizes, int count, bool useSSBOs);
+
+    internal static Drawing? Takeover { get; set; }
+
     public static void Install(Harmony harmony)
     {
-        _commands = []; // the GL context and with it the buffer outlive the world, the command list need not
+        _commands = []; // the GL buffer outlives the world, the list need not
         var render = AccessTools.Method(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.RenderMesh),
             [typeof(MeshRef), typeof(int[]), typeof(int[]), typeof(int), typeof(bool)]);
         var prefix = new HarmonyMethod(RenderMesh);
@@ -42,9 +49,10 @@ internal static class IndirectDraw
         _ = NotNull(harmony.Patch(render, prefix));
     }
 
-    // Harmony binds the arguments by name, useSSBOs included
     private static bool RenderMesh(MeshRef modelRef, int[] indices, int[] indicesSizes, int groupCount, bool useSSBOs)
     {
+        if (Intercept?.Invoke(modelRef, useSSBOs) == true) return false;
+        if (Takeover?.Invoke(modelRef, indices, indicesSizes, groupCount, useSSBOs) == true) return false;
         if (!Enabled || modelRef is not VAO vao) return true;
         if (!Detected) (Supported, Detected) = (Detect(), true);
         if (!Supported) return true;
@@ -71,8 +79,8 @@ internal static class IndirectDraw
         return false;
     }
 
-    // The ranges as indirect commands at the returned byte offset in the bound indirect buffer, -1 for the engine path. The engine's
-    // starts are byte offsets of uint indices, in every other int.
+    // The ranges as indirect commands at the returned byte offset in the bound indirect buffer, -1 for the engine path. The
+    // engine's starts are byte offsets of uint indices, in every other int.
     private static unsafe int Upload(int[] indices, int[] indicesSizes, int groupCount)
     {
         var bytes = groupCount * CommandBytes;
@@ -80,20 +88,25 @@ internal static class IndirectDraw
         if (_commands.Length < groupCount)
             _commands = new Command[Math.Min(MaxRanges, Math.Max(groupCount, 2 * _commands.Length))];
         var staged = _commands.AsSpan(0, groupCount);
-        // staged in cached memory: the mapping is write combined, where partial line stores of 20-byte commands are the slow path
+        // staged in cached memory: the mapping is write combined, where partial line stores are slow
         for (var i = 0; i < Math.Min(staged.Length, MaxRanges); i++)
             staged[i] = new Command { Count = indicesSizes[i], InstanceCount = 1, FirstIndex = indices[2 * i] / 4 };
-        if (_mapped == IntPtr.Zero) return Orphan(groupCount);
+        if (_mapped == IntPtr.Zero) // without GL_ARB_buffer_storage: a fresh store per draw
+        {
+            GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
+            GL.BufferData(BufferTarget.DrawIndirectBuffer, bytes, _commands, BufferUsageHint.StreamDraw);
+            return 0;
+        }
+
         if (_used + bytes > SegmentBytes) Lap();
         var at = _segment * SegmentBytes + _used;
-        // the mapping is coherent: the commands are written straight through and never read back
         staged.CopyTo(new Span<Command>((void*)(_mapped + at), groupCount));
         _used += bytes;
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
         return at;
     }
 
-    // Fences the segment left and waits on the one entered; with four segments of the largest draw each, a wait means the GPU lags frames
+    // Fences the segment left and waits on the one entered; a wait means the GPU lags frames
     private static void Lap()
     {
         if (Fences[_segment] != IntPtr.Zero) GL.DeleteSync(Fences[_segment]);
@@ -106,44 +119,31 @@ internal static class IndirectDraw
         Fences[_segment] = IntPtr.Zero;
     }
 
-    // Without GL_ARB_buffer_storage: a fresh store per draw, which orphans the list the GPU may still read
-    private static int Orphan(int groupCount)
-    {
-        GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
-        GL.BufferData(BufferTarget.DrawIndirectBuffer, groupCount * CommandBytes, _commands,
-            BufferUsageHint.StreamDraw);
-        return 0;
-    }
-
     private static bool Detect()
     {
         if (!GpuStats.Offered("GL_ARB_multi_draw_indirect")) return false;
         _buffer = GL.GenBuffer();
         if (!Assert(_buffer != 0)) return false;
-        if (GpuStats.Offered("GL_ARB_buffer_storage")) Map();
-        return true;
-    }
-
-    private static void Map()
-    {
+        if (!GpuStats.Offered("GL_ARB_buffer_storage")) return true;
         Array.Clear(Fences);
         (_segment, _used) = (0, 0);
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
         const MapBufferAccessMask access = MapBufferAccessMask.MapWriteBit | MapBufferAccessMask.MapPersistentBit |
                                            MapBufferAccessMask.MapCoherentBit;
-        var storage = (BufferStorageFlags)access; // the same bits; OpenTK leaves BufferStorageFlags without [Flags]
+        var storage = (BufferStorageFlags)access; // same bits; OpenTK's BufferStorageFlags lacks [Flags]
         for (var drain = 0; drain < MaxErrors && GL.GetError() != ErrorCode.NoError; drain++)
-            _ = Assert(false); // an error already pending would be read as ours, and is worth one report
+            _ = Assert(false); // a pending error would be read as ours; report it once
         GL.BufferStorage(BufferTarget.DrawIndirectBuffer, Segments * SegmentBytes, IntPtr.Zero, storage);
         if (GL.GetError() == ErrorCode.NoError)
             _mapped = GL.MapBufferRange(BufferTarget.DrawIndirectBuffer, IntPtr.Zero, Segments * SegmentBytes, access);
         Persistent = _mapped != IntPtr.Zero;
-        if (Persistent) return;
-        // BufferStorage may have made the store immutable before it failed, and BufferData would be refused on it from here on
+        if (Persistent) return true;
+        // BufferStorage may have made the store immutable before failing, which would refuse BufferData
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, 0);
         GL.DeleteBuffer(_buffer);
         _buffer = GL.GenBuffer();
         _ = Assert(_buffer != 0);
+        return true;
     }
 
     [StructLayout(LayoutKind.Sequential)]

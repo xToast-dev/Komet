@@ -49,43 +49,25 @@ internal static class BeforeFieldInit
 
 internal static class ReadsBeforeFieldInit
 {
-    public static int Read()
-    {
-        return BeforeFieldInit.Seed + 1;
-    }
+    public static int Read() => BeforeFieldInit.Seed + 1;
 }
 
 internal static class GenericProbe
 {
-    public static int Plain()
-    {
-        return 1;
-    }
+    public static int Plain() => 1;
 
-    public static int Generic<T>()
-    {
-        return typeof(T).Name.Length;
-    }
+    public static int Generic<T>() => typeof(T).Name.Length;
 
-    public static int Patched()
-    {
-        return 2;
-    }
+    public static int Patched() => 2;
 }
 
 internal static class GenericHost<T>
 {
-    public static int Plain()
-    {
-        return typeof(T).Name.Length;
-    }
+    public static int Plain() => typeof(T).Name.Length;
 
     public static class Nested
     {
-        public static int Inner()
-        {
-            return 3;
-        }
+        public static int Inner() => 3;
     }
 }
 
@@ -108,14 +90,12 @@ public sealed class PreJitTests
     }
 
     [TearDown]
-    public void Disarm()
-    {
-        PreJit.Reset();
-    }
+    public void Disarm() => PreJit.Reset();
 
     // First in the fixture: the walks below compile the API too, and a compiled method is not compiled again
     [Test]
     [Order(1)]
+    [Category("Slow")]
     public void WalksTheGameApi()
     {
         var api = typeof(Shape).Assembly;
@@ -164,13 +144,12 @@ public sealed class PreJitTests
         Assert.That(LazyProbe.Ran, Is.True, "the probe itself is broken");
     }
 
-    // The entry point the game calls at every world join, with the whole thread body: switched off it starts nothing; switched on it
-    // walks what is loaded on a thread of its own, lowers only that thread's priority and logs one line; a finished walk is not repeated
     [Test]
+    [Category("Slow")]
     public void StartCompilesTheLoadedEngineOnceOnItsOwnThread()
     {
-        _ = typeof(ClientMain)
-            .Assembly; // VintagestoryLib with the API; VSEssentials only if another fixture loaded it, the other mods are absent
+        // VintagestoryLib with the API; VSEssentials only if another fixture loaded it, the other mods are absent
+        _ = typeof(ClientMain).Assembly;
         var logger = new CapturingLogger();
         var niceBefore = Nice();
         PreJit.Enabled = false;
@@ -210,10 +189,7 @@ public sealed class PreJitTests
             Assert.That(logger.Lines, Has.Count.EqualTo(1));
         });
 
-        static Thread? Walker()
-        {
-            return AccessTools.Field(typeof(PreJit), "_thread").GetValue(null) as Thread;
-        }
+        static Thread? Walker() => AccessTools.Field(typeof(PreJit), "_thread").GetValue(null) as Thread;
     }
 
     [Test]
@@ -227,11 +203,9 @@ public sealed class PreJitTests
         var md = pe.GetMetadataReader();
         var id = typeof(PreJitTests).Module.ModuleVersionId;
 
-        bool Eligible(MethodBase method)
-        {
-            return PreJit.Eligible(md, (MethodDefinitionHandle)MetadataTokens.EntityHandle(method.MetadataToken),
+        bool Eligible(MethodBase method) =>
+            PreJit.Eligible(md, (MethodDefinitionHandle)MetadataTokens.EntityHandle(method.MetadataToken),
                 id, set);
-        }
 
         Assert.Multiple(() =>
         {
@@ -247,18 +221,12 @@ public sealed class PreJitTests
         });
     }
 
-    [Test]
-    public void CancelBeforeTheWalkPreparesNothing()
+    [TestCase(true)]
+    [TestCase(false)]
+    public void CancelOrSwitchOffBeforeTheWalkPreparesNothing(bool cancel)
     {
-        PreJit.Stop();
-        PreJit.Walk(typeof(Shape).Assembly, PreJit.PatchedSet());
-        Assert.That(PreJit.Prepared + PreJit.Failed, Is.Zero);
-    }
-
-    [Test]
-    public void SwitchingOffStopsTheWalk()
-    {
-        PreJit.Enabled = false;
+        if (cancel) PreJit.Stop();
+        else PreJit.Enabled = false;
         PreJit.Walk(typeof(Shape).Assembly, PreJit.PatchedSet());
         PreJit.Enabled = true;
         Assert.That(PreJit.Prepared + PreJit.Failed, Is.Zero);
@@ -286,10 +254,7 @@ public sealed class PreJitTests
                 "more than one checkpoint interval after the cancel");
         });
 
-        static int Done()
-        {
-            return PreJit.Prepared + PreJit.Failed;
-        }
+        static int Done() => PreJit.Prepared + PreJit.Failed;
     }
 
     // Field 19 of /proc/thread-self/stat, after the parenthesised command name

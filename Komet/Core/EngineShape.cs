@@ -59,8 +59,7 @@ internal static class EngineShape
         return (one, two);
     }
 
-    // Whether the methods are the bodies a replacement was written against; logged once, with what was found, when not. pinnedBy:
-    // the mod that pinned them, for another mod's feature (Komet's own are pinned to Vintage Story 1.22.7).
+    // pinnedBy: the mod that pinned them, for another mod's feature (Komet's own are pinned to Vintage Story 1.22.7).
     public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger,
         string? pinnedBy = null)
     {
@@ -114,7 +113,6 @@ internal static class EngineShape
         return -1;
     }
 
-    // A feature's stand-down for another mod's patch, logged when it changes; returns foreign
     public static bool Report(ILogger? logger, string feature, bool was, bool foreign)
     {
         if (!NotNull(feature) || was == foreign) return foreign;
@@ -134,10 +132,12 @@ internal static class EngineShape
         return !Assert(patches.Count <= MaxPatches);
     }
 
+    // Komet's own patches (its mod id as Harmony owner) never count: each gives the engine's result, so no feature steps aside for
+    // another (a new seam patch once kept OccludedChunks off for good). The profiler and API features patch under ids of their own.
     private static bool Own(Patch patch, string? owner, ReadOnlySpan<Type> own)
     {
         if (!NotNull(patch)) return false;
-        if (owner is not null && patch.owner == owner) return true;
+        if (patch.owner == KometModSystem.ModId || (owner is not null && patch.owner == owner)) return true;
         var type = patch.PatchMethod?.DeclaringType;
         if (type is null) return false;
         for (var i = 0; i < Math.Min(own.Length, MaxOwn); i++)
@@ -146,7 +146,6 @@ internal static class EngineShape
         return false;
     }
 
-    // The fingerprints of the methods mixed in order; 0 when one of them is missing or cannot be read
     public static ulong Of(ReadOnlySpan<MethodBase?> methods)
     {
         var hash = Basis;
@@ -161,7 +160,6 @@ internal static class EngineShape
         return Assert(hash != 0) ? hash : 1;
     }
 
-    // The fingerprint of one method body, 0 when it has none or cannot be read
     public static ulong Of(MethodBase? method)
     {
         if (method is null) return 0;
@@ -187,8 +185,6 @@ internal static class EngineShape
         }
     }
 
-    // The instruction stream: opcodes and plain operands as they are, tokens by the name of what they refer to; 0 for bytes that
-    // are no instruction stream
     private static ulong Code(MethodBase method, byte[] il, ulong hash)
     {
         if (!NotNull(method) || !Assert(il.Length <= MaxIl)) return 0;
@@ -223,7 +219,6 @@ internal static class EngineShape
             : hash;
     }
 
-    // Operand bytes after the opcode; -1 for a switch table that does not fit
     private static int Size(OperandType type, byte[] il, int at)
     {
         if (!Assert(at >= 0) || !NotNull(il)) return -1;
@@ -241,7 +236,6 @@ internal static class EngineShape
         };
     }
 
-    // What a token operand refers to, by name; null for a four-byte operand that is no token (an int, a float, a branch)
     private static string? Resolve(MethodBase method, int token, OperandType type)
     {
         var module = method.Module;
@@ -273,8 +267,6 @@ internal static class EngineShape
         return member is Type type ? Name(type) : member.Name;
     }
 
-    // Namespace.Name, and for a constructed generic type <its arguments, written the same way> - through an explicit stack of the
-    // types still to write and the separators between them; a type with more than MaxParameters arguments is written as nothing
     private static string Name(Type? type)
     {
         if (type is null) return "";

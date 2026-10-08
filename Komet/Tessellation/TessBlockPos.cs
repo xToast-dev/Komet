@@ -7,13 +7,11 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Tessellation;
 
-// ChunkTesselator asks every IDrawYAdjustable block it tesselates (each plant, crop and dead crop: BlockPlant, BlockCrop,
-// BlockDeadCrop) how far to lower it, and builds a new BlockPos for each question: 1.8 MB/s of garbage while chunks tesselate, on
-// every tesselation thread. The vanilla answers never read the position (they look at the block below in chunkExtBlocks). So the
-// rewrite hands the call the thread's own BlockPos, set as the constructor sets a new one, when the implementation the call reaches is
-// proven not to keep it: its IL never loads the position but to read one of its fields. That is decided once per block type, from the
-// method the interface maps to and, when that one is virtual, the override the type declares; any other type, and every call while
-// switched off, gets a new BlockPos with the same coordinates as before. Both sites are rewritten: TesselateBlock and the decor pass.
+// ChunkTesselator builds a new BlockPos for every IDrawYAdjustable block (each plant, crop and dead crop) it asks how far to lower:
+// 1.8 MB/s of garbage while chunks tesselate. The vanilla answers never read the position (they look at the block below in
+// chunkExtBlocks), so the call gets the thread's own BlockPos when the implementation it reaches is proven, once per block type, never
+// to load the position but to read one of its fields; any other type, and every call while switched off, gets a new BlockPos as
+// before.
 internal static class TessBlockPos
 {
     private const int MaxInstructions = 8192, MaxBody = 4096, BlockBit = 1, DecorBit = 2, AllBits = 3;
@@ -27,7 +25,6 @@ internal static class TessBlockPos
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => _rewritten == AllBits;
 
-    // Positions handed out again instead of allocated, a total while Counting.Hud (every tesselation thread)
     public static long Saved => Interlocked.Read(ref _saved);
 
     public static void Install(Harmony harmony)

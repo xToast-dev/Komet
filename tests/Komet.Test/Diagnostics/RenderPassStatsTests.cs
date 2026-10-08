@@ -6,7 +6,6 @@ namespace Komet.Test.Diagnostics;
 // the 79 ms spike" needs the one worst frame kept whole, which is what these tests pin down.
 public sealed class RenderPassStatsTests
 {
-    // Every pass the panel shows, in the order it shows them
     private static List<(string Key, double Ms)> Shown(RenderPassStats stats)
     {
         return
@@ -41,45 +40,40 @@ public sealed class RenderPassStatsTests
         });
     }
 
-    // The point of the whole feature: the spike's own marks, not the largest mark of any frame
-    [Test]
-    public void WorstFrameKeepsItsOwnMarksNotTheLargestEverSeen()
+    // The worst steady frame with its own marks, dearest first, and the dearest one's ms
+    private static IEnumerable<TestCaseData> WorstFrames()
     {
-        var stats = new RenderPassStats();
-        stats.AddFrame(Frame(20, ("chunkupload", 18)), true); // a big mark, but not the worst frame
-        stats.AddFrame(Frame(79, ("packethandler", 60), ("chunkupload", 2)), true);
-        Assert.Multiple(() =>
-        {
-            Assert.That(stats.WorstMarkName(0), Is.EqualTo("packethandler"));
-            Assert.That(stats.WorstMarkMs(0), Is.EqualTo(60).Within(0.5));
-            Assert.That(stats.WorstFrameMs, Is.EqualTo(79).Within(0.5));
-        });
+        static TestCaseData Case(string name, double worstMs, string[] marks, double firstMs,
+            params (ProfileEntryRange Frame, bool Steady)[] frames) =>
+            new TestCaseData(frames, worstMs, marks, firstMs).SetName(name);
+
+        // The point of the whole feature: the spike's own marks, not the largest mark of any frame
+        yield return Case("WorstFrameKeepsItsOwnMarksNotTheLargestEverSeen", 79,
+            ["packethandler", "chunkupload", ""], 60, (Frame(20, ("chunkupload", 18)), true),
+            (Frame(79, ("packethandler", 60), ("chunkupload", 2)), true));
+        yield return Case("MarksAreRankedByCostWithinTheWorstFrame", 79, ["largest", "middle", "small"], 50,
+            (Frame(79, ("small", 1), ("largest", 50), ("middle", 20)), true));
+        // A load stall or the pause gap would otherwise own the worst frame for the rest of the session
+        yield return Case("UnsteadyFramesNeverBecomeTheWorstFrame", 12, ["beginrenderstage-Opaque", "", ""], 4,
+            (Frame(12, ("beginrenderstage-Opaque", 4)), true), (Frame(1000, ("chunkupload", 900)), false));
+        // Nothing to blame, which is itself the finding
+        yield return Case("AFrameWithoutMarksIsStillCountedAsWorst", 79, ["", "", ""], double.NaN,
+            (Frame(5, ("beginrenderstage-Opaque", 2)), true), (Frame(79), true));
     }
 
-    [Test]
-    public void MarksAreRankedByCostWithinTheWorstFrame()
+    [TestCaseSource(nameof(WorstFrames))]
+    public void TheWorstFrameIsKeptWhole((ProfileEntryRange Frame, bool Steady)[] frames, double worstMs,
+        string[] marks, double firstMs)
     {
+        ArgumentNullException.ThrowIfNull(frames);
         var stats = new RenderPassStats();
-        stats.AddFrame(Frame(79, ("small", 1), ("largest", 50), ("middle", 20)), true);
+        foreach (var (frame, steady) in frames) stats.AddFrame(frame, steady);
         Assert.Multiple(() =>
         {
-            Assert.That(stats.WorstMarkName(0), Is.EqualTo("largest"));
-            Assert.That(stats.WorstMarkName(1), Is.EqualTo("middle"));
-            Assert.That(stats.WorstMarkName(2), Is.EqualTo("small"));
-        });
-    }
-
-    // A load stall or the pause gap would otherwise own the worst frame for the rest of the session
-    [Test]
-    public void UnsteadyFramesNeverBecomeTheWorstFrame()
-    {
-        var stats = new RenderPassStats();
-        stats.AddFrame(Frame(12, ("beginrenderstage-Opaque", 4)), true);
-        stats.AddFrame(Frame(1000, ("chunkupload", 900)), false);
-        Assert.Multiple(() =>
-        {
-            Assert.That(stats.WorstFrameMs, Is.EqualTo(12).Within(0.5));
-            Assert.That(stats.WorstMarkName(0), Is.EqualTo("beginrenderstage-Opaque"));
+            Assert.That(stats.WorstFrameMs, Is.EqualTo(worstMs).Within(0.5));
+            Assert.That(Enumerable.Range(0, RenderPassStats.DetailCount).Select(stats.WorstMarkName),
+                Is.EqualTo(marks));
+            Assert.That(stats.WorstMarkMs(0), double.IsNaN(firstMs) ? Is.NaN : Is.EqualTo(firstMs).Within(0.5));
         });
     }
 
@@ -95,19 +89,6 @@ public sealed class RenderPassStatsTests
             Assert.That(stats.WorstFrameMs, Is.EqualTo(79).Within(0.5));
             Assert.That(stats.WorstMarkName(0), Is.EqualTo("packethandler"));
             Assert.That(stats.AverageTotalMs, Is.Zero, "the interval aggregate is cleared");
-        });
-    }
-
-    [Test]
-    public void AFrameWithoutMarksIsStillCountedAsWorst()
-    {
-        var stats = new RenderPassStats();
-        stats.AddFrame(Frame(5, ("beginrenderstage-Opaque", 2)), true);
-        stats.AddFrame(Frame(79), true);
-        Assert.Multiple(() =>
-        {
-            Assert.That(stats.WorstFrameMs, Is.EqualTo(79).Within(0.5));
-            Assert.That(stats.WorstMarkName(0), Is.Empty, "nothing to blame, which is itself the finding");
         });
     }
 
@@ -199,10 +180,8 @@ public sealed class RenderPassStatsTests
     public void AClickBetweenFramesDoesNotReplaceTheFramesProfile()
     {
         const int FrameMs = 10, ClickMs = 2;
-        var (stats, saved) = (FrameClock.Stats, ScreenManager.FrameProfiler);
         var profiler = new FrameProfilerUtil(_ => { }) { Enabled = true };
-        (FrameClock.Stats, ScreenManager.FrameProfiler) = (true, profiler);
-        try
+        Clock.With(true, profiler, () =>
         {
             FrameClock.Begin(); // window_RenderFrame's prefix
             profiler.Begin();
@@ -229,26 +208,20 @@ public sealed class RenderPassStatsTests
                 Assert.That(clickRoot, Is.Not.SameAs(frameRoot), "the engine did overwrite it");
                 Assert.That(record.Root, Is.SameAs(frameRoot));
                 Assert.That(record.Root!.Marks, Does.ContainKey("rend3D-ret-op").And.Not.ContainKey("click"));
-                Assert.That(record.OutsideMs, Is.GreaterThanOrEqualTo(ClickMs), "the click's time is between the frames");
+                Assert.That(record.OutsideMs, Is.GreaterThanOrEqualTo(ClickMs),
+                    "the click's time is between the frames");
                 Assert.That(passes.WorstMarkName(0), Is.EqualTo("rend3D-ret-op"));
                 Assert.That(Shown(passes).Single(row => row.Key == "opaque").Ms, Is.GreaterThanOrEqualTo(FrameMs));
             });
-        }
-        finally
-        {
-            (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, saved);
-            FrameClock.Begin();
-        }
+        });
     }
 
     // A frame whose profiler was off leaves the previous root in PrevRootEntry; that one belongs to an older frame
     [Test]
     public void AStaleRootIsNoProfile()
     {
-        var (stats, saved) = (FrameClock.Stats, ScreenManager.FrameProfiler);
         var profiler = new FrameProfilerUtil(_ => { }) { Enabled = true };
-        (FrameClock.Stats, ScreenManager.FrameProfiler) = (true, profiler);
-        try
+        Clock.With(true, profiler, () =>
         {
             FrameClock.Begin();
             profiler.Begin();
@@ -258,12 +231,7 @@ public sealed class RenderPassStatsTests
             FrameClock.End(); // no Begin()/End() of the profiler this frame
             FrameClock.Begin();
             Assert.That(FrameClock.Last.Root, Is.Null);
-        }
-        finally
-        {
-            (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, saved);
-            FrameClock.Begin();
-        }
+        });
     }
 
     private static SpikeLedger Settled(double ms = 10, int frames = 500)

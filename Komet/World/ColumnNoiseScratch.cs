@@ -42,7 +42,6 @@ internal static class ColumnNoiseScratch
 
     [ThreadStatic] private static bool _armed;
 
-    // The thread's arrays: for each of the constructor's four, one per length
     [ThreadStatic] private static Array?[]? _arrays;
 
     private static long _saved;
@@ -54,7 +53,6 @@ internal static class ColumnNoiseScratch
     public static bool Rewritten => _rewritten == 7 && !_foreign;
     public static bool StoodDown => _foreign; // another mod patches a seam, or a member is missing
 
-    // Bytes the constructor would have allocated, a total while Counting.Hud
     public static long Saved => Interlocked.Read(ref _saved);
 
     // ForColumn and the constructor first, the body last: an arm nobody listens for is only cleared again
@@ -75,7 +73,6 @@ internal static class ColumnNoiseScratch
         if (!Volatile.Read(ref _foreign) && Foreign(seams, harmony.Id, logger)) Volatile.Write(ref _foreign, true);
     }
 
-    // Whether another mod patches one of the seams, or one is missing; the first one found is logged
     private static bool Foreign(ReadOnlySpan<MethodBase?> seams, string owner, ILogger? logger)
     {
         var at = EngineShape.FirstForeign(seams, owner);
@@ -106,7 +103,6 @@ internal static class ColumnNoiseScratch
         return NotNull(method) && Assert(method.ReturnType == typeof(ColumnNoise)) ? method : null;
     }
 
-    // The members GenTerra's body calls on its column
     private static MethodBase?[] Members()
     {
         MethodBase?[] members =

@@ -23,18 +23,15 @@ internal readonly record struct HudRange(double Min, double Max, double Step, do
         : "";
 }
 
-// Properties with a setter persist as JSON in ModConfig, the knobs as top-level keys beside them; every change raises Changed.
 internal sealed class HudSettings
 {
     private const string FileName = "komet-hud.json";
 
-    // Pins are keyed by panel index, a file with more is not one Komet wrote
-    private const int MaxPinned = 100, MaxPanels = 32;
-
-    public const int SlowEvery = 4, LogScrollLines = 3, DoubleClickMs = 400;
-    public const double PanelGap = 6, ScreenMargin = 8, SnapStep = 8, SnapDistance = 12;
+    public const int SlowEvery = 4, MaxPinnedMods = 3;
+    public const double ScreenMargin = 8, SnapStep = 8;
     public static readonly HudRange OpacityRange = new(0, 1, 0.05, 100, "%"), ScaleRange = new(0.5, 2, 0.1, 100, "%");
     public static readonly HudRange IntervalRange = new(0.1, 1, 0.05, 1000, "ms"), BenchRange = new(5, 120, 5, 1, "s");
+    public static readonly HudRange ToastRange = new(0, 200, 5, 1, "ms");
 
     // Before any file is loaded: the statics' own values, Komet's knobs alone
     private static readonly int[] KnobDefaults = Knobs.Snapshot(builtIn: true);
@@ -45,33 +42,42 @@ internal sealed class HudSettings
     // What the player chose; the bench writes the statics, not these
     private readonly int[] _knobs = (int[])KnobDefaults.Clone();
 
+    // The compact overlay (F7); the window (Ctrl+F7) and the debug window (Ctrl+F8) are dialogs of their own
     public bool Visible { get; set => Set(ref field, value); }
 
-    [JsonProperty] // private setter: Json.NET writes it only with the attribute
     public HudCorner Corner
     {
         get;
-        private set { if (Assert(value is >= HudCorner.TopLeft and <= HudCorner.BottomRight)) Set(ref field, value); }
+        set { if (Assert(value is >= HudCorner.TopLeft and <= HudCorner.BottomRight)) Set(ref field, value); }
     }
 
     public double Opacity { get; set { if (Assert(OpacityRange.Contains(value))) Set(ref field, value); } } = 0.6;
     public double Interval { get; set { if (Assert(IntervalRange.Contains(value))) Set(ref field, value); } } = 0.25;
     public double BenchSeconds { get; set { if (Assert(BenchRange.Contains(value))) Set(ref field, value); } } = 30;
+    // What the overlay shows besides frame rate and frame time
+    public bool ShowFps { get; set => Set(ref field, value); } = true;
+    public bool ShowLows { get; set => Set(ref field, value); } = true;
+    public bool ShowFrametime { get; set => Set(ref field, value); } = true;
     public bool ShowGraph { get; set => Set(ref field, value); } = true;
-    public bool ShowSystem { get; set => Set(ref field, value); } = true;
-    public bool ShowPasses { get; set => Set(ref field, value); } = true;
-    public bool ShowModTimes { get; set => Set(ref field, value); }
-    // The rows behind the headline of each section, in every panel
-    public bool Detail { get; set => Set(ref field, value); }
-    public bool ShowMods { get; set => Set(ref field, value); }
-    // Komet's own feature counters, two panels of them: apart from the mods and patches, which are a few rows
-    public bool ShowCounters { get; set => Set(ref field, value); }
-    public bool ShowLog { get; set => Set(ref field, value); }
-    public bool ShowDebugLog { get; set => Set(ref field, value); }
+    public bool ShowMods { get; set => Set(ref field, value); } = true;
+    public bool ShowPins { get; set => Set(ref field, value); } = true;
+
+    // A spike over this many ms shows in the overlay for a few seconds with its cause; 0: never
+    public double ToastMs { get; set { if (Assert(ToastRange.Contains(value))) Set(ref field, value); } } = 50;
+
+    // Mods the overlay shows by name (Mods tab: a click pins); none: the dearest
+    public List<string> PinnedMods { get; } = [];
+    // Where the window was left; plain properties: a drag must not end the HUD's interval on every move. Written with the rest.
+    public string WindowTab { get; set; } = "";
+    public double WindowX { get; set; } = double.NaN; // NaN: centred
+    public double WindowY { get; set; } = double.NaN;
+    public string DebugLanguage { get; set => Set(ref field, value is "de" ? "de" : "en"); } = "en";
     public bool UpdateCheck { get; set => Set(ref field, value); } // asks GitHub once per start, opt-in
     public bool UpdateAsked { get; set => Set(ref field, value); } // the opt-in dialog is shown until answered
-    public Dictionary<int, double[]> Pinned { get; } = [];
     public double FontScale { get; set { if (Assert(ScaleRange.Contains(value))) Set(ref field, value); } } = 1.0;
+
+    // The settings pages show every knob, not only KometPages.Basic
+    public bool ShowAdvanced { get; set => Set(ref field, value); }
 
     public event Action? Changed;
 
@@ -82,25 +88,23 @@ internal sealed class HudSettings
         Changed?.Invoke();
     }
 
-    // Raises Changed when anything changed: a click on the corner already chosen still clears the pins, which the window and the file
-    // have to see
-    public void SetCorner(HudCorner corner)
+    // Pinned again: unpinned; past MaxPinnedMods the oldest goes
+    public void TogglePin(string mod)
     {
-        if (!Assert(corner is >= HudCorner.TopLeft and <= HudCorner.BottomRight) ||
-            !Assert(Pinned.Count < MaxPinned)) return;
-        var unpinned = Pinned.Count > 0;
-        Pinned.Clear();
-        if (Corner != corner) Corner = corner; // raises Changed
-        else if (unpinned) NotifyChanged();
-    }
+        if (string.IsNullOrEmpty(mod) || !Assert(PinnedMods.Count <= MaxPinnedMods)) return;
+        if (!PinnedMods.Remove(mod))
+        {
+            if (PinnedMods.Count >= MaxPinnedMods) PinnedMods.RemoveAt(0);
+            PinnedMods.Add(mod);
+        }
 
-    public void ResetPositions()
-    {
-        Pinned.Clear();
         NotifyChanged();
     }
 
-    public void NotifyChanged() => Changed?.Invoke();
+    // The window back to the middle of the screen
+    public void ResetPositions() => (WindowX, WindowY) = (double.NaN, double.NaN);
+
+    private void NotifyChanged() => Changed?.Invoke();
 
     // The display, the panels and every knob; the update notice is a consent, not a display setting
     public void ResetDefaults()
@@ -108,9 +112,9 @@ internal sealed class HudSettings
         var d = new HudSettings();
         (Corner, Opacity, FontScale, Interval, BenchSeconds) =
             (d.Corner, d.Opacity, d.FontScale, d.Interval, d.BenchSeconds);
-        (ShowGraph, ShowSystem, ShowPasses, ShowModTimes, Detail, ShowMods, ShowCounters, ShowLog, ShowDebugLog) = (
-            d.ShowGraph, d.ShowSystem, d.ShowPasses, d.ShowModTimes, d.Detail, d.ShowMods, d.ShowCounters, d.ShowLog,
-            d.ShowDebugLog);
+        (ShowFps, ShowLows, ShowFrametime, ShowGraph, ShowMods, ShowPins, ToastMs) =
+            (d.ShowFps, d.ShowLows, d.ShowFrametime, d.ShowGraph, d.ShowMods, d.ShowPins, d.ToastMs);
+        PinnedMods.Clear();
         for (var i = 0; i < Math.Min(_knobs.Length, Knobs.MaxKnobs); i++) SetKnob(i, KnobDefaults[i]);
         ResetPositions();
     }
@@ -138,9 +142,8 @@ internal sealed class HudSettings
         try
         {
             var loaded = capi.LoadModConfig<HudSettings>(FileName) ?? new HudSettings();
-            if (!Assert(loaded.Pinned.Count < MaxPinned)) return new HudSettings();
-            loaded.DropBadPins(capi.Logger);
-            return loaded;
+            if (loaded.PinnedMods.Count > MaxPinnedMods) loaded.PinnedMods.RemoveRange(0, loaded.PinnedMods.Count - MaxPinnedMods);
+            return Assert(loaded.PinnedMods.Count <= MaxPinnedMods) ? loaded : new HudSettings();
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -149,19 +152,7 @@ internal sealed class HudSettings
         }
     }
 
-    // A pin Komet did not write: a key that is no panel index, or a position that is not two finite numbers
-    private void DropBadPins(ILogger logger)
-    {
-        List<int> bad = [];
-        foreach (var (index, at) in Pinned.Bounded(MaxPinned))
-            if (index is < 0 or >= MaxPanels || at is not [var x, var y] || !double.IsFinite(x) || !double.IsFinite(y))
-                bad.Add(index);
-        foreach (var index in bad.Bounded(MaxPinned)) _ = Pinned.Remove(index);
-        if (bad.Count > 0 && NotNull(logger))
-            logger.Warning("Komet HUD: {0} dropped {1} unreadable panel positions", FileName, bad.Count);
-    }
-
-    // Every knob reaches its static (unless held), the file's value or the default; keys of knobs that no longer exist are dropped
+    // Keys of knobs that no longer exist are dropped
     internal void ApplyKnobs(ILogger logger)
     {
         var knobs = Knobs.BuiltIn;
@@ -222,22 +213,28 @@ internal sealed class HudSettings
         }
     }
 
-    public void RegisterHotkeys(ICoreClientAPI capi)
+    // F7 the overlay, Ctrl+F7 the window, Ctrl+F8 the debug window
+    public void RegisterHotkeys(ICoreClientAPI capi, Action window, Action debug)
     {
-        if (!NotNull(capi) || !NotNull(capi.Input)) return;
-        Hotkey(capi, "toggle", false, () => Visible = !Visible);
-        Hotkey(capi, "detail", true, () => Detail = !Detail);
+        if (!NotNull(capi) || !NotNull(capi.Input) || !NotNull(window) || !NotNull(debug)) return;
+        Hotkey(capi, "toggle", GlKeys.F7, false, () =>
+        {
+            Visible = !Visible;
+            capi.ShowChatMessage(HudText.Translate($"hud-toggle-{(Visible ? "on" : "off")}"));
+        });
+        Hotkey(capi, "window", GlKeys.F7, true, window);
+        Hotkey(capi, "debug", GlKeys.F8, true, debug);
     }
 
-    private static void Hotkey(ICoreClientAPI capi, string name, bool shift, Func<bool> toggle)
+    private static void Hotkey(ICoreClientAPI capi, string name, GlKeys key, bool ctrl, Action act)
     {
-        if (!Assert(name.Length > 0)) return;
+        if (!Assert(name.Length > 0) || !NotNull(act)) return;
         var code = "komet-hud-" + name;
-        capi.Input.RegisterHotKey(code, HudText.Translate("hotkey-hud-" + name), GlKeys.F7, HotkeyType.HelpAndOverlays,
-            shiftPressed: shift);
+        capi.Input.RegisterHotKey(code, HudText.Translate("hotkey-hud-" + name), key, HotkeyType.HelpAndOverlays,
+            ctrlPressed: ctrl);
         capi.Input.SetHotKeyHandler(code, _ =>
         {
-            capi.ShowChatMessage(HudText.Translate($"hud-{name}-{(toggle() ? "on" : "off")}"));
+            act();
             return true;
         });
     }

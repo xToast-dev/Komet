@@ -14,7 +14,7 @@ internal enum FeatureStage
 // Engine bodies a feature reproduces, skips or replays, and their fingerprint in the game version it was written against
 internal readonly record struct EngineBodies(Func<MethodBase?[]> Methods, ulong Expected);
 
-// What an install step is handed. Overlay: the HUD's, set by the Hud feature for those after it (GraphicsMenu, the renderers).
+// Overlay: the HUD's, set by the Hud feature for those after it (GraphicsMenu, the renderers).
 internal sealed class FeatureContext(Harmony harmony, ICoreClientAPI api, ILogger logger, bool localServer)
 {
     public Harmony Harmony { get; } = harmony;
@@ -24,9 +24,9 @@ internal sealed class FeatureContext(Harmony harmony, ICoreClientAPI api, ILogge
     public HudOverlay? Overlay { get; set; }
 }
 
-// One entry of Features' table. Install null: nothing to patch (the knob alone is the feature). Stop runs before UnpatchAll in reverse
-// install order, Unpatched after it. Recheck: LevelFinalize, when every mod has patched. Probe: why the feature is not doing its job
-// (Active when it is). Requires is declarative: a test checks each one comes earlier in the table.
+// Install null: nothing to patch (the knob alone is the feature). Stop runs before UnpatchAll in reverse install order, Unpatched
+// after it. Recheck: LevelFinalize, when every mod has patched. Probe: why the feature is not doing its job (Active when it is).
+// Requires is declarative: a test checks each one comes earlier in the table.
 internal sealed record Feature(string Id)
 {
     public Action<FeatureContext>? Install { get; init; }

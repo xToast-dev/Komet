@@ -7,23 +7,22 @@ using Vintagestory.Common;
 
 namespace Komet.Tessellation;
 
-// What the tesselation fast paths (ExtendedRows, VisibleFaces, FaceLight, OccludedChunks) share: the tesselator's 34^3 halo, its
-// neighbour moves, the engine fields they read, and one schedule for their foreign-patch checks - at install, then at the start of
-// the first tesselation pass and every RecheckMs after (another mod's patch added at runtime is honoured within that time)
+// What the tesselation fast paths (ExtendedRows, VisibleFaces, FaceLight, OwnTessellation, OccludedChunks) share: the tesselator's
+// 34^3 halo, its neighbour moves, the engine fields they read, and one schedule for their foreign-patch checks - at install, then at
+// the start of the first tesselation pass and every RecheckMs after (another mod's patch added at runtime is honoured within that time)
 internal static class TessSeams
 {
     public const int Size = 32, Ext = 34, Plane = Ext * Ext, ExtCells = Ext * Ext * Ext, Cells = Size * Size * Size;
     public const int Faces = 6, RecheckMs = 2000;
 
     // TileSideEnum's sides, and the halo index of the chunk's first cell
-    public const int North = 0, East = 1, South = 2, West = 3, Up = 4, Down = 5, Origin = Plane + Ext + 1;
+    public const int North = 0, West = 3, Up = 4, Down = 5, Origin = Plane + Ext + 1;
 
     // TileSideEnum.MoveIndex as ChunkTesselator.Start sets it: north, east, south, west, up, down
     public static readonly int[] Moves = [-Ext, 1, Ext, -1, Plane, -Plane];
 
     private static long _nextCheck;
 
-    // The mod's logger, for the features' stand-down notes (EngineShape.Report)
     internal static ILogger? Logger { get; private set; }
 
     public static void Install(Harmony harmony, ILogger? logger)
@@ -50,6 +49,7 @@ internal static class TessSeams
         ExtendedRows.Recheck();
         VisibleFaces.Recheck();
         FaceLight.Recheck();
+        OwnTessellation.Recheck();
         OccludedChunks.Recheck();
     }
 
@@ -69,16 +69,21 @@ internal static class TessSeams
             (tesselator, "game", typeof(ClientMain)),
             (layer, "dataBits", typeof(int[][])), (layer, "bitsize", typeof(int))
         ];
+        return Fields(feature, logger, "the engine's version runs", fields);
+    }
+
+    // Each private engine field an accessor names is there with its type; else a warning ending in what runs instead, and false
+    public static bool Fields(string feature, ILogger? logger, string instead, (Type Owner, string Name, Type Type)[] fields)
+    {
         foreach (var (owner, name, type) in fields.Bounded(Size))
         {
             if (AccessTools.DeclaredField(owner, name)?.FieldType == type) continue;
-            logger?.Warning(
-                "Komet {0}: the engine field {1}.{2} is missing or of another type, the engine's version runs", feature,
-                owner.Name, name);
+            logger?.Warning("Komet {0}: the engine field {1}.{2} is missing or of another type, {3}", feature, owner.Name, name,
+                instead);
             return false;
         }
 
-        return NotNull(feature);
+        return NotNull(feature) && NotNull(instead) && Assert(fields.Length < Size);
     }
 
     // The method or null, for a list of bodies to fingerprint or of seams to watch (EngineShape counts a missing one as a mismatch)

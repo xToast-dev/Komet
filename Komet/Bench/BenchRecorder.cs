@@ -36,10 +36,9 @@ internal readonly record struct BenchSpikeMark(string? Range, string? Name, floa
     public bool Empty => Range is null && Name is null;
 }
 
-// FrameClock's sink while a run records: frame N arrives as frame N+1 starts, with the dt, GC pause and profile FrameClock booked to
-// it (the HUD's own numbers) and the driver's stamp from N's Before stage. Nothing here allocates per frame: one frame array sized
-// once, spikes kept per segment as a sorted top N with their marks copied out of the profiler tree, so no frame's tree stays alive.
-// The one exception is GetGCMemoryInfo (288 B), only for a spike frame that collected.
+// Frame N arrives as frame N+1 starts, with the driver's stamp from N's Before stage. Nothing allocates per frame: spikes keep their
+// marks copied out of the profiler tree, so no frame's tree stays alive. The one exception is GetGCMemoryInfo (288 B), only for a
+// spike frame that collected.
 internal sealed class BenchRecorder : IFrameSink
 {
     public const int MaxFrames = 1_000_000, MaxSpikes = 32, MarksPerSpike = 8;
@@ -135,7 +134,6 @@ internal sealed class BenchRecorder : IFrameSink
     private static byte Collections(int count) =>
         Assert(count >= 0) && Assert(count < 1 << 16) ? (byte)Math.Min(count, byte.MaxValue) : (byte)0;
 
-    // Insertion at the frame's rank: the slots below it move down and the last one falls off
     private void Spike(int frame, float ms, ProfileEntryRange? root, bool collected)
     {
         if (!Index(_stampSegment, _segments) || !Assert(ms >= 0)) return;
@@ -195,7 +193,6 @@ internal sealed class BenchRecorder : IFrameSink
         }
     }
 
-    // Insertion into the slots, sorted descending: a new mark enters at its rank and the last one falls off
     private static void Insert(Span<BenchSpikeMark> top, BenchSpikeMark mark)
     {
         if (!Assert(top.Length is > 0 and <= MarksPerSpike) || !Finite(mark.Ms)) return;

@@ -1,15 +1,10 @@
 namespace Komet.Test.World;
 
-// Golden test against the engine: LightWorld lit as the engine lights a world is the reference - every light source placed with
-// PlaceBlockLight, then every column's sunlight by the sequence FullRelight runs for a whole column (the engine's FullRelight itself
-// cannot serve: it places the sources again at twice their chunk's offset, pinned below). A second world lit the same way loses the
-// light of one column's chunks that reach the sky - as a save left by a relight of a column not loaded whole - and LightRepair lights
-// that column again, as the load does and as the sweep does. Its sunlight must be the reference's in every cell of the world. Block
-// light the engine blends from overlapping sources in the order they were placed (a hue, and at the edge of a reach a step, can differ
-// with another order), so the whole light, sun and blocks, must be that of the intact world after the same sources were placed again
-// in the same order: the repair gives what the engine gives, whether the chunks had lost their light or not. The relight that replaces
-// FullRelight is held to the same: the engine's sunlight, no source added or moved, and the intact world's light after every source
-// was placed again in the relight's order; a column it finds loaded in part keeps its light, waits, and is relit once loaded whole.
+// Golden test against the engine. The reference lights LightWorld with PlaceBlockLight for every source, then every column's sunlight
+// by the sequence FullRelight runs for a whole column (FullRelight itself cannot serve: it places the sources again at twice their
+// chunk's offset, pinned below). Block light the engine blends from overlapping sources in the order they were placed (a hue, and at
+// the edge of a reach a step, can differ with another order), so the whole light is compared with the intact world after the same
+// sources were placed again in the same order.
 [NonParallelizable]
 public sealed class LightRepairTests
 {
@@ -27,10 +22,11 @@ public sealed class LightRepairTests
     private int[][] _reference = [];
 
     [OneTimeSetUp]
-    public void Reference()
-    {
-        _reference = Lit().Light();
-    }
+    public void Reference() => _reference = Lit().Light();
+
+    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Waiting")]
+    private static extern ref Queue<(int Dimension, int X, int Z)> Waiting(
+        [UnsafeAccessorType("Komet.World.LightRepair, Komet")] object? repair);
 
     [Test]
     public void Installs()
@@ -51,6 +47,7 @@ public sealed class LightRepairTests
     }
 
     [TestCaseSource(nameof(Broken))]
+    [Category("Slow")]
     public void ARepairedColumnGetsTheLightTheEngineGivesTheIntactWorld((int X, int Z) column)
     {
         var world = Lit();
@@ -74,6 +71,7 @@ public sealed class LightRepairTests
     // The sweep lights a loaded column that lost its light as the load does, reports every chunk it changed, and leaves a column
     // that has its light alone
     [Test]
+    [Category("Slow")]
     public void TheSweepLightsALoadedColumnThatLostItsLight()
     {
         var world = Lit();
@@ -99,6 +97,7 @@ public sealed class LightRepairTests
     // Without any light, a chunk reaching the sky is broken and one wholly under the rain height is not. With light none is. Packed,
     // the empty arrays CompressInto writes for no light count as none, and a column with a chunk missing is left alone.
     [Test]
+    [Category("Slow")]
     public void OnlyAChunkThatReachesTheSkyWithoutLightIsBroken()
     {
         var world = Lit();
@@ -121,7 +120,6 @@ public sealed class LightRepairTests
         });
     }
 
-    // A light source's reach is the steps to the chunk's nearest cell
     [TestCase(40, 40, 40, 1, 1, 1, 0)]
     [TestCase(31, 40, 40, 1, 1, 1, 1)]
     [TestCase(70, 20, 40, 1, 1, 1, 7 + 12)]
@@ -133,6 +131,7 @@ public sealed class LightRepairTests
     // Over a world loaded whole the relight is the engine's but for its sources: the same sunlight, every source where it is and
     // none added, and the light of the intact world after every source was placed again in the order the relight places them
     [Test]
+    [Category("Slow")]
     public void TheRelightGivesTheEnginesSunlightAndPlacesEverySourceWhereItIs()
     {
         var world = Lit();
@@ -157,6 +156,7 @@ public sealed class LightRepairTests
     // still in part it waits on, and once loaded whole it is relit: its light cleared, even of a chunk packed meanwhile, then the
     // reference's sunlight, and the intact world's light after its sources were placed again
     [Test]
+    [Category("Slow")]
     public void AColumnLoadedInPartKeepsItsLightAndIsRelitOnceWhole()
     {
         var (world, engine) = (Lit(), Lit());
@@ -164,9 +164,9 @@ public sealed class LightRepairTests
         _ = engine.Unloaded.Add((1, 2, 1));
         var relit = LightRepair.FullRelight(world.Illuminator, Low, High);
         engine.Illuminator.FullRelight(Low, High);
-        var (kept, dark, waiting) = (Sun(world.Light()), Sun(engine.Light()), LightRepair.WaitingColumns);
+        var (kept, dark, waiting) = (Sun(world.Light()), Sun(engine.Light()), Waiting(null).Count);
         var inPart = LightRepair.RelightWaiting(world.Illuminator, world, 2, (_, _, _) => { });
-        var waitingOn = LightRepair.WaitingColumns;
+        var waitingOn = Waiting(null).Count;
         world.Unloaded.Clear();
         var packed = Pack((WorldChunk)world.GetChunk(1, 1, 1));
         var changed = new List<string>();
@@ -184,7 +184,7 @@ public sealed class LightRepairTests
             Assert.That(part.Sum(c => dark[c].Count(value => value > 0)), Is.Zero,
                 "the engine's FullRelight left it sunlight");
             Assert.That((waiting, inPart, waitingOn), Is.EqualTo((1, 0, 1)), "waiting, relit in part, waiting on");
-            Assert.That((packed, whole, LightRepair.WaitingColumns), Is.EqualTo((true, 1, 0)),
+            Assert.That((packed, whole, Waiting(null).Count), Is.EqualTo((true, 1, 0)),
                 "packed, relit whole, left");
             Assert.That(Differences(Sun(found), sun), Is.Empty, "sunlight that is not the reference's");
             Assert.That(Differences([.. Enumerable.Range(0, 3).Select(y => found[Index(1, y, 1)])],
@@ -196,6 +196,7 @@ public sealed class LightRepairTests
     // Why the reference is not FullRelight's: it places every light source again at its chunk's offset plus the position within the
     // world, a source in a chunk off the origin twice as far out - a light source where there is none, or none at all
     [Test]
+    [Category("Slow")]
     public void TheEnginesFullRelightPlacesLightSourcesAtTwiceTheirChunksOffset()
     {
         var world = Lit();
@@ -228,7 +229,6 @@ public sealed class LightRepairTests
         return chunk.TryCommitPackAndFree(0) && chunk.IsPacked() && chunk.Lighting is null;
     }
 
-    // Every cell whose light differs, as "chunk:index expected -> found"; the first dozen
     private static List<string> Differences(int[][] found, int[][] expected)
     {
         var differences = new List<string>();
@@ -243,10 +243,8 @@ public sealed class LightRepairTests
     }
 
     // The sunlight of every cell: the low five bits
-    private static int[][] Sun(int[][] light)
-    {
-        return [.. light.Select(chunk => chunk.Select(value => value & 0x1F).ToArray())];
-    }
+    private static int[][] Sun(int[][] light) =>
+        [.. light.Select(chunk => chunk.Select(value => value & 0x1F).ToArray())];
 
     // LightWorld with its light sources placed, then the sunlight of every column, in the order FullRelight takes them
     private static LightWorld Lit()
@@ -262,11 +260,7 @@ public sealed class LightRepairTests
         return world;
     }
 
-    // LightWorld's chunk index
-    private static int Index(int x, int y, int z)
-    {
-        return (y * LightWorld.ChunksZ + z) * LightWorld.ChunksX + x;
-    }
+    private static int Index(int x, int y, int z) => (y * LightWorld.ChunksZ + z) * LightWorld.ChunksX + x;
 
     // Every light source as FullRelight places it again: chunk by chunk, x before y before z, each where it is
     private static List<(byte[] Hsv, int X, int Y, int Z)> Placements(LightWorld world)
@@ -308,7 +302,6 @@ public sealed class LightRepairTests
         return column;
     }
 
-    // The highest block of each x/z of the column that is not air
     private static ushort[] Rain(LightWorld world, int cx, int cz)
     {
         var rain = new ushort[32 * 32];
@@ -332,10 +325,8 @@ public sealed class LightRepairTests
     // A chunk as the server keeps it packed: no ChunkData, only the compressed arrays
     private sealed class PackedChunk : WorldChunk
     {
-        public PackedChunk(byte[]? light, byte[]? lightSat)
-        {
+        public PackedChunk(byte[]? light, byte[]? lightSat) =>
             (lightCompressed, lightSatCompressed) = (light, lightSat);
-        }
 
         public override IMapChunk MapChunk => null!;
         public override HashSet<int> LightPositions { get; set; } = [];

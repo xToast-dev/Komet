@@ -2,16 +2,12 @@ using Vintagestory.GameContent;
 
 namespace Komet.Test.Tessellation;
 
-// The tesselator's question to IDrawYAdjustable blocks gets the thread's own BlockPos only where the implementation cannot keep it
 public sealed class TessBlockPosTests
 {
     private const int Calls = 1000;
 
     [TearDown]
-    public void Restore()
-    {
-        TessBlockPos.Enabled = true;
-    }
+    public void Restore() => TessBlockPos.Enabled = true;
 
     [Test]
     public void Installs()
@@ -29,10 +25,8 @@ public sealed class TessBlockPosTests
     [TestCase(typeof(Keeper), false)]
     [TestCase(typeof(Passer), false)]
     [TestCase(typeof(Reader), true)]
-    public void AnImplementationIsProvenFromItsIl(Type type, bool proven)
-    {
+    public void AnImplementationIsProvenFromItsIl(Type type, bool proven) =>
         Assert.That(TessBlockPos.Confined(type), Is.EqualTo(proven));
-    }
 
     // At sets its position as the constructor sets a new one, dimension included
     [TestCase(10, 110, -20)]
@@ -45,8 +39,6 @@ public sealed class TessBlockPosTests
             Is.EqualTo((engine.X, engine.Y, engine.Z, engine.dimension)));
     }
 
-    // A proven block is asked with the thread's position and nothing is allocated; one that keeps it gets a new one with the same
-    // coordinates, and so does every block while switched off
     [Test]
     public void OnlyAProvenBlockGetsTheThreadsPosition()
     {
@@ -84,17 +76,12 @@ public sealed class TessBlockPosTests
 
     private sealed class Passer : Block, IDrawYAdjustable
     {
-        public float AdjustYPosition(BlockPos pos, Block[] chunkExtBlocks, int extIndex3d)
-        {
-            return pos.Copy().X;
-        }
+        public float AdjustYPosition(BlockPos pos, Block[] chunkExtBlocks, int extIndex3d) => pos.Copy().X;
     }
 
     private sealed class Reader : Block, IDrawYAdjustable
     {
-        public float AdjustYPosition(BlockPos pos, Block[] chunkExtBlocks, int extIndex3d)
-        {
-            return pos.X + 1000 * pos.Y + 1_000_000 * pos.dimension;
-        }
+        public float AdjustYPosition(BlockPos pos, Block[] chunkExtBlocks, int extIndex3d) =>
+            pos.X + 1000 * pos.Y + 1_000_000 * pos.dimension;
     }
 }

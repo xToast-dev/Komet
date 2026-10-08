@@ -17,7 +17,7 @@ internal sealed class FrameStats
     // NaN for a window without frames, which the HUD shows as nothing: an empty window has no rate, and "FPS: 0" would be a claim
     public float Fps => Frames == 0 || _elapsed <= 0 ? float.NaN : Frames / _elapsed;
     public float AverageMs => Frames == 0 ? float.NaN : _elapsed / Frames * 1000f;
-    public float WorstMs { get; private set; } = float.NaN; // NaN until the window holds a frame
+    public float WorstMs { get; private set; } = float.NaN;
     public float WorstGcMs { get; private set; } = float.NaN; // how much of it the collector held every thread
     public float Low1Fps { get; private set; } = float.NaN;
     public float Low01Fps { get; private set; } = float.NaN;
@@ -71,6 +71,14 @@ internal sealed class FrameStats
         history.CopyTo(window);
         window.Sort();
         (Low1Fps, Low01Fps) = (LowFps(window, 100), LowFps(window, 1000));
+    }
+
+    // Nearest rank: the smallest frame with at least that share of all frames at or below it (bench, HUD, debug protocol, profile)
+    internal static float Percentile(ReadOnlySpan<float> sorted, int perMille)
+    {
+        if (sorted.IsEmpty || !Assert(perMille is > 0 and <= 1000)) return float.NaN;
+        var rank = ((long)perMille * sorted.Length + 999) / 1000; // ceil(p · n), 1-based
+        return Assert(rank >= 1) && Index((int)rank - 1, sorted.Length) ? sorted[(int)rank - 1] : sorted[^1];
     }
 
     // The low of an ascending window: 1000·k / Σ(worst k ms) with k = n / share, so share 100 is the 1 % low and share 1000 the 0.1 %

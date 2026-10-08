@@ -2,16 +2,11 @@ using System.Collections.Concurrent;
 
 namespace Komet.Test.Tessellation;
 
-// The nearest-first schedule: the queue's order and the engine's mark semantics (full, edge-only, dedupe, requeue), and the patched
-// engine tick that feeds it
 public sealed class TessQueueTests
 {
     private const long MulX = 1024, MulZ = 1024;
 
-    private static long Index(int x, int y, int z)
-    {
-        return (y * MulZ + z) * MulX + x;
-    }
+    private static long Index(int x, int y, int z) => (y * MulZ + z) * MulX + x;
 
     private static TessQueue Queue(int px = 100, int py = 3, int pz = 100, double yaw = 0)
     {
@@ -34,32 +29,17 @@ public sealed class TessQueueTests
         return taken;
     }
 
-    [Test]
-    public void NearestComesFirst()
+    // Columns (x, z) at y 3 as they arrive, and the order they are taken in from (100, 3, 100) facing +x: nearest first; within the
+    // near ring every chunk scores its squared distance and equal scores keep the engine's arrival order; ahead beats behind
+    [TestCase(new[] { 140, 100, 101, 100, 110, 100 }, new[] { 1, 2, 0 }, TestName = "nearest comes first")]
+    [TestCase(new[] { 100, 101, 99, 100, 100, 99, 101, 100 }, new[] { 0, 1, 2, 3 }, TestName = "equal scores keep the order")]
+    [TestCase(new[] { 90, 100, 110, 100 }, new[] { 1, 0 }, TestName = "ahead beats behind at the same distance")]
+    public void TheQueueTakesNearestFirst(int[] columns, int[] order)
     {
         var queue = Queue();
-        long far = Index(140, 3, 100), near = Index(101, 3, 100), mid = Index(110, 3, 100);
-        queue.AddRange([far, near, mid]);
-        Assert.That(TakeAll(queue), Is.EqualTo([near, mid, far]));
-    }
-
-    // Within the near ring every chunk scores its squared distance, and equal scores keep the engine's arrival order
-    [Test]
-    public void EqualScoresKeepTheArrivalOrder()
-    {
-        var queue = Queue();
-        long[] marks = [Index(100, 3, 101), Index(99, 3, 100), Index(100, 3, 99), Index(101, 3, 100)];
+        long[] marks = [.. columns.Chunk(2).Select(c => Index(c[0], 3, c[1]))];
         queue.AddRange(marks);
-        Assert.That(TakeAll(queue), Is.EqualTo(marks));
-    }
-
-    [Test]
-    public void AheadBeatsBehindAtTheSameDistance()
-    {
-        var queue = Queue(yaw: 0); // facing +x
-        long behind = Index(90, 3, 100), ahead = Index(110, 3, 100);
-        queue.AddRange([behind, ahead]);
-        Assert.That(TakeAll(queue), Is.EqualTo([ahead, behind]));
+        Assert.That(TakeAll(queue), Is.EqualTo(order.Select(i => marks[i])));
     }
 
     [Test]
@@ -73,31 +53,16 @@ public sealed class TessQueueTests
         Assert.That(TakeAll(queue), Is.EqualTo([west, east]));
     }
 
-    [Test]
-    public void EdgeOnlyIsDroppedWhileTheFullPassWaits()
+    // Marks of one chunk as they arrive (true: edge-only) and the one pass taken
+    [TestCase(new[] { false, true }, false, TestName = "edge-only is dropped while the full pass waits")]
+    [TestCase(new[] { true, false }, false, TestName = "full upgrades a waiting edge-only mark")]
+    [TestCase(new[] { true }, true, TestName = "edge-only alone stays edge-only")]
+    public void MarksOfOneChunkMerge(bool[] edges, bool edge)
     {
         var queue = Queue();
         var index = Index(7, 2, 7);
-        queue.AddRange([index, index | long.MinValue]);
-        Assert.That(TakeAll(queue), Is.EqualTo([index]));
-    }
-
-    [Test]
-    public void FullUpgradesAWaitingEdgeOnlyMark()
-    {
-        var queue = Queue();
-        var index = Index(7, 2, 7);
-        queue.AddRange([index | long.MinValue, index]);
-        Assert.That(TakeAll(queue), Is.EqualTo([index]));
-    }
-
-    [Test]
-    public void EdgeOnlyAloneStaysEdgeOnly()
-    {
-        var queue = Queue();
-        var index = Index(7, 2, 7);
-        queue.AddRange([index | long.MinValue]);
-        Assert.That(TakeAll(queue), Is.EqualTo([index | long.MinValue]));
+        queue.AddRange([.. edges.Select(e => e ? index | long.MinValue : index)]);
+        Assert.That(TakeAll(queue), Is.EqualTo([edge ? index | long.MinValue : index]));
     }
 
     [Test]
@@ -156,7 +121,6 @@ public sealed class TessQueueTests
         Assert.That(TakeAll(queue), Is.EqualTo([index]));
     }
 
-    // A pass a worker hands back runs on the tessellation thread only, and not while another thread is on the chunk
     [Test]
     public void AHandedBackPassGoesToTheTessellationThread()
     {
@@ -185,7 +149,6 @@ public sealed class TessQueueTests
             "handed-back passes go back into the engine's queue when switched off");
     }
 
-    // After another world cleared the queue, an old pass ending is no longer known and changes nothing
     [Test]
     public void APassEndingAfterAClearChangesNothing()
     {
@@ -247,7 +210,9 @@ public sealed class TessQueueTests
     public void TheTickMergesPriorityMarksAndRetriesARequeueNextTick()
     {
         using var rig = new ChunkRig();
-        var (manager, priority, dirty) = Rigged(rig);
+        var manager = TessManager.Ticking(rig);
+        var (priority, dirty) = ((UniqueQueue<long>)ChunkRig.Get(rig.Game, "dirtyChunksPriority"),
+            (UniqueQueue<long>)ChunkRig.Get(rig.Game, "dirtyChunks"));
         var merged = rig.Put(1, 1, 1, (_, _, _) => ChunkRig.Air, empty: true);
         var unsent = rig.Put(2, 1, 1, (_, _, _) => ChunkRig.Stone);
         ChunkRig.Set(unsent, "loadedFromServer", false);
@@ -286,25 +251,5 @@ public sealed class TessQueueTests
             TessSchedule.Clear();
             TessAccounting.Clear();
         }
-    }
-
-    // The state the tick reads: the manager's game, the tesselator, the view distance and the engine's three mark queues
-    private static (ChunkTesselatorManager, UniqueQueue<long>, UniqueQueue<long>) Rigged(ChunkRig rig)
-    {
-        var manager = (ChunkTesselatorManager)RuntimeHelpers.GetUninitializedObject(typeof(ChunkTesselatorManager));
-        var game = rig.Game;
-        ChunkRig.Set(manager, "game", game);
-        (game.TerrainChunkTesselator, game.ShouldTesselateTerrain) = (rig.Tesselator, true);
-        game.frustumCuller = (FrustumCulling)RuntimeHelpers.GetUninitializedObject(typeof(FrustumCulling));
-        UniqueQueue<long> priority = new(), dirty = new();
-        (string, UniqueQueue<long>)[] queues =
-            [("dirtyChunksPriority", priority), ("dirtyChunks", dirty), ("dirtyChunksLast", new UniqueQueue<long>())];
-        foreach (var (name, queue) in queues)
-        {
-            ChunkRig.Set(game, name, queue);
-            ChunkRig.Set(game, name + "Lock", new object());
-        }
-
-        return (manager, priority, dirty);
     }
 }

@@ -23,8 +23,6 @@ namespace Komet.Shapes;
 // Sharing needs no copy: nothing in the shipped assemblies writes into a compiled set (calculateMatrices reads the poses only as
 // ElementPose.Add arguments, ForElement on a cached pose is dead because its readers walk RootPoses, AnimModelMatrix is never set).
 // A hit compares the whole descriptor, not the hash, so no hash collision hands an animator the pose tree of another shape.
-//
-// A miss compiles with the kernel in AnimationFrames.Compile.cs; where that declines, the engine compiles and the postfix stores it.
 internal static partial class AnimationFrames
 {
     internal const int MaxEntries = 512;
@@ -48,6 +46,8 @@ internal static partial class AnimationFrames
     public static bool Blocked { get; private set; }
 
     public static bool Matched => _shaped; // the engine's bodies are the ones reproduced
+
+    public static int Count => Assert(_entries <= MaxEntries) ? _entries : MaxEntries; // compiled sets kept
 
     public static long Hits { get; private set; } // totals while Counting.Hud, under Gate
     public static long Misses { get; private set; }
@@ -178,7 +178,7 @@ internal static partial class AnimationFrames
     private static void Record(long start, string? code)
     {
         if (start <= 0) return;
-        var ms = (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency;
+        var ms = FrameClock.ToMs(Stopwatch.GetTimestamp() - start);
         if (Finite(ms) && ms > WorstMs) (WorstMs, WorstCode) = (ms, code ?? "");
     }
 
@@ -186,18 +186,6 @@ internal static partial class AnimationFrames
     {
         if (key is not { } fresh || !NotNull(frames) || !Assert(frames.Length > 0)) return;
         lock (Gate) Store(fresh, frames);
-    }
-
-    // The key as the cache compares it, null for a shape it does not describe. Two shapes describe the same only when
-    // GenerateAllFrames compiles them the same, the one property the tests pin: the animator indexes a pose tree by position, so a
-    // descriptor that misses a difference is a wrong pose.
-    internal static byte[]? Descriptor(Animation animation, ShapeElement[] roots, bool recursive = true)
-    {
-        lock (Gate)
-        {
-            if (!NotNull(animation) || !NotNull(roots) || !Describe(animation, roots, recursive)) return null;
-            return Assert(_at <= _buffer.Length) ? _buffer.AsSpan(0, _at).ToArray() : null;
-        }
     }
 
     private static bool Describe(Animation animation, ShapeElement[] roots, bool recursive)

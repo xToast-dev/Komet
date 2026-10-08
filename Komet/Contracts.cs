@@ -80,6 +80,14 @@ internal static class Contracts
         return items.AsSpan(0, Math.Min(items.Length, max));
     }
 
+    public static ReadOnlySpan<T> Bounded<T>(this ReadOnlySpan<T> items, int max,
+        [CallerArgumentExpression(nameof(items))] string expression = "", [CallerMemberName] string member = "",
+        [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
+    {
+        if (items.Length > max) Report($"{expression} exceeds {max}", file, member, line);
+        return items[..Math.Min(items.Length, max)];
+    }
+
     public static IEnumerable<T> Bounded<T>(this IEnumerable<T> items, int max,
         [CallerArgumentExpression(nameof(items))] string expression = "", [CallerMemberName] string member = "",
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")

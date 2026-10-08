@@ -12,26 +12,26 @@ using static Komet.Tessellation.TessSeams;
 
 namespace Komet.Tessellation;
 
-// TCTCache.CalcBlockFaceLight lights a drawn face with smooth shadows: the ambient occlusion from the cell in front of it and the 8
-// cells around that one, through up to 17 virtual calls (DoEmitSideAo, DoEmitSideAoByFlag, ForFluidsLayer) and 4 CornerAoRGB calls.
-// In vanilla only BlockMicroBlock overrides the AO virtuals, and BlockForFluidsLayer overrides ForFluidsLayer with the constant true.
-// So a kind table by BlockId - built from the tesselator's blocksFast by the type of each block, keeping the block itself so a block
-// swapped in later is not mistaken for it - says which blocks answer those calls with Block's own field tests; a face with any other
-// block, and any face while another mod patches one of those methods, goes to the engine. For plain blocks the face is bit tests on
-// EmitSideAo, LightAbsorption > 0 and Leaves, decoded as the engine decodes its bit string - including the reversed order in which the
-// corner cells' front flags reach the four corners (corner 0 gets the flag of sample 7 with the ambient value of sample 4) - and the
-// engine's float operations in its order: the multiplier is the engine's quotient (occ or the front's ambient value divided by 2, 3
-// or 4, or the full-occlusion minimum) and each channel is (int)((float)sum * multiplier). Nothing is written before the face is known
-// to be plain, and then the scratch the engine leaves: CurrentLightRGBByCorner and neighbourLightRGBS[1..8].
+// TCTCache.CalcBlockFaceLight's AO for plain blocks. In vanilla only BlockMicroBlock overrides the AO virtuals (DoEmitSideAo,
+// DoEmitSideAoByFlag) and BlockForFluidsLayer overrides ForFluidsLayer with the constant true, so a kind table by BlockId - keeping
+// the block itself so a block swapped in later is not mistaken for it - says which blocks answer those calls with Block's own field
+// tests; a face with any other block, and any face while another mod patches one of those methods, goes to the engine. The engine's
+// bit string is decoded as the engine decodes it - including the reversed order in which the corner cells' front flags reach the four
+// corners (corner 0 gets the flag of sample 7 with the ambient value of sample 4) - and its float operations run in its order: the
+// multiplier is the engine's quotient (occ or the front's ambient value divided by 2, 3 or 4, or the full-occlusion minimum) and each
+// channel is (int)((float)sum * multiplier). Nothing is written before the face is known to be plain, and then the scratch the engine
+// leaves: CurrentLightRGBByCorner and neighbourLightRGBS[1..8].
 //
-// JsonTesselator.SetUpLightRGBs lights the six faces of a JSON block: the fused version reads the 26 cells around the block once and
-// lights the faces in the engine's order; a face that is not plain goes to the engine's CalcBlockFaceLight at its turn, so the scratch
-// between faces is the engine's as well.
+// The fused JsonTesselator.SetUpLightRGBs reads the 26 cells around the block once; a face that is not plain goes to the engine's
+// CalcBlockFaceLight at its turn, so the scratch between faces is the engine's as well.
 //
 // The shading runs on four lanes (Vector128), every lane repeating the engine's steps: integer bit tests and sums, then int to float,
 // one multiply and truncation, never fused. That is exact only while every multiplier is finite and within [0, 16], where no product
 // leaves the int range and the vector truncation equals the scalar cast; other faces go to the engine (in vanilla occ is 0.67f, set in
 // the TCTCache constructor, so none do), and so does every face without vector hardware.
+//
+// The per-face methods are optimized from their first call: left to tiering they ran quick-jitted through a world join (JitWarm), the
+// engine's faces through the prefixes and OwnTessellation's through Lit and Fused alike.
 internal static class FaceLight
 {
     private const int Samples = 8, Edges = 4, Reach = TessSeams.Plane + Ext + 1, Around = 27, JsonLights = 25;
@@ -50,7 +50,6 @@ internal static class FaceLight
 
     private const int FastCounter = 0, EngineCounter = 1, FusedCounter = 2;
 
-    // Totals while Counting.Hud, every tessellation thread
     private static readonly Tally Counts = new(FusedCounter + 1);
 
     // Both built whole before they are published and never written after, so every tessellation thread may read what another built
@@ -66,12 +65,9 @@ internal static class FaceLight
     // Another patch on a method: the engine lights all faces or JSON blocks
     public static bool StoodDown => _foreign || _fusedForeign;
 
-    public static long FastFaces => Counts.Total(FastCounter); // AO faces lit here
-
-    // Faces the prefix left to the engine: no AO, not plain
+    public static long FastFaces => Counts.Total(FastCounter);
     public static long EngineFaces => Counts.Total(EngineCounter);
-
-    public static long FusedBlocks => Counts.Total(FusedCounter); // JSON blocks whose surroundings were read once
+    public static long FusedBlocks => Counts.Total(FusedCounter);
 
     public static void Install(Harmony harmony, ILogger? logger = null, ulong shape = Shape,
         ulong fusedShape = FusedShape)
@@ -164,6 +160,7 @@ internal static class FaceLight
     }
 
     // Harmony matches the parameters to the engine's by name
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool Prefix(TCTCache __instance, int tileSide, int extNeibIndex3d, ref long __result)
     {
         if (!Enabled || _foreign || !NotNull(__instance) || !NotNull(__instance.CurrentLightRGBByCorner)) return true;
@@ -179,6 +176,7 @@ internal static class FaceLight
         return false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool FusedPrefix(JsonTesselator __instance, TCTCache vars, ref long __result)
     {
         if (!Enabled || _foreign || _fusedForeign || !NotNull(__instance) || !NotNull(vars)) return true;
@@ -187,8 +185,30 @@ internal static class FaceLight
         return false;
     }
 
+    // Face for OwnTessellation's cubes and topsoil, which light their faces without the engine's entry: only while the prefix would
+    // light them, counted as the prefix counts. False, with nothing written, where the engine has to.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static bool Lit(TCTCache vars, int tileSide, int front)
+    {
+        if (!Enabled || !Installed || _foreign || !NotNull(vars) || !NotNull(vars.CurrentLightRGBByCorner) ||
+            !Face(vars, tileSide, front, vars.CurrentLightRGBByCorner, Neighbours(vars), out _)) return false;
+        if (Counting.Hud) Counts.Add(FastCounter, 1);
+        return true;
+    }
+
+    // Six for OwnTessellation's JSON blocks, which do not pass through SetUpLightRGBs: only while the fused prefix would light them.
+    // False, with nothing written, where the engine's loop has to.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static bool Fused(TCTCache vars, int[] json, out long sum)
+    {
+        sum = 0;
+        if (!Enabled || !FusedInstalled || _foreign || _fusedForeign || !NotNull(vars)) return false;
+        return Assert(json.Length >= JsonLights) && Six(vars, json, out sum);
+    }
+
     // CalcBlockFaceLight's AO path for one face into corners[0..3] and neighbours[1..8]. False, with nothing written, when the engine
     // has to light it: no AO, a block that is not plain, multipliers the lanes cannot take, an index the engine would fault on.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static bool Face(TCTCache vars, int tileSide, int front, int[] corners, int[] neighbours, out long sum)
     {
         sum = 0;
@@ -233,6 +253,7 @@ internal static class FaceLight
     // JsonTesselator.SetUpLightRGBs into json[0..24], faces 0 to 5, each lit here or by the engine at its turn, on the vars' own
     // scratch. False, with nothing written, when the engine has to do the whole block: also when no face has AO (smooth shadows off),
     // where the engine's own loop is the cheaper one.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static bool Six(TCTCache vars, int[] json, out long sum)
     {
         sum = 0;
@@ -283,6 +304,7 @@ internal static class FaceLight
     }
 
     // The 20 cells the faces sample, each read once; a block that is not plain marks its cell
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Gather(Tables tables, Block[] solid, Block[] fluid, int[] rgb, int e, ref Block27 desc,
         ref Block27 light)
     {
@@ -300,7 +322,6 @@ internal static class FaceLight
         }
     }
 
-    // A sample cell: the solid block's EmitSideAo and whether it is leaves, and whether the fluid there absorbs light
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int Sample(Block solid, Block fluid) => solid.EmitSideAo |
         (solid.BlockMaterial == EnumBlockMaterial.Leaves ? Leaves : 0) | (fluid.LightAbsorption > 0 ? Absorbs : 0);
@@ -327,6 +348,7 @@ internal static class FaceLight
     // The multipliers CornerAoRGB can pick: [0] full occlusion - min(occ, 1 - halfoccInverted * clamp(LightAbsorption, 0, 32)) of the
     // lit block, as the engine computes it -, [1..3] occ / 2, 3, 4 for two, three or four lights, [4] 1f / 4 when the front's ambient
     // value is 1. False unless every multiplier is finite and in [0, MaxFactor].
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool Multipliers(TCTCache vars, Block self, out Floats5 factors)
     {
         var quotients = Divisions(vars.occ);
@@ -343,6 +365,7 @@ internal static class FaceLight
     // upper-or-left, corner sample 4 and its ambient value with sample 7's front flag; corner 1 the other side of sample 0, sample 3's
     // upper-or-left, sample 5 and sample 6's flag; corner 2 sample 1's lower-or-right (upper-or-left), sample 2's lower-or-right, sample
     // 6 and sample 5's flag; corner 3 the other side of sample 1, sample 3's lower-or-right, sample 7 and sample 4's flag.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long Shade(ref Side side, int t, int leaves, int front, int frontLight, ref Cells cells,
         ref Floats5 factors, int[] corners, int[] neighbours)
     {
@@ -381,7 +404,7 @@ internal static class FaceLight
         var (m1, m2, mb) = (Lanes(side1 & keep), Lanes(side2 & keep), Lanes(open & keep));
         var light1 = Vector128.Shuffle(edgeLights, Vector128.Create(0, 0, 1, 1));
         var light2 = Vector128.Shuffle(edgeLights, Vector128.Create(2, 3, 2, 3));
-        var channels = Vector128.Create(Channels);
+        var (channels, mask) = (Vector128.Create(Channels), Vector128.Create(0xFFFF));
         var low = (own & channels) + (light1 & channels & m1) + (light2 & channels & m2) +
                   (cornerLights & channels & mb);
         var high = (Vector128.ShiftRightLogical(own, 8) & channels) +
@@ -396,7 +419,6 @@ internal static class FaceLight
             Vector128.Create(factors[3]));
         factor = Vector128.ConditionalSelect(Lanes(side1 & side2 & open).AsSingle(), ambient, factor);
         factor = Vector128.ConditionalSelect(Lanes(keep).AsSingle(), factor, Vector128.Create(factors[0]));
-        var mask = Vector128.Create(0xFFFF);
         var result = (Scale(Vector128.ShiftRightLogical(high, 16), factor) << 24) |
                      (Scale(Vector128.ShiftRightLogical(low, 16), factor) << 16) |
                      (Scale(high & mask, factor) << 8) | Scale(low & mask, factor);
@@ -418,6 +440,7 @@ internal static class FaceLight
     }
 
     // occ is a public field: the quotients are the engine's divisions of its current value, made again when it changes
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static Quotients Divisions(float occ)
     {
         var quotients = Volatile.Read(ref _quotients);
@@ -429,6 +452,7 @@ internal static class FaceLight
     }
 
     // The tesselator's halo: 34^3 cells in all three, as its constructor makes them
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool Arrays(ChunkTesselator? tesselator, [NotNullWhen(true)] out Block[]? solid,
         [NotNullWhen(true)] out Block[]? fluid, [NotNullWhen(true)] out int[]? rgb)
     {
@@ -439,7 +463,7 @@ internal static class FaceLight
                Assert(rgb is { Length: ExtCells });
     }
 
-    // The tables for this tesselator's block list, built on first use and again when the list changes
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static Tables? Current(ChunkTesselator? tesselator)
     {
         if (!NotNull(tesselator)) return null;
@@ -452,13 +476,34 @@ internal static class FaceLight
     }
 
     // 1: Block's own AO methods and ForFluidsLayer false; 2: the same with ForFluidsLayer overridden by a constant true; 0: custom,
-    // also for a type reflection cannot read (a mod type whose dependency is missing) - the engine then lights its faces
+    // also for a type reflection cannot read (a mod type whose dependency is missing) - the engine then lights its faces. Overrides of
+    // ForFluidsLayer that make a type plain are kept, so that patches on them are looked for with the others.
     internal static int Classify(Type type, List<MethodBase> overrides)
     {
         if (!NotNull(type) || !NotNull(overrides)) return 0;
+        const BindingFlags instance = BindingFlags.Public | BindingFlags.Instance;
         try
         {
-            return Kind(type, overrides);
+            if (!type.IsAssignableTo(typeof(Block))) return 0;
+            var emit = type.GetMethod(nameof(Block.DoEmitSideAo), instance,
+                [typeof(IGeometryTester), typeof(BlockFacing)]);
+            var byFlag = type.GetMethod(nameof(Block.DoEmitSideAoByFlag), instance,
+                [typeof(IGeometryTester), typeof(Vec3iAndFacingFlags), typeof(int)]);
+            var fluids = type.GetMethod("get_" + nameof(Block.ForFluidsLayer), instance, Type.EmptyTypes);
+            if (emit?.DeclaringType != typeof(Block) || byFlag?.DeclaringType != typeof(Block) || fluids is null) return 0;
+            if (fluids.DeclaringType == typeof(Block)) return 1;
+            if (fluids.GetBaseDefinition().DeclaringType != typeof(Block) ||
+                EngineShape.Foreign([fluids], EngineShape.Kinds.All, null)) return 0;
+            var kind = fluids.GetMethodBody()?.GetILAsByteArray() switch
+            {
+                [ReturnTrue, Return] => 2,
+                [ReturnFalse, Return] => 1,
+                _ => 0
+            };
+            if (kind == 0 || overrides.Contains(fluids)) return kind;
+            if (overrides.Count >= MaxOverrides) return 0;
+            overrides.Add(fluids);
+            return kind;
         }
         catch (Exception e) when (e is AmbiguousMatchException or TypeLoadException or FileNotFoundException or
                                       FileLoadException or BadImageFormatException or MissingMemberException or
@@ -468,34 +513,9 @@ internal static class FaceLight
         }
     }
 
-    // Overrides of ForFluidsLayer that make a type plain are kept, so that patches on them are looked for with the others
-    private static int Kind(Type type, List<MethodBase> overrides)
-    {
-        if (!NotNull(type) || !NotNull(overrides) || !type.IsAssignableTo(typeof(Block))) return 0;
-        const BindingFlags instance = BindingFlags.Public | BindingFlags.Instance;
-        var emit = type.GetMethod(nameof(Block.DoEmitSideAo), instance, [typeof(IGeometryTester), typeof(BlockFacing)]);
-        var byFlag = type.GetMethod(nameof(Block.DoEmitSideAoByFlag), instance,
-            [typeof(IGeometryTester), typeof(Vec3iAndFacingFlags), typeof(int)]);
-        var fluids = type.GetMethod("get_" + nameof(Block.ForFluidsLayer), instance, Type.EmptyTypes);
-        if (emit?.DeclaringType != typeof(Block) || byFlag?.DeclaringType != typeof(Block) || fluids is null) return 0;
-        if (fluids.DeclaringType == typeof(Block)) return 1;
-        if (fluids.GetBaseDefinition().DeclaringType != typeof(Block) ||
-            EngineShape.Foreign([fluids], EngineShape.Kinds.All, null)) return 0;
-        var kind = fluids.GetMethodBody()?.GetILAsByteArray() switch
-        {
-            [ReturnTrue, Return] => 2,
-            [ReturnFalse, Return] => 1,
-            _ => 0
-        };
-        if (kind == 0 || overrides.Contains(fluids)) return kind;
-        if (overrides.Count >= MaxOverrides) return 0;
-        overrides.Add(fluids);
-        return kind;
-    }
-
-    // The engine's face for Six, called through the method entry and so through the prefix above
+    // The engine's face for Six and the own tesselators, called through the method entry and so through the prefix above
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "CalcBlockFaceLight")]
-    private static extern long Calc(TCTCache vars, int tileSide, int extNeibIndex3D);
+    internal static extern long Calc(TCTCache vars, int tileSide, int extNeibIndex3D);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "neighbourLightRGBS")]
     private static extern ref int[] Neighbours(TCTCache vars);
@@ -534,23 +554,17 @@ internal static class FaceLight
     }
 
     // The engine's quotients of occ: occ / (float)2, 3 and 4
-    private sealed class Quotients(float occ)
+    private sealed record Quotients(float Occ)
     {
-        public float Occ { get; } = occ;
-        public float Half { get; } = occ / 2;
-        public float Third { get; } = occ / 3;
-        public float Fourth { get; } = occ / 4;
-        public bool Bounded { get; } = occ is >= 0 and <= MaxFactor;
+        public float Half { get; } = Occ / 2;
+        public float Third { get; } = Occ / 3;
+        public float Fourth { get; } = Occ / 4;
+        public bool Bounded { get; } = Occ is >= 0 and <= MaxFactor;
     }
 
-    // Kinds by BlockId for one block list, the face geometry they were built with, and the ForFluidsLayer overrides they rely on
-    private sealed class Tables(Block[] source, Entry[] kinds, Geometry geometry, MethodBase[] overrides)
+    private sealed record Tables(Block[] Source, Entry[] Kinds, Geometry Geometry, MethodBase[] Overrides)
     {
-        public Block[] Source { get; } = source;
-        public Entry[] Kinds { get; } = kinds;
-        public Geometry Geometry { get; } = geometry;
-        public MethodBase[] Overrides { get; } = overrides;
-        public bool Valid { get; } = geometry.Valid && kinds.Length <= MaxBlocks;
+        public bool Valid { get; } = Geometry.Valid && Kinds.Length <= MaxBlocks;
 
         // CubeFaceVertices.blockFaceVerticesCentered is written only in its static constructor: read with the kinds, never again
         public static Tables Build(Block[] blocks)
@@ -574,7 +588,6 @@ internal static class FaceLight
         }
     }
 
-    // CubeFaceVertices.blockFaceVerticesCentered and BlockFacing as the AO reads them
     private sealed class Geometry
     {
         private const int Rows = Samples + 1;

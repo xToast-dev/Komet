@@ -6,17 +6,14 @@ using Vintagestory.Server;
 
 namespace Komet.World;
 
-// What the load does not see: a column broken while it is loaded (a relight of the engine's while FullRelight is another mod's), or
-// loaded before Komet installed - in singleplayer the server loads the spawn area before the client side starts - and the columns a
-// relight left waiting until they are loaded whole. Every 200 ms, with the server's chunk unloading (ServerSystemUnloadChunks'
-// OnServerTick, its main thread), the sweep relights the waiting columns now loaded whole, then looks at the next slice of the loaded
-// columns and lights each it finds broken as the load would. A slice is cheap - a column whose chunks all have light is a few field
-// reads into a reused array - and at most MaxRepairs columns are lit per tick, the rest the next.
+// Catches what the load does not see: a column broken while loaded (an engine relight while FullRelight is another mod's), one loaded
+// before Komet installed (in singleplayer the server loads the spawn area before the client side starts), and the columns a relight
+// left waiting. Runs with ServerSystemUnloadChunks.OnServerTick, every 200 ms on the main thread; a column whose chunks all have light
+// costs a few field reads, and at most MaxRepairs columns are lit per tick.
 internal static partial class LightRepair
 {
     private const int ColumnsPerTick = 256, MaxRepairs = 2;
 
-    // The loaded columns as the sweep last listed them, the next one to look at, and the array it reads a column into; main thread
     private static long[] _sweep = [];
     private static int _cursor;
     private static IWorldChunk[] _scratch = [];
@@ -24,7 +21,6 @@ internal static partial class LightRepair
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "RunPhase")]
     private static extern ref EnumServerRunPhase RunPhase(ServerMain server);
 
-    // Postfix on ServerSystemUnloadChunks.OnServerTick
     internal static void Tick(ServerSystem __instance)
     {
         if (!Enabled || _failed || !NotNull(__instance)) return;
@@ -58,9 +54,8 @@ internal static partial class LightRepair
         Array.Clear(_scratch); // no chunk held past the tick
     }
 
-    // The waiting columns now loaded whole relit, at most max of them, and at most a slice of the queue looked at: a column still
-    // loaded in part waits on at the end, one unloaded altogether is dropped - loaded again, it is the load's. The light of a column is
-    // cleared first, as FullRelight clears it, each chunk unpacked before: a packed one has no Lighting. How many were relit.
+    // A column still loaded in part waits on; one unloaded altogether is dropped, since loaded again it is the load's. Chunks are
+    // unpacked before ClearLight: a packed one has no Lighting.
     internal static int RelightWaiting(ChunkIlluminator illuminator, IChunkProvider chunks, int max,
         Action<int, int, int> changed)
     {
@@ -86,7 +81,6 @@ internal static partial class LightRepair
         return done;
     }
 
-    // A loaded column of dimension 0 with chunks that lost their light, lit as the load lights one; the chunks lit, 0 for none
     internal static int Repair(ChunkIlluminator illuminator, IChunkProvider chunks, int x, int z, ushort[]? rain,
         Action<int, int, int> changed)
     {
@@ -99,7 +93,6 @@ internal static partial class LightRepair
         return broken.Length;
     }
 
-    // The reused array, one entry per chunk of a column of the illuminator's world
     private static IWorldChunk[] Scratch(ChunkIlluminator illuminator)
     {
         var height = Math.Min(MapY(illuminator) / Size, MaxChunks);
@@ -107,7 +100,6 @@ internal static partial class LightRepair
         return Assert(height > 0) ? _scratch : [];
     }
 
-    // The column's chunks, bottom up, into column, null where one is not loaded; how many are
     private static int Column(IChunkProvider chunks, int x, int z, int dimension, IWorldChunk[] column)
     {
         if (!NotNull(column) || column.Length == 0) return -1;
@@ -121,7 +113,6 @@ internal static partial class LightRepair
         return Assert(loaded <= column.Length) ? loaded : -1;
     }
 
-    // Sunlight and block light for the listed chunks of a loaded column, then every chunk they changed reported
     private static void Relit(ChunkIlluminator illuminator, IChunkProvider chunks, int x, int z, int dimension,
         IWorldChunk[] column, int[] lit, Action<int, int, int> changed)
     {
@@ -132,7 +123,6 @@ internal static partial class LightRepair
         Count(lit.Length);
     }
 
-    // The column, the neighbours the sunlight flooded into and the chunks the light sources changed, each to changed
     private static void Report(IChunkProvider chunks, int x, int z, int dimension, int height, byte flooded,
         HashSet<long> touched, Action<int, int, int> changed)
     {

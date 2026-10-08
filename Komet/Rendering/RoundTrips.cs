@@ -8,9 +8,8 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
 
-// OpenTK answers NativeWindow.ClientSize with a GLFW call, on X11 a round trip to the display server, and the engine asks a dozen
-// times per frame. The size changes only through the setter or NativeWindow.OnResize (GameWindow and GameWindowNative do not override
-// it), so the answer is kept until one of those runs.
+// NativeWindow.ClientSize is a GLFW call (an X11 round trip) the engine makes a dozen times a frame. The size changes only via the
+// setter or NativeWindow.OnResize, so the answer is kept until one runs.
 internal static class WindowSizeCache
 {
     private static Vector2i _size;
@@ -45,19 +44,24 @@ internal static class WindowSizeCache
     private static void Invalidate() => _valid = false;
 }
 
-// SystemRenderSunMoon.OnRenderFrame3DPost polls last frame's sun occlusion query every frame, and each glGet* is a Mesa glthread sync
-// (~10 µs). Here the query rests and is read once long complete, two glGets every fourth frame; the sun highlight then updates every
-// fourth frame instead of every second, which the engine's smoothing hides.
-internal static class SunOcclusion
+// SystemRenderSunMoon.OnRenderFrame3DPost polls the sun occlusion query every frame (each glGet* a ~10 µs Mesa glthread sync).
+// Here the query rests and is read once complete, every fourth frame; the engine's smoothing hides the slower update. Under OpenGL
+// even that read is no glGet: with a query buffer bound the driver writes availability and result into a persistently mapped buffer
+// on the GPU's timeline (no sync under glthread), read a frame later and marked unwritten before each request. Under Vulkan GlTap
+// answers the query itself, so it is asked directly.
+internal static unsafe class SunOcclusion
 {
-    private const int RestFrames = 3, MaxSamples = 1500;
-    private static int _rest;
-    private static bool _issued;
+    private const int RestFrames = 3, MaxSamples = 1500, Unwritten = -1;
+    private const GetQueryObjectParam ResultNoWait = (GetQueryObjectParam)0x9194;
+    private const BufferStorageFlags Mapped = (BufferStorageFlags)0xC3; // map read, write, persistent, coherent
+    private static int _rest, _buffer;
+    private static int* _words; // availability, result
+    private static bool _issued, _asked, _unbuffered;
     public static bool Enabled { get; set; } = true;
 
     public static void Install(Harmony harmony)
     {
-        (_rest, _issued) = (0, false); // the new world's query name is only reserved until the engine begins it
+        (_rest, _issued, _asked) = (0, false, false); // the new world's query name is only reserved until the engine begins it
         var post = AccessTools.Method(typeof(SystemRenderSunMoon), "OnRenderFrame3DPost");
         var prefix = new HarmonyMethod(Prefix);
         if (!NotNull(post) || !Assert(post.GetParameters().Length == 1) ||
@@ -78,19 +82,59 @@ internal static class SunOcclusion
 
         if (_issued && Assert(___occlQueryId != 0))
         {
-            GL.GetQueryObject(___occlQueryId, GetQueryObjectParam.QueryResultAvailable, out int ready);
-            if (!Assert(ready is 0 or 1)) return;
-            if (ready == 0) // reading it now would wait for the GPU, and a new query would run over it
+            if (!Read(___occlQueryId, out var samples)) // reading it now would wait, and a new query would run over it
             {
                 (___nowQuerying, _rest) = (true, 1);
                 return;
             }
 
-            GL.GetQueryObject(___occlQueryId, GetQueryObjectParam.QueryResult, out int samples);
             ___targetSunSpec = GameMath.Clamp(samples / (float)MaxSamples, 0f, 1f);
         }
 
         // the engine begins and ends a query around this frame's quad
-        (___nowQuerying, _issued, _rest) = (false, true, RestFrames);
+        (___nowQuerying, _issued, _rest, _asked) = (false, true, RestFrames, false);
+    }
+
+    // The result once the query is complete
+    private static bool Read(int query, out int samples)
+    {
+        samples = 0;
+        if (Vulkan.GlTap.Scene || !Buffered())
+        {
+            GL.GetQueryObject(query, GetQueryObjectParam.QueryResultAvailable, out int ready);
+            if (!Assert(ready is 0 or 1) || ready == 0) return false;
+            GL.GetQueryObject(query, GetQueryObjectParam.QueryResult, out samples);
+            return true;
+        }
+
+        if (_asked && _words[0] != Unwritten)
+        {
+            _asked = false;
+            if (_words[0] == 1)
+            {
+                samples = _words[1];
+                return true;
+            }
+        }
+
+        if (_asked) return false; // the GPU has not got to the request yet
+        (_words[0], _words[1], _asked) = (Unwritten, Unwritten, true);
+        GL.BindBuffer(BufferTarget.QueryBuffer, _buffer);
+        GL.GetQueryObject(query, GetQueryObjectParam.QueryResultAvailable, (int*)0);
+        GL.GetQueryObject(query, ResultNoWait, (int*)sizeof(int));
+        GL.BindBuffer(BufferTarget.QueryBuffer, 0);
+        return false;
+    }
+
+    // Made once per process; without GL 4.5 the queries are asked directly
+    private static bool Buffered()
+    {
+        if (_words != null) return true;
+        if (_unbuffered) return false;
+        GL.CreateBuffers(1, out _buffer);
+        GL.NamedBufferStorage(_buffer, 2 * sizeof(int), IntPtr.Zero, Mapped);
+        _words = (int*)GL.MapNamedBufferRange(_buffer, IntPtr.Zero, 2 * sizeof(int), (BufferAccessMask)Mapped);
+        _unbuffered = _words == null;
+        return !_unbuffered;
     }
 }

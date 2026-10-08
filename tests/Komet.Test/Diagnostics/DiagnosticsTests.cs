@@ -1,6 +1,5 @@
 namespace Komet.Test.Diagnostics;
 
-// The HUD's own machinery: the frame clock's seam, the mod times and the mod walk
 public sealed class DiagnosticsTests
 {
     [TearDown]
@@ -9,10 +8,8 @@ public sealed class DiagnosticsTests
         ModTimes.Enabled = false;
     }
 
-    private static bool PatchedBy(MethodBase method, Harmony harmony)
-    {
-        return Harmony.GetPatchInfo(method) is { } info && info.Owners.Contains(harmony.Id);
-    }
+    internal static bool PatchedBy(MethodBase method, Harmony harmony) =>
+        Harmony.GetPatchInfo(method) is { } info && info.Owners.Contains(harmony.Id);
 
     [Test]
     public void TheFrameClockPatchesTheRenderFrameHandler()
@@ -67,7 +64,7 @@ public sealed class DiagnosticsTests
         });
     }
 
-    // Per mod its dearest renderers and listeners, found in one pass over the entries; here every renderer is Komet.Test's
+    // Here every renderer is Komet.Test's
     [Test]
     public void TheModTimesRankEachModsDearestEntries()
     {
@@ -156,31 +153,6 @@ public sealed class DiagnosticsTests
         });
     }
 
-    // The walk is refused until Komet's own patches are registered. The settings load in StartClientSide, before Komet patches
-    // anything and before the mods after it do, so the HUD asks for its walk only once the level is finalized.
-    [Test]
-    public void TheModWalkNeedsKometsOwnPatchesAndSeesThem()
-    {
-        var loader = DispatchProxy.Create<IModLoader, OneModLoader>();
-        Assert.That(ModStats.Walk(loader, "komet"), Is.Null, "nothing is patched by komet yet");
-        using var harmony = new TestHarmony("komet");
-        _ = harmony.Patch(AccessTools.Method(typeof(DiagnosticsTests), nameof(Patched)), Foreign.Postfix);
-        var snapshot = ModStats.Walk(loader, "komet");
-        Assert.That(snapshot, Is.Not.Null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(snapshot!.Mods, Is.EqualTo(1));
-            Assert.That(snapshot.ModNames[0], Is.EqualTo("Komet 1.2.3"));
-            Assert.That(snapshot.PatchedMethods, Is.GreaterThanOrEqualTo(1));
-            Assert.That(snapshot.OwnerList, Does.Contain(("komet", 1)));
-        });
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Patched()
-    {
-        return 1;
-    }
 }
 
 // IModLoader with one mod; only Mods is read by the walk
@@ -326,10 +298,7 @@ public sealed class FrameStatsTests
     [Test]
     public void EachFrameCarriesItsOwnGcPause()
     {
-        var (stats, profiler) = (FrameClock.Stats, ScreenManager.FrameProfiler);
-        ScreenManager.FrameProfiler = null!;
-        FrameClock.Stats = true;
-        try
+        Clock.With(true, null, () =>
         {
             var records = new List<FrameRecord>();
             TimeSpan own = default;
@@ -360,21 +329,14 @@ public sealed class FrameStatsTests
                     "End() ran for every frame");
                 Assert.That(records.Select(record => record.Root), Is.All.Null, "no profiler, no profile");
             });
-        }
-        finally
-        {
-            (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, profiler);
-            FrameClock.Begin();
-        }
+        });
     }
 
     // An exception inside the frame skips the postfix: the frame still counts, only the split between frames is unknown
     [Test]
     public void AFrameWithoutItsPostfixKeepsItsDt()
     {
-        var stats = FrameClock.Stats;
-        FrameClock.Stats = true;
-        try
+        Clock.With(true, ScreenManager.FrameProfiler, () =>
         {
             FrameClock.Begin();
             Busy.Spin(2);
@@ -384,20 +346,13 @@ public sealed class FrameStatsTests
                 Assert.That(FrameClock.Last.DtMs, Is.GreaterThan(1));
                 Assert.That(FrameClock.Last.OutsideMs, Is.NaN);
             });
-        }
-        finally
-        {
-            FrameClock.Stats = stats;
-            FrameClock.Begin();
-        }
+        });
     }
 
     [Test]
     public void TheClockStandsStillWhileNobodyLooks()
     {
-        var stats = FrameClock.Stats;
-        FrameClock.Stats = false;
-        try
+        Clock.With(false, ScreenManager.FrameProfiler, () =>
         {
             var completed = FrameClock.Completed;
             for (var i = 0; i < 3; i++)
@@ -407,10 +362,25 @@ public sealed class FrameStatsTests
             }
 
             Assert.That(FrameClock.Completed, Is.EqualTo(completed));
+        });
+    }
+}
+
+// FrameClock's switches and the engine's profiler as a test sets them, put back afterwards: no sink, a fresh frame start
+internal static class Clock
+{
+    public static void With(bool stats, FrameProfilerUtil? profiler, Action body)
+    {
+        var saved = (FrameClock.Stats, ScreenManager.FrameProfiler);
+        (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, profiler!);
+        try
+        {
+            body();
         }
         finally
         {
-            FrameClock.Stats = stats;
+            (FrameClock.Stats, ScreenManager.FrameProfiler, FrameClock.Sink) = (saved.Stats, saved.FrameProfiler, null);
+            FrameClock.Begin();
         }
     }
 }

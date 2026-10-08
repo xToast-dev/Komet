@@ -23,10 +23,7 @@ public sealed class PartitionReuseTests
     }
 
     [TearDown]
-    public void Restore()
-    {
-        (PartitionReuse.Enabled, Counting.Hud) = (true, false);
-    }
+    public void Restore() => (PartitionReuse.Enabled, Counting.Hud) = (true, false);
 
     [Test]
     public void Installs()
@@ -151,13 +148,9 @@ public sealed class PartitionReuseTests
         return string.Join(" ", chunks) + $" touch {partitioning.LargestTouchDistance}";
     }
 
-    private static string Cells(List<Entity>[] cells, Dictionary<Entity, int> ids)
-    {
-        return string.Join(";", cells.Select(list => list is null ? "-" : Ids(list, ids)));
-    }
+    private static string Cells(List<Entity>[] cells, Dictionary<Entity, int> ids) =>
+        string.Join(";", cells.Select(list => list is null ? "-" : Ids(list, ids)));
 
-    private static string Ids(List<Entity> list, Dictionary<Entity, int> ids)
-    {
-        return "(" + string.Join(",", list.Select(e => ids[e])) + ")";
-    }
+    private static string Ids(List<Entity> list, Dictionary<Entity, int> ids) =>
+        "(" + string.Join(",", list.Select(e => ids[e])) + ")";
 }

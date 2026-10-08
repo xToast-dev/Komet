@@ -18,15 +18,12 @@ public sealed class OccludedChunksTests
     // The rig is internal to the tests, so a case carries the change's name and the change waits here
     private static readonly Dictionary<string, Action<ChunkRig>> Changed = [];
 
-    private static int Solid(int x, int y, int z)
-    {
-        return ChunkRig.Stone;
-    }
+    [TearDown]
+    public void Restore() => (OccludedChunks.Enabled, Counting.Hud) = (true, false);
 
-    private static int Mixed(int x, int y, int z)
-    {
-        return (x + y + z) % 3 == 0 ? ChunkRig.Granite : ChunkRig.Stone;
-    }
+    private static int Solid(int x, int y, int z) => ChunkRig.Stone;
+
+    private static int Mixed(int x, int y, int z) => (x + y + z) % 3 == 0 ? ChunkRig.Granite : ChunkRig.Stone;
 
     // The chunk and its six face neighbours of stone (and the bottom ones: the chunk below the world's lowest is never there), in a
     // map region with climate and ocean maps
@@ -50,12 +47,10 @@ public sealed class OccludedChunksTests
     }
 
     // What a pass leaves in the tesselator that the next pass reads before it sets it
-    private static (int[] Climate, float[] Ocean, int Dimension) Left(ChunkRig rig)
-    {
-        return ((int[])ChunkRig.Get(rig.Tesselator, "currentClimateRegionMap"),
+    private static (int[] Climate, float[] Ocean, int Dimension) Left(ChunkRig rig) =>
+        ((int[])ChunkRig.Get(rig.Tesselator, "currentClimateRegionMap"),
             Corners.Select(c => (float)ChunkRig.Get(rig.Tesselator, c)).ToArray(),
             ((BlockPos)ChunkRig.Get(rig.Tesselator, "tmpPos")).dimension);
-    }
 
     // What the engine leaves in a TesselatedChunk against what the fast path leaves in another one for the same chunk, and what each
     // leaves in the tesselator for the passes after it, from the same stale start
@@ -124,7 +119,6 @@ public sealed class OccludedChunksTests
         AssertSameResult(rig, Y, false);
     }
 
-    // Stone only where it touches the chunk west of it, air and glass behind
     private static int Cave(int x, int y, int z)
     {
         if (x == 0) return ChunkRig.Stone;
@@ -173,19 +167,15 @@ public sealed class OccludedChunksTests
         return new TestCaseData(name, conservative).SetName("Agrees: " + name);
     }
 
-    // Whether (x, y, z) of the neighbour at (dx, dy, dz) lies in its slab that touches the chunk
-    private static bool Touching(int dx, int dy, int dz, int x, int y, int z)
+    private static bool Touching(int dx, int dy, int dz, int x, int y, int z) => (dx, dy, dz) switch
     {
-        return (dx, dy, dz) switch
-        {
-            (1, 0, 0) => x == 0,
-            (-1, 0, 0) => x == 31,
-            (0, 1, 0) => y == 0,
-            (0, -1, 0) => y == 31,
-            (0, 0, 1) => z == 0,
-            _ => z == 31
-        };
-    }
+        (1, 0, 0) => x == 0,
+        (-1, 0, 0) => x == 31,
+        (0, 1, 0) => y == 0,
+        (0, -1, 0) => y == 31,
+        (0, 0, 1) => z == 0,
+        _ => z == 31
+    };
 
     [TestCaseSource(nameof(Changes))]
     public void TheFastPathAgreesWithTheEnginesFaceCulling(string change, bool conservative)
@@ -304,11 +294,8 @@ public sealed class OccludedChunksTests
         var rng = new Random(seed);
         using var rig = new ChunkRig(types);
 
-        int Any(int x, int y, int z)
-        {
-            return ChunkRig.Count +
-                   (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
-        }
+        int Any(int x, int y, int z) =>
+            ChunkRig.Count + (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
 
         var center = rig.Put(X, Y, Z, Any);
         foreach (var (dx, dy, dz) in Faces) _ = rig.Put(X + dx, Y + dy, Z + dz, Any);
@@ -419,69 +406,50 @@ public sealed class OccludedChunksTests
     public void AnotherModsPatchOnThePipeline(string seam, HarmonyPatchType kind, bool standsDown)
     {
         using var rig = Enclosed(Y);
-        var (harmony, other) = (new Harmony("komet-test-occludedchunks"),
-            new Harmony("komet-test-occludedchunks-other"));
+        using var harmony = new TestHarmony("komet-test-occludedchunks");
+        using var other = new TestHarmony("komet-test-occludedchunks-other");
         var method = Array.Find(OccludedChunks.Shaped(), m => m?.Name == seam);
         var patch = kind == HarmonyPatchType.Transpiler ? Foreign.Transpiler : Foreign.Postfix;
         var answered = standsDown ? 0L : 1L;
-        try
-        {
-            OccludedChunks.Install(harmony);
-            _ = other.Patch(method, kind == HarmonyPatchType.Prefix ? patch : null,
-                kind == HarmonyPatchType.Postfix ? patch : null, kind == HarmonyPatchType.Transpiler ? patch : null);
-            OccludedChunks.Recheck();
-            Counting.Hud = true;
-            var before = OccludedChunks.Hits;
-            _ = rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false);
-            Assert.That((OccludedChunks.StoodDown, OccludedChunks.Hits - before), Is.EqualTo((standsDown, answered)));
-            other.UnpatchAll(other.Id);
-            OccludedChunks.Recheck();
-            _ = rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false);
-            Assert.That((OccludedChunks.StoodDown, OccludedChunks.Hits - before), Is.EqualTo((false, answered + 1)));
-        }
-        finally
-        {
-            Counting.Hud = false;
-            other.UnpatchAll(other.Id);
-            harmony.UnpatchAll(harmony.Id);
-        }
+        OccludedChunks.Install(harmony);
+        _ = other.Patch(method, kind == HarmonyPatchType.Prefix ? patch : null,
+            kind == HarmonyPatchType.Postfix ? patch : null, kind == HarmonyPatchType.Transpiler ? patch : null);
+        OccludedChunks.Recheck();
+        Counting.Hud = true;
+        var before = OccludedChunks.Hits;
+        _ = rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false);
+        Assert.That((OccludedChunks.StoodDown, OccludedChunks.Hits - before), Is.EqualTo((standsDown, answered)));
+        other.UnpatchAll(other.Id);
+        OccludedChunks.Recheck();
+        _ = rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false);
+        Assert.That((OccludedChunks.StoodDown, OccludedChunks.Hits - before), Is.EqualTo((false, answered + 1)));
     }
 
-    // The prefix on the real method: answered passes skip the engine, and switched off the engine runs
     [Test]
     public void ThePrefixAnswersEnclosedChunksOnly()
     {
         using var rig = Enclosed(Y);
-        var harmony = new Harmony("komet-test-occludedchunks");
-        try
-        {
-            // KometModSystem's order and id: the other fast paths patch methods the prefix skips
-            TessSeams.Install(harmony, null);
-            ExtendedRows.Install(harmony);
-            VisibleFaces.Install(harmony);
-            FaceLight.Install(harmony);
-            OccludedChunks.Install(harmony);
-            TessSeams.Recheck();
-            Assert.That((ExtendedRows.Rewritten, VisibleFaces.Installed, OccludedChunks.Installed),
-                Is.EqualTo((true, true, true)));
-            Assert.That((ExtendedRows.Blocked, VisibleFaces.StoodDown, FaceLight.StoodDown, OccludedChunks.StoodDown),
-                Is.EqualTo((false, false, false, false)));
-            Counting.Hud = true;
-            var before = OccludedChunks.Hits;
-            var tess = rig.Tess(X, Y, Z);
-            ChunkRig.Set(tess, "boundingSphere", new Sphere(1, 2, 3, 4, 5, 6));
-            Assert.That(rig.Tesselator.NowProcessChunk(X, Y, Z, tess, false), Is.Zero);
-            Assert.That(OccludedChunks.Hits - before, Is.EqualTo(1));
-            Assert.That(ChunkRig.Bounds(tess).x, Is.EqualTo(X * 32 + 16f));
-            OccludedChunks.Enabled = false; // the engine's own pass, which draws nothing here either
-            Assert.That(rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false), Is.Zero);
-            Assert.That(OccludedChunks.Hits - before, Is.EqualTo(1));
-        }
-        finally
-        {
-            Counting.Hud = false;
-            OccludedChunks.Enabled = true;
-            harmony.UnpatchAll(harmony.Id);
-        }
+        using var harmony = new TestHarmony("komet-test-occludedchunks");
+        // KometModSystem's order and id: the other fast paths patch methods the prefix skips
+        TessSeams.Install(harmony, null);
+        ExtendedRows.Install(harmony);
+        VisibleFaces.Install(harmony);
+        FaceLight.Install(harmony);
+        OccludedChunks.Install(harmony);
+        TessSeams.Recheck();
+        Assert.That((ExtendedRows.Rewritten, VisibleFaces.Installed, OccludedChunks.Installed),
+            Is.EqualTo((true, true, true)));
+        Assert.That((ExtendedRows.Blocked, VisibleFaces.StoodDown, FaceLight.StoodDown, OccludedChunks.StoodDown),
+            Is.EqualTo((false, false, false, false)));
+        Counting.Hud = true;
+        var before = OccludedChunks.Hits;
+        var tess = rig.Tess(X, Y, Z);
+        ChunkRig.Set(tess, "boundingSphere", new Sphere(1, 2, 3, 4, 5, 6));
+        Assert.That(rig.Tesselator.NowProcessChunk(X, Y, Z, tess, false), Is.Zero);
+        Assert.That(OccludedChunks.Hits - before, Is.EqualTo(1));
+        Assert.That(ChunkRig.Bounds(tess).x, Is.EqualTo(X * 32 + 16f));
+        OccludedChunks.Enabled = false; // the engine's own pass, which draws nothing here either
+        Assert.That(rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false), Is.Zero);
+        Assert.That(OccludedChunks.Hits - before, Is.EqualTo(1));
     }
 }

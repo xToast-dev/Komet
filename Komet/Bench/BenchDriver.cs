@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using Komet.Host;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
@@ -84,6 +85,7 @@ internal sealed class BenchDriver : IRenderer
     public const double MaxStep = 2;
 
     public const int Spikes = 10; // per segment
+    private const int PulseMs = 2000;
     private const string Done = "komet bench done", LapCommand = "/time set 10:00";
 
     // Time keeps running: particles age with the calendar (ParticlePoolQuads.OnNewFrame scales dt by SpeedOfTime / 60), so with
@@ -99,6 +101,9 @@ internal sealed class BenchDriver : IRenderer
     private readonly BenchRecorder _recorder;
     private readonly ResourceStats _resources = new();
     private readonly BenchRun _run;
+    private readonly BenchShots? _shots;
+    private readonly Timer? _pulse;
+    private long _frames;
     private int _command, _index = -1;
     private (double X, double Y, double Z) _home, _from;
     private bool _modeRequested, _profilerOwned, _resourcesFailed;
@@ -110,6 +115,16 @@ internal sealed class BenchDriver : IRenderer
     {
         (_capi, _run, _recorder) = (capi, run, recorder);
         if (!NotNull(capi.Event) || !Assert(run.Segments.Length > 0)) return;
+        if (run.Config?.Shots == true)
+        {
+            _shots = new BenchShots(Path.GetDirectoryName(run.Config.Output) ?? ".");
+            capi.Event.RegisterRenderer(_shots, EnumRenderStage.Done, "komet-bench-shots");
+        }
+
+        // scripts/bench.sh's freeze watchdog: a timer thread writes the frames seen so far, so a frame that never ends (a deadlock, an
+        // endless loop) shows as a count that stops, without a write in any frame
+        if (run.Config?.Output is { Length: > 0 } output)
+            _pulse = new Timer(_ => Pulse(output + ".pulse"), null, PulseMs, PulseMs);
         capi.Event.LevelFinalize += Finalized;
         capi.Event.LeaveWorld += Left;
         capi.Event.ChatMessage += Chat;
@@ -119,11 +134,31 @@ internal sealed class BenchDriver : IRenderer
     int IRenderer.RenderRange => int.MaxValue;
 
     // LeaveWorld fires at the top of ClientMain.DestroyGameSession, before the engine disposes renderers, so the run is over here
-    public void Dispose() =>
+    public void Dispose()
+    {
         _ = Assert(_phase != Phase.Running) && Assert(!ReferenceEquals(FrameClock.Sink, _recorder));
+        _shots?.Dispose();
+        _pulse?.Dispose();
+    }
+
+    private void Pulse(string path)
+    {
+        try
+        {
+            var frames = Interlocked.Read(ref _frames);
+            File.WriteAllText(path, string.Create(CultureInfo.InvariantCulture,
+                $"{frames} {DateTimeOffset.UtcNow.ToUnixTimeSeconds()}\n"));
+            _ = Assert(frames >= 0);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _capi.Logger.Warning("Komet bench: pulse not written: {0}", e.Message);
+        }
+    }
 
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
+        _ = Interlocked.Increment(ref _frames);
         if (_phase is Phase.Waiting or Phase.Finished || !Assert(stage == EnumRenderStage.Before) ||
             !Finite(deltaTime)) return;
         try
@@ -258,6 +293,7 @@ internal sealed class BenchDriver : IRenderer
         {
             (_t, _clock) = (_t + dt, _clock + dt);
             if (!Step()) return;
+            if (_run.Config.Gui == BenchGui.Creative && _run.Segments[_index].Kind == BenchKind.Still) BenchGui.Scroll(_capi, dt);
         }
 
         Stamp(paused);
@@ -306,6 +342,11 @@ internal sealed class BenchDriver : IRenderer
         if (!Index(index, _run.Segments.Length) || !Assert(index > _index)) return;
         var segment = _run.Segments[index];
         (_index, _t) = (index, 0);
+        if (_shots is not null && index > 0 &&
+            _run.Segments[index - 1] is { Kind: BenchKind.LapSettle, Warmup: false } settled &&
+            Index(settled.Arm, _run.Config.Arms.Count))
+            _shots.Take(string.Create(CultureInfo.InvariantCulture,
+                $"shot-{_run.Config.Arms[settled.Arm].Name}-lap{settled.Lap}.png"));
         switch (segment.Kind)
         {
             case BenchKind.Climb:
@@ -315,6 +356,9 @@ internal sealed class BenchDriver : IRenderer
                 _ = Knobs.Apply(_run.ArmValues[segment.Arm]); // the lap settle and the discard window follow
                 _capi.SendChatMessage(LapCommand); // every lap starts at the hour the setup set
                 if (segment.Lap == 0) _run.Status(segment.Warmup ? "warmup" : "measuring");
+                if (_run.Config.HudWindow == "cycle") Hud.HudOverlay.ShowForBench?.Invoke(segment.Lap);
+                if (_run.Config.Gui == BenchGui.Creative) BenchGui.Open(_capi);
+                if (_run.Config.Gui == BenchGui.Debug) Hud.HudOverlay.CaptureForBench?.Invoke(BenchGui.CaptureSeconds);
                 break;
             case BenchKind.Setup or BenchKind.Settle:
                 _run.Status(segment.Name);
@@ -414,7 +458,6 @@ internal sealed class BenchDriver : IRenderer
         _recorder.Stamp(_index, flags, (float)_pose.X, (float)_pose.Z, (float)_pose.Yaw);
     }
 
-    // Writes the result, puts the knobs back the way the player had them, and leaves when the run was unattended
     private void Finish(string? error, bool exit = true)
     {
         if (_phase == Phase.Finished || !NotNull(_run)) return;
@@ -445,7 +488,7 @@ internal sealed class BenchDriver : IRenderer
         _capi.Logger.Notification("Komet bench: {0}, result in {1}", _run.Error ?? "complete", _run.Config.Output);
         if (_capi.World is not ClientMain game) return;
         game.AllowCameraControl = true;
-        if (exit && _capi.IsSinglePlayer) Benchmark.Exit(game, Done);
+        if (exit && (_capi.IsSinglePlayer || HostLaunch.Hosting)) Benchmark.Exit(game, Done);
     }
 
     private enum Phase

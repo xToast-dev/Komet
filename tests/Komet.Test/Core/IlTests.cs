@@ -3,9 +3,6 @@ using ColumnNoise = Vintagestory.API.MathTools.NewNormalizedSimplexFractalNoise.
 
 namespace Komet.Test.Core;
 
-// The shared transpiler toolkit on the engine methods the features rewrite: it finds the site each feature's transpiler rewrites and
-// rewrites it to the same instruction, reads locals as Harmony does, and its escape check accepts the shapes LightScratch and
-// ColumnNoiseScratch accept and refuses the ones they refuse.
 public sealed class IlTests
 {
     private static readonly ConstructorInfo Queue = AccessTools.Constructor(typeof(QueueOfInt), []);
@@ -71,7 +68,6 @@ public sealed class IlTests
         });
     }
 
-    // A replacement that takes other operands than the instruction would leave the stack unbalanced: refused, nothing changed
     [Test]
     public void SubstituteRefusesAnotherStackEffect()
     {
@@ -87,7 +83,6 @@ public sealed class IlTests
         });
     }
 
-    // The local of every ldloc, ldloca and stloc as Harmony's LocalIndex reads it, filtered by its kind, and -1 for anything else
     [Test]
     public void LocalReadsTheIndexHarmonyReads()
     {
@@ -201,10 +196,8 @@ public sealed class IlTests
             return code;
         }
 
-        bool Confined(List<CodeInstruction> code, Il.Uses uses)
-        {
-            return Il.Confined(code, store, Member, uses, 6);
-        }
+        bool Confined(List<CodeInstruction> code, Il.Uses uses) =>
+            Il.Confined(code, store, Member, uses, 6);
 
         var variants = new[]
         {
@@ -235,17 +228,13 @@ public sealed class IlTests
         return ColumnNoiseScratch.ColumnBody();
     }
 
-    private static bool Member(CodeInstruction c, int operand)
-    {
-        return operand == 0 && c.opcode == OpCodes.Call && c.operand is MethodInfo { IsStatic: false } m &&
+    private static bool Member(CodeInstruction c, int operand) =>
+        operand == 0 && c.opcode == OpCodes.Call && c.operand is MethodInfo { IsStatic: false } m &&
             m.DeclaringType == typeof(ColumnNoise) && m.ReturnType == typeof(double);
-    }
 
     // Each call of GetOriginalInstructions declares its own LocalBuilders: a local by its index
-    private static (OpCode, object?) Shape(CodeInstruction code)
-    {
-        return (code.opcode, code.operand is LocalBuilder local ? local.LocalIndex : code.operand);
-    }
+    private static (OpCode, object?) Shape(CodeInstruction code) =>
+        (code.opcode, code.operand is LocalBuilder local ? local.LocalIndex : code.operand);
 
     private static Il.Uses Kind(CodeInstruction code)
     {

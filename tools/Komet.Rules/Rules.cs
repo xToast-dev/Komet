@@ -95,14 +95,11 @@ public sealed class KometAnalyzer : DiagnosticAnalyzer
 internal static class Symbols
 {
     // Komet.Contracts holds the assertion helpers; the loop, foreach and density rules skip the class itself
-    public static bool IsContracts(ITypeSymbol? type)
+    public static bool IsContracts(ITypeSymbol? type) => type is
     {
-        return type is
-        {
-            Name: "Contracts", ContainingType: null,
-            ContainingNamespace: { Name: "Komet", ContainingNamespace.IsGlobalNamespace: true }
-        };
-    }
+        Name: "Contracts", ContainingType: null,
+        ContainingNamespace: { Name: "Komet", ContainingNamespace.IsGlobalNamespace: true }
+    };
 
     public static bool InContracts(ISymbol? symbol)
     {
@@ -111,10 +108,8 @@ internal static class Symbols
         return IsContracts(type);
     }
 
-    public static bool IsContractsCall(ISymbol? symbol, string name)
-    {
-        return symbol is IMethodSymbol method && method.Name == name && IsContracts(Normalize(method).ContainingType);
-    }
+    public static bool IsContractsCall(ISymbol? symbol, string name) =>
+        symbol is IMethodSymbol method && method.Name == name && IsContracts(Normalize(method).ContainingType);
 
     // One node per method in the call graph: extension calls, generic instances and partial parts map to the declared definition
     public static IMethodSymbol Normalize(IMethodSymbol method)
@@ -145,15 +140,8 @@ internal static class Symbols
 // Skipped are paths outside the project directory and under its obj/ or bin/: the SDK's GlobalUsings.g.cs and AssemblyInfo.cs and
 // every source generator's output (csc roots generated trees at its output directory, obj/<cfg>/<generator>/...). Without a project
 // directory (a compilation outside MSBuild), a path with an obj or bin segment is skipped.
-internal sealed class Sources
+internal sealed class Sources(HashSet<SyntaxTree> user)
 {
-    private readonly HashSet<SyntaxTree> _user;
-
-    private Sources(HashSet<SyntaxTree> user)
-    {
-        _user = user;
-    }
-
     public static Sources Of(Compilation compilation, AnalyzerOptions options)
     {
         _ = options.AnalyzerConfigOptionsProvider.GlobalOptions.TryGetValue("build_property.projectdir", out var dir);
@@ -161,29 +149,20 @@ internal sealed class Sources
         return new Sources([.. compilation.SyntaxTrees.Where(tree => IsUser(Normal(tree.FilePath), root))]);
     }
 
-    public Action<SyntaxTreeAnalysisContext> Tree(Action<SyntaxTreeAnalysisContext> action)
+    public Action<SyntaxTreeAnalysisContext> Tree(Action<SyntaxTreeAnalysisContext> action) => c =>
     {
-        return c =>
-        {
-            if (_user.Contains(c.Tree)) action(c);
-        };
-    }
+        if (user.Contains(c.Tree)) action(c);
+    };
 
-    public Action<SyntaxNodeAnalysisContext> Node(Action<SyntaxNodeAnalysisContext> action)
+    public Action<SyntaxNodeAnalysisContext> Node(Action<SyntaxNodeAnalysisContext> action) => c =>
     {
-        return c =>
-        {
-            if (_user.Contains(c.Node.SyntaxTree)) action(c);
-        };
-    }
+        if (user.Contains(c.Node.SyntaxTree)) action(c);
+    };
 
-    public Action<OperationAnalysisContext> Operation(Action<OperationAnalysisContext> action)
+    public Action<OperationAnalysisContext> Operation(Action<OperationAnalysisContext> action) => c =>
     {
-        return c =>
-        {
-            if (_user.Contains(c.Operation.Syntax.SyntaxTree)) action(c);
-        };
-    }
+        if (user.Contains(c.Operation.Syntax.SyntaxTree)) action(c);
+    };
 
     private static bool IsUser(string path, string? root)
     {
@@ -193,8 +172,5 @@ internal sealed class Sources
                !path.StartsWith(root + "bin/", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string Normal(string path)
-    {
-        return path.Replace('\\', '/');
-    }
+    private static string Normal(string path) => path.Replace('\\', '/');
 }

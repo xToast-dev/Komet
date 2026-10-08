@@ -1,6 +1,6 @@
+using System.Buffers.Text;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.Runtime.InteropServices;
 using OpenTK.Graphics.OpenGL;
 
@@ -9,10 +9,11 @@ namespace Komet.Diagnostics;
 internal sealed partial class ResourceStats
 {
     private const long Mb = 1024 * 1024;
-    private const int MaxMeminfoLines = 128, MaxStatFields = 32;
+    private const int ProcBytes = 8192, MaxStatFields = 32;
 
     private readonly Process _process = Process.GetCurrentProcess();
     private readonly Stopwatch _wall = Stopwatch.StartNew();
+    private readonly byte[] _proc = new byte[ProcBytes]; // Sample runs on one thread at a time
     private bool _failed;
     private long _lastAllocated;
     private ulong _lastBusy, _lastTotal;
@@ -54,12 +55,11 @@ internal sealed partial class ResourceStats
 
     private void Measure()
     {
-        _process.Refresh();
         var seconds = _wall.Elapsed.TotalSeconds;
         _wall.Restart();
         if (!Assert(seconds > 0)) return;
 
-        var cpu = _process.TotalProcessorTime;
+        var cpu = Environment.CpuUsage.TotalTime; // getrusage, as Process.TotalProcessorTime reads it for this process
         if (Assert(cpu >= _lastCpu))
             CpuPercent = (cpu - _lastCpu).TotalSeconds / seconds / Environment.ProcessorCount * 100;
         _lastCpu = cpu;
@@ -74,7 +74,7 @@ internal sealed partial class ResourceStats
             AllocatedMbPerSec = (double)(allocated - _lastAllocated) / Mb / seconds;
         _lastAllocated = allocated;
 
-        WorkingSetMb = _process.WorkingSet64 / Mb;
+        WorkingSetMb = WorkingSet();
         ManagedUsedMb = GC.GetTotalMemory(false) / Mb;
         ManagedCommittedMb = GC.GetGCMemoryInfo().TotalCommittedBytes / Mb;
         if (!Assert(WorkingSetMb > 0) || !Assert(ManagedCommittedMb > 0)) return;
@@ -84,6 +84,14 @@ internal sealed partial class ResourceStats
         else if (OperatingSystem.IsWindows()) SampleWindows();
     }
 
+    // Process.WorkingSet64 is VmRSS, which a Refresh() parses out of /proc/self/stat and status into ~27 KB of strings
+    private long WorkingSet()
+    {
+        if (OperatingSystem.IsLinux()) return Kb(Proc("/proc/self/status"), "VmRSS:"u8) / 1024;
+        _process.Refresh();
+        return Assert(_process.WorkingSet64 >= 0) ? _process.WorkingSet64 / Mb : 0;
+    }
+
     private static double Rate(int now, ref int last, double seconds)
     {
         var perSec = Assert(now >= last) && Assert(seconds > 0) ? (now - last) / seconds : 0;
@@ -91,42 +99,58 @@ internal sealed partial class ResourceStats
         return perSec;
     }
 
+    // Into one buffer, parsed in place: a StreamReader, a string per line and a Split per field were ~17 KB a sample
     private void SampleLinux()
     {
-        foreach (var line in File.ReadLines("/proc/meminfo").Bounded(MaxMeminfoLines))
-        {
-            if (line.StartsWith("MemTotal:", StringComparison.Ordinal)) TotalRamMb = KbToMb(line);
-            if (!line.StartsWith("MemAvailable:", StringComparison.Ordinal)) continue;
-            AvailableRamMb = KbToMb(line);
-            break;
-        }
-
+        var meminfo = Proc("/proc/meminfo");
+        if (Kb(meminfo, "MemTotal:"u8) is var ram and >= 0) TotalRamMb = ram / 1024;
+        if (Kb(meminfo, "MemAvailable:"u8) is var free and >= 0) AvailableRamMb = free / 1024;
         if (!Assert(TotalRamMb > 0) || !Assert(AvailableRamMb <= TotalRamMb)) return;
 
-        using var stat = File.OpenText("/proc/stat");
         // cpu user nice system idle iowait …
-        var fields = (stat.ReadLine() ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (!Assert(fields.Length >= 8) || !Assert(fields[0] == "cpu")) return;
-        ulong total = 0, idle = 0;
-        for (var i = 1; i < Math.Min(fields.Length, MaxStatFields); i++)
+        var stat = Proc("/proc/stat");
+        var end = stat.IndexOf((byte)'\n');
+        var line = end < 0 ? stat : stat[..end];
+        if (!Assert(line.StartsWith("cpu "u8))) return;
+        line = line[3..];
+        var (total, idle, fields) = (0UL, 0UL, 1);
+        for (var i = 1; i < MaxStatFields; i++)
         {
-            if (!Assert(ulong.TryParse(fields[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)))
-                return;
-            total += value;
+            line = line.TrimStart((byte)' ');
+            if (line.IsEmpty) break;
+            var cut = line.IndexOf((byte)' ');
+            var field = cut < 0 ? line : line[..cut];
+            if (!Assert(Utf8Parser.TryParse(field, out ulong value, out var used) && used == field.Length)) return;
+            (total, fields) = (total + value, fields + 1);
+            line = line[field.Length..];
             if (i is 4 or 5) idle += value; // idle and iowait
         }
 
-        UpdateSystemCpu(total - idle, total);
+        if (Assert(fields >= 8)) UpdateSystemCpu(total - idle, total);
     }
 
-    private static long KbToMb(string line)
+    // The file's start, as much as the buffer holds: /proc/meminfo and /proc/self/status whole, /proc/stat's cpu line
+    private ReadOnlySpan<byte> Proc(string path)
     {
-        var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        return Assert(fields.Length >= 2) &&
-               Assert(long.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var kb)) &&
-               Assert(kb >= 0)
-            ? kb / 1024
-            : 0;
+        using var file = File.OpenHandle(path);
+        var got = 0;
+        for (var i = 0; i < ProcBytes && got < ProcBytes; i++)
+        {
+            var n = RandomAccess.Read(file, _proc.AsSpan(got), got);
+            if (n <= 0) break;
+            got += n;
+        }
+
+        return Assert(got <= ProcBytes) ? _proc.AsSpan(0, got) : [];
+    }
+
+    // The kB number on the line that starts with key, -1 without one: "MemTotal:       32768000 kB", "VmRSS:\t  102016 kB"
+    internal static long Kb(ReadOnlySpan<byte> text, ReadOnlySpan<byte> key)
+    {
+        var at = text.IndexOf(key);
+        if (at < 0 || (at > 0 && text[at - 1] != '\n')) return -1;
+        var value = text[(at + key.Length)..].TrimStart(" \t"u8); // meminfo pads with spaces, status with a tab
+        return Assert(Utf8Parser.TryParse(value, out long kb, out _)) && Assert(kb >= 0) ? kb : 0;
     }
 
     private void SampleWindows()

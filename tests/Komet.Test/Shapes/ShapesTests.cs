@@ -1,7 +1,5 @@
 namespace Komet.Test.Shapes;
 
-// The one tree walk behind the descriptor, the compile and the memo: the engine's pre-order, and a walk past its limits fails
-// rather than comes back short.
 public sealed class ElementWalkTests
 {
     private static readonly string[] Visited = ["a@0<-1", "b@1<0", "null@1<0", "c@1<0", "d@2<3", "e@0<-1"];
@@ -27,12 +25,8 @@ public sealed class ElementWalkTests
         return visits;
     }
 
-    private static string Name(int i)
-    {
-        return i.ToString(CultureInfo.InvariantCulture);
-    }
+    private static string Name(int i) => i.ToString(CultureInfo.InvariantCulture);
 
-    // One element per level, named by its depth
     private static ShapeElement[] Chain(int length)
     {
         var root = E(Name(0));
@@ -164,8 +158,8 @@ public sealed class AnimationFramesGoldenTests
         var (one, two) = (Walk(30, 10), Walk(30, 10));
         var (rootsOne, rootsTwo) = (Arm(geared), Arm(geared));
         var (compiledOne, compiledTwo) = (Compile(one, rootsOne), Compile(two, rootsTwo));
-        Assert.That(AnimationFrames.Descriptor(one, rootsOne),
-            Is.Not.Null.And.EqualTo(AnimationFrames.Descriptor(two, rootsTwo)),
+        Assert.That(AnimationFramesTests.Descriptor(one, rootsOne),
+            Is.Not.Null.And.EqualTo(AnimationFramesTests.Descriptor(two, rootsTwo)),
             "separately built but structurally identical shapes must describe the same");
         Assert.That(AnimationShapes.Diff(compiledOne, compiledTwo, true), Is.Null);
     }
@@ -178,8 +172,8 @@ public sealed class AnimationFramesGoldenTests
         var (bare, geared) = (Walk(30, 10), Walk(30, 10));
         var (rootsBare, rootsGeared) = (Arm(false), Arm(true));
         var (compiledBare, compiledGeared) = (Compile(bare, rootsBare), Compile(geared, rootsGeared));
-        Assert.That(AnimationFrames.Descriptor(bare, rootsBare),
-            Is.Not.Null.And.Not.EqualTo(AnimationFrames.Descriptor(geared, rootsGeared)));
+        Assert.That(AnimationFramesTests.Descriptor(bare, rootsBare),
+            Is.Not.Null.And.Not.EqualTo(AnimationFramesTests.Descriptor(geared, rootsGeared)));
         var posesBare = compiledBare[0][0].RootElementTransforms[0].ChildElementPoses.Count;
         var posesGeared = compiledGeared[0][0].RootElementTransforms[0].ChildElementPoses.Count;
         Assert.That(posesGeared, Is.Not.EqualTo(posesBare),
@@ -193,8 +187,8 @@ public sealed class AnimationFramesGoldenTests
         var (one, two) = (Walk(30, 10), Walk(45, 10));
         var (rootsOne, rootsTwo) = (Arm(true), Arm(true));
         var (compiledOne, compiledTwo) = (Compile(one, rootsOne), Compile(two, rootsTwo));
-        Assert.That(AnimationFrames.Descriptor(one, rootsOne),
-            Is.Not.Null.And.Not.EqualTo(AnimationFrames.Descriptor(two, rootsTwo)));
+        Assert.That(AnimationFramesTests.Descriptor(one, rootsOne),
+            Is.Not.Null.And.Not.EqualTo(AnimationFramesTests.Descriptor(two, rootsTwo)));
         Assert.That(compiledOne[0][0].RootElementTransforms[0].degX,
             Is.Not.EqualTo(compiledTwo[0][0].RootElementTransforms[0].degX));
     }
@@ -241,7 +235,7 @@ public sealed class AnimationFramesGoldenTests
             else if (AnimationShapes.Diff(engine, animation.PrevNextKeyFrameByFrame) is { } diff)
                 failures.Add($"{name}/{animation.Code}: {diff}");
             // what the game ships holds no object twice, so the cache answers it
-            if (AnimationFrames.Descriptor(animation, shape.Elements) is null)
+            if (AnimationFramesTests.Descriptor(animation, shape.Elements) is null)
                 failures.Add($"{name}/{animation.Code}: not described");
         }
 
@@ -249,6 +243,7 @@ public sealed class AnimationFramesGoldenTests
     }
 
     [Test]
+    [Category("Slow")]
     public void EveryAnimatedVanillaShapeCompilesBitIdentical()
     {
         GameInstall.RequireAssets();
@@ -287,6 +282,7 @@ public sealed class AnimationFramesGoldenTests
     [TestCase("naked")]
     [TestCase("clothed")]
     [TestCase("armored")]
+    [Category("Slow")]
     public void TheComposedPlayerCompilesBitIdentical(string outfit)
     {
         GameInstall.RequireAssets();

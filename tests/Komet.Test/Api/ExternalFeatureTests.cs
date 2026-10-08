@@ -3,10 +3,6 @@ using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.Api;
 
-// Another mod's feature through Komet's registry, as KometModSystem drives it: queued before Komet starts and installed after Komet's
-// main stage, installed at once while Komet runs, refused once the world loaded. Its fingerprint, a throwing install and another mod's
-// patch on what it watches keep or take it out; the world's close uninstalls it. Its switch appears on Komet's page or the mod's own,
-// locked while held, and a bench arm sets it by modid:name. Every test closes the registry again.
 [NonParallelizable]
 public sealed class ExternalFeatureTests
 {
@@ -34,16 +30,10 @@ public sealed class ExternalFeatureTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Patched()
-    {
-        return 1;
-    }
+    private static int Patched() => 1;
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Replaced()
-    {
-        return 2;
-    }
+    private static int Replaced() => 2;
 
     private FeatureContext Start(bool localServer = true)
     {
@@ -52,10 +42,7 @@ public sealed class ExternalFeatureTests
         return context;
     }
 
-    private static string Owners(MethodBase method)
-    {
-        return string.Join(" ", Harmony.GetPatchInfo(method)?.Owners ?? []);
-    }
+    private static string Owners(MethodBase method) => string.Join(" ", Harmony.GetPatchInfo(method)?.Owners ?? []);
 
     private static void Patch(Harmony harmony, MethodBase method, HarmonyMethod? prefix = null,
         HarmonyMethod? postfix = null)
@@ -63,10 +50,7 @@ public sealed class ExternalFeatureTests
         _ = harmony.Patch(method, prefix, postfix);
     }
 
-    private string Applied()
-    {
-        return string.Join(" ", _water.Applied);
-    }
+    private string Applied() => string.Join(" ", _water.Applied);
 
     [Test]
     public void RegisteredBeforeKometStartsItInstallsAfterKometsMainStage()
@@ -91,7 +75,6 @@ public sealed class ExternalFeatureTests
         Assert.That((_water.Installs, KometFeatures.StateOf("mymod:water")), Is.EqualTo((1, FeatureState.Active)));
     }
 
-    // Registrations end at LevelFinalize; an invalid definition, a taken id or a knob without its engine value are refused as well
     [Test]
     public void ARegistrationIsRefusedWithItsReason()
     {
@@ -114,7 +97,6 @@ public sealed class ExternalFeatureTests
         });
     }
 
-    // A fingerprint that is not the installed body's: not installed, the engine changed, and the log names who pinned it
     [Test]
     public void AFingerprintMismatchLeavesItUninstalled()
     {
@@ -161,8 +143,7 @@ public sealed class ExternalFeatureTests
         });
     }
 
-    // Another mod's prefix on the method the feature skips stands it down, its patches reading the engine value, until it is gone.
-    // The feature's own patch there is no reason to.
+    // The feature's own patch there is no reason to stand down.
     [Test]
     public void AnotherModsPatchOnAWatchedMethodStandsItDown()
     {
@@ -189,7 +170,6 @@ public sealed class ExternalFeatureTests
         });
     }
 
-    // A server feature on a remote server stays out
     [Test]
     public void AServerFeatureDoesNotApplyOnARemoteServer()
     {
@@ -201,7 +181,6 @@ public sealed class ExternalFeatureTests
             Is.EqualTo((0, FeatureState.NotApplicable)));
     }
 
-    // The world's close uninstalls it and takes its patches and knob; the next world registers it again
     [Test]
     public void ClosingTheWorldUninstallsItAndOpensTheIdAgain()
     {
@@ -225,13 +204,13 @@ public sealed class ExternalFeatureTests
     [Test]
     public void ItsRowStandsOnKometsPageAndIsLockedWhileHeld()
     {
-        KometFeaturesTests.LoadALanguage();
+        GameLang.EnsureLoaded();
         Assert.That(KometFeatures.Register(new FeatureDefinition("mymod", "water", "Water")
         {
             Knob = _water.Definition().Knob, Page = KometFeatures.RenderPage, Group = "My mod", Hint = "Faster water"
         }), Is.True);
         _ = Start();
-        var render = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }).Build()
+        var render = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }, () => { }, () => { }).Build()
             .Single(p => p.Id == KometFeatures.RenderPage);
         var rows = Enumerable.Range(0, render.Count).Select(i => render[i]).ToList();
         var row = rows.Single(r => r.Label == "Water");
@@ -296,10 +275,8 @@ public sealed class ExternalFeatureTests
         Assert.That(Keys(), Is.EqualTo(before).And.No.Contain("mymod:water"));
     }
 
-    private static string[] Keys()
-    {
-        return [.. JObject.Parse(JsonConvert.SerializeObject(new HudSettings())).Properties().Select(p => p.Name)];
-    }
+    private static string[] Keys() =>
+        [.. JObject.Parse(JsonConvert.SerializeObject(new HudSettings())).Properties().Select(p => p.Name)];
 
     // A mod's switch as a mod writes it: the player's value in its own config, its patch reading what Komet applies
     private sealed class Water

@@ -15,7 +15,7 @@ namespace Komet.Rendering;
 // SystemRenderSunMoon zeroes Standard's shadowIntensity, and PreparedStandardShader relies on the reset.
 internal static class ShaderUseCache
 {
-    // Which uniforms a program takes follows from the shader includes it was built with; the GUI program gets its own light
+    // A program's uniforms follow from the shader includes it was built with; the GUI program gets its own light
     private const int FogLightF = 1, FogLightV = 2, ShadowCoords = 4, VertexWarp = 8, SkyColor = 16, ColorMap = 32;
     private const int Underwater = 64, Gui = 128;
 
@@ -44,12 +44,11 @@ internal static class ShaderUseCache
     public static long Calls { get; private set; } // totals while Counting.Hud, main thread
     public static long Uploads { get; private set; }
     public static long Skips { get; private set; }
-    internal static (float ViewDistance, float Lod0) FrameSettings => (_viewDistance, _viewDistanceLod0);
 
     public static void Install(Harmony harmony)
     {
-        Array.Clear(States); // the programs of the previous world are disposed
-        _settingsFrame = -1; // and the settings may have changed in the menu since its last frame
+        Array.Clear(States); // the last world's programs are disposed
+        _settingsFrame = -1; // settings may have changed in the menu
         var update = AccessTools.Method(typeof(DefaultShaderUniforms), nameof(DefaultShaderUniforms.Update));
         var use = AccessTools.Method(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use));
         if (!NotNull(update) || !NotNull(use)) return;
@@ -63,14 +62,13 @@ internal static class ShaderUseCache
         if (Enabled) ReadSettings();
     }
 
-    // SettingsBase lower-cases every key on each read, and "viewDistance" and "lodBias" have capitals: three reads per Use at 118 Use
-    // per frame were 1.8 MB/s. A change made during a frame reaches the shaders with the next one.
+    // SettingsBase lower-cases every key on each read ("viewDistance", "lodBias"): three reads per Use at 118 Uses a frame were
+    // 1.8 MB/s. A change during a frame reaches the shaders with the next.
     private static void ReadSettings()
     {
         var distance = ClientSettings.ViewDistance;
         (_viewDistance, _viewDistanceLod0, _settingsFrame) =
             (distance, Math.Min(640, distance) * ClientSettings.LodBias, _frame);
-        // reported once; the engine uploads whatever the setting holds
         _ = Assert(distance > 0) && Finite(_viewDistanceLod0);
     }
 
@@ -92,8 +90,7 @@ internal static class ShaderUseCache
         return false;
     }
 
-    // The program's state, built on first use and again when the program or the shadow quality changed, filled with this frame's
-    // values; null after an overflow, which drops the state and leaves this Use to the engine
+    // null after an overflow, which drops the state and leaves this Use to the engine
     internal static State? Stage(ShaderProgramBase p)
     {
         if (!Index(p.PassId, States.Length) || !Assert(p.ProgramId > 0)) return null;
@@ -126,7 +123,7 @@ internal static class ShaderUseCache
         var w = new Writer(s, p, layout);
         Fill(ref w, mask);
         if (!Assert(!w.Overflow) || !Assert(w.Total >= layout.Count) || !Assert(layout.Count <= MaxSlots))
-            return s; // a slot reserves at least one float
+            return s;
         s.Slots = [.. layout];
         (s.Sent, s.Cur, s.Sends) = (new float[w.Total], new float[w.Total], new int[layout.Count]);
         return s;
@@ -142,7 +139,7 @@ internal static class ShaderUseCache
             return;
         }
 
-        if (_settingsFrame != _frame) ReadSettings(); // a world's first Use can come before its first update
+        if (_settingsFrame != _frame) ReadSettings(); // a world's first Use can precede its first update
         if ((mask & FogLightF) != 0)
         {
             w.F("zNear", u.ZNear);
@@ -242,8 +239,6 @@ internal static class ShaderUseCache
             w.V3("lightPosition", GuiLight, External); // GuiDialogCharacter, GuiDialogCreateCharacter
     }
 
-    // Picks the slots to send into s.Sends and records their values as sent: every slot with values on the first Use of a frame, else
-    // those whose count or value changed since they were last sent, and the External ones
     internal static int Changed(State s, bool force)
     {
         if (!Assert(s.Cur.Length == s.Sent.Length) || !Assert(s.Sends.Length == s.Slots.Length)) return 0;
@@ -306,15 +301,15 @@ internal static class ShaderUseCache
         public bool Dirty;
     }
 
-    // Fill runs twice per program: first with a layout list, recording location, kind, offset and reserved floats of every slot;
-    // afterwards without one, writing the frame's values into Cur at those offsets and flagging slots whose element count changed.
+    // Fill runs first with a layout list, recording location, kind, offset and reserved floats of every slot; afterwards without
+    // one, writing the frame's values into Cur at those offsets and flagging slots whose element count changed.
     private ref struct Writer(State state, ShaderProgramBase program, List<Slot>? layout)
     {
         private int _i;
         public int Total;
         public bool Overflow;
 
-        // True with the slot's offset in Cur when there is a value to write; false while laying out or after an overflow
+        // True with the slot's offset in Cur when there is a value to write; false while laying out or after overflow
         private bool Reserve(string name, int kind, int count, int reserve, bool external, out int offset)
         {
             offset = -1;
@@ -373,8 +368,9 @@ internal static class ShaderUseCache
                 (state.Cur[o], state.Cur[o + 1], state.Cur[o + 2], state.Cur[o + 3]) = (v.X, v.Y, v.Z, v.W);
         }
 
-        public void Arr(string name, int kind, float[] src, int count)
+        public void Arr(string name, int kind, float[]? src, int count)
         {
+            if (src is null) return; // the engine fills some late (ColorMapRects4 as a world closes)
             if (!Assert(kind > 0) || !Assert(count * kind <= src.Length))
             {
                 Overflow = true;

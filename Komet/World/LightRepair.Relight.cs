@@ -6,20 +6,16 @@ using Vintagestory.Server;
 
 namespace Komet.World;
 
-// ChunkIlluminator.FullRelight relights an area and a chunk around it: every loaded chunk there loses its light, every column loaded
-// whole gets its sunlight, and last every light source of those chunks is placed again. It has two faults. A chunk of a column not
-// loaded whole keeps no light: the column is skipped. And each source is placed at its chunk's offset plus its position in the world,
-// which already holds that offset - twice as far out, where it lights nothing (off the map in any real world) or plants a phantom
-// source into whatever chunk is there, while the real one stays dark. The prefix runs the same relight in the same order without them:
-// the light of a column not loaded whole is left as it was, and the column waits (Waiting) until the sweep finds it loaded whole and
-// relights it; every source is placed where it is. Only the server's own illuminator is taken, whose relights run on its main thread
-// as the sweep does; another one, or another mod's patch on FullRelight, which the prefix would bypass, leaves it to the engine.
+// ChunkIlluminator.FullRelight has two faults. A chunk of a column not loaded whole loses its light and gets none back: the column is
+// skipped. And each source is placed at its chunk's offset plus its world position, which already holds that offset - twice as far
+// out, where it lights nothing (off the map in any real world) or plants a phantom source, while the real one stays dark. The prefix
+// runs the same relight in the same order without them: a column not loaded whole keeps its light and waits until the sweep finds it
+// whole. Only the server's own illuminator is taken, whose relights run on its main thread as the sweep does; another mod's patch on
+// FullRelight, which the prefix would bypass, leaves it to the engine.
 internal static partial class LightRepair
 {
     private const int MaxSpan = 1024, MaxWaiting = 4096;
 
-    // Columns a relight could not take because they were loaded in part, each once, in the order they came: dimension and chunk
-    // position; server main thread
     private static readonly Queue<(int Dimension, int X, int Z)> Waiting = [];
     private static bool _foreign;
 
@@ -38,8 +34,6 @@ internal static partial class LightRepair
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "mapsizez")]
     private static extern ref int MapZ(ChunkIlluminator illuminator);
 
-    internal static int WaitingColumns => Waiting.Count;
-
     // KometModSystem asks again on LevelFinalize, when every other mod has patched: another mod's FullRelight stays the engine's
     internal static void Recheck()
     {
@@ -48,7 +42,6 @@ internal static partial class LightRepair
             _shaped && EngineShape.Foreign([relight], EngineShape.Kinds.Replacing, null, typeof(LightRepair)));
     }
 
-    // Prefix on ChunkIlluminator.FullRelight: the relight without its two faults; a failure hands it to the engine's
     internal static bool Relight(ChunkIlluminator __instance, BlockPos minPos, BlockPos maxPos)
     {
         if (!Enabled || _failed || _foreign || !NotNull(__instance) || !NotNull(minPos) || !NotNull(maxPos) ||

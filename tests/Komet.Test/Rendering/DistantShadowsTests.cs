@@ -77,8 +77,7 @@ public sealed class DistantShadowsTests
     [TestCase(0.0, 0.0, 0.0, 0.1, 0.99, 0.1)]
     public void AMapIsCentredOnTheTexelGrid(double x, double y, double z, double lx, double ly, double lz)
     {
-        var length = Math.Sqrt(lx * lx + ly * ly + lz * lz);
-        double[] light = [lx / length, ly / length, lz / length], camera = [x, y, z];
+        double[] light = Unit([lx, ly, lz]), camera = [x, y, z];
         var map = DistantShadows.Plan(light, camera, 576, 4096);
         var texel = 2 * 576.0 / 4096;
         double[] delta = [map.Center[0] - x, map.Center[1] - y, map.Center[2] - z];
@@ -117,20 +116,22 @@ public sealed class DistantShadowsTests
         });
     }
 
+    private static double[] Unit(double[] v)
+    {
+        var length = Math.Sqrt(v.Sum(c => c * c));
+        return [.. v.Select(c => c / length)];
+    }
+
     private static (double X, double Y) Apply(double[] m, double x, double y, double z) =>
         (m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13]);
 
     [Test]
     public void AMapIsDueWhenTheLightTurnsOrTheCameraLeavesTheMargin()
     {
-        double[] light = [0.3, 0.8, 0.52], camera = [100, 120, 100];
-        var norm = Math.Sqrt(light.Sum(v => v * v));
-        light = [.. light.Select(v => v / norm)];
+        double[] light = Unit([0.3, 0.8, 0.52]), camera = [100, 120, 100];
         var map = DistantShadows.Plan(light, camera, 576, 2048);
         map.Valid = true;
-        double[] turned = [light[0] + 0.01, light[1], light[2]];
-        var n2 = Math.Sqrt(turned.Sum(v => v * v));
-        turned = [.. turned.Select(v => v / n2)];
+        var turned = Unit([light[0] + 0.01, light[1], light[2]]);
         Assert.Multiple(() =>
         {
             Assert.That(DistantShadows.Due(new DistantShadows.Map(), light, camera, 576), Is.True, "no map yet");

@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace Komet.Hud;
 
-// Text the HUD, its dialogs, a dump and a bench report print. Numbers are metric and culture-invariant.
+// Numbers are metric and culture-invariant.
 internal static class HudText
 {
     private const int MaxCached = 256;
@@ -11,10 +11,20 @@ internal static class HudText
 
     // NaN is a value not measured yet, and an infinite one is a division by an empty window. Neither is a number to show; both print
     // as nothing, never as "NaN" or "Infinity".
-    public static string Format(double value, string format) =>
+    public static string Format(double value, string format, string none = "") =>
         double.IsFinite(value) && Assert(format.Length is 2 or 3)
             ? value.ToString(format, CultureInfo.InvariantCulture)
-            : "";
+            : none;
+
+    // In the game's language: 1.240,5 in German, 1,240.5 in English
+    public static string Num(double value, int decimals = 0)
+    {
+        if (!double.IsFinite(value) || !Assert(decimals is >= 0 and <= 4)) return "–";
+        var culture = Lang.CurrentLocale is { } locale && locale.StartsWith("de", StringComparison.Ordinal) ? German : CultureInfo.InvariantCulture;
+        return value.ToString("N" + decimals.ToString(CultureInfo.InvariantCulture), culture);
+    }
+
+    private static readonly CultureInfo German = CultureInfo.GetCultureInfo("de-DE");
 
     // Lang.Get hands the key back when the translation is missing
     public static string Translate(string key, params object[] args)
@@ -24,7 +34,7 @@ internal static class HudText
         return Assert(key.Length > 0) && Assert(text != full) ? text : key;
     }
 
-    // A row's fixed label, translated once per language: Lang.CurrentLocale is another string after a change of language
+    // Lang.CurrentLocale is another string after a change of language
     public static Func<string> Once(string key, params object[] args)
     {
         if (!Assert(key.Length > 0) || !NotNull(args)) return static () => "";
@@ -37,8 +47,7 @@ internal static class HudText
         };
     }
 
-    // A key made of a prefix and a name the HUD holds (a render pass, a spike cause), once per language; the '~' that starts
-    // Komet's own pseudo marks is not part of the key
+    // The '~' that starts Komet's own pseudo marks is not part of the key
     public static string Cached(string prefix, string name)
     {
         if (!ReferenceEquals(_locale, Lang.CurrentLocale) || Cache.Count >= MaxCached)
@@ -52,8 +61,7 @@ internal static class HudText
         return Assert(Cache.Count <= MaxCached) ? text : "";
     }
 
-    // ISO 8601 UTC (what CI stamps and what GitHub reports) as local time in the language's format, minute precision; "" when absent
-    // or unreadable
+    // UTC, as CI stamps it and GitHub reports it
     public static string LocalTime(string iso)
     {
         if (iso.Length == 0 || !Assert(iso.Length <= 40)) return "";

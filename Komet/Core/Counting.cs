@@ -6,7 +6,7 @@ namespace Komet.Core;
 // their cost falls on the feature arms alone, never on the engine arm.
 internal static class Counting
 {
-    public static bool On { get; private set; } // Hud or Bench
+    public static bool On { get; private set; }
 
     // Raised each time Hud turns true. Before it the HUD's frames and the totals did not run together (the HUD-only totals stood still,
     // or the HUD was hidden while the bench kept the tessellation totals going), so a difference across it is no rate.

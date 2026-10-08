@@ -8,19 +8,19 @@ internal sealed partial class HudOverlay
 {
     private const int MaxPrepared = 1024, MaxNested = 64, MaxWarmed = 32;
 
-    // Every character the panels print, so the glyphs are in cairo's cache too
+    // Every character the overlay and the windows print, so the glyphs are in cairo's cache too
     private const string Glyphs =
         "0123456789 abcdefghijklmnopqrstuvwxyzäöüß ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ .,:;%()[]/+-–×·Ø~";
 
     private static readonly Type[] Warmed =
     [
-        typeof(HudOverlay), typeof(HudPanel), typeof(HudLine), typeof(HudCanvas), typeof(PanelQueue),
+        typeof(HudOverlay), typeof(HudUi), typeof(HudUiFonts), typeof(HudCanvas), typeof(HudMotion), typeof(HudLive),
         typeof(FrameStats), typeof(RenderPassStats), typeof(SpikeLedger), typeof(GpuStats), typeof(ModTimes),
-        typeof(HudSettings), typeof(FrameClock), typeof(OptionsScreen), typeof(HudVerifyDialog), typeof(HudFonts),
-        typeof(HudText), typeof(PanelLayout), typeof(Growth), typeof(Features)
+        typeof(HudSettings), typeof(FrameClock), typeof(OptionsScreen), typeof(HudPanel), typeof(HudLine),
+        typeof(HudText), typeof(HudWindow), typeof(DebugWindow), typeof(Growth), typeof(Features)
     ];
 
-    private static void Warm(ILogger logger, HudFonts fonts)
+    private static void Warm(ILogger logger, HudUiFonts fonts)
     {
         if (!NotNull(logger) || !NotNull(fonts)) return;
         _ = Task.Run(() => Prepare(fonts)).ContinueWith(failed => logger.Warning("Komet HUD: warm-up failed ({0})",
@@ -31,7 +31,7 @@ internal sealed partial class HudOverlay
     // First-call JIT of the HUD's code and loading its fonts cost the frame after F7 60-80 ms; done here first, the cold first interval
     // frame drops from ~46 ms to ~12 ms (fresh process). PrepareMethod compiles on a pool thread: tier 0, no static constructor runs,
     // tiering continues as usual. The nested types are the closures holding the rows' and the dialogs' lambdas.
-    private static void Prepare(HudFonts fonts)
+    private static void Prepare(HudUiFonts fonts)
     {
         WarmFonts(fonts);
         var prepared = 0;
@@ -47,15 +47,15 @@ internal sealed partial class HudOverlay
     // cairo's font-face and scaled-font caches are process-wide and behind its own locks, and cairo-sharp tracks objects in a concurrent
     // dictionary: a private surface and context on a pool thread load the faces the HUD draws with. The fonts are only read here;
     // CairoFont.SetupContext, which writes the font's options, stays on the main thread.
-    private static void WarmFonts(HudFonts fonts)
+    private static void WarmFonts(HudUiFonts fonts)
     {
-        if (!NotNull(fonts) || !Assert(fonts.Text.UnscaledFontsize > 0)) return;
+        if (!NotNull(fonts) || !Assert(fonts.Body.UnscaledFontsize > 0)) return;
         using var surface = new ImageSurface(Format.Argb32, 64, 64);
         using var context = new Context(surface);
         using var options = new FontOptions();
         options.Antialias = Antialias.Subpixel; // what SetupContext sets, part of the scaled font's cache key
         context.FontOptions = options;
-        foreach (var font in (ReadOnlySpan<CairoFont>)[fonts.Text, fonts.Header, fonts.Title])
+        foreach (var font in (ReadOnlySpan<CairoFont>)[fonts.Small, fonts.Body, fonts.Strong, fonts.Stat, fonts.Big, fonts.Huge, fonts.Mono])
         {
             context.SelectFontFace(font.Fontname, font.Slant, font.FontWeight);
             context.SetFontSize(scaled(font.UnscaledFontsize));

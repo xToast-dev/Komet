@@ -3,12 +3,9 @@ using Vintagestory.GameContent;
 namespace Komet.Test.Tessellation;
 
 // Golden test of FaceLight against the engine's own TCTCache.CalcBlockFaceLight and JsonTesselator.SetUpLightRGBs, unpatched, on the
-// same cells: random 3x3x3 neighbourhoods of plain blocks with every EmitSideAo byte, light absorptions around 0 and 32, leaves in and
-// around leaves, real BlockForFluidsLayer and BlockWater instances in both layers, fully random light and the engine's special values,
-// all six faces, AO on and off, occ and halfoccInverted changed now and then. The long sum, CurrentLightRGBByCorner and every entry of
-// neighbourLightRGBS (and json light) must match, where the fast path answers; where it does not it must have written nothing and called
-// nothing, and it has to answer exactly the faces whose blocks are all plain and whose multipliers the lanes can take. Also the stand-down
-// for other patches: prefixes on the two methods, any patch on what a fast face never calls.
+// same cells. The long sum, CurrentLightRGBByCorner and every entry of neighbourLightRGBS (and json light) must match where the fast
+// path answers; where it does not it must have written nothing and called nothing, and it has to answer exactly the faces whose
+// blocks are all plain and whose multipliers the lanes can take.
 public sealed class FaceLightGoldenTests
 {
     private const int Cases = 50_000, JsonBlocks = 100_000, Seed = 20260924, Filler = 0x5A5A5A5A;
@@ -23,12 +20,10 @@ public sealed class FaceLightGoldenTests
     private static int Seen => Volatile.Read(ref _seen);
 
     [TearDown]
-    public void Reset()
-    {
-        (FaceLight.Enabled, Counting.Hud) = (true, false);
-    }
+    public void Reset() => (FaceLight.Enabled, Counting.Hud) = (true, false);
 
     [Test]
+    [Category("Slow")]
     public void FacesMatchTheEngine()
     {
         var r = new Random(Seed);
@@ -88,6 +83,7 @@ public sealed class FaceLightGoldenTests
     // SetUpLightRGBs: the fused six faces against the engine's, including blocks where only some faces take the engine's path, both on
     // the vars' own scratch and from the same junk
     [Test]
+    [Category("Slow")]
     public void FusedJsonLightMatchesTheEngine()
     {
         var r = new Random(Seed + 2);
@@ -167,7 +163,7 @@ public sealed class FaceLightGoldenTests
         using var rig = new TessRig(palette);
         var e = Neighbourhood(rig, r, palette);
         for (var i = 0; i < 27; i++)
-            rig.Solid[e + (i / 9 - 1) * TessRig.Plane + (i / 3 % 3 - 1) * TessRig.Ext + (i % 3 - 1)] = palette[1];
+            rig.Solid[e + Around(i)] = palette[1];
         rig.Fluid.AsSpan().Fill(palette[0]);
         (rig.Vars.block, rig.Vars.aoAndSmoothShadows) = (palette[1], true);
         palette[1].SideAo = new SmallBoolArray(63);
@@ -184,8 +180,8 @@ public sealed class FaceLightGoldenTests
         });
     }
 
-    // Through Harmony: the patched methods answer what they answer switched off, face by face and block by block
     [Test]
+    [Category("Slow")]
     public void PatchedMethodsMatchTheEngine()
     {
         var r = new Random(Seed + 4);
@@ -360,17 +356,13 @@ public sealed class FaceLightGoldenTests
         Assert.That(FaceLight.Six(rig.Vars, mine, out _), Is.True, "one face with AO");
     }
 
-    private static void Forget()
-    {
-        _ = Interlocked.Exchange(ref _seen, 0);
-    }
+    private static void Forget() => _ = Interlocked.Exchange(ref _seen, 0);
 
-    private static void See()
-    {
-        _ = Interlocked.Increment(ref _seen);
-    }
+    private static void See() => _ = Interlocked.Increment(ref _seen);
 
-    // A lit stone block in plain stone and air, smooth shadows on
+    // The index offset of cell i of the 3x3x3 block around a cell, numbered (y + 1) * 9 + (z + 1) * 3 + x + 1
+    private static int Around(int i) => (i / 9 - 1) * TessRig.Plane + (i / 3 % 3 - 1) * TessRig.Ext + (i % 3 - 1);
+
     private static TessRig PlainNeighbourhood(out int e)
     {
         var palette = new Block[3];
@@ -386,7 +378,7 @@ public sealed class FaceLightGoldenTests
         for (var i = 0; i < TessRig.ExtCells; i++) rig.Rgb[i] = TessMix.Hash(i, 3, 5);
         e = (17 * TessRig.Ext + 17) * TessRig.Ext + 17;
         for (var i = 0; i < 27; i += 2)
-            rig.Solid[e + (i / 9 - 1) * TessRig.Plane + (i / 3 % 3 - 1) * TessRig.Ext + (i % 3 - 1)] = palette[1];
+            rig.Solid[e + Around(i)] = palette[1];
         (rig.Vars.extIndex3d, rig.Vars.block, rig.Vars.aoAndSmoothShadows) = (e, palette[2], true);
         return rig;
     }
@@ -438,10 +430,8 @@ public sealed class FaceLightGoldenTests
         return true;
     }
 
-    private static bool Plain(Block block)
-    {
-        return block.GetType() == typeof(Block) || block is BlockForFluidsLayer or FalseFluidsBlock;
-    }
+    private static bool Plain(Block block) =>
+        block.GetType() == typeof(Block) || block is BlockForFluidsLayer or FalseFluidsBlock;
 
     private static long[] Outputs(TessRig rig, Func<long> call, JsonTesselator json)
     {
@@ -475,14 +465,13 @@ public sealed class FaceLightGoldenTests
         };
     }
 
-    // A random cell away from the halo's edge, its 3x3x3 surroundings filled, the lit block chosen
     private static int Neighbourhood(TessRig rig, Random r, Block[] palette)
     {
         var e = ((1 + r.Next(32)) * TessRig.Ext + 1 + r.Next(32)) * TessRig.Ext + 1 + r.Next(32);
         var uniform = r.Next(4) == 0 ? palette[1 + r.Next(palette.Length - 1)] : null;
         for (var i = 0; i < 27; i++)
         {
-            var p = e + (i / 9 - 1) * TessRig.Plane + (i / 3 % 3 - 1) * TessRig.Ext + (i % 3 - 1);
+            var p = e + Around(i);
             rig.Solid[p] = uniform is not null && r.Next(4) != 0 ? uniform : palette[r.Next(palette.Length)];
             rig.Fluid[p] = r.Next(6) == 0 ? palette[r.Next(palette.Length)] : palette[0];
             rig.Rgb[p] = r.Next(3) == 0 ? SpecialLights[r.Next(SpecialLights.Length)] : r.Next() ^ (r.Next(2) << 31);
@@ -493,7 +482,6 @@ public sealed class FaceLightGoldenTests
         return e;
     }
 
-    // Air, plain blocks, fluids-layer blocks from the game, a constant and a computed ForFluidsLayer, and blocks that record AO calls
     private static Block[] Palette(Random r)
     {
         const int count = 48;
@@ -524,7 +512,6 @@ public sealed class FaceLightGoldenTests
     }
 }
 
-// Records the AO calls the engine makes on it
 internal sealed class AoRecordingBlock : Block
 {
     public static List<(int Block, int Flags, int X)>? Log { get; set; }

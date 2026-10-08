@@ -2,9 +2,7 @@ using System.Text;
 
 namespace Komet.Test.Hud;
 
-// What the HUD, its dump and its bench report print. The dump quotes the rows the panels show, measured at the end of their interval:
-// read live, a window opened right after an interval's end saw the counters just reset, and printed "FPS: 0", raw counts as
-// per-frame values and "Infinity %". No number that is not finite may reach any of them.
+// The HUD's report rows: the bench's means per row, the debug protocol's HUD section, the rows' growth over their own reads
 [NonParallelizable]
 public sealed class HudReportTests
 {
@@ -17,55 +15,28 @@ public sealed class HudReportTests
         Contracts.Attach(null);
     }
 
-    [TestCase(double.PositiveInfinity, "F1")]
-    [TestCase(double.NegativeInfinity, "N0")]
-    [TestCase(double.NaN, "F2")]
-    public void NumbersThatAreNotFinitePrintAsNothing(double value, string format)
+    [TestCase(double.PositiveInfinity, "F1", "")]
+    [TestCase(double.NegativeInfinity, "N0", "")]
+    [TestCase(double.NaN, "F2", "")]
+    [TestCase(1234.4, "N0", "1,234")]
+    [TestCase(9.94, "F2", "9.94")]
+    [TestCase(0.0, "F1", "0.0")] // a measured zero is a number
+    public void NumbersPrintCultureInvariantAndNothingWhenNotFinite(double value, string format, string expected)
     {
-        Assert.That(HudText.Format(value, format), Is.Empty);
+        Assert.That(HudText.Format(value, format), Is.EqualTo(expected));
     }
 
     [Test]
-    public void FiniteNumbersPrintCultureInvariant()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(HudText.Format(1234.4, "N0"), Is.EqualTo("1,234"));
-            Assert.That(HudText.Format(9.94, "F2"), Is.EqualTo("9.94"));
-            Assert.That(HudText.Format(0, "F1"), Is.EqualTo("0.0"), "a measured zero is a number");
-        });
-    }
-
-    // The interval ends, the panel measures, EndInterval resets the counters; the window opens before the next frame is recorded
-    [Test]
-    public void TheShownRowKeepsTheIntervalItWasMeasuredIn()
-    {
-        double ms = 9.94, share = 12.5;
-        var line = new HudLine
-        { Label = () => "mod", Value = () => ms, Percent = () => share, Unit = "ms", Sub = true };
-        line.Capture();
-        (ms, share) = (0, double.PositiveInfinity); // the reset window: no time yet, and a share of no frame time
-        Assert.That(line.ShownText(), Is.EqualTo("  mod: 12.5 % 9.94 ms"), "the report quotes the measured row");
-    }
-
-    [Test]
-    public void HeadersAndTitlesAreQuotedAsShown()
+    public void HeadersAndTitlesAreQuotedAsTheyAreNow()
     {
         var name = "passes";
         var header = new HudLine { Kind = HudLineKind.Header, Label = () => name };
-        var title = new HudLine
-        {
-            Kind = HudLineKind.Title, Label = () => "Komet",
-            Badges = [("Release", HudCanvas.Good), ("Build 1.2.3", HudCanvas.Neutral)]
-        };
-        header.Capture();
-        title.Capture();
+        var title = new HudLine { Kind = HudLineKind.Title, Label = () => "Komet", Badge = () => "Release 1.2.3" };
         name = "changed";
         Assert.Multiple(() =>
         {
-            Assert.That(header.ShownText(), Is.EqualTo("[passes]"));
-            Assert.That(title.ShownText(), Is.EqualTo("Komet – Release, Build 1.2.3"));
             Assert.That(header.MeanText(), Is.EqualTo("[changed]"), "the bench report reads the label as it is");
+            Assert.That(title.MeanText(), Is.EqualTo("Komet – Release 1.2.3"));
         });
     }
 
@@ -76,51 +47,36 @@ public sealed class HudReportTests
         var frames = new FrameStats();
         var fps = new HudLine { Label = () => "FPS", Value = () => frames.Fps };
         var average = new HudLine { Label = () => "Frametime", Value = () => frames.AverageMs, Unit = "ms" };
-        fps.Capture();
-        average.Capture();
         Assert.Multiple(() =>
         {
             Assert.That(frames.Fps, Is.NaN);
             Assert.That(frames.AverageMs, Is.NaN);
-            Assert.That(fps.ShownText(), Is.Empty, "the row is left out, as the panel leaves out its number");
-            Assert.That(average.ShownText(), Is.Empty);
+            Assert.That(Shown(fps), Is.Empty, "the row is left out without a number");
+            Assert.That(Shown(average), Is.Empty);
         });
 
         frames.Record(0.02f, 0, true);
         frames.Record(0.02f, 0, true);
-        fps.Capture();
-        average.Capture();
         Assert.Multiple(() =>
         {
-            Assert.That(fps.ShownText(), Is.EqualTo("FPS: 50"));
-            Assert.That(average.ShownText(), Is.EqualTo("Frametime: 20.00 ms"));
+            Assert.That(Shown(fps), Is.EqualTo("FPS: 50"));
+            Assert.That(Shown(average), Is.EqualTo("Frametime: 20.00 ms"));
         });
     }
 
     [Test]
-    public void AShareThatIsNotFiniteLeavesOnlyTheTime()
+    public void ANumberThatIsNotFiniteIsLeftOut()
     {
-        var line = new HudLine
-        { Label = () => "mod", Value = () => 9.94, Percent = () => double.PositiveInfinity, Unit = "ms" };
-        line.Capture();
-        Assert.That(line.ShownText(), Is.EqualTo("mod: 9.94 ms"), "no bare ' %'");
-    }
-
-    [Test]
-    public void ARowWithoutANumberIsLeftOut()
-    {
-        var bar = new HudLine { Label = () => "CPU", Percent = () => double.NaN };
-        var value = new HudLine
-        { Label = () => "VRAM", Value = () => double.NaN, Percent = () => double.NaN, Unit = "MB" };
-        var text = new HudLine { Label = () => "update check failed", Sub = true };
-        bar.Capture();
-        value.Capture();
-        text.Capture();
         Assert.Multiple(() =>
         {
-            Assert.That(bar.ShownText(), Is.Empty);
-            Assert.That(value.ShownText(), Is.Empty);
-            Assert.That(text.ShownText(), Is.EqualTo("  update check failed"), "a line of text has no number to miss");
+            Assert.That(Shown(new HudLine
+                    { Label = () => "mod", Value = () => 9.94, Percent = () => double.PositiveInfinity, Unit = "ms" }),
+                Is.EqualTo("mod: 9.94 ms"), "no bare ' %'");
+            Assert.That(Shown(new HudLine { Label = () => "CPU", Percent = () => double.NaN }), Is.Empty);
+            Assert.That(Shown(new HudLine
+                { Label = () => "VRAM", Value = () => double.NaN, Percent = () => double.NaN, Unit = "MB" }), Is.Empty);
+            Assert.That(Shown(new HudLine { Label = () => "update check failed", Sub = true }),
+                Is.EqualTo("  update check failed"), "a line of text has no number to miss");
         });
     }
 
@@ -132,35 +88,9 @@ public sealed class HudReportTests
     [TestCase("", "", "")]
     [TestCase(null, "", "")]
     [TestCase("3.50", "", "  label: 3.50 ms")]
-    public void RowsFormatLikeThePanel(string? value, string? percent, string expected)
+    public void RowsFormatAsTheReportPrintsThem(string? value, string? percent, string expected)
     {
         Assert.That(HudLine.RowText("label", true, value, percent, "ms"), Is.EqualTo(expected));
-    }
-
-    // Render() skips a detail row while detail is off; its text is from the last interval it was measured in, so the dump skips it too
-    [Test]
-    public void APanelDumpsTheRowsItDraws()
-    {
-        List<HudLine> lines =
-        [
-            new() { Kind = HudLineKind.Header, Label = () => "passes" },
-            new() { Label = () => "opaque", Value = () => 3.5, Unit = "ms" },
-            new() { Label = () => "stale", Value = () => 1.25, Unit = "ms", Sub = true, Detail = true },
-            new() { Label = () => "", Value = () => 1, Unit = "ms" }, // an unused row of a dynamic list
-            new() { Kind = HudLineKind.Rule },
-            new() { Label = () => "unmeasured", Value = () => double.NaN, Unit = "ms" }
-        ];
-        foreach (var line in lines) line.Capture();
-        var after = new StringBuilder("[title]");
-        HudPanel.AppendShown(after, lines, false);
-        var detailed = new StringBuilder();
-        HudPanel.AppendShown(detailed, lines, true);
-        Assert.Multiple(() =>
-        {
-            Assert.That(after.ToString(), Is.EqualTo("[title]\n\n[passes]\nopaque: 3.50 ms"),
-                "a panel after another starts a paragraph");
-            Assert.That(detailed.ToString(), Is.EqualTo("[passes]\nopaque: 3.50 ms\n  stale: 1.25 ms"));
-        });
     }
 
     // A bench averages the windows that had a number; a statistic that never had one in the whole bench is left out without
@@ -201,28 +131,15 @@ public sealed class HudReportTests
         });
     }
 
-    // The panel reads a counter row once per refresh and the bench accumulates every interval. On an interval with a panel reading the
-    // bench takes that one, on the others it reads itself: every interval's growth is in exactly one bench sample.
+    // The means of a section's rows: a header in brackets, a row without any number left out, a blank line before a later section
     [Test]
-    public void TheBenchSharesTheRowsReadingWithThePanel()
+    public void ASectionPrintsTheMeansOfItsRows()
     {
-        double total = 0, frames = 0;
-        Growth grown = new(() => total), of = new(() => frames);
-        var line = new HudLine { Label = () => "per frame", Value = () => grown.Next() / of.Next(), Unit = "ms" };
-        line.Capture(); // the first read is no rate
-        line.ResetBench();
-        foreach (var (added, due) in ((double, bool)[])[(10, true), (20, false), (60, false), (10, true)])
-        {
-            (total, frames) = (total + added, frames + 10);
-            if (due) line.Capture();
-            line.Accumulate();
-        }
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(line.MeanText(), Is.EqualTo("per frame: 2.50 ms"), "1, 2, 6 and 1 per frame");
-            Assert.That(line.ShownText(), Is.EqualTo("per frame: 1.00 ms"), "the panel's last reading");
-        });
+        var panel = new HudPanel().Section("x").Value("y", () => 3.5, "ms").Line(() => "unmeasured", () => double.NaN, "ms");
+        panel.Accumulate();
+        var text = new StringBuilder("[title]");
+        panel.AppendMeans(text);
+        Assert.That(text.ToString(), Does.Match(@"^\[title\]\n\n\[.*\]\n.*: 3\.50 ms$"));
     }
 
     // Counting starts (F7, the counters switch, the first showing, a bench with the HUD hidden) and the rows take a new baseline: the first
@@ -230,22 +147,19 @@ public sealed class HudReportTests
     [Test]
     public void APrimedRowCoversTheSpanSinceCountingStarted()
     {
-        double total = 0, frames = 0;
-        Growth grown = new(() => total), of = new(() => frames);
-        var line = new HudLine { Label = () => "per frame", Value = () => grown.Next() / of.Next(), Unit = "ms" };
+        var (line, add) = PerFrame();
         Counting.Hud = false;
         Counting.Hud = true;
         line.Prime();
-        (total, frames) = (total + 40, frames + 10);
-        line.Capture();
-        var shown = line.ShownText();
+        add(40, 10);
+        var shown = Shown(line);
         Counting.Hud = false;
         line.ResetBench(); // StartBench's order: the reset, then counting starts
         Counting.Hud = true;
         line.Prime();
         foreach (var (added, count) in ((double, double)[])[(60, 20), (10, 10)])
         {
-            (total, frames) = (total + added, frames + count);
+            add(added, count);
             line.Accumulate();
         }
 
@@ -312,6 +226,8 @@ public sealed class HudReportTests
     [TestCase(true, Newer, "a", "b", "Mismatch", "aaaaaaa")]
     [TestCase(false, Newer, "a", "", "Outdated", Newer)]
     [TestCase(false, "", "", "", "NoRelease", Build)]
+    [TestCase(false, "v1.2.2", "a", "", "NoRelease", Build)]
+    [TestCase(true, "v1.2.2", "a", "a", "Verified", "aaaaaaa")]
     public void GitHubsAnswerMapsToOneState(bool listed, string newest, string installed, string published,
         string state, string detail)
     {
@@ -324,7 +240,21 @@ public sealed class HudReportTests
         });
     }
 
-    // The checksum window's verdict: a failed or running check says so, otherwise the hashes decide, then what is missing
+    // Only a later build is an update: a pre-release is ahead of the release before it and behind its own; previews have no order
+    [TestCase("v2.0.1-pre", "v2.0.0", false)]
+    [TestCase("v2.0.1-pre", "v2.0.1", true)]
+    [TestCase("v2.0.1-pre", "v2.0.1-rc", true)]
+    [TestCase("v2.0.1", "v2.0.1-pre", false)]
+    [TestCase("v2.0.10", "v2.0.9", false)]
+    [TestCase("v2.0.9", "v2.0.10", true)]
+    [TestCase("v2.0.0", "v2.0.0", false)]
+    [TestCase("v2.0.0", "", false)]
+    [TestCase("preview-abc1234", "preview-def5678", true)]
+    public void TheNewestTagIsAnUpdateOnlyWhenItIsLater(string tag, string newest, bool behind)
+    {
+        Assert.That(UpdateCheck.Behind(tag, newest), Is.EqualTo(behind));
+    }
+
     [TestCase("Checking", "v1", "a", "a", "verify-checking")]
     [TestCase("Failed", "v1", "a", "a", "verify-failed")]
     [TestCase("Verified", "v1", "a", "a", "verify-match")]
@@ -336,11 +266,25 @@ public sealed class HudReportTests
         string published, string key)
     {
         var report = new UpdateReport(Enum.Parse<UpdateState>(state), "", tag, "", Hash(installed), Hash(published));
-        Assert.That(report.Verdict().Key, Is.EqualTo(key));
+        Assert.That(report.Verdict(), Is.EqualTo(key));
     }
 
-    private static string Hash(string digit)
+    // add grows the total and the frames
+    private static (HudLine Line, Action<double, double> Add) PerFrame()
     {
-        return digit switch { "" => "", "a" => Installed, _ => Other };
+        double total = 0, frames = 0;
+        Growth grown = new(() => total), of = new(() => frames);
+        return (new HudLine { Label = () => "per frame", Value = () => grown.Next() / of.Next(), Unit = "ms" },
+            (added, count) => (total, frames) = (total + added, frames + count));
     }
+
+    // One interval's reading as the report prints it
+    private static string Shown(HudLine line)
+    {
+        line.ResetBench();
+        line.Accumulate();
+        return line.MeanText();
+    }
+
+    private static string Hash(string digit) => digit switch { "" => "", "a" => Installed, _ => Other };
 }

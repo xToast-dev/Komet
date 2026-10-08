@@ -2,21 +2,25 @@ using Vintagestory.API.Client.Tesselation;
 
 namespace Komet.Test.Rigs;
 
-// The repository, stamped by Komet.Test.csproj, and the mod's folder in it. The installation the tests read is GameInstall's.
+// Stamped by Komet.Test.csproj
 internal static class Paths
 {
     public static readonly string Repo = Stamped("KometRepo");
     public static readonly string KometDir = Path.Combine(Repo, "Komet");
 
-    private static string Stamped(string key)
-    {
-        return typeof(Paths).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().First(a => a.Key == key).Value!;
-    }
+    private static string Stamped(string key) =>
+        typeof(Paths).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().First(a => a.Key == key).Value!;
 }
 
 // The game's English, loaded as the client loads it; Komet's own keys then translate to themselves
 internal static class GameLang
 {
+    // Lang.Get throws until a language is loaded: the game's English, unless one is loaded already
+    public static void EnsureLoaded()
+    {
+        if (Lang.CurrentLocale is not { } locale || !Lang.AvailableLanguages.ContainsKey(locale)) LoadEnglish();
+    }
+
     public static void LoadEnglish()
     {
         var english = new TranslationService("en", new QuietLogger());
@@ -27,7 +31,7 @@ internal static class GameLang
 }
 
 // One built-in feature installed through its registry entry, as KometModSystem installs it: a server in this process and no game API,
-// which none of the features the tests install asks for. Dispose runs the feature's stop, unpatches it and closes the registry.
+// which none of the features the tests install asks for.
 internal sealed class FeatureRig : IDisposable
 {
     private readonly TestHarmony _harmony;
@@ -93,10 +97,7 @@ internal sealed class TessRig : IDisposable
         set => TessSeams.Draw(Tesselator) = value;
     }
 
-    public void Dispose()
-    {
-        _moves.CopyTo(TileSideEnum.MoveIndex, 0);
-    }
+    public void Dispose() => _moves.CopyTo(TileSideEnum.MoveIndex, 0);
 
     // The engine's internal methods, called through their entry: patched when a test patched them
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "CalcBlockFaceLight")]

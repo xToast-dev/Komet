@@ -8,13 +8,11 @@ using Vintagestory.Common;
 
 namespace Komet.World;
 
-// Every block light the server's world generation places (BlockAccessorWorldGen.RunScheduledBlockLightUpdates -> PlaceBlockLight ->
-// UpdateLightAt) makes ChunkIlluminator walk every nearby light source again (CollectLightValuesForLightSource), and that walk
-// allocates for every block it visits: a Vec3i key for the VisitedNodes lookup even when the node exists, a LightSourcesAtBlock with
-// its byte[45] for every new node, and a QueueOfInt (int[27] and its doublings) per source: 23 MB/s in one flight into new terrain,
-// which in singleplayer shares the heap and the GC pauses with the client. The rewrites swap only those allocations for per-thread
-// scratch; every light value, the visiting order and the touched chunks stay the engine's. The client's relight uses the same
-// illuminator and gets the same.
+// Every block light worldgen places (BlockAccessorWorldGen.RunScheduledBlockLightUpdates -> PlaceBlockLight -> UpdateLightAt) makes
+// ChunkIlluminator walk every nearby light source again (CollectLightValuesForLightSource), allocating a Vec3i lookup key per visited
+// block even when the node exists, a LightSourcesAtBlock with its byte[45] per new node and a QueueOfInt per source: 23 MB/s in one
+// flight into new terrain, sharing heap and GC pauses with the client in singleplayer. Only those allocations become per-thread
+// scratch; light values, visiting order and touched chunks stay the engine's. The client's relight uses the same illuminator.
 //
 // Scopes. A prefix and a finalizer on UpdateLightAt and SpreadDarkness count how deep the thread is in them, whatever Enabled says,
 // and scratch is only handed out inside a scope: a light update that a mod starts from inside another one (Block.GetLightHsv,
@@ -54,7 +52,6 @@ internal static class LightScratch
     public static bool Rewritten => _confined && _rewritten == AllBits;
     public static bool StoodDown { get; private set; } // another mod patches a seam, or one is missing
 
-    // Allocations the engine would have made, a total while Counting.Hud
     public static long Avoided => Interlocked.Read(ref _avoided);
 
     // Keys and nodes stay in VisitedNodes after their walk, so they are only reused when install proved that nothing reads them there
@@ -133,7 +130,6 @@ internal static class LightScratch
         return true;
     }
 
-    // Whether the four bytes of this token appear anywhere in the IL
     private static bool Mentions(byte[] il, int token)
     {
         if (!NotNull(il) || !Assert(il.Length <= MaxIl)) return true;
@@ -161,7 +157,6 @@ internal static class LightScratch
         return code;
     }
 
-    // Two lookups of the same shape (see IsLookup), one queue; anything else returns the engine's IL untouched
     internal static List<CodeInstruction> RewriteCollect(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~CollectBit;
@@ -194,7 +189,6 @@ internal static class LightScratch
         return code;
     }
 
-    // The queue, and nothing else; the node walk only ever enqueues, dequeues and counts
     internal static List<CodeInstruction> RewriteDarkness(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~DarknessBit;
@@ -291,16 +285,13 @@ internal static class LightScratch
         return entries.Count > 0;
     }
 
-    // An entry local's store, straight after get_Current
     private static bool Stored(List<CodeInstruction> code, int at) =>
         Index(at, code.Count) && code[at].IsStloc() && at > 0 && EntryCall(code[at - 1], Entries, "get_Current");
 
-    // An entry local's address, straight before get_Key or get_Value
     private static bool Unpacked(List<CodeInstruction> code, int at) =>
         Index(at, code.Count) && Index(at + 1, code.Count) && Il.Local(code[at], Il.Uses.Address) >= 0 &&
         (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
 
-    // A call or callvirt of `type`'s method `name`
     private static bool EntryCall(CodeInstruction code, Type type, string name) =>
         NotNull(code) && NotNull(type) && (code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) &&
         code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
@@ -363,7 +354,6 @@ internal static class LightScratch
     private static bool IsNodesCall(CodeInstruction code, string name) =>
         NotNull(code) && Assert(name.Length > 0) && code.opcode == OpCodes.Callvirt && EntryCall(code, NodeMap, name);
 
-    // newobj of `type` with `parameters` int parameters
     private static bool Creates(CodeInstruction code, Type type, int parameters)
     {
         if (!NotNull(code) || !NotNull(type) || code.opcode != OpCodes.Newobj ||
@@ -436,7 +426,6 @@ internal static class LightScratch
         return key;
     }
 
-    // Stands in for new LightSourcesAtBlock(): the same state, no light yet and 45 zero bytes
     internal static LightSourcesAtBlock Node()
     {
         if (_visit is not { Depth: > 0 } visit || !Reuse || !Room(ref visit.Nodes, visit.NodeCount))
@@ -449,7 +438,6 @@ internal static class LightScratch
         return Assert(node.lightHsvs.Length == HsvBytes) ? node : new LightSourcesAtBlock();
     }
 
-    // Stands in for new QueueOfInt(): the queue of this nesting depth, emptied
     internal static QueueOfInt Queue()
     {
         if (_visit is not { Depth: > 0 and <= MaxDepth } visit || !Enabled) return new QueueOfInt();
@@ -459,7 +447,6 @@ internal static class LightScratch
         return Assert(queue.Count == 0) ? queue : new QueueOfInt();
     }
 
-    // Whether slot `at` exists, doubling the array up to MaxNodes
     private static bool Room<T>(ref T?[] arena, int at) where T : class
     {
         if (!NotNull(arena) || !Assert(at >= 0)) return false;
@@ -469,7 +456,6 @@ internal static class LightScratch
         return Index(at, arena.Length);
     }
 
-    // The thread's scratch: the probe, the keys and nodes handed out since the outermost scope began, a queue per depth
     private sealed class Visit
     {
         public readonly Vec3i Probe = new();

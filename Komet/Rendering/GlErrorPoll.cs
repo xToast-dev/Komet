@@ -4,11 +4,9 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
 
-// ClientMain reads the GL error flag twice a frame, after the final composition and after the blit (CheckGlErrorAlways, one
-// GL.GetError each). Under Mesa's glthread (default on radeonsi and the other Gallium drivers) each read is a round trip that waits
-// for the driver thread to drain its queue: 0.13 ms a frame on the bench. Both sites now ask every EveryCalls-th call. The flag stays
-// set until read, so no error is lost, only logged a few frames later (less often while it repeats), and GL_OUT_OF_MEMORY still ends
-// the game with the engine's exception. GL debug mode asks every call, as the engine does; other callers (mods) are left alone.
+// ClientMain reads the GL error flag twice a frame (CheckGlErrorAlways); under Mesa's glthread each read waits for the driver
+// thread (0.13 ms a frame). Both sites now ask every EveryCalls-th call. The flag stays set until read, so errors are only logged
+// later and GL_OUT_OF_MEMORY still ends the game. GL debug mode asks every call; other callers (mods) are left alone.
 internal static class GlErrorPoll
 {
     public const int EveryCalls = 16;
@@ -45,7 +43,6 @@ internal static class GlErrorPoll
         return code;
     }
 
-    // Stands in for platform.CheckGlErrorAlways(message): every EveryCalls-th call, or every call while off or in GL debug mode
     internal static void Check(ClientPlatformAbstract platform, string message)
     {
         if (Ask(ClientSettings.GlDebugMode))

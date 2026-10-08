@@ -3,14 +3,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Vintagestory.API.MathTools;
 using Plane = Vintagestory.API.Client.Plane;
+using static Komet.Rendering.Fields;
 
 namespace Komet.Rendering;
 
-// The cull itself. Sweep marks the rows whose geometry survives the planes (cell boxes first, then a vector of rows at a time); Emit
-// takes IsVisible's other terms for those rows and writes the pool's index ranges.
 internal static partial class FrustumSweep
 {
-    // InFrustumShadowPass's range test, in its float operations, ahead of any plane
+    // InFrustumShadowPass's range test in its float operations, ahead of any plane
     private static void Range(Mirror m, FrustumCulling culler, int from, int to)
     {
         var player = PlayerPos(culler);
@@ -21,16 +20,19 @@ internal static partial class FrustumSweep
                            Math.Abs(pz - m.Cz[i]) >= culler.shadowRangeZ ? -1 : 0;
     }
 
-    // Plane.AABBisOutside a vector at a time, the normal's sign picking the corner; rows Diff added since the grid sit behind it
+    // Plane.AABBisOutside a vector at a time, the normal's sign picking the corner; rows Diff added since the grid sit behind it.
+    // The plane vectors are written before read: no zeroing of their 1.3 KB of stack (a call per sweep)
+    [SkipLocalsInit]
     private static void Sweep(Mirror m, ReadOnlySpan<Plane> planes, bool ranged, FrustumCulling culler)
     {
         var w = Vector<double>.Count;
-        if (!Assert(planes.Length is > 0 and <= PlaneCount) || !Assert(m.Outside.Length >= m.Slots)) return;
-        Span<PlaneV> pv = stackalloc PlaneV[PlaneCount];
-        var count = Math.Min(planes.Length, PlaneCount);
-        for (var p = 0; p < Math.Min(count, PlaneCount); p++) pv[p] = new PlaneV(planes[p]);
+        if (!Assert(planes.Length is > 0 and <= MaxPlanes) || !Assert(m.Outside.Length >= m.Slots)) return;
+        Span<PlaneV> pv = stackalloc PlaneV[MaxPlanes];
+        var count = Math.Min(planes.Length, MaxPlanes);
+        for (var p = 0; p < Math.Min(count, MaxPlanes); p++) pv[p] = new PlaneV(planes[p]);
         var allOut = new Vector<long>(-1);
-        Array.Clear(m.Cand, 0, (m.Length + WordBits - 1) / WordBits);
+        if (m.Dirty) Array.Clear(m.Cand); // Candidates clears the words it takes; only an untaken sweep leaves bits
+        m.Dirty = true;
         var from = 0;
         if (m.Cells > 0)
         {
@@ -58,7 +60,7 @@ internal static partial class FrustumSweep
             SweepVector(m, pv, count, ranged, i, allOut);
     }
 
-    // The plane kernel over the cell boxes. No range test: that runs in float on a sphere centre, which a box is not.
+    // The plane kernel over the cell boxes; no range test (it runs in float on a sphere centre, not a box)
     private static void SweepBoxes(Mirror m, ReadOnlySpan<PlaneV> pv, int count, int w, Vector<long> allOut)
     {
         var padded = (m.Cells + w - 1) / w * w;
@@ -74,7 +76,7 @@ internal static partial class FrustumSweep
             var outside = Vector<long>.Zero;
             Vector<double> cx = new(m.BCx, i), cy = new(m.BCy, i), cz = new(m.BCz, i);
             Vector<double> hx = new(m.BHx, i), hy = new(m.BHy, i), hz = new(m.BHz, i);
-            for (var p = 0; p < Math.Min(count, PlaneCount); p++)
+            for (var p = 0; p < Math.Min(count, MaxPlanes); p++)
             {
                 var d = (cx + hx * pv[p].Sx) * pv[p].Nx + (cy + hy * pv[p].Sy) * pv[p].Ny +
                         (cz + hz * pv[p].Sz) * pv[p].Nz + pv[p].D;
@@ -94,7 +96,7 @@ internal static partial class FrustumSweep
         if (ranged && Vector.EqualsAll(outside, allOut)) return;
         Vector<double> cx = Widen(m.Cx, i), cy = Widen(m.Cy, i), cz = Widen(m.Cz, i);
         Vector<double> hx = Widen(m.Hx, i), hy = Widen(m.Hy, i), hz = Widen(m.Hz, i);
-        for (var p = 0; p < Math.Min(count, PlaneCount); p++)
+        for (var p = 0; p < Math.Min(count, MaxPlanes); p++)
         {
             var d = (cx + hx * pv[p].Sx) * pv[p].Nx + (cy + hy * pv[p].Sy) * pv[p].Ny +
                     (cz + hz * pv[p].Sz) * pv[p].Nz + pv[p].D;
@@ -104,7 +106,7 @@ internal static partial class FrustumSweep
         Mark(m, outside, i, allOut);
     }
 
-    // A vector of doubles from as many floats at i. The width is a JIT constant, so this folds to one load and one convert.
+    // Doubles from as many floats at i; the width is a JIT constant, so this folds to one load and one convert
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector<double> Widen(float[] values, int i)
     {
@@ -131,7 +133,7 @@ internal static partial class FrustumSweep
         }
     }
 
-    // One bit per lane outside. The width is a JIT constant, so this folds to one movemask.
+    // One bit per lane outside; folds to one movemask
     private static uint Lanes(Vector<long> outside)
     {
         if (!Assert(Vector<long>.Count <= MaxLanes)) return uint.MaxValue;
@@ -146,9 +148,9 @@ internal static partial class FrustumSweep
         return bits;
     }
 
-    // IsVisible's terms are a side-effect-free conjunction (FrustumVisible's only reader, ClientChunk.IsFrustumVisible, has no caller),
-    // so LOD and range run first on the flat arrays and only the rest read Hide and Bools, branch-free so the misses overlap.
-    // VisibleBufIndex is read once: ChunkCuller swaps it on its own thread, so one snapshot per pool is as good as the engine's reads.
+    // IsVisible's terms are a side-effect-free conjunction (FrustumVisible's only reader has no caller), so LOD and range run first
+    // on the flat arrays and only the rest read Hide and Bools, branch-free so the misses overlap. VisibleBufIndex is read once
+    // (ChunkCuller swaps it on its own thread; one snapshot per pool is as good as the engine's reads).
     private static int Emit(Mirror m, FrustumCulling culler, EnumFrustumCullMode mode, int[] starts, int[] sizes,
         out int rendered)
     {
@@ -161,7 +163,7 @@ internal static partial class FrustumSweep
         {
             ref readonly var row = ref refs[rows[q]];
             ok[q] = !row.Loc.Hide;
-            ok[q] &= row.Vis[buffer]; // no short circuit: a branch on the first load would hold up the second
+            ok[q] &= row.Vis[buffer]; // no short circuit: a branch would hold up the second load
         }
 
         var groups = 0;
@@ -171,9 +173,10 @@ internal static partial class FrustumSweep
             var i = rows[q];
             (starts[groups * 2], sizes[groups]) = (m.Start[i], m.Count[i]);
             rendered += m.Count[i] / 3;
-            groups++;
+            rows[groups++] = i; // Rows keeps the emitted rows in range order (Boxes)
         }
 
+        m.Emitted = groups;
         return groups;
     }
 
@@ -187,8 +190,8 @@ internal static partial class FrustumSweep
         return Assert(m.Ok.Length >= n);
     }
 
-    // The rows the planes left (Cand) that pass the mode's LOD test, into Rows; how many. CullNormal takes IsVisible's range and LOD
-    // test; the shadow passes had their range test in the sweep, and only the far one drops LOD 0; CullInstant ignores LodLevel.
+    // CullNormal takes IsVisible's range and LOD test; shadow passes had their range test in the sweep, only the far one drops
+    // LOD 0; CullInstant ignores LodLevel.
     private static int Candidates(Mirror m, EnumFrustumCullMode mode, FrustumCulling culler)
     {
         var (k, words, player) = (0, (m.Length + WordBits - 1) / WordBits, PlayerPos(culler));
@@ -199,6 +202,7 @@ internal static partial class FrustumSweep
         for (var word = 0; word < Math.Min(words, MaxWords); word++)
         {
             var bits = m.Cand[word];
+            m.Cand[word] = 0;
             for (var b = 0; b < WordBits && bits != 0; b++)
             {
                 var i = word * WordBits + BitOperations.TrailingZeroCount(bits);
@@ -207,10 +211,11 @@ internal static partial class FrustumSweep
             }
         }
 
+        m.Dirty = words > MaxWords;
         return k;
     }
 
-    // IsVisible's CullNormal range and LOD test with the engine's operations
+    // IsVisible's CullNormal range and LOD test, with the engine's operations
     private static bool LodVisible(Mirror m, int i, BlockPos player, FrustumCulling culler)
     {
         if (!Index(i, m.Length)) return false;

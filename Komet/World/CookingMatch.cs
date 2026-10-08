@@ -51,7 +51,6 @@ internal static class CookingMatch
         _ = NotNull(harmony.Patch(matching, transpiler: new HarmonyMethod(RewriteMatching)));
     }
 
-    // CookingRecipe.Matches(ItemStack[], ref int) and CookingRecipeIngredient.GetMatchingStack(ItemStack)
     internal static MethodBase?[] Seams()
     {
         var (recipe, ingredient) = (AccessTools.TypeByName(RecipeType), AccessTools.TypeByName(IngredientType));
@@ -77,7 +76,6 @@ internal static class CookingMatch
         _ = Assert(_depth >= 0);
     }
 
-    // The copy of the stacks, the ingredient list and the counter array come from Stacks, Items and Counts
     internal static List<CodeInstruction> RewriteMatches(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~MatchesBit;
@@ -101,7 +99,6 @@ internal static class CookingMatch
         return code;
     }
 
-    // Stands in for new List<ItemStack>(stacks)
     internal static List<ItemStack> Stacks(IEnumerable<ItemStack> stacks)
     {
         if (!Enabled || _depth != 1 || !NotNull(stacks)) return [.. stacks];
@@ -111,7 +108,6 @@ internal static class CookingMatch
         return list;
     }
 
-    // Stands in for Enumerable.ToList(items)
     internal static List<T> Items<T>(IEnumerable<T> items)
     {
         if (!Enabled || _depth != 1 || !NotNull(items)) return [.. items];
@@ -189,7 +185,6 @@ internal static class CookingMatch
         return copy;
     }
 
-    // The source is the array the copy was made from, with the entries it had, and the copy still holds them and "timeFrozen"
     private static bool Same(Shared shared, string[] source)
     {
         var (entries, copy) = (shared.Entries, shared.Joined);
@@ -200,6 +195,5 @@ internal static class CookingMatch
         return true;
     }
 
-    // The array a copy was made from, the copy, and the entries it had then
     private sealed record Shared(string[] Source, string[] Joined, string[] Entries);
 }

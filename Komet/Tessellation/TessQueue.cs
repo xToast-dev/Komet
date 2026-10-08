@@ -5,11 +5,10 @@ namespace Komet.Tessellation;
 // Where the player stands and looks, in chunks: what the queue orders by
 internal readonly record struct TessView(int X, int Y, int Z, double Fx, double Fz);
 
-// The chunks waiting for a normal tessellation pass, nearest first: each has a score from its distance to the player and its angle to
-// the camera, computed again on Aim, and the lowest is taken first. The engine's semantics of its queue are kept: a key is a chunk's
-// index3d, an edge-only mark is the index with the sign bit set and is dropped while the full pass of the same chunk waits (the engine
-// skips it when it dequeues it, ClientWorldMap does not even enqueue it then), and a full mark that arrives while the edge-only mark
-// waits turns it into a full pass.
+// Normal tessellation passes, the lowest Score first. The engine's semantics of its queue are kept: a key is a chunk's index3d, an
+// edge-only mark is the index with the sign bit set and is dropped while the full pass of the same chunk waits (the engine skips it
+// when it dequeues it, ClientWorldMap does not even enqueue it then), and a full mark that arrives while the edge-only mark waits
+// turns it into a full pass.
 //
 // Several threads take from it, all under one lock: the tessellation thread fills it, takes and defers, Komet's worker threads
 // (TessWorkers) take and hand passes back (Home). A chunk is handed to one thread at a time: while it is tessellated a new mark for it
@@ -163,7 +162,6 @@ internal sealed class TessQueue
         }
     }
 
-    // Scores again from where the player is now
     public void Aim(TessView view)
     {
         if (!Finite(view.Fx) || !Finite(view.Fz)) return;
@@ -211,7 +209,6 @@ internal sealed class TessQueue
         lock (_gate) Empty(true);
     }
 
-    // Whether the chunk of an index lies within radius columns of the view's chunk
     public static bool Within(long index, TessView view, int radius, long mulX, long mulZ)
     {
         if (!Assert(index >= 0) || !Assert(mulX > 0 && mulZ > 0)) return false;

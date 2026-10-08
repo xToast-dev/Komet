@@ -2,14 +2,11 @@ using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.Options;
 
-// The options window's model: the pages a mod registers, the game's graphics tab as pages, Komet's own, and the engine bodies the
-// replacement of the graphics tab was written against.
 public sealed class OptionsTests
 {
     private static readonly string[] GameTabs =
         ["vs-general", "vs-quality", "vs-performance", "vs-mouse", "vs-accessibility", "vs-sound", "vs-interface"];
 
-    // The game's own language file, as the client loads it: what the labels of the graphics tab come from
     [OneTimeSetUp]
     public void LoadTheGamesLanguage()
     {
@@ -22,7 +19,33 @@ public sealed class OptionsTests
         KometOptions.Clear();
     }
 
-    // Labels, hints and choice names are the game's lang keys (translated where the game's language is loaded), or Komet's
+    // The names' window opens with the chosen name in the middle (the scroll NaN: just opened) and stays within the names; no
+    // assertion trips on the NaN
+    [Test]
+    public void ThePickerOpensOnTheChosenNameAndScrollsWithinTheNames()
+    {
+        var logger = new CapturingLogger();
+        Contracts.Attach(logger);
+        try
+        {
+            var names = (Cell: 36.0, Step: 39.0, View: 200.0, Total: 39.0 * 40 - 3);
+            var end = names.Total - names.View;
+            Assert.Multiple(() =>
+            {
+                Assert.That(OptionsScreen.Scrolled(double.NaN, 20, names), Is.EqualTo(20 * 39 - (200 - 36) / 2.0));
+                Assert.That(OptionsScreen.Scrolled(double.NaN, 0, names), Is.Zero, "the first name: at the top");
+                Assert.That(OptionsScreen.Scrolled(double.NaN, 39, names), Is.EqualTo(end), "the last: at the bottom");
+                Assert.That(OptionsScreen.Scrolled(5000, 3, names), Is.EqualTo(end), "scrolled past the end");
+                Assert.That(OptionsScreen.Scrolled(120, 3, names), Is.EqualTo(120), "scrolled: kept");
+                Assert.That(logger.Lines, Is.Empty, "no assertion failed");
+            });
+        }
+        finally
+        {
+            Contracts.Attach(null);
+        }
+    }
+
     [Test]
     public void EveryGameOptionShowsWhatTheGameTranslates()
     {
@@ -46,8 +69,6 @@ public sealed class OptionsTests
         });
     }
 
-    // The controls page: every hotkey of the game once, as a key row under the heading of its kind, the mouse modifiers dimmed
-    // while they follow sneak and sprint; two keys bound alike both say so
     [Test]
     public void EveryHotkeyHasItsRowOnTheControlsPage()
     {
@@ -78,7 +99,6 @@ public sealed class OptionsTests
         }
     }
 
-    // The name a language gives itself where the game's font can draw it, the English one after a tab, no completeness figure
     [TestCase("Deutsch / German (100% complete)", "Deutsch\tGerman")]
     [TestCase("English / English", "English")]
     [TestCase("\u0627\u0644\u0639\u0631\u0628\u064a\u0629 / Arabic (100% complete)", "Arabic")]
@@ -93,7 +113,7 @@ public sealed class OptionsTests
     [Test]
     public void KometHasItsHudPagesAndOnePagePerKnobPage()
     {
-        var pages = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }).Build();
+        var pages = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }, () => { }, () => { }).Build();
         var knobPages = Knobs.BuiltIn.ToArray().Select(k => k.Page).OfType<string>().Distinct().Select(p => "komet-" + p);
         var rows = pages.SelectMany(p => Enumerable.Range(0, p.Count).Select(i => p[i].Label)).ToArray();
         Assert.Multiple(() =>
@@ -109,22 +129,16 @@ public sealed class OptionsTests
     {
         _ = KometOptions.Page("mod", "Mod").Switch("a", () => true, _ => { }).Switch("b", () => true, _ => { });
         var again = KometOptions.Page("mod", "Mod").Switch("c", () => true, _ => { });
+        _ = KometOptions.Page("two", "Two", "Mods");
         Assert.Multiple(() =>
         {
-            Assert.That(KometOptions.Count, Is.EqualTo(1));
+            Assert.That(KometOptions.Count, Is.EqualTo(2));
             Assert.That(KometOptions.At(0), Is.SameAs(again));
             Assert.That(again.Count, Is.EqualTo(1));
             Assert.That(again.Section, Is.EqualTo("Mod"), "the title stands in for a missing section");
+            KometOptions.Clear();
+            Assert.That(KometOptions.Count, Is.Zero);
         });
-    }
-
-    [Test]
-    public void TheWorldClosingDropsEveryPage()
-    {
-        _ = KometOptions.Page("one", "One");
-        _ = KometOptions.Page("two", "Two", "Mods");
-        KometOptions.Clear();
-        Assert.That(KometOptions.Count, Is.Zero);
     }
 
     [Test]
@@ -170,5 +184,28 @@ public sealed class OptionsTests
         var page = KometOptions.Page("mod", "Mod");
         for (var i = 0; i < OptionPage.MaxOptions + 5; i++) _ = page.Switch("s" + i, () => false, _ => { });
         Assert.That(page.Count, Is.EqualTo(OptionPage.MaxOptions));
+    }
+
+    // Each mode reads back as itself; one switch turned off singly drops the mode to the one it still covers
+    [TestCase(0, null, 0)]
+    [TestCase(1, null, 1)]
+    [TestCase(2, null, 2)]
+    [TestCase(3, null, 3)]
+    [TestCase(3, "VulkanPresent", 2)]
+    [TestCase(3, "VulkanSky", 1)]
+    [TestCase(2, "VulkanOpaque", 0)]
+    [TestCase(1, "VulkanShaderCache", 1)]
+    public void TheVulkanModeSetsAndReadsTheSwitches(int mode, string? off, int expected)
+    {
+        var values = new int[Knobs.Count];
+        VulkanMode.Set(mode, (knob, value) => values[knob] = value);
+        if (off is not null) values[Knobs.Find(off)] = 0;
+        Assert.Multiple(() =>
+        {
+            Assert.That(VulkanMode.Of(knob => values[knob]), Is.EqualTo(expected));
+            Assert.That(values[Knobs.Find("VulkanShaderCache")], Is.EqualTo(off == "VulkanShaderCache" ? 0 : 1),
+                "the shader cache is on in every mode");
+            Assert.That(values[Knobs.Find("VulkanCore")], Is.EqualTo(mode > 0 ? 1 : 0));
+        });
     }
 }

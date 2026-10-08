@@ -5,10 +5,8 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The game's other tabs (GuiCompositeSettings.OnMouseOptions, OnAccessibilityOptions, OnSoundOptions, OnInterfaceOptions,
-// OnDeveloperOptions, Vintage Story 1.22.7), each control with its handler's conversions and side effects; the engine's watchers on
-// ClientSettings (volume, audio device, GUI scale, GL debug) do the rest. The controls are a page of their own, and the game's graphics
-// tab as it was is a button at the end of the interface page. A language takes effect at the next start, as in the game.
+// The game's other tabs (Vintage Story 1.22.7), each control with its handler's conversions and side effects; the engine's watchers on
+// ClientSettings (volume, audio device, GUI scale, GL debug) do the rest.
 internal static partial class EngineOptions
 {
     private static OptionPage Mouse(string section)
@@ -22,7 +20,7 @@ internal static partial class EngineOptions
             .Slider(Name("mousewheelsensivity"), 1, 100, 1, () => Math.Round(ClientSettings.MouseWheelSensivity * 10),
                 v => ClientSettings.MouseWheelSensivity = (float)(v / 10))
             .Format(v => (v / 10).ToString("0.#", CultureInfo.InvariantCulture) + "x")
-            .Switch(Name("directmousemode"), () => ClientSettings.DirectMouseMode, DirectMouse, Hover("directmousemode"))
+            .Setting("directmousemode", () => ClientSettings.DirectMouseMode, DirectMouse)
             .Switch(Name("invertyaxis"), () => ClientSettings.InvertMouseYAxis, on => ClientSettings.InvertMouseYAxis = on)
             .Choice(Name("itemCollectMode"), [Lang.Get("Always collect items"), Lang.Get("Only collect items when sneaking")],
                 () => ClientSettings.ItemCollectMode, i => ClientSettings.ItemCollectMode = i);
@@ -32,13 +30,12 @@ internal static partial class EngineOptions
     {
         var page = new OptionPage("vs-accessibility", Lang.Get("setting-accessibility-header"), section);
         if (!NotNull(capi) || !Assert(section.Length > 0)) return page;
-        return page.Switch(Name("togglesprint"), () => ClientSettings.ToggleSprint, on => ClientSettings.ToggleSprint = on,
-                Hover("togglesprint"))
-            .Switch(Name("bobblehead"), () => ClientSettings.ViewBobbing, on => ClientSettings.ViewBobbing = on, Hover("bobblehead"))
-            .Slider(Name("camerashake"), 0, 100, 1, () => Math.Round(ClientSettings.CameraShakeStrength * 100),
-                v => ClientSettings.CameraShakeStrength = (float)(v / 100), " %", Hover("camerashake"))
-            .Slider(Name("wireframethickness"), 1, 16, 1, () => Math.Round(ClientSettings.Wireframethickness * 2),
-                v => ClientSettings.Wireframethickness = (float)(v / 2), "", Hover("wireframethickness"))
+        return page.Setting("togglesprint", () => ClientSettings.ToggleSprint, on => ClientSettings.ToggleSprint = on)
+            .Setting("bobblehead", () => ClientSettings.ViewBobbing, on => ClientSettings.ViewBobbing = on)
+            .Setting("camerashake", 0, 100, 1, () => Math.Round(ClientSettings.CameraShakeStrength * 100),
+                v => ClientSettings.CameraShakeStrength = (float)(v / 100), " %")
+            .Setting("wireframethickness", 1, 16, 1, () => Math.Round(ClientSettings.Wireframethickness * 2),
+                v => ClientSettings.Wireframethickness = (float)(v / 2))
             .Format(v => (v / 2).ToString("0.#", CultureInfo.InvariantCulture) + "x")
             .Choice(Name("wireframecolors"), [Lang.Get("Preset 1"), Lang.Get("Preset 2"), Lang.Get("Preset 3")],
                 () => Math.Clamp(ClientSettings.guiColorsPreset - 1, 0, 2), i =>
@@ -46,8 +43,8 @@ internal static partial class EngineOptions
                     ClientSettings.guiColorsPreset = i + 1;
                     capi.ColorPreset?.OnUpdateSetting();
                 }, Hover("wireframecolors"))
-            .Slider(Name("instabilityWavingStrength"), 0, 150, 1, () => Math.Round(ClientSettings.InstabilityWavingStrength * 100),
-                v => ClientSettings.InstabilityWavingStrength = (float)(v / 100), " %", Hover("instabilityWavingStrength"));
+            .Setting("instabilityWavingStrength", 0, 150, 1, () => Math.Round(ClientSettings.InstabilityWavingStrength * 100),
+                v => ClientSettings.InstabilityWavingStrength = (float)(v / 100), " %");
     }
 
     private static OptionPage Sound(string section)
@@ -67,7 +64,7 @@ internal static partial class EngineOptions
             .Slider(Name("musiclevel"), 0, 100, 1, () => ClientSettings.MusicLevel, v => ClientSettings.MusicLevel = (int)v, "%")
             .Slider(Name("musicfrequency"), 0, 3, 1, () => ClientSettings.MusicFrequency, v => ClientSettings.MusicFrequency = (int)v)
             .Format(v => Named(frequencies, v))
-            .Switch(Name("hrtfmode"), () => ClientSettings.UseHRTFAudio, on => ClientSettings.UseHRTFAudio = on, Hover("hrtfmode"));
+            .Setting("hrtfmode", () => ClientSettings.UseHRTFAudio, on => ClientSettings.UseHRTFAudio = on);
         return Devices(page);
     }
 
@@ -87,19 +84,18 @@ internal static partial class EngineOptions
         var page = new OptionPage("vs-interface", Lang.Get("setting-interface-header"), section);
         var largest = ScreenManager.Platform?.ScreenSize.Width > 3000 ? 24 : 16;
         if (!NotNull(capi) || !Assert(largest >= 16)) return page;
-        _ = page.Slider(Name("guiscale"), 4, largest, 1, () => Math.Round(ClientSettings.GUIScale * 8),
-                v => ClientSettings.GUIScale = (float)(v / 8), "", Hover("guiscale"))
+        _ = page.Setting("guiscale", 4, largest, 1, () => Math.Round(ClientSettings.GUIScale * 8),
+                v => ClientSettings.GUIScale = (float)(v / 8))
             .Format(v => (v / 8).ToString("0.###", CultureInfo.InvariantCulture) + "x");
         _ = Languages(page);
-        _ = page.Switch(Name("autochat"), () => ClientSettings.AutoChat, on => ClientSettings.AutoChat = on, Hover("autochat"))
-            .Switch(Name("autochat-selected"), () => ClientSettings.AutoChatOpenSelected,
-                on => ClientSettings.AutoChatOpenSelected = on, Hover("autochat-selected"))
-            .Switch(Name("blockinfohud"), () => ClientSettings.ShowBlockInfoHud, on => ClientSettings.ShowBlockInfoHud = on,
-                Hover("blockinfohud"))
-            .Switch(Name("blockinteractioninfohud"), () => ClientSettings.ShowBlockInteractionHelp,
-                on => ClientSettings.ShowBlockInteractionHelp = on, Hover("blockinteractioninfohud"))
-            .Switch(Name("coordinatehud"), () => ClientSettings.ShowCoordinateHud, on => ClientSettings.ShowCoordinateHud = on,
-                Hover("coordinatehud"));
+        _ = page.Setting("autochat", () => ClientSettings.AutoChat, on => ClientSettings.AutoChat = on)
+            .Setting("autochat-selected", () => ClientSettings.AutoChatOpenSelected,
+                on => ClientSettings.AutoChatOpenSelected = on)
+            .Setting("blockinfohud", () => ClientSettings.ShowBlockInfoHud, on => ClientSettings.ShowBlockInfoHud = on)
+            .Setting("blockinteractioninfohud", () => ClientSettings.ShowBlockInteractionHelp,
+                on => ClientSettings.ShowBlockInteractionHelp = on)
+            .Setting("coordinatehud", () => ClientSettings.ShowCoordinateHud,
+                on => ClientSettings.ShowCoordinateHud = on);
         _ = Hands(capi, Minimap(capi, page));
         if (tab is null) return page; // opened on its own: the game's settings are not behind the screen
         return page.Group(T("group-more"))
@@ -110,22 +106,20 @@ internal static partial class EngineOptions
     private static OptionPage Minimap(ICoreClientAPI capi, OptionPage page)
     {
         if (!NotNull(capi) || !NotNull(page) || capi.World?.Config?.GetBool("allowMap", true) == false) return page;
-        return page.Switch(Name("minimaphud"), () => capi.Settings.Bool["showMinimapHud"], on => capi.Settings.Bool["showMinimapHud"] = on,
-            Hover("minimaphud"));
+        return page.Setting("minimaphud", () => capi.Settings.Bool["showMinimapHud"],
+            on => capi.Settings.Bool["showMinimapHud"] = on);
     }
 
     private static OptionPage Hands(ICoreClientAPI capi, OptionPage page)
     {
         if (!NotNull(capi) || !NotNull(page)) return page;
-        return page.Switch(Name("immersivemousemode"), () => ClientSettings.ImmersiveMouseMode,
-                on => ClientSettings.ImmersiveMouseMode = on, Hover("immersivemousemode"))
-            .Switch(Name("immersivefpmode"), () => ClientSettings.ImmersiveFpMode, on => ClientSettings.ImmersiveFpMode = on,
-                Hover("immersivefpmode"))
-            .Slider(Name("fpmodeyoffset"), -100, 10, 1, () => Math.Round(ClientSettings.FpHandsYOffset * 100),
-                v => ClientSettings.FpHandsYOffset = (float)(v / 100), "", Hover("fpmodeyoffset"))
-            .Slider(Name("fpmodefov"), 70, 90, 1, () => ClientSettings.FpHandsFoV, v => ClientSettings.FpHandsFoV = (int)v, "°",
-                Hover("fpmodefov"))
-            .Switch(Name("developermode"), () => ClientSettings.DeveloperMode, DeveloperMode, Hover("developermode"));
+        return page.Setting("immersivemousemode", () => ClientSettings.ImmersiveMouseMode,
+                on => ClientSettings.ImmersiveMouseMode = on)
+            .Setting("immersivefpmode", () => ClientSettings.ImmersiveFpMode, on => ClientSettings.ImmersiveFpMode = on)
+            .Setting("fpmodeyoffset", -100, 10, 1, () => Math.Round(ClientSettings.FpHandsYOffset * 100),
+                v => ClientSettings.FpHandsYOffset = (float)(v / 100))
+            .Setting("fpmodefov", 70, 90, 1, () => ClientSettings.FpHandsFoV, v => ClientSettings.FpHandsFoV = (int)v, "°")
+            .Setting("developermode", () => ClientSettings.DeveloperMode, DeveloperMode);
     }
 
     // Only while developer mode is on, as the game's tab
@@ -133,24 +127,21 @@ internal static partial class EngineOptions
     {
         if (!NotNull(section) || !ClientSettings.DeveloperMode || !Assert(section.Length > 0)) return null;
         return new OptionPage("vs-developer", Lang.Get("setting-dev-header"), section)
-            .Switch(Name("errorreporter"), () => ClientSettings.StartupErrorDialog, on => ClientSettings.StartupErrorDialog = on,
-                Hover("errorreporter"))
-            .Switch(Name("extdebuginfo"), () => ClientSettings.ExtendedDebugInfo, on => ClientSettings.ExtendedDebugInfo = on,
-                Hover("extdebuginfo"))
-            .Switch(Name("opengldebug"), () => ClientSettings.GlDebugMode, on => ClientSettings.GlDebugMode = on, Hover("opengldebug"))
-            .Switch(Name("openglerrorchecking"), () => ClientSettings.GlErrorChecking, on => ClientSettings.GlErrorChecking = on,
-                Hover("openglerrorchecking"))
-            .Switch(Name("debugtexturedispose"), () => RuntimeEnv.DebugTextureDispose, on => RuntimeEnv.DebugTextureDispose = on,
-                Hover("debugtexturedispose"))
-            .Switch(Name("debugvaodispose"), () => RuntimeEnv.DebugVAODispose, on => RuntimeEnv.DebugVAODispose = on,
-                Hover("debugvaodispose"))
-            .Switch(Name("debugsounddispose"), () => RuntimeEnv.DebugSoundDispose, on => RuntimeEnv.DebugSoundDispose = on,
-                Hover("debugsounddispose"))
-            .Switch(Name("fasterstartup"), () => ClientSettings.OffThreadMipMapCreation,
-                on => ClientSettings.OffThreadMipMapCreation = on, Hover("fasterstartup"));
+            .Setting("errorreporter", () => ClientSettings.StartupErrorDialog,
+                on => ClientSettings.StartupErrorDialog = on)
+            .Setting("extdebuginfo", () => ClientSettings.ExtendedDebugInfo,
+                on => ClientSettings.ExtendedDebugInfo = on)
+            .Setting("opengldebug", () => ClientSettings.GlDebugMode, on => ClientSettings.GlDebugMode = on)
+            .Setting("openglerrorchecking", () => ClientSettings.GlErrorChecking,
+                on => ClientSettings.GlErrorChecking = on)
+            .Setting("debugtexturedispose", () => RuntimeEnv.DebugTextureDispose,
+                on => RuntimeEnv.DebugTextureDispose = on)
+            .Setting("debugvaodispose", () => RuntimeEnv.DebugVAODispose, on => RuntimeEnv.DebugVAODispose = on)
+            .Setting("debugsounddispose", () => RuntimeEnv.DebugSoundDispose, on => RuntimeEnv.DebugSoundDispose = on)
+            .Setting("fasterstartup", () => ClientSettings.OffThreadMipMapCreation,
+                on => ClientSettings.OffThreadMipMapCreation = on);
     }
 
-    // The languages the game ships (lang/languages.json), as "Name / English name"; the change shows after a restart
     private static OptionPage Languages(OptionPage page)
     {
         if (!NotNull(page) || ScreenManager.Platform?.AssetManager is null) return page; // no game assets: not in a running client

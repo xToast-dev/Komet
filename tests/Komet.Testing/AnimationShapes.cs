@@ -48,10 +48,8 @@ public static class AnimationShapes
     private static readonly FieldInfo Frame =
         typeof(AnimationKeyFrameElement).GetField("Frame", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
-    private static string PathOf(string domain, string path)
-    {
-        return Path.Combine(GameInstall.Assets, domain, "shapes", path + ".json");
-    }
+    private static string PathOf(string domain, string path) =>
+        Path.Combine(GameInstall.Assets, domain, "shapes", path + ".json");
 
     // Shape.TryGet: IAsset.ToObject is JsonUtil.ToObject with the asset's domain
     public static Shape Parse(string domain, string path, string text)
@@ -60,10 +58,7 @@ public static class AnimationShapes
         return JsonUtil.ToObject<Shape>(text, domain) ?? throw new InvalidDataException(path);
     }
 
-    public static Shape Load(string domain, string path)
-    {
-        return Parse(domain, path, File.ReadAllText(PathOf(domain, path)));
-    }
+    public static Shape Load(string domain, string path) => Parse(domain, path, File.ReadAllText(PathOf(domain, path)));
 
     // What ShapeTesselatorManager does to an entity's LoadedShape, then what AnimationManager.LoadAnimator does on spawn
     public static Shape Resolve(Shape shape, string path)
@@ -98,10 +93,7 @@ public static class AnimationShapes
         return shape;
     }
 
-    public static Shape PlayerUninitialised(string outfit)
-    {
-        return Compose(Seraph(), outfit);
-    }
+    public static Shape PlayerUninitialised(string outfit) => Compose(Seraph(), outfit);
 
     // The shared shape every player is cloned from, resolved as ShapeTesselatorManager leaves it
     public static Shape Seraph()
@@ -170,19 +162,13 @@ public static class AnimationShapes
     // A body with a head and an arm with a hand; "wave" moves the arm and the hand and names "gone", which no element has, and "cape"
     public static Shape Synthetic()
     {
-        static ShapeElement Element(string name, params ShapeElement[] children)
+        static ShapeElement Element(string name, params ShapeElement[] children) => new()
         {
-            return new ShapeElement
-            {
-                Name = name, From = [1, 2, 3], To = [2, 3, 4], RotationOrigin = [0, 0, 0],
-                Children = children.Length == 0 ? null : children
-            };
-        }
+            Name = name, From = [1, 2, 3], To = [2, 3, 4], RotationOrigin = [0, 0, 0],
+            Children = children.Length == 0 ? null : children
+        };
 
-        static AnimationKeyFrameElement Rotated(double x)
-        {
-            return new AnimationKeyFrameElement { RotationX = x, RotationY = 0, RotationZ = 0 };
-        }
+        static AnimationKeyFrameElement Rotated(double x) => new() { RotationX = x, RotationY = 0, RotationZ = 0 };
 
         var shape = new Shape
         {
@@ -274,10 +260,7 @@ public static class AnimationShapes
         return state;
     }
 
-    private static int Bits(float f)
-    {
-        return BitConverter.SingleToInt32Bits(f);
-    }
+    private static int Bits(float f) => BitConverter.SingleToInt32Bits(f);
 
     // null when both compiles are the same to the bit: every pose float, the flags, ForElement (by reference, or by name for two
     // separately built shapes), child order, FrameNumber, and the pattern in which PrevNextKeyFrameByFrame shares AnimationFrame objects

@@ -1,14 +1,8 @@
 namespace Komet.Test.Tessellation;
 
 // Golden tests against the engine: the same ClientChunkData, built through the engine's own pool and setters, read by the engine's
-// GetRange_Faster and GetRange and by ExtendedRows' stand-ins, over every row of the chunk and several sub-ranges, into arrays
-// prefilled with sentinels. Every Block reference, every packed light and every untouched cell must match, and so must the exceptions
-// the engine throws on data it cannot read. The matrix covers every decoder the engine has (block palettes of 0 to 8 bits, fluids and
-// light of 0 to 8 bits, the general cases), light double buffering with a palette grown past the buffered planes, layers without
-// blocks, a GetBlockAsBlock out of date or built for another layer, a stale shared blocksByPaletteIndex, palette values past
-// Blocks.Count and past blocksFast, delegates a mod replaced, palettes of more than eight planes (the per-plane decoder), a buffered
-// light over a smaller live palette and a missing plane (where the engine throws), ranges that cross a row or are empty (handed to the
-// engine), and every FastRWLock released afterwards.
+// GetRange_Faster and GetRange and by ExtendedRows' stand-ins into arrays prefilled with sentinels. Every Block reference, every
+// packed light and every untouched cell must match, and so must the exceptions the engine throws on data it cannot read.
 public sealed class ExtendedRowsTests
 {
     private const string ClientData = "Vintagestory.Client.NoObf.ClientChunkData, VintagestoryLib";
@@ -30,21 +24,12 @@ public sealed class ExtendedRowsTests
     private static readonly ColorUtil.LightUtil Converter = NewConverter(11);
 
     [SetUp]
-    public void Reset()
-    {
-        (ExtendedRows.Enabled, Counting.Hud) = (true, true);
-    }
+    public void Reset() => (ExtendedRows.Enabled, Counting.Hud) = (true, true);
 
     [TearDown]
-    public void Restore()
-    {
-        (ExtendedRows.Enabled, Counting.Hud) = (true, false);
-    }
+    public void Restore() => (ExtendedRows.Enabled, Counting.Hud) = (true, false);
 
-    private static ChunkData NewData()
-    {
-        return (ChunkData)ClientChunk.CreateNew(Pool).Data;
-    }
+    private static ChunkData NewData() => (ChunkData)ClientChunk.CreateNew(Pool).Data;
 
     private static ColorUtil.LightUtil NewConverter(int seed)
     {
@@ -56,10 +41,7 @@ public sealed class ExtendedRowsTests
         return new ColorUtil.LightUtil(block, sun, hues, sats);
     }
 
-    private static int Index(int x, int y, int z)
-    {
-        return (y * Size + z) * Size + x;
-    }
+    private static int Index(int x, int y, int z) => (y * Size + z) * Size + x;
 
     // Terrain: `ids` below y 8 in noise, one id per row between 8 and 15 (uniform rows), air above; every id is used at least once
     private static void PlaceBlocks(ChunkData data, Random r, int[] ids)
@@ -73,20 +55,11 @@ public sealed class ExtendedRowsTests
         }
     }
 
-    private static int[] Ids(Random r, int count, int from = 1, int to = KnownBlocks)
-    {
-        return [.. Enumerable.Range(from, to - from).OrderBy(_ => r.Next()).Take(count)];
-    }
+    private static int[] Ids(Random r, int count, int from = 1, int to = KnownBlocks) =>
+        [.. Enumerable.Range(from, to - from).OrderBy(_ => r.Next()).Take(count)];
 
-    // Light values with sun, block light, hue and saturation; sunlit and uniform above y 20
-    private static int[] LightValues(Random r, int count)
-    {
-        return
-        [
-            .. Enumerable.Range(0, count)
-                .Select(_ => r.Next(32) | (r.Next(32) << 5) | (r.Next(64) << 10) | (r.Next(8) << 16))
-        ];
-    }
+    private static int[] LightValues(Random r, int count) =>
+        [.. Enumerable.Range(0, count).Select(_ => r.Next(32) | (r.Next(32) << 5) | (r.Next(64) << 10) | (r.Next(8) << 16))];
 
     private static void PlaceLight(ChunkData data, Random r, int[] values)
     {
@@ -101,14 +74,11 @@ public sealed class ExtendedRowsTests
                 data.SetFluid(i, ids[r.Next(ids.Length)]);
     }
 
-    private static Action Build(ChunkData data)
+    private static Action Build(ChunkData data) => () =>
     {
-        return () =>
-        {
-            BlockChunkDataLayer.blocksByPaletteIndex = null;
-            BuildFast(data, BlocksFast);
-        };
-    }
+        BlockChunkDataLayer.blocksByPaletteIndex = null;
+        BuildFast(data, BlocksFast);
+    };
 
     private static List<Case> Matrix()
     {
@@ -173,13 +143,13 @@ public sealed class ExtendedRowsTests
         PlaceBlocks(blocks, r, Ids(r, 280, 1, FastBlocks));
         PlaceLight(blocks, r, LightValues(r, 12));
         PlaceFluids(blocks, r, Ids(r, 3, KnownBlocks - 10));
-        Assert.That(Bitsize(blocks.blocksLayer), Is.EqualTo(9));
+        Assert.That(TessSeams.Bitsize(blocks.blocksLayer), Is.EqualTo(9));
         yield return new Case("blocks 9 bits", blocks, Build(blocks), Expect.Fast, Expect.Fast);
 
         var light = NewData();
         PlaceBlocks(light, r, Ids(r, 30));
         PlaceLight(light, r, LightValues(r, 1500));
-        Assert.That(Bitsize(light.lightLayer!), Is.EqualTo(11));
+        Assert.That(TessSeams.Bitsize(light.lightLayer!), Is.EqualTo(11));
         yield return new Case("light 11 bits", light, Build(light), Expect.Fast, Expect.Fast);
         yield return DoubleBuffered(r, false, 1500);
 
@@ -196,7 +166,7 @@ public sealed class ExtendedRowsTests
         var missing = NewData();
         PlaceBlocks(missing, r, Ids(r, 3));
         missing.FillWithSunlight(20);
-        Assert.That(Bitsize(missing.blocksLayer), Is.EqualTo(2));
+        Assert.That(TessSeams.Bitsize(missing.blocksLayer), Is.EqualTo(2));
         DataBit1(missing.blocksLayer) = null;
         yield return new Case("a missing plane", missing, Build(missing), Expect.Throws, Expect.Throws);
     }
@@ -247,7 +217,7 @@ public sealed class ExtendedRowsTests
         PlaceBlocks(data, r, Ids(r, 4));
         data.FillWithSunlight(22);
         var planes = DataBits(data.blocksLayer)!;
-        Assert.That(Bitsize(data.blocksLayer), Is.EqualTo(3));
+        Assert.That(TessSeams.Bitsize(data.blocksLayer), Is.EqualTo(3));
         for (var row = 0; row < Rows; row += 7)
             (planes[0][row], planes[2][row]) = (planes[0][row] | 0x00F0_0F00, planes[2][row] | 0x00FF_0F00);
         return data;
@@ -296,7 +266,6 @@ public sealed class ExtendedRowsTests
             Expect.SomeFallbacks);
     }
 
-    // Every row of the chunk for one sub-range, each written at its own place in the extended arrays
     private static Output Read(RowReader read, ChunkData data, int x0, int length, Block? air)
     {
         var output = new Output();
@@ -334,10 +303,8 @@ public sealed class ExtendedRowsTests
         });
     }
 
-    private static int FirstDifference(Block?[] a, Block?[] b)
-    {
-        return Enumerable.Range(0, ExtLength).FirstOrDefault(i => !ReferenceEquals(a[i], b[i]), -1);
-    }
+    private static int FirstDifference(Block?[] a, Block?[] b) =>
+        Enumerable.Range(0, ExtLength).FirstOrDefault(i => !ReferenceEquals(a[i], b[i]), -1);
 
     private static void AllRows(string method, RowReader engine, RowReader mine, System.Func<Case, Expect> expect)
     {
@@ -390,23 +357,17 @@ public sealed class ExtendedRowsTests
     }
 
     [Test]
-    public void GetRangeFasterRowsMatchTheEngine()
-    {
+    [Category("Slow")]
+    public void GetRangeFasterRowsMatchTheEngine() =>
         AllRows("GetRange_Faster", EngineFaster, ExtendedRows.Faster, c => c.Faster);
-    }
 
     [Test]
-    public void GetRangeRowsMatchTheEngine()
-    {
-        AllRows("GetRange", EngineRange, ExtendedRows.Range, c => c.Range);
-    }
+    [Category("Slow")]
+    public void GetRangeRowsMatchTheEngine() => AllRows("GetRange", EngineRange, ExtendedRows.Range, c => c.Range);
 
     // What the engine's readers throw on data they cannot read: GetUnsafe turns a NullReferenceException into a plain Exception
-    private static bool Engine(Exception e)
-    {
-        return e is IndexOutOfRangeException or NullReferenceException or ArgumentException ||
-               e.GetType() == typeof(Exception);
-    }
+    private static bool Engine(Exception e) =>
+        e is IndexOutOfRangeException or NullReferenceException or ArgumentException || e.GetType() == typeof(Exception);
 
     // The read locks of the layers and of light2 that are still taken: a leaked one would stall the next writer forever
     private static List<string> Held(ChunkData data)
@@ -425,7 +386,6 @@ public sealed class ExtendedRowsTests
         return held;
     }
 
-    // Switched off, the stand-ins are the engine's methods
     [Test]
     public void SwitchedOffTheEngineRuns()
     {
@@ -440,13 +400,9 @@ public sealed class ExtendedRowsTests
         Same(Read(ExtendedRows.Faster, c.Data, 0, 32, air), off, "on against off");
     }
 
-    private static int Count(List<CodeInstruction> code, string name)
-    {
-        return code.Count(c =>
-            c.operand is MethodInfo { DeclaringType: var t, Name: var n } && t == typeof(ExtendedRows) && n == name);
-    }
+    private static int Count(List<CodeInstruction> code, string name) => code.Count(c =>
+        c.operand is MethodInfo { DeclaringType: var t, Name: var n } && t == typeof(ExtendedRows) && n == name);
 
-    // Four GetRange_Faster and one GetRange call become the helpers, in the patched method and in its IL
     [Test]
     public void PatchesTheRealMethod()
     {
@@ -487,7 +443,6 @@ public sealed class ExtendedRowsTests
         });
     }
 
-    // Another mod's patch on a method the rows bypass stands them down: the engine's methods run, and again the rows once it is gone
     [Test]
     public void AForeignPatchStandsTheRowsDown()
     {
@@ -565,32 +520,23 @@ public sealed class ExtendedRowsTests
     {
         var chunks = (Dictionary<long, ClientChunk>)ChunkRig.Get(map, "chunks");
         chunks.Clear();
-        var n = 0;
-        for (var y = 0; y < 3; y++)
+        for (var n = 0; n < 27; n++)
         {
-            for (var z = 0; z < 3; z++)
-            {
-                for (var x = 0; x < 3; x++, n++)
-                {
-                    var center = x == 1 && y == 1 && z == 1;
-                    if (!center && (n + centre) % 5 == 0) continue;
-                    var c = matrix[center ? centre : (centre + n) % matrix.Count];
-                    if (c.Faster == Expect.Throws || c.Range == Expect.Throws) c = matrix[2];
-                    var chunk = Wrap(c.Data);
-                    chunk.Empty = !center && (n + centre) % 7 == 0;
-                    chunks[MapUtil.Index3dL(x, y, z, map.index3dMulX, map.index3dMulZ)] = chunk;
-                }
-            }
+            var (x, z, y) = (n % 3, n / 3 % 3, n / 9);
+            var center = n == 13;
+            if (!center && (n + centre) % 5 == 0) continue;
+            var c = matrix[center ? centre : (centre + n) % matrix.Count];
+            if (c.Faster == Expect.Throws || c.Range == Expect.Throws) c = matrix[2];
+            var chunk = Wrap(c.Data);
+            chunk.Empty = !center && (n + centre) % 7 == 0;
+            chunks[MapUtil.Index3dL(x, y, z, map.index3dMulX, map.index3dMulZ)] = chunk;
         }
     }
 
-    private static ClientChunk Chunk(ClientWorldMap map, int x, int y, int z)
-    {
-        return ((Dictionary<long, ClientChunk>)ChunkRig.Get(map, "chunks"))[
+    private static ClientChunk Chunk(ClientWorldMap map, int x, int y, int z) =>
+        ((Dictionary<long, ClientChunk>)ChunkRig.Get(map, "chunks"))[
             MapUtil.Index3dL(x, y, z, map.index3dMulX, map.index3dMulZ)];
-    }
 
-    // A ClientChunk holding the matrix's data object itself
     private static ClientChunk Wrap(ChunkData data)
     {
         var chunk = ClientChunk.CreateNew(Pool);
@@ -656,9 +602,6 @@ public sealed class ExtendedRowsTests
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "dataBits")]
     private static extern ref int[][]? DataBits(ChunkDataLayer layer);
 
-    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "bitsize")]
-    private static extern ref int Bitsize(ChunkDataLayer layer);
-
     private enum Expect
     {
         Fast, // every row decoded by ExtendedRows
@@ -668,10 +611,7 @@ public sealed class ExtendedRowsTests
 
     private sealed record Case(string Name, ChunkData Data, Action Prepare, Expect Faster, Expect Range)
     {
-        public override string ToString()
-        {
-            return Name;
-        }
+        public override string ToString() => Name;
     }
 
     private delegate void RowReader(ChunkData data, Block[] blocksExt, Block[] fluidsExt, int[] rgbsExt, int extIndex3D,

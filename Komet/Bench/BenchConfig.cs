@@ -23,7 +23,7 @@ internal sealed class BenchConfig
     private static readonly string[] TopKeys =
     [
         "name", "output", "modDir", "revision", "env", "world", "settle", "route", "lap", "laps", "warmupLaps", "arms",
-        "sandbox"
+        "sandbox", "shots", "hudWindow", "gui"
     ];
 
     public JsonElement Raw { get; private init; }
@@ -44,6 +44,13 @@ internal sealed class BenchConfig
     public int Laps { get; private set; } = 8;
     public int WarmupLaps { get; private set; } = -1; // one per arm unless set
     public IReadOnlyList<BenchArm> Arms { get; private set; } = [];
+
+    // A screenshot at the start of every measured lap, where every lap starts: the arms side by side, same place, same hour
+    public bool Shots { get; private set; }
+
+    // "cycle": each lap shows the next tab of the HUD window, the last the debug window, so the shots show every one of them
+    public string HudWindow { get; private set; } = "";
+    public string Gui { get; private set; } = ""; // BenchGui.Creative: the creative inventory scrolled while standing still
     public string Frames => Path.Join(Path.GetDirectoryName(Output) ?? "", "frames.csv");
     public string Status => Output + ".status";
 
@@ -100,6 +107,12 @@ internal sealed class BenchConfig
         Turn = Number(lap, "turn", "lap.", Turn, 0.1, 60);
         Laps = Integer(root, "laps", Laps, 1, MaxLaps);
         WarmupLaps = Integer(root, "warmupLaps", WarmupLaps, 0, MaxArms);
+        HudWindow = Text(root, "hudWindow", "", false);
+        Gui = Text(root, "gui", "", false);
+        if (Get(root, "shots", out var shots))
+            Shots = shots.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? shots.GetBoolean()
+                : throw Bad("shots", "true or false");
     }
 
     private static void Env(JsonElement root)

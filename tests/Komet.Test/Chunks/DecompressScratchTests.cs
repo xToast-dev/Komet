@@ -12,10 +12,7 @@ public sealed class DecompressScratchTests
         AccessTools.Method(typeof(Compression), "DecompressCombined").CreateDelegate<Combined>();
 
     [TearDown]
-    public void Reset()
-    {
-        DecompressScratch.Enabled = true;
-    }
+    public void Reset() => DecompressScratch.Enabled = true;
 
     // A palette of `count` entries in an array rounded up to a power of two, and one random 1024-int plane per palette bit
     private static byte[] Layer(int seed, int count)
@@ -31,12 +28,22 @@ public sealed class DecompressScratchTests
         return Compression.CompressAndCombine(planes, palette, count);
     }
 
-    private static (int[]? Palette, int Count, int[][]? Slices) Run(byte[] data)
+    private static Unpacked Run(byte[] data)
     {
         int[][]? blocks = null;
         var count = 0;
         var palette = Unpack(data, ref blocks, ref count, () => new int[1024]);
-        return (palette, count, blocks);
+        return new Unpacked(palette, count, blocks);
+    }
+
+    private static string? Difference(Unpacked engine, Unpacked mine)
+    {
+        var bits = (int)Math.Log2(engine.Palette!.Length);
+        if (!mine.Palette!.SequenceEqual(engine.Palette)) return "palette";
+        if (mine.Count != engine.Count) return "palette count";
+        if (mine.Slices!.Length < bits ||
+            !Enumerable.Range(0, bits).All(b => mine.Slices[b].SequenceEqual(engine.Slices![b]))) return "slices";
+        return mine.Slices.Skip(bits).All(slice => slice is null) ? null : "slices past the planes";
     }
 
     private static TestHarmony Patched()
@@ -58,19 +65,7 @@ public sealed class DecompressScratchTests
         var engine = layers.Select(Run).ToList();
         using var harmony = Patched();
         var mine = layers.Select(Run).ToList();
-        for (var i = 0; i < layers.Count; i++)
-        {
-            var (palette, count, slices) = engine[i];
-            Assert.That(palette, Is.Not.Null);
-            var bits = (int)Math.Log2(palette!.Length);
-            Assert.Multiple(() =>
-            {
-                Assert.That(mine[i].Palette, Is.EqualTo(palette), $"palette of layer {i}");
-                Assert.That(mine[i].Count, Is.EqualTo(count), $"palette count of layer {i}");
-                Assert.That(mine[i].Slices!.Take(bits), Is.EqualTo(slices!.Take(bits)), $"slices of layer {i}");
-                Assert.That(mine[i].Slices!.Skip(bits), Is.All.Null, $"slices past the planes of layer {i}");
-            });
-        }
+        Assert.That(engine.Zip(mine, Difference), Is.All.Null);
     }
 
     // Three palette entries round up to four, two planes, but CompressAndCombine only packed floor(log2(3)) = one: the engine throws
@@ -115,10 +110,7 @@ public sealed class DecompressScratchTests
         }
 
         // The least of several passes: a one-off allocation of the runtime's (tiering, the thread's zstd buffer growing) only adds bytes
-        long[] Least(long[] least, long[] pass)
-        {
-            return least.Length == 0 ? pass : [.. least.Zip(pass, Math.Min)];
-        }
+        long[] Least(long[] least, long[] pass) => least.Length == 0 ? pass : [.. least.Zip(pass, Math.Min)];
 
         long[] shipped = [];
         for (var pass = 0; pass < Passes; pass++) shipped = Least(shipped, [.. layers.Select(Allocated)]);
@@ -157,12 +149,8 @@ public sealed class DecompressScratchTests
             for (var round = 0; round < 300; round++)
             {
                 var i = (round + t) % layers.Count;
-                var (palette, count, slices) = Run(layers[i]);
-                var bits = (int)Math.Log2(engine[i].Palette!.Length);
-                if (!palette!.SequenceEqual(engine[i].Palette!) || count != engine[i].Count ||
-                    !slices!.Take(bits).Zip(engine[i].Slices!.Take(bits))
-                        .All(pair => pair.First.SequenceEqual(pair.Second)))
-                    return $"layer {i} unpacked differently in round {round}";
+                if (Difference(engine[i], Run(layers[i])) is { } what)
+                    return $"the {what} of layer {i} unpacked differently in round {round}";
                 if (round % 7 == 0 && !Throws(shortLayer)) return $"the short layer passed in round {round}";
             }
 
@@ -250,10 +238,10 @@ public sealed class DecompressScratchTests
         }
     }
 
-    private static bool IsScratch(CodeInstruction code)
-    {
-        return code.operand is MethodInfo { DeclaringType: var t } && t == typeof(DecompressScratch);
-    }
+    private static bool IsScratch(CodeInstruction code) =>
+        code.operand is MethodInfo { DeclaringType: var t } && t == typeof(DecompressScratch);
+
+    private sealed record Unpacked(int[]? Palette, int Count, int[][]? Slices);
 
     private delegate int[]? Combined(byte[] data, ref int[][]? blocks, ref int refCount, Func<int[]>? newArray);
 }

@@ -1,0 +1,144 @@
+#version 460 core
+// Occlusion culling of the terrain ranges the frustum left, span.x on, sizes.w of them: a range the depth pyramid hides gets no draw
+// command, the others one in their pool draw's region of the command buffer, counted per draw for glMultiDrawElementsIndirectCount
+// (vkCmdDrawIndexedIndirectCount). Starts hold each pool draw's first range in the frame's numbering, which is also where its
+// region of commands begins: a range's draw is the last one starting at or before it, found among span.y..span.z. Verdicts keep
+// pass 0's verdict per range for pass 1. flags.y picks the pass:
+//   0  test every range, keep each verdict: the surface passes against the previous frame's pyramid, moved by the camera's step,
+//      the later passes against this frame's
+//   1  test again only what pass 0 hid, against this frame's pyramid: the ranges it finds visible are drawn late, still in the frame
+//   2  keep every range (no pyramid yet)
+//   3  as 1, but keep what pass 0 hid (no depth to build this frame's pyramid from)
+// The test is occlusion.comp's: hidden when the box's nearest point lies behind the farthest depth under its screen rectangle, and
+// visible through the near plane, off screen when the pyramid is another frame's, or without a level small enough.
+// Written for OpenGL and Vulkan alike: explicit bindings no two resources share, no loose uniforms.
+layout(local_size_x = 64) in;
+
+struct Range
+{
+    vec3 low;   // box corners, relative to the camera of this frame
+    uint count; // indices
+    vec3 high;
+    uint first; // first index
+};
+
+struct Command // DrawElementsIndirectCommand, VkDrawIndexedIndirectCommand
+{
+    uint count;
+    uint instances;
+    uint first;
+    int baseVertex;
+    uint baseInstance;
+};
+
+layout(std140, binding = 14) uniform Params
+{
+    mat4 viewProjection; // of the frame the pyramid belongs to, camera-relative
+    vec4 shift;          // xyz: this frame's camera minus that frame's
+    ivec4 sizes;         // pyramid level 0 width, height, levels, ranges
+    ivec4 flags;         // x: 1 = the pyramid is this frame's; y: the pass; z: the first per-draw count; w: the region base
+    ivec4 span;          // x: the first range; y, z: the draws its ranges belong to, from and before
+};
+
+layout(binding = 31) uniform sampler2D pyramid;
+
+layout(std430, binding = 4) readonly buffer Ranges
+{
+    Range ranges[];
+};
+
+// counters[0..3] per frame: ranges tested, of them hidden, triangles tested, of them hidden, in pass 0; [4..7] the same in pass 1;
+// then from flags.z one command count per draw
+layout(std430, binding = 5) buffer Counters
+{
+    uint counters[];
+};
+
+layout(std430, binding = 6) buffer Verdicts
+{
+    uint verdicts[]; // 1: pass 0 hid the range
+};
+
+layout(std430, binding = 8) readonly buffer Starts
+{
+    uint starts[]; // per pool draw, nondecreasing
+};
+
+layout(std430, binding = 7) writeonly buffer Commands
+{
+    Command commands[];
+};
+
+bool Hidden(Range range)
+{
+    vec3 low = range.low + shift.xyz, high = range.high + shift.xyz;
+    vec2 lo = vec2(1.0), hi = vec2(-1.0);
+    float nearest = 1.0;
+    for (int corner = 0; corner < 8; corner++)
+    {
+        vec3 p = vec3((corner & 1) != 0 ? high.x : low.x, (corner & 2) != 0 ? high.y : low.y,
+                      (corner & 4) != 0 ? high.z : low.z);
+        vec4 clip = viewProjection * vec4(p, 1.0);
+        if (clip.w <= 1e-4) return false;
+        vec3 ndc = clip.xyz / clip.w;
+        lo = min(lo, ndc.xy);
+        hi = max(hi, ndc.xy);
+        nearest = min(nearest, ndc.z * 0.5 + 0.5);
+    }
+
+    if (flags.x == 0 && (any(lessThan(lo, vec2(-1.0))) || any(greaterThan(hi, vec2(1.0))))) return false;
+    vec2 size = vec2(sizes.xy);
+    vec2 from = clamp(lo * 0.5 + 0.5, 0.0, 1.0) * size - 1.0, to = clamp(hi * 0.5 + 0.5, 0.0, 1.0) * size + 1.0;
+    for (int at = 0; at < sizes.z; at++)
+    {
+        ivec2 edge = textureSize(pyramid, at) - 1; // the last texel holds what lies past it
+        ivec2 first = clamp(ivec2(floor(from / float(1 << at))), ivec2(0), edge);
+        ivec2 last = clamp(ivec2(floor(to / float(1 << at))), first, edge);
+        if (any(greaterThan(last - first, ivec2(1)))) continue;
+        float farthest = max(max(texelFetch(pyramid, first, at).r, texelFetch(pyramid, ivec2(last.x, first.y), at).r),
+                             max(texelFetch(pyramid, ivec2(first.x, last.y), at).r, texelFetch(pyramid, last, at).r));
+        return nearest > farthest;
+    }
+
+    return false;
+}
+
+// The draw a range belongs to: the last in span.y..span.z whose first range is at or before it (a draw without ranges shares its
+// start with the next one, and the last of them is the one with ranges)
+uint DrawOf(uint index)
+{
+    uint low = uint(span.y), high = uint(span.z); // the answer lies in [low, high)
+    while (high - low > 1u)
+    {
+        uint middle = (low + high) / 2u;
+        if (starts[middle] <= index) low = middle;
+        else high = middle;
+    }
+
+    return low;
+}
+
+void main()
+{
+    if (gl_GlobalInvocationID.x >= uint(sizes.w)) return;
+    uint index = gl_GlobalInvocationID.x + uint(span.x);
+    int pass = flags.y;
+    bool again = pass == 1 || pass == 3;
+    if (again && verdicts[index] == 0u) return; // drawn in pass 0 already
+    Range range = ranges[index];
+    bool hidden = (pass == 0 || pass == 1) && Hidden(range);
+    if (!again) verdicts[index] = hidden ? 1u : 0u;
+    uint stats = again ? 4u : 0u, triangles = range.count / 3u;
+    atomicAdd(counters[stats], 1u);
+    atomicAdd(counters[stats + 2u], triangles);
+    if (hidden)
+    {
+        atomicAdd(counters[stats + 1u], 1u);
+        atomicAdd(counters[stats + 3u], triangles);
+        return;
+    }
+
+    uint draw = DrawOf(index);
+    uint slot = atomicAdd(counters[uint(flags.z) + draw], 1u);
+    commands[uint(flags.w) + starts[draw] + slot] = Command(range.count, 1u, range.first, 0, 0u);
+}

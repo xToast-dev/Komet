@@ -93,8 +93,8 @@ internal static class ChunkThreadClosure
     private static bool WritesArgument(CodeInstruction code)
     {
         if (!NotNull(code) || !Assert(code.opcode.Size > 0)) return true;
-        if (code.opcode != OpCodes.Starg && code.opcode != OpCodes.Starg_S && code.opcode != OpCodes.Ldarga &&
-            code.opcode != OpCodes.Ldarga_S) return false;
-        return code.operand is 1 or (byte)1 or (short)1 or ParameterInfo { Position: 0 };
+        var op = code.opcode;
+        return (op == OpCodes.Starg || op == OpCodes.Starg_S || op == OpCodes.Ldarga || op == OpCodes.Ldarga_S) &&
+               code.operand is 1 or (byte)1 or (short)1 or ParameterInfo { Position: 0 };
     }
 }

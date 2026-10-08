@@ -6,21 +6,19 @@ namespace Komet.Tessellation;
 
 internal enum TessBucket
 {
-    Full, // a normal full pass
-    Edge, // a normal edge-only pass (index | long.MinValue in the queue): the six faces again, the centre kept
+    Full,
+    Edge, // index | long.MinValue in the queue: the six faces again, the centre kept
     PriorityFull, // near the player or a block edit: dirtyChunksPriority
     PriorityEdge,
     Skipped, // no chunk or an Empty one: TesselateChunk returns before any lock or unpack
     Requeued // not loaded from the server yet, or a RetryTesselationException: back into the queue it came from
 }
 
-// What the tessellation threads spend their time on, for the HUD and the benchmark's time per pass (the engine's HUD shows only the
-// edge-only share). ChunkTesselatorManager.TesselateChunk is the only way into the tesselator, so a prefix and a postfix on it see and
-// time every pass, on whichever thread runs it. A call is a pass when it reached ChunkTesselator.NowProcessChunk, which TesselateChunk
-// calls exactly when the chunk got past the Empty and not-yet-loaded exits; a prefix there counts the entries per thread
-// (RuntimeStats.chunksTesselatedTotal, the engine's count at the same point, is shared by every tessellation thread and moves with
-// their passes too). A requeue after that is a RetryTesselationException. The counters are cumulative, kept while Counting.On on every
-// tessellation thread (Tally); the main thread reads them and takes differences.
+// Time per tessellation pass for the HUD and the benchmark (the engine's HUD shows only the edge-only share).
+// ChunkTesselatorManager.TesselateChunk is the only way into the tesselator, so a prefix and a postfix on it time every pass, on
+// whichever thread runs it. A call is a pass when it reached ChunkTesselator.NowProcessChunk, counted per thread there because
+// RuntimeStats.chunksTesselatedTotal is shared by every tessellation thread. The main thread reads the cumulative counters and takes
+// differences.
 internal static class TessAccounting
 {
     private const int Buckets = 6, PassBuckets = 4, Zero = 2 * Buckets, ZeroTicks = Zero + 1;
@@ -109,7 +107,6 @@ internal static class TessAccounting
         return Assert(passes >= 0) && Assert(ticks >= 0) ? new TessTotals(passes, ticks, edge) : default;
     }
 
-    // The HUD's view, one bucket; it takes differences as well
     public static long Count(TessBucket bucket)
     {
         var b = (int)bucket;

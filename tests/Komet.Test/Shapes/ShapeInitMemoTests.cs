@@ -79,6 +79,7 @@ public sealed class ShapeInitMemoTests
     }
 
     [Test]
+    [Category("Slow")]
     public void EveryAnimatedVanillaShapeEndsAsTheEngineLeavesIt()
     {
         GameInstall.RequireAssets();
@@ -177,13 +178,6 @@ public sealed class ShapeInitMemoTests
     }
 
     [Test]
-    public void AnUnchangedShapeIsAnsweredFromTheMemo()
-    {
-        Patch();
-        AssertThirdInit(_ => { }, true);
-    }
-
-    [Test]
     public void TheFirstTwoInitsRunTheEngine()
     {
         Patch();
@@ -198,104 +192,65 @@ public sealed class ShapeInitMemoTests
         });
     }
 
-    private static IEnumerable<TestCaseData> Changes()
+    // Third inits after a change, or with other arguments: what the memo answers and what it must leave to the engine
+    private static IEnumerable<TestCaseData> Thirds()
     {
-        yield return new TestCaseData((Action<Shape>)(s => s.Elements[0].Children![0].inverseModelTransform = null),
-                true)
-            .SetName("ADroppedInverseTransformIsCachedAgainAsTheEngineWould");
-        yield return new TestCaseData(
-                (Action<Shape>)(s => s.Elements[0].Children![1].Children =
-                [
-                    .. s.Elements[0].Children![1].Children!,
-                    new ShapeElement { Name = "finger", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0] }
-                ]), false)
-            .SetName("AGrownTreeRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s =>
-                    (s.Elements[0].Children![0], s.Elements[0].Children![1]) =
-                    (s.Elements[0].Children![1], s.Elements[0].Children![0])), false)
-            .SetName("ReorderedChildrenRunTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Elements[0].Children![1].Name = "leg"), false).SetName(
-            "ARenamedElementRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Animations[0].Code = "Wave"), false).SetName(
-            "ARecasedCodeRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Animations[1].Version = 2), false).SetName(
-            "AnotherVersionRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Elements[0].Children![1].JointId = 7), false).SetName(
-            "AJointIdSetElsewhereRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Elements[0].Children![1].ParentElement = null), false)
-            .SetName("ALostParentRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => AnimationShapes.Table.SetValue(s.Animations[0].KeyFrames[1],
-                new FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>(0))), false)
-            .SetName("AReplacedTableRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s =>
-                    s.Animations[0].KeyFrames[1].Elements["hand"] = new AnimationKeyFrameElement { RotationX = 3 }),
-                false)
-            .SetName("AReplacedEntryRunsTheEngine");
-        yield return new TestCaseData((Action<Shape>)(s => s.Animations[0].KeyFrames[1].Elements.Remove("hand")), false)
-            .SetName("ARemovedEntryRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s => s.Animations[0].KeyFrames[1] = new AnimationKeyFrame { Frame = 5, Elements = [] }),
-                false)
-            .SetName("AReplacedKeyFrameRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s => s.AnimationsByCrc32[AnimationMetaData.GetCrc32("idle")] = s.Animations[0]), false)
-            .SetName("AReplacedCrcEntryRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s =>
-                    s.JointsById[1] = new AnimationJoint { JointId = 1, Element = s.JointsById[1].Element }), false)
-            .SetName("AReplacedJointRunsTheEngine");
-        yield return new TestCaseData(
-                (Action<Shape>)(s => s.JointsById[99] = new AnimationJoint { JointId = 99, Element = s.Elements[0] }),
-                false)
-            .SetName("AnAddedJointRunsTheEngine");
+        static TestCaseData Case(string name, bool skipped, Action<Shape> change, string[]? disable = null,
+            string[]? joints = null) => new TestCaseData(change, skipped, disable, joints).SetName(name);
+
+        yield return Case("AnUnchangedShapeIsAnsweredFromTheMemo", true, _ => { });
+        yield return Case("ADroppedInverseTransformIsCachedAgainAsTheEngineWould", true,
+            s => s.Elements[0].Children![0].inverseModelTransform = null);
+        yield return Case("AGrownTreeRunsTheEngine", false, s => s.Elements[0].Children![1].Children =
+        [
+            .. s.Elements[0].Children![1].Children!,
+            new ShapeElement { Name = "finger", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0] }
+        ]);
+        yield return Case("ReorderedChildrenRunTheEngine", false, s =>
+            (s.Elements[0].Children![0], s.Elements[0].Children![1]) =
+            (s.Elements[0].Children![1], s.Elements[0].Children![0]));
+        yield return Case("ARenamedElementRunsTheEngine", false, s => s.Elements[0].Children![1].Name = "leg");
+        yield return Case("ARecasedCodeRunsTheEngine", false, s => s.Animations[0].Code = "Wave");
+        yield return Case("AnotherVersionRunsTheEngine", false, s => s.Animations[1].Version = 2);
+        yield return Case("AJointIdSetElsewhereRunsTheEngine", false, s => s.Elements[0].Children![1].JointId = 7);
+        yield return Case("ALostParentRunsTheEngine", false, s => s.Elements[0].Children![1].ParentElement = null);
+        yield return Case("AReplacedTableRunsTheEngine", false, s => AnimationShapes.Table.SetValue(
+            s.Animations[0].KeyFrames[1], new FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>(0)));
+        yield return Case("AReplacedEntryRunsTheEngine", false,
+            s => s.Animations[0].KeyFrames[1].Elements["hand"] = new AnimationKeyFrameElement { RotationX = 3 });
+        yield return Case("ARemovedEntryRunsTheEngine", false,
+            s => s.Animations[0].KeyFrames[1].Elements.Remove("hand"));
+        yield return Case("AReplacedKeyFrameRunsTheEngine", false,
+            s => s.Animations[0].KeyFrames[1] = new AnimationKeyFrame { Frame = 5, Elements = [] });
+        yield return Case("AReplacedCrcEntryRunsTheEngine", false,
+            s => s.AnimationsByCrc32[AnimationMetaData.GetCrc32("idle")] = s.Animations[0]);
+        yield return Case("AReplacedJointRunsTheEngine", false,
+            s => s.JointsById[1] = new AnimationJoint { JointId = 1, Element = s.JointsById[1].Element });
+        yield return Case("AnAddedJointRunsTheEngine", false,
+            s => s.JointsById[99] = new AnimationJoint { JointId = 99, Element = s.Elements[0] });
+        // A clone shares the entry objects and its init points them at the clone's elements; the skip must point them back
+        yield return Case("AClonesInitInBetweenIsUndone", true, s =>
+        {
+            Init(s.Clone(), ["cape"]);
+            Assert.That(s.Animations[0].KeyFrames[0].Elements["arm"].ForElement,
+                Is.Not.SameAs(s.Elements[0].Children![1]));
+        });
+        yield return Case("DisabledTheEngineRuns", false, _ => ShapeInitMemo.Enabled = false);
+        yield return Case("OtherJointsRunTheEngine", false, _ => { }, joints: ["head", "hand"]);
+        // Keys with no element: under no disable list, or one naming them, the engine leaves their ForElement alone; under any
+        // other it makes each a new placeholder element, so the memo must not answer
+        yield return Case("ADisableListNamingTheMissingKeysLeavesThemAlone", true, _ => { }, BothMissing);
+        yield return Case("ADisableListMissingOneMakesAPlaceholder", false, _ => { }, OneMissing);
+        yield return Case("AnEmptyDisableListMakesPlaceholders", false, _ => { }, []);
     }
 
-    [TestCaseSource(nameof(Changes))]
-    public void AnythingTheInitReadsOrWritesBeingDifferentRunsTheEngine(Action<Shape> change, bool skipped)
+    [TestCaseSource(nameof(Thirds))]
+    public void TheThirdInitIsAnsweredOnlyWhenNothingTheInitReadsOrWritesChanged(Action<Shape> change, bool skipped,
+        string[]? disable, string[]? joints)
     {
         ArgumentNullException.ThrowIfNull(change);
         Patch();
-        AssertThirdInit(change, skipped);
-    }
-
-    // Keys with no element: under no disable list, or one naming them, the engine leaves their ForElement alone; under any other it
-    // makes each a new placeholder element, so the memo must not answer
-    private static IEnumerable<TestCaseData> DisableLists()
-    {
-        yield return new TestCaseData(null, true).SetName("NoDisableListLeavesMissingKeysAlone");
-        yield return new TestCaseData(BothMissing, true).SetName("ADisableListNamingTheMissingKeysLeavesThemAlone");
-        yield return new TestCaseData(OneMissing, false).SetName("ADisableListMissingOneMakesAPlaceholder");
-        yield return new TestCaseData(Array.Empty<string>(), false).SetName("AnEmptyDisableListMakesPlaceholders");
-    }
-
-    [TestCaseSource(nameof(DisableLists))]
-    public void ADisableListMattersOnlyForKeysWithoutAnElement(string[]? disable, bool skipped)
-    {
-        Patch();
-        AssertThirdInit(_ => { }, skipped, disable);
-    }
-
-    [Test]
-    public void OtherJointsRunTheEngine()
-    {
-        Patch();
-        AssertThirdInit(_ => { }, false, joints: ["head", "hand"]);
-    }
-
-    // A clone shares the entry objects and its init points them at the clone's elements; the skip must point them back
-    [Test]
-    public void AClonesInitInBetweenIsUndone()
-    {
-        Patch();
-        AssertThirdInit(s =>
-        {
-            var clone = s.Clone();
-            Init(clone, ["cape"]);
-            Assert.That(s.Animations[0].KeyFrames[0].Elements["arm"].ForElement,
-                Is.Not.SameAs(s.Elements[0].Children![1]));
-        }, true);
+        AssertThirdInit(change, skipped, disable, joints);
     }
 
     [Test]
@@ -337,13 +292,6 @@ public sealed class ShapeInitMemoTests
         });
         Init(shape);
         Assert.That(Skipped, Is.Zero, "the other thread's init replaced the tables the memo knew");
-    }
-
-    [Test]
-    public void DisabledTheEngineRuns()
-    {
-        Patch();
-        AssertThirdInit(_ => ShapeInitMemo.Enabled = false, false);
     }
 
     // A patch on a method the skipped init calls would miss that call; logged once, however often the recheck asks

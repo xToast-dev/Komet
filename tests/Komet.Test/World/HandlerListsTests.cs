@@ -1,6 +1,5 @@
 namespace Komet.Test.World;
 
-// The climate and wind triggers call every handler in order as before, and the handler list is made again only when the event changed
 [NonParallelizable]
 public sealed class HandlerListsTests
 {
@@ -16,12 +15,13 @@ public sealed class HandlerListsTests
     [Test]
     public void Installs()
     {
+        _ = typeof(Vintagestory.GameContent.RoomRegistry).Assembly; // Komet finds it by name, once the game has loaded VSEssentials
         using var harmony = new TestHarmony("komet-test-handlerlists");
         HandlerLists.Install(harmony);
-        Assert.That(HandlerLists.Rewritten, Is.True, "TriggerOnGetClimate or TriggerOnGetWindSpeed changed");
+        Assert.That(HandlerLists.Rewritten, Is.True,
+            "TriggerOnGetClimate, TriggerOnGetWindSpeed, ParticlePhysics.UpdateMotion or RoomRegistry.Event_ChunkDirty changed");
     }
 
-    // One list per delegate: the same array while the event is unchanged, a new one with the new handler after a change
     [Test]
     public void AListIsMadeOncePerDelegate()
     {
@@ -41,7 +41,6 @@ public sealed class HandlerListsTests
         });
     }
 
-    // Through the rewritten trigger every handler runs, in order, on every call, and one added later too
     [Test]
     public void TheTriggerCallsEveryHandlerInOrder()
     {

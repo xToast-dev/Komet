@@ -64,15 +64,10 @@ public sealed class ColumnNoiseScratchTests
             (r.NextDouble() - 0.5) * reach, thresholders);
     }
 
-    private static Input Contributing(Random r)
-    {
-        return Enumerable.Range(0, 64).Select(_ => Make(r)).First(input => EntriesOf(input.Engine()).Length > 0);
-    }
+    private static Input Contributing(Random r) =>
+        Enumerable.Range(0, 64).Select(_ => Make(r)).First(input => EntriesOf(input.Engine()).Length > 0);
 
-    private static long Bits(double value)
-    {
-        return BitConverter.DoubleToInt64Bits(value);
-    }
+    private static long Bits(double value) => BitConverter.DoubleToInt64Bits(value);
 
     private static long[] Trace(ColumnNoise column, Input input, int heights = Heights)
     {
@@ -84,15 +79,9 @@ public sealed class ColumnNoiseScratchTests
         return [.. trace];
     }
 
-    private static Array EntriesOf(ColumnNoise column)
-    {
-        return (Array)Entries.GetValue(column)!;
-    }
+    private static Array EntriesOf(ColumnNoise column) => (Array)Entries.GetValue(column)!;
 
-    private static Array PastOf(ColumnNoise column)
-    {
-        return (Array)Past.GetValue(column)!;
-    }
+    private static Array PastOf(ColumnNoise column) => (Array)Past.GetValue(column)!;
 
     [Test]
     public void ColumnsAreBitIdenticalToTheEngine()
@@ -172,7 +161,7 @@ public sealed class ColumnNoiseScratchTests
         var harmony = Patched();
         try
         {
-            var threads = EntriesOf(input.Scratch()); // the thread's array of this length
+            var threads = EntriesOf(input.Scratch());
             Armed.SetValue(null, true); // as Column leaves the thread for the constructor ForColumn runs
             var (first, second) = (input.Engine(), input.Engine());
             var after = (bool)Armed.GetValue(null)!;
@@ -280,6 +269,7 @@ public sealed class ColumnNoiseScratchTests
     // Same process, the least of the passes read: bytes per column from the shipped ForColumn, then through Column with the rewrite off
     // and on; and all allocation of one chunk column's generation on every thread, as shipped and with the rewrite off and on
     [Test]
+    [Category("Slow")]
     public void GarbageBeforeAndAfter()
     {
         GameInstall.RequireAssets();
@@ -334,7 +324,6 @@ public sealed class ColumnNoiseScratchTests
         });
     }
 
-    // All allocation of one chunk column's generation, on every thread
     private static long PerChunkColumn()
     {
         var world = World(5);
@@ -350,6 +339,7 @@ public sealed class ColumnNoiseScratchTests
     // another, so a thread's arrays pass between generations. Every block and fluid written, both height maps and YMax must be what the
     // shipped body produces, with the rewrite on and off.
     [Test]
+    [Category("Slow")]
     public void GenTerraGeneratesTheSameTerrain()
     {
         GameInstall.RequireAssets();
@@ -399,22 +389,15 @@ public sealed class ColumnNoiseScratchTests
         });
     }
 
-    // What the body calls on its column and where the column comes from, as another mod could patch them
-    private static MethodBase Seam(int seam)
+    private static MethodBase Seam(int seam) => seam switch
     {
-        return seam switch
-        {
-            0 => ColumnNoiseScratch.ForColumn()!,
-            1 => ColumnNoiseScratch.Constructor()!,
-            2 => ColumnNoiseScratch.ColumnBody()!,
-            _ => AccessTools.Method(typeof(ColumnNoise), nameof(ColumnNoise.NoiseSign))
-        };
-    }
+        0 => ColumnNoiseScratch.ForColumn()!,
+        1 => ColumnNoiseScratch.Constructor()!,
+        2 => ColumnNoiseScratch.ColumnBody()!,
+        _ => AccessTools.Method(typeof(ColumnNoise), nameof(ColumnNoise.NoiseSign))
+    };
 
-    private static void SeenByAnotherMod()
-    {
-        _ = Interlocked.Increment(ref _seen);
-    }
+    private static void SeenByAnotherMod() => _ = Interlocked.Increment(ref _seen);
 
     // A patch another mod adds later on ForColumn, the constructor or the body stands the arm down, and says so once: every column owns
     // new arrays again, with the engine's values
@@ -558,7 +541,6 @@ public sealed class ColumnNoiseScratchTests
         var first = original.FindIndex(code => code.opcode == OpCodes.Newarr) + 2; // after newarr double; stloc.1
         Assert.That(ColumnNoiseScratch.RewriteConstructor(original, generator).Count(IsMine), Is.EqualTo(5),
             "Take and four Rent");
-        // both arrays in `this`
         var stored = original.FindIndex(code => code.opcode == OpCodes.Stfld && Equals(code.operand, Past)) + 1;
 
         List<CodeInstruction> At(int index, params CodeInstruction[] inserted)
@@ -568,24 +550,19 @@ public sealed class ColumnNoiseScratchTests
             return code;
         }
 
-        List<CodeInstruction> Variant(params CodeInstruction[] inserted)
-        {
-            return At(first, inserted);
-        }
-
         var keeper = AccessTools.Field(typeof(Keeper), nameof(Keeper.Kept));
-        var handed = Variant(new CodeInstruction(OpCodes.Ldloc_1),
+        var handed = At(first, new CodeInstruction(OpCodes.Ldloc_1),
             new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(GC), nameof(GC.KeepAlive))));
-        var kept = Variant(new CodeInstruction(OpCodes.Ldloc_1), new CodeInstruction(OpCodes.Stsfld, keeper));
-        var element = Variant(
+        var kept = At(first, new CodeInstruction(OpCodes.Ldloc_1), new CodeInstruction(OpCodes.Stsfld, keeper));
+        var element = At(first,
             new CodeInstruction(OpCodes.Ldsfld, AccessTools.Field(typeof(Keeper), nameof(Keeper.Many))),
-            new CodeInstruction(OpCodes.Ldc_I4_0),
-            new CodeInstruction(OpCodes.Ldloc_1), new CodeInstruction(OpCodes.Stelem_Ref));
-        var address = Variant(new CodeInstruction(OpCodes.Ldsflda, keeper), new CodeInstruction(OpCodes.Ldloc_1),
+            new CodeInstruction(OpCodes.Ldc_I4_0), new CodeInstruction(OpCodes.Ldloc_1),
+            new CodeInstruction(OpCodes.Stelem_Ref));
+        var address = At(first, new CodeInstruction(OpCodes.Ldsflda, keeper), new CodeInstruction(OpCodes.Ldloc_1),
             new CodeInstruction(OpCodes.Stind_Ref));
-        var extra = Variant(new CodeInstruction(OpCodes.Ldc_I4_1), new CodeInstruction(OpCodes.Newarr, typeof(double)),
-            new CodeInstruction(OpCodes.Pop));
-        var member = Variant(new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Ldc_R8, 1.0),
+        var extra = At(first, new CodeInstruction(OpCodes.Ldc_I4_1),
+            new CodeInstruction(OpCodes.Newarr, typeof(double)), new CodeInstruction(OpCodes.Pop));
+        var member = At(first, new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Ldc_R8, 1.0),
             new CodeInstruction(OpCodes.Ldc_R8, 0.0),
             new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ColumnNoise), nameof(ColumnNoise.NoiseSign))),
             new CodeInstruction(OpCodes.Pop));
@@ -637,15 +614,11 @@ public sealed class ColumnNoiseScratchTests
         });
     }
 
-    private static bool IsMine(CodeInstruction code)
-    {
-        return code.operand is MethodInfo { DeclaringType: var t } && t == typeof(ColumnNoiseScratch);
-    }
+    private static bool IsMine(CodeInstruction code) =>
+        code.operand is MethodInfo { DeclaringType: var t } && t == typeof(ColumnNoiseScratch);
 
-    private static Generated Fresh(int seed, int chunkX, int chunkZ, bool smooth)
-    {
-        return Generate(World(seed), chunkX, chunkZ, smooth);
-    }
+    private static Generated Fresh(int seed, int chunkX, int chunkZ, bool smooth) =>
+        Generate(World(seed), chunkX, chunkZ, smooth);
 
     // One region of one world: the four maps GenTerra reads, drawn at random but fixed by the seed, and a GenTerra set up by its own
     // initWorldGen. The landform map is the region's, 32 pixels plus the engine's padding of 4, each pixel a landform of the game's.
@@ -669,10 +642,7 @@ public sealed class ColumnNoiseScratchTests
         }));
     }
 
-    private static System.Func<object?[]?, object?> Fixed(object value)
-    {
-        return _ => value;
-    }
+    private static System.Func<object?[]?, object?> Fixed(object value) => _ => value;
 
     private static IntDataMap2D Map(Random r, int inner, int padding, System.Func<Random, int> value)
     {
@@ -762,15 +732,9 @@ public sealed class ColumnNoiseScratchTests
     private sealed record Input(NewNormalizedSimplexFractalNoise Noise, double YFrequency, double[] Amplitudes,
         double[] Thresholds, double X, double Z, double[] Thresholders)
     {
-        public ColumnNoise Engine()
-        {
-            return Noise.ForColumn(YFrequency, Amplitudes, Thresholds, X, Z);
-        }
+        public ColumnNoise Engine() => Noise.ForColumn(YFrequency, Amplitudes, Thresholds, X, Z);
 
-        public ColumnNoise Scratch()
-        {
-            return ColumnNoiseScratch.Column(Noise, YFrequency, Amplitudes, Thresholds, X, Z);
-        }
+        public ColumnNoise Scratch() => ColumnNoiseScratch.Column(Noise, YFrequency, Amplitudes, Thresholds, X, Z);
     }
 
     private static class Keeper

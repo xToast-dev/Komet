@@ -23,7 +23,6 @@ internal static class DecompressScratch
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
 
-    // Bytes the engine would have copied, a total while Counting.Hud
     public static long Saved => Interlocked.Read(ref _saved);
 
     public static void Install(Harmony harmony)
@@ -53,7 +52,9 @@ internal static class DecompressScratch
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(decompress) ||
             !NotNull(consume) || !NotNull(mine) || !NotNull(length)) return code;
         var at = Il.Single(code, c => c.Calls(decompress));
-        if (!Assert(at >= 0) || !IsLengthCheck(code, at)) return code;
+        if (!Assert(at >= 0) || !Index(at + 3, code.Count) || !Assert(code[at].opcode == OpCodes.Callvirt) ||
+            code[at + 1].opcode != OpCodes.Dup || code[at + 2].opcode != OpCodes.Ldlen ||
+            code[at + 3].opcode != OpCodes.Conv_I4) return code;
         var stop = Stop(code, at + 4, consume);
         // Running off the body's end is logged, stopping is not
         if (!Index(stop, code.Count) || !code[stop].Calls(consume)) return code;
@@ -62,40 +63,24 @@ internal static class DecompressScratch
         return code;
     }
 
-    private static bool IsLengthCheck(List<CodeInstruction> code, int at)
-    {
-        if (!Index(at + 3, code.Count) || !Assert(code[at].opcode == OpCodes.Callvirt)) return false;
-        return code[at + 1].opcode == OpCodes.Dup && code[at + 2].opcode == OpCodes.Ldlen &&
-               code[at + 3].opcode == OpCodes.Conv_I4;
-    }
-
-    // Where the walk from `from` stops: at ByteToIntArrays, at any other call but the throw's constructor, or at anything that could keep
-    // the array; code.Count when the body ends first
+    // Where the walk from `from` stops: at ByteToIntArrays, at any other call but the throw's new InvalidDataException(), or at anything
+    // that could keep the array - a store, a dup, a return: the engine's copy could be read later, the thread's buffer is overwritten
+    // by the next decompression on this thread, so it may only go from the length check straight into ByteToIntArrays. code.Count when
+    // the body ends first.
     private static int Stop(List<CodeInstruction> code, int from, MethodInfo consume)
     {
         if (!NotNull(consume) || !Assert(from > 0)) return code.Count;
         for (var i = from; i < Math.Min(code.Count, MaxInstructions); i++)
-            if (code[i].Calls(consume) || (code[i].opcode.FlowControl == FlowControl.Call && !Throws(code[i])) ||
-                Keeps(code[i])) return i;
+        {
+            var op = code[i].opcode;
+            var throws = op == OpCodes.Newobj && code[i].operand is ConstructorInfo { DeclaringType: var type } &&
+                         type == typeof(InvalidDataException);
+            if (code[i].Calls(consume) || (op.FlowControl == FlowControl.Call && !throws) || op == OpCodes.Dup ||
+                op.FlowControl == FlowControl.Return || op.Name?.StartsWith("st", StringComparison.Ordinal) != false)
+                return i;
+        }
+
         return code.Count;
-    }
-
-    // The engine's copy could be stored, duplicated or returned and read later; the thread's buffer is overwritten by the next
-    // decompression on this thread, so it may only go from the length check straight into ByteToIntArrays
-    private static bool Keeps(CodeInstruction code)
-    {
-        if (!NotNull(code) || !Assert(code.opcode.Size > 0)) return true;
-        var op = code.opcode;
-        return op == OpCodes.Dup || op.FlowControl == FlowControl.Return ||
-               op.Name?.StartsWith("st", StringComparison.Ordinal) != false;
-    }
-
-    // The only call the length check may make: new InvalidDataException() for the throw
-    private static bool Throws(CodeInstruction code)
-    {
-        if (!NotNull(code) || !Assert(code.opcode.FlowControl == FlowControl.Call)) return false;
-        return code.opcode == OpCodes.Newobj && code.operand is ConstructorInfo { DeclaringType: var type } &&
-               type == typeof(InvalidDataException);
     }
 
     // Stands in for compression.Decompress(data, offset, length). Only zstd's Decompress is known to be DecompressAndSize plus a copy,

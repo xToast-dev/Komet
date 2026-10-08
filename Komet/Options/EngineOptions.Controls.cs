@@ -5,10 +5,8 @@ using static Komet.Options.KometPages;
 
 namespace Komet.Options;
 
-// The game's controls tab (GuiCompositeSettings.OnControlOptions and the mouse tab's list of mouse actions, Vintage Story 1.22.7) as
-// one page: every hotkey under the heading of its kind, in the game's order, bound like another one in the warning colour with the
-// game's "(same as ...)". The screen captures the key (HotkeyCapturer, as the game's tab); Bind stores it as the game's CompletedCapture
-// does. Keys take effect at once, as in the game; the switch of the locked modifiers waits for Apply like every other.
+// GuiCompositeSettings.OnControlOptions and the mouse tab's mouse actions (Vintage Story 1.22.7) as one page. Keys take effect at
+// once, as in the game; the switch of the locked modifiers waits for Apply like every other.
 internal static partial class EngineOptions
 {
     private const int MaxKeys = OptionPage.MaxRows - 16; // the headings, the switch and the buttons besides
@@ -26,7 +24,7 @@ internal static partial class EngineOptions
     // The hotkeys a change of which the game announces (its ShiftOrCtrlChanged)
     private static readonly string[] Announced = ["shift", "ctrl", "primarymouse", "secondarymouse", "toolmodeselect"];
 
-    // The game's hotkeys; none without a game running (the tests)
+    // null without a game running (the tests)
     private static KeyMap? HotKeys => ScreenManager.hotkeyManager?.HotKeys;
 
     private static Dictionary<string, string>? _clashes; // code -> the name of another key bound the same; rebuilt after each change
@@ -37,7 +35,7 @@ internal static partial class EngineOptions
         if (HotKeys is not { } keys || !NotNull(section) || !Assert(section.Length > 0)) return null;
         (_clashes, _armed) = (null, false);
         var page = new OptionPage("vs-controls", Lang.Get("setting-controls-header"), section) { Capacity = OptionPage.MaxRows }
-            .Switch(Name("noseparatectrlkeys"), () => !ClientSettings.SeparateCtrl, Locked, Hover("noseparatectrlkeys"));
+            .Setting("noseparatectrlkeys", () => !ClientSettings.SeparateCtrl, Locked);
         var hint = T("key-hint");
         foreach (var (type, title) in KeyKinds.Bounded(KeyKinds.Length))
         {
@@ -59,7 +57,6 @@ internal static partial class EngineOptions
         return tab is null ? page : page.Button(Lang.Get("setting-name-macroeditor"), T("open"), () => tab("OnMacroEditor"));
     }
 
-    // What a key is bound to, with the other one bound the same
     private static string Mapping(string code)
     {
         if (!NotNull(code) || HotKeys is not { } keys || !keys.TryGetValue(code, out var key)) return "";
@@ -105,7 +102,7 @@ internal static partial class EngineOptions
         return modifier.KeyCombinationType == HotkeyType.MouseModifiers && other.Code is "sneak" or "sprint";
     }
 
-    // CompletedCapture: the key bound and saved, shift and ctrl following sneak and sprint while the modifiers are locked to them
+    // The game's CompletedCapture: shift and ctrl follow sneak and sprint while the modifiers are locked to them
     internal static void Bind(string code, KeyCombination? combination)
     {
         if (HotKeys is not { } keys || combination is null || !NotNull(code) || !keys.TryGetValue(code, out var key)) return;
@@ -120,14 +117,13 @@ internal static partial class EngineOptions
         _clashes = null;
     }
 
-    // A right click on a key: the game's default for it
     internal static void Unbind(string code)
     {
         if (HotKeys is { } keys && NotNull(code) && keys.TryGetValue(code, out var key) && key.DefaultMapping is { } fallback)
             Bind(code, fallback.Clone());
     }
 
-    // OnConfirmReset, on the second click: every key back to the game's default
+    // The game's OnConfirmReset, on the second click
     private static void ResetKeys()
     {
         var keys = HotKeys;
@@ -148,7 +144,7 @@ internal static partial class EngineOptions
         (_capi?.Event as ClientEventAPI)?.TriggerHotkeysChanged();
     }
 
-    // onSeparateCtrl: locked, shift and ctrl take sneak's and sprint's keys; unlocked, their own again
+    // The game's onSeparateCtrl
     private static void Locked(bool locked)
     {
         if (HotKeys is not { } keys) return;

@@ -1,0 +1,339 @@
+#version 460 core
+// The terrain's culling on the GPU, from every location of the held pools as the GPU keeps them (OcclusionCulling.Rows), not
+// from what the CPU's frustum culling left: per location ModelDataPoolLocation.IsVisible, bit for bit - !Hide, the chunk's
+// CullVisible bit of this frame's buffer, then by misc.y the mode's test: CullNormal FrustumCulling.InFrustumAndRange's five
+// planes (Plane.AABBisOutside in doubles, nothing contracted or reordered) and its LOD range; the shadow passes
+// InFrustumShadowPass's range in floats and six planes, the far pass LOD 1 and up only - then, for the camera, cull.comp's
+// occlusion test of the box, and a draw command in its pool draw's region for each location left, counted per draw. One work group row (y) per pool draw of the call, the
+// locations of its pool along x. Verdicts keep pass 0's occlusion verdict per location for pass 1; a location the frustum or its
+// flags left out gets none, so pass 1 never draws it. flags.y picks the pass as in cull.comp:
+//   0  test, keep each verdict (against the previous frame's pyramid moved by the camera's step, or this frame's)
+//   1  test again only what pass 0 hid, against this frame's pyramid
+//   2  keep everything the frustum leaves (no pyramid yet)
+//   3  as 1, but keep what pass 0 hid
+// Written for OpenGL and Vulkan alike: explicit bindings no two resources share, no loose uniforms. Needs doubles.
+layout(local_size_x = 64) in;
+
+struct Row
+{
+    vec3 centre; // FrustumCullSphere.x, y, z
+    uint count;  // indices
+    vec3 extent; // radius, radiusY, radiusZ, each divided by 1.7320508 in float as AABBisOutside does
+    uint first;  // first index
+    uint flags;  // bit 0: Hide; bits 1-3: LodLevel 0 to 3, 4 for a level above, 5 for one below 0; bit 4: sorted
+    uint chunk;  // the location's chunk in Chunks
+    uint splitsA; // each direction's faces before its split (0: none), as counts: -X | +X << 16, then -Y | +Y << 16
+    uint splitsB;
+    uvec4 counts; // sorted (FaceSorting): faces facing -X | +X << 16, -Y | +Y << 16, -Z | +Z << 16; the rest after them; w: the
+                  // splits of -Z | +Z << 16. Within a direction the faces go by their plane, least first.
+    vec4 planesA; // each direction's plane nearest the side it faces away from, relative to centre: -X, +X, -Y, +Y
+    vec2 planesB; // -Z, +Z
+    uvec2 steps;  // each split's plane relative to centre in quarter blocks, a signed byte: +a the least after it, -a the
+                  // greatest before it; x: -X, +X, -Y, +Y from the low byte up, y: -Z, +Z
+};
+
+struct Command // DrawElementsIndirectCommand, VkDrawIndexedIndirectCommand
+{
+    uint count;
+    uint instances;
+    uint first;
+    int baseVertex;
+    uint baseInstance;
+};
+
+layout(std140, binding = 14) uniform Params
+{
+    mat4 viewProjection; // of the frame the pyramid belongs to, camera-relative
+    vec4 shift;          // xyz: this frame's camera minus that frame's
+    ivec4 sizes;         // pyramid level 0 width, height, levels; w unused
+    ivec4 flags;         // x: 1 = the pyramid is this frame's; y: the pass; z: the first per-draw count; w: the region base
+    ivec4 span;          // y: the call's first pool draw; z: its pool draws
+};
+
+layout(std140, binding = 15) uniform Frustum
+{
+    dvec4 planes[6];     // the culler's frustum: normal xyz, D
+    dvec4 camera;        // xyz: the camera the boxes are relative to
+    dvec4 player;        // x, y: the culler's playerPos X and Z
+    dvec4 lods;          // x: (double)(lod0BiasSq + 1024f), y: (double)ViewDistanceSq, z: lod2BiasSq, w: 1 when lod0BiasSq > 0
+    dvec4 shadow;        // x, y: shadowRangeX, shadowRangeZ
+    ivec4 misc;          // x: ModelDataPoolLocation.VisibleBufIndex; y: 0 CullNormal, 1 the near shadow pass, 2 the far one;
+                         // z: 1 when back faces are culled (a sorted row's directions facing away are left out), 2 so and
+                         // each direction's part past its split too (FaceSorting.Splitting); w: 1 when the
+                         // shadow passes leave out what casts nothing into the view (Casts)
+    dvec4 casters[5];    // the camera's near, left, right, top and bottom planes this frame, each moved out by a margin
+    dvec4 eye;           // xyz: where the view matrix puts the eye; camera is the player's position (CameraPos, the feet)
+};
+
+const double Beyond = 1.0 / 32.0; // the eye this far behind a direction's nearest plane sees none of its faces
+const uint Runs = 4u;              // commands a row may take (OcclusionCulling.Runs)
+
+layout(binding = 31) uniform sampler2D pyramid;
+
+// counters[0..3] per frame: locations the frustum left, of them hidden, their triangles, of them hidden, in pass 0; [4..7] the
+// same in pass 1; then from flags.z one command count per draw
+layout(std430, binding = 5) buffer Counters
+{
+    uint counters[];
+};
+
+layout(std430, binding = 6) buffer Verdicts
+{
+    uint verdicts[]; // per row, 1: pass 0 hid it
+};
+
+layout(std430, binding = 7) writeonly buffer Commands
+{
+    Command commands[];
+};
+
+layout(std430, binding = 8) readonly buffer Starts
+{
+    uint starts[]; // per pool draw, its region of commands
+};
+
+layout(std430, binding = 9) readonly buffer Rows
+{
+    Row rows[];
+};
+
+layout(std430, binding = 10) readonly buffer Chunks
+{
+    uint chunks[]; // per chunk, its CullVisible bits
+};
+
+layout(std430, binding = 11) readonly buffer Pools
+{
+    uvec2 pools[]; // per pool draw: its pool's first row and row count
+};
+
+const uint Buckets = 64u; // sort.comp's
+
+layout(std430, binding = 12) writeonly buffer Keys
+{
+    uint keys[]; // per command of the camera's first pass (region base 0), beside it: its row's bucket, nearest first
+};
+
+// Plane.AABBisOutside: the corner the normal points to, the sphere's floats widened, then the plane equation in doubles
+bool Outside(dvec4 plane, Row row)
+{
+    precise double x = double(row.centre.x) + double(plane.x > 0.0 ? row.extent.x : -row.extent.x);
+    precise double y = double(row.centre.y) + double(plane.y > 0.0 ? row.extent.y : -row.extent.y);
+    precise double z = double(row.centre.z) + double(plane.z > 0.0 ? row.extent.z : -row.extent.z);
+    precise double xy = x * plane.x + y * plane.y;
+    precise double xyz = xy + z * plane.z;
+    precise double d = xyz + plane.w;
+    return d < 0.0;
+}
+
+// A non-negative double rounded to the nearest float (ties to even), as a double: in its bits, since compilers drop a
+// double(float(x)) round trip as a no-op - SPIR-V's NoContraction does not reach conversions
+double FloatRounded(double value)
+{
+    uvec2 bits = unpackDouble2x32(value); // x: the low word, y: the high word
+    uint dropped = bits.x & 0x1FFFFFFFu;  // the 29 mantissa bits a float has not
+    bool up = dropped > 0x10000000u || (dropped == 0x10000000u && (bits.x & 0x20000000u) != 0u);
+    uint low = bits.x & ~0x1FFFFFFFu;
+    if (up)
+    {
+        uint raised = low + 0x20000000u;
+        bits.y += raised < low ? 1u : 0u;
+        low = raised;
+    }
+
+    return packDouble2x32(uvec2(low, bits.y));
+}
+
+// FrustumCulling.InFrustumAndRange after the planes: BlockPos.HorDistanceSqTo (in doubles, returned as a float), then the
+// location's LOD level's range
+bool InRange(Row row, uint lod)
+{
+    precise double dx = double(row.centre.x) - player.x;
+    precise double dz = double(row.centre.z) - player.y;
+    precise double squared = dx * dx + dz * dz;
+    double distance = FloatRounded(squared);
+    if (lod == 0u) return lods.w > 0.0 && distance < lods.x;
+    if (lod == 1u) return distance < lods.y;
+    if (lod == 2u) return distance <= lods.z;
+    if (lod == 3u) return distance > lods.z && distance < lods.y;
+    return false;
+}
+
+// A shadow pass's caster that casts into nothing the camera sees: outside one of its planes (moved out by the margin) which the
+// light does not cross inward, its box swept along the light only moves farther out. A shadow pass's first plane is its near
+// plane, facing along the light.
+bool Casts(Row row)
+{
+    if (misc.w == 0) return true;
+    dvec3 light = planes[0].xyz;
+    for (int p = 0; p < 5; p++)
+        if (dot(casters[p].xyz, light) <= 0.0 && Outside(casters[p], row)) return false;
+    return true;
+}
+
+// ModelDataPoolLocation.IsVisible(mode, culler)
+bool Visible(Row row)
+{
+    if ((row.flags & 1u) != 0u || ((chunks[row.chunk] >> uint(misc.x)) & 1u) == 0u) return false;
+    uint lod = (row.flags >> 1) & 7u;
+    if (misc.y == 0)
+    {
+        for (int p = 0; p < 5; p++)
+            if (Outside(planes[p], row)) return false;
+        return InRange(row, lod);
+    }
+
+    // InFrustumShadowPass: (float)playerPos.X - sphere.x in floats, widened for the comparison, then all six planes
+    precise float dx = abs(float(player.x) - row.centre.x);
+    precise float dz = abs(float(player.y) - row.centre.z);
+    if (double(dx) >= shadow.x || double(dz) >= shadow.y) return false;
+    for (int p = 0; p < 6; p++)
+        if (Outside(planes[p], row)) return false;
+    return (misc.y == 1 || (lod >= 1u && lod <= 4u)) && Casts(row); // the far pass: LodLevel >= 1
+}
+
+// The row's bucket: by the square root of its box's distance from the camera, fine near and coarse far
+uint Bucket(Row row)
+{
+    vec3 centre = vec3(dvec3(row.centre) - camera.xyz);
+    float distance = length(max(abs(centre) - row.extent, vec3(0.0)));
+    return min(uint(sqrt(distance) * 2.8), Buckets - 1u);
+}
+
+// cull.comp's occlusion test of the location's box relative to this frame's camera, made as Occlusion.Box makes it
+bool Hidden(Row row)
+{
+    vec3 centre = vec3(dvec3(row.centre) - camera.xyz);
+    vec3 low = centre - row.extent + shift.xyz, high = centre + row.extent + shift.xyz;
+    vec2 lo = vec2(1.0), hi = vec2(-1.0);
+    float nearest = 1.0;
+    for (int corner = 0; corner < 8; corner++)
+    {
+        vec3 p = vec3((corner & 1) != 0 ? high.x : low.x, (corner & 2) != 0 ? high.y : low.y,
+                      (corner & 4) != 0 ? high.z : low.z);
+        vec4 clip = viewProjection * vec4(p, 1.0);
+        if (clip.w <= 1e-4) return false;
+        vec3 ndc = clip.xyz / clip.w;
+        lo = min(lo, ndc.xy);
+        hi = max(hi, ndc.xy);
+        nearest = min(nearest, ndc.z * 0.5 + 0.5);
+    }
+
+    if (flags.x == 0 && (any(lessThan(lo, vec2(-1.0))) || any(greaterThan(hi, vec2(1.0))))) return false;
+    vec2 size = vec2(sizes.xy);
+    vec2 from = clamp(lo * 0.5 + 0.5, 0.0, 1.0) * size - 1.0, to = clamp(hi * 0.5 + 0.5, 0.0, 1.0) * size + 1.0;
+    for (int at = 0; at < sizes.z; at++)
+    {
+        ivec2 edge = textureSize(pyramid, at) - 1; // the last texel holds what lies past it
+        ivec2 first = clamp(ivec2(floor(from / float(1 << at))), ivec2(0), edge);
+        ivec2 last = clamp(ivec2(floor(to / float(1 << at))), first, edge);
+        if (any(greaterThan(last - first, ivec2(1)))) continue;
+        float farthest = max(max(texelFetch(pyramid, first, at).r, texelFetch(pyramid, ivec2(last.x, first.y), at).r),
+                             max(texelFetch(pyramid, ivec2(first.x, last.y), at).r, texelFetch(pyramid, last, at).r));
+        return nearest > farthest;
+    }
+
+    return false;
+}
+
+void main()
+{
+    uint draw = uint(span.y) + gl_WorkGroupID.y;
+    uvec2 pool = pools[draw];
+    if (gl_GlobalInvocationID.x >= pool.y) return;
+    uint index = pool.x + gl_GlobalInvocationID.x;
+    int pass = flags.y;
+    bool again = pass == 1 || pass == 3;
+    if (again && verdicts[index] == 0u) return; // drawn in pass 0 already, or left out by the frustum
+    Row row = rows[index];
+    bool viewed = misc.y == 0; // the shadow passes keep no verdicts and count nothing: the camera's passes read those
+    if (!again && !Visible(row))
+    {
+        if (viewed) verdicts[index] = 0u;
+        return;
+    }
+
+    bool hidden = (pass == 0 || pass == 1) && Hidden(row);
+    if (!again && viewed) verdicts[index] = hidden ? 1u : 0u;
+    uint stats = again ? 4u : 0u, triangles = row.count / 3u;
+    if (viewed)
+    {
+        atomicAdd(counters[stats], 1u);
+        atomicAdd(counters[stats + 2u], triangles);
+    }
+
+    if (hidden)
+    {
+        atomicAdd(counters[stats + 1u], 1u);
+        atomicAdd(counters[stats + 3u], triangles);
+        return;
+    }
+
+    // The runs of faces to draw: the whole range, or for a sorted row the parts of each direction facing the camera, neighbours
+    // joined. A direction's faces go by their plane, least first: -a seen from below a plane, its part before the split (planes
+    // up to the split's) is left out first; +a seen from above, its part after the split. So the parts seen of an axis's two
+    // directions touch, and a row takes at most Runs runs; past that a run would end, the last one reaches over the gap.
+    uint firsts[Runs], counts[Runs];
+    uint runs = 0u;
+    if (misc.z == 0 || (row.flags & 16u) == 0u)
+    {
+        firsts[0] = row.first;
+        counts[0] = row.count;
+        runs = 1u;
+    }
+    else
+    {
+        dvec3 seen = eye.xyz - dvec3(row.centre);
+        float planes[6] = float[6](row.planesA.x, row.planesA.y, row.planesA.z, row.planesA.w, row.planesB.x, row.planesB.y);
+        uint splits[3] = uint[3](row.splitsA, row.splitsB, row.counts.w);
+        uint faces = 0u, open = 0xFFFFFFFFu;
+        for (int s = 0; s < 13; s++)
+        {
+            uint n;
+            bool shown = true;
+            if (s < 12)
+            {
+                int g = s / 2;
+                bool after = (s & 1) == 1, rising = g % 2 == 1;
+                uint all = (row.counts[g / 2] >> (16u * uint(g % 2))) & 0xFFFFu;
+                uint split = misc.z == 2 ? (splits[g / 2] >> (16u * uint(g % 2))) & 0xFFFFu : 0u;
+                n = after ? all - split : split;
+                double plane = double(planes[g]);
+                if (split > 0u && after == rising)
+                    plane = double(bitfieldExtract(int(row.steps[g / 4]), 8 * (g % 4), 8)) * 0.25;
+                double at = seen[g / 2];
+                shown = rising ? at >= plane - Beyond : at <= plane + Beyond; // -a seen from below its greatest plane
+            }
+            else n = row.count / 6u - faces;
+            if (shown && n > 0u)
+            {
+                if (open == 0xFFFFFFFFu && runs < Runs)
+                {
+                    open = runs++;
+                    firsts[open] = row.first + 6u * faces;
+                    counts[open] = 0u;
+                }
+                else if (open == 0xFFFFFFFFu)
+                {
+                    open = runs - 1u;
+                    counts[open] = row.first + 6u * faces - firsts[open];
+                }
+
+                counts[open] += 6u * n;
+            }
+            else if (n > 0u) open = 0xFFFFFFFFu;
+            faces += n;
+        }
+    }
+
+    uint drawn = 0u;
+    for (uint r = 0u; r < runs; r++) drawn += counts[r];
+    if (viewed && drawn < row.count) atomicAdd(counters[stats + 3u], (row.count - drawn) / 3u); // facing away: as if hidden
+    if (runs == 0u) return;
+    uint slot = atomicAdd(counters[uint(flags.z) + draw], runs), bucket = Bucket(row);
+    for (uint r = 0u; r < runs; r++)
+    {
+        commands[uint(flags.w) + starts[draw] + slot + r] = Command(counts[r], 1u, firsts[r], 0, 0u);
+        if (flags.w == 0) keys[starts[draw] + slot + r] = bucket;
+    }
+}

@@ -8,23 +8,15 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Shapes;
 
-// SystemRenderEntities.OnBeforeRender walks every entity renderer each frame, and EntityShapeRenderer.BeforeRender tesselates every
-// visible entity whose shape is not fresh, all of them in that one frame. Only the main-thread half is in it: Entity.OnTesselation
-// composes the shape (clone, gear and skin parts, step-parenting), inits it for animation and loads the animator, textures are
-// resolved and skins rendered into the atlas; the mesh is built on the thread pool. Entities come due in bursts: shapeFresh starts
-// false and is cleared on load and spawn, so a chunk full of animals coming online or the camera turning toward a herd tesselates
-// all of them at once, and so do gear and skin changes.
+// EntityShapeRenderer.BeforeRender tesselates every visible entity whose shape is not fresh in one frame, its main-thread half
+// (shape composition, animation init, animator, textures) included. Entities come due in bursts: shapeFresh starts false and is
+// cleared on load and spawn, so a chunk full of animals coming online or the camera turning toward a herd tesselates all of them at
+// once, and so do gear and skin changes.
 //
-// So the one read of ShapeFresh in BeforeRender becomes Fresh(entity), which says "fresh" (skip this frame) once the tesselations of
-// the frame have used up the budget. The first one in a frame always runs, so does the local player's (its gear must change on the
-// frame it is put on), and so does any entity put off MaxWaitFrames times, counted in frames it asked. shapeFresh itself stays false,
-// so the entity asks again next frame. A deferred entity is in a state vanilla already produces for any entity outside the frustum or
-// whose chunk is not drawn yet: not tesselated, no mesh, Animator null, which BeforeRender, the render passes and
-// AnimationManager.OnClientFrame all handle; one that re-tesselates keeps its old mesh and animator together until its turn. The
-// TesselateShape call it guards is timed in place, so the budget counts only tesselation; direct calls (the character dialog) are left
-// alone. Millis 0 hands everything back to the engine. A prefix on OnBeforeRender starts the frame and sets the 'esr-pre' mark, so the
-// Before-stage renderers ahead of the entity loop no longer land in the first entity's esr-tesseleateshape. Entities are known by id
-// and code only, so no static keeps a world alive after it is left, not even one whose TesselateShape threw.
+// shapeFresh itself stays false, so a deferred entity asks again next frame. It is in a state vanilla already produces for any entity
+// outside the frustum or whose chunk is not drawn yet: not tesselated, no mesh, Animator null, which BeforeRender, the render passes
+// and AnimationManager.OnClientFrame all handle; one that re-tesselates keeps its old mesh and animator together until its turn.
+// Entities are known by id and code only, so no static keeps a world alive after it is left, not even one whose TesselateShape threw.
 internal static class EntityTessBudget
 {
     public const int Engine = 0, MaxMillis = 50, DefaultMillis = 4, MaxWaitFrames = 30;
@@ -59,7 +51,6 @@ internal static class EntityTessBudget
         (MostWaited, WorstFrameMs, SlowestMs, SlowestCode) = (0, 0, 0, "");
     }
 
-    // No frame, nothing waiting, nothing counted
     internal static void Reset()
     {
         ResetPeaks();
@@ -95,7 +86,7 @@ internal static class EntityTessBudget
         Start(___game?.EntityPlayer);
     }
 
-    // A frame of the entity loop begins; self is the local player, whose tesselation is never put off
+    // The local player's tesselation is never put off: its gear must change on the frame it is put on
     internal static void Start(Entity? self)
     {
         if (Counting.Hud && _spent > 0) WorstFrameMs = Math.Max(WorstFrameMs, FrameClock.ToMs(_spent));

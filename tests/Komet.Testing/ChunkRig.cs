@@ -71,21 +71,12 @@ public sealed class ChunkRig : IDisposable
 
     private Dictionary<long, ClientChunk> Chunks => (Dictionary<long, ClientChunk>)Get(Map, "chunks");
 
-    public void Dispose()
-    {
-        MeshData.Recycler = _recycler;
-    }
+    public void Dispose() => MeshData.Recycler = _recycler;
 
-    public static int Local(int x, int y, int z)
-    {
-        return (y * Size + z) * Size + x;
-    }
+    public static int Local(int x, int y, int z) => (y * Size + z) * Size + x;
 
     // Another tesselator on the same game and map, as a tessellation worker has one
-    public ChunkTesselator NewTesselator()
-    {
-        return Rigged(Game, Blocks);
-    }
+    public ChunkTesselator NewTesselator() => Rigged(Game, Blocks);
 
     // A chunk whose block at (x, y, z) is block(x, y, z), in the map at the chunk position; fluid ids go into the fluid layer
     public ClientChunk Put(int cx, int cy, int cz, System.Func<int, int, int, int> block,
@@ -107,10 +98,7 @@ public sealed class ChunkRig : IDisposable
         return chunk;
     }
 
-    public void Remove(int cx, int cy, int cz)
-    {
-        _ = Chunks.Remove(Key(cx, cy, cz));
-    }
+    public void Remove(int cx, int cy, int cz) => _ = Chunks.Remove(Key(cx, cy, cz));
 
     // The map region around chunk column (cx, cz) with a climate and an ocean map, as the server sends it: BeginProcessChunk then
     // lerps a climate map (and caches it) and reads ocean corners instead of falling back to placeholders
@@ -118,14 +106,11 @@ public sealed class ChunkRig : IDisposable
     {
         const int size = 18; // 16 inner values and a padding of 1
 
-        IntDataMap2D Values(int offset)
+        IntDataMap2D Values(int offset) => new()
         {
-            return new IntDataMap2D
-            {
-                Data = [.. Enumerable.Range(0, size * size).Select(i => (i * 7919 + offset * 104729) % 251)],
-                Size = size, TopLeftPadding = 1, BottomRightPadding = 1
-            };
-        }
+            Data = [.. Enumerable.Range(0, size * size).Select(i => (i * 7919 + offset * 104729) % 251)],
+            Size = size, TopLeftPadding = 1, BottomRightPadding = 1
+        };
 
         var region =
             RuntimeHelpers.GetUninitializedObject(AccessTools.TypeByName("Vintagestory.Client.ClientMapRegion"));
@@ -134,10 +119,7 @@ public sealed class ChunkRig : IDisposable
         ((IDictionary)Get(Map, "MapRegions"))[Map.MapRegionIndex2DFromClientChunkCoord(cx, cz)] = region;
     }
 
-    public ClientChunk? At(int cx, int cy, int cz)
-    {
-        return Chunks.GetValueOrDefault(Key(cx, cy, cz));
-    }
+    public ClientChunk? At(int cx, int cy, int cz) => Chunks.GetValueOrDefault(Key(cx, cy, cz));
 
     public TesselatedChunk Tess(int cx, int cy, int cz)
     {
@@ -149,20 +131,13 @@ public sealed class ChunkRig : IDisposable
         return tess;
     }
 
-    public static TesselatedChunkPart[]? CenterParts(TesselatedChunk tess)
-    {
-        return (TesselatedChunkPart[]?)Get(tess, "centerParts");
-    }
+    public static TesselatedChunkPart[]? CenterParts(TesselatedChunk tess) =>
+        (TesselatedChunkPart[]?)Get(tess, "centerParts");
 
-    public static TesselatedChunkPart[]? EdgeParts(TesselatedChunk tess)
-    {
-        return (TesselatedChunkPart[]?)Get(tess, "edgeParts");
-    }
+    public static TesselatedChunkPart[]? EdgeParts(TesselatedChunk tess) =>
+        (TesselatedChunkPart[]?)Get(tess, "edgeParts");
 
-    public static Sphere Bounds(TesselatedChunk tess)
-    {
-        return (Sphere)Get(tess, "boundingSphere");
-    }
+    public static Sphere Bounds(TesselatedChunk tess) => (Sphere)Get(tess, "boundingSphere");
 
     // The engine's face culling for the chunk: BeginProcessChunk (neighbours, extended arrays, visible faces), then the down faces of
     // the world's bottom layer cleared as BuildBlockPolygons does. True when no position of the chunk would be tessellated.
@@ -179,10 +154,7 @@ public sealed class ChunkRig : IDisposable
         return true;
     }
 
-    public static long Key(int cx, int cy, int cz)
-    {
-        return MapUtil.Index3dL(cx, cy, cz, Mul, Mul);
-    }
+    public static long Key(int cx, int cy, int cz) => MapUtil.Index3dL(cx, cy, cz, Mul, Mul);
 
     private static ChunkTesselator Rigged(ClientMain game, Block[] blocks)
     {

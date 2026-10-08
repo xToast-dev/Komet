@@ -4,10 +4,7 @@ namespace Komet.Test.Rendering;
 public sealed class GlErrorPollTests
 {
     [TearDown]
-    public void Restore()
-    {
-        GlErrorPoll.Enabled = true;
-    }
+    public void Restore() => GlErrorPoll.Enabled = true;
 
     [Test]
     public void Installs()

@@ -137,7 +137,7 @@ internal static partial class OcclusionCulling
         var draws = (batched.First, batched.Count);
         var counters = CounterBuffers[_frame % Ring];
         Issue(draws, (0, StatUints), counters, sorted: !batched.Surface && _laterSorted && Orderless());
-        if (batched.Surface) Remember(draws);
+        if (batched.Surface && batched.Count > 0) Remember(draws); // a pool with nothing to draw this frame (at the start)
         return true;
     }
 

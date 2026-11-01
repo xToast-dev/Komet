@@ -1,9 +1,11 @@
-# Komet (die Mod)
+# Komet (the mod)
 
-Das Projekt, das das Spiel lädt: `Komet.dll` mit `modinfo.json`, `modicon.png` und `assets/`. Jede Klasse
-`: ModSystem` gehört hierher; die anderen DLLs im Zip sind Bibliotheken.
+> Machine-translated from German; wording may be rough in places.
 
-- `KometModSystem.cs`: der Einstieg auf dem Client; registriert die Module, installiert die Funktionen, räumt auf.
-- `Modules.cs`: die eine Stelle, die alle Module nennt (`All`, `InstallOrder`, `Wire`).
-- `Host/`: der Serverteil (eigener Prozess für den eingebauten Server).
-- `MapTracking.cs`: die Spielerpfeile auf der Karte.
+The project the game loads: `Komet.dll` with `modinfo.json`, `modicon.png` and `assets/`. Every class
+`: ModSystem` belongs here; the other DLLs in the zip are libraries.
+
+- `KometModSystem.cs`: the client entry point; registers the modules, installs the features, cleans up.
+- `Modules.cs`: the one place that names all modules (`All`, `InstallOrder`, `Wire`).
+- `Host/`: the server part (own process for the built-in server).
+- `MapTracking.cs`: the player arrows on the map.

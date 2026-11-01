@@ -1,149 +1,149 @@
-# Komet warten
+# Maintaining Komet
 
-Wie Komet aufgebaut ist und wie du es änderst. Code und Kommentare sind Englisch, diese Seite und die `README.md` der
-Module Deutsch. Spieler-Doku steht nur im Spiel (`komet-docs`), Doku für Mod-Autoren nur auf der Entwickler-Seite
-(`docs/site`).
+> Machine-translated from German; wording may be rough in places.
 
-## Der Aufbau in einem Bild
+How Komet is built and how you change it. Code, comments and these pages are English. Player docs live only in the game
+(`komet-docs`), docs for mod authors only on the developer site (`docs/site`).
 
-Komet ist eine Mod aus zehn Projekten, jedes eine eigene DLL im selben Mod-Zip. Ein Projekt darf nur Projekte **unter**
-sich benutzen; ein Verweis nach oben baut nicht.
+## The layout in one picture
+
+Komet is one mod made of ten projects, each its own DLL in the same mod zip. A project may only use projects **below**
+it; a reference upwards does not build.
 
 ```text
-Komet            die Mod: Einstieg (KometModSystem), Serverteil (Host/), Modul-Liste (Modules.cs), modinfo.json, assets/
-  └─ Komet.Ui          HUD und Optionsmenü (Hud/, Options/)
-       └─ Komet.Vulkan     der Vulkan-Renderer
-            ├─ Komet.Shapes     Formen, Animationen, Inventar
-            ├─ Komet.Chunks     Ankommen der Chunks, Budgets
-            │    └─ Komet.Tessellation   Chunk-Aufbau und seine Planung
-            └─ Komet.Rendering  OpenGL-Pfad: Culling, Pools, Shader, Schatten
-                 └─ Komet.Diagnostics   Messen: Frame-Uhr, Kosten, Spikes, Mod-Zeiten
-                      └─ Komet.Core     öffentliche API, Funktions-Register, Verträge, Helfer
-  Komet.World     Welt: Licht, Karte, Events (braucht nur Komet.Core)
+Komet            the mod: entry (KometModSystem), server part (Host/), module list (Modules.cs), modinfo.json, assets/
+  └─ Komet.Ui          HUD and options menu (Hud/, Options/)
+       └─ Komet.Vulkan     the Vulkan renderer
+            ├─ Komet.Shapes     shapes, animations, inventory
+            ├─ Komet.Chunks     chunk arrival, budgets
+            │    └─ Komet.Tessellation   chunk building and its scheduling
+            └─ Komet.Rendering  OpenGL path: culling, pools, shaders, shadows
+                 └─ Komet.Diagnostics   measuring: frame clock, costs, spikes, mod timings
+                      └─ Komet.Core     public API, feature registry, contracts, helpers
+  Komet.World     world: light, map, events (needs only Komet.Core)
 ```
 
-Von unten nach oben: Core, Diagnostics, Rendering, Tessellation, Chunks, Shapes, World, Vulkan, Ui, Komet. Wer wen
-benutzen darf, steht in den `ProjectReference`-Zeilen jeder `<Modul>.csproj` und in
-`tests/Komet.Test/Core/ModulesTests.cs`.
+Bottom to top: Core, Diagnostics, Rendering, Tessellation, Chunks, Shapes, World, Vulkan, Ui, Komet. Who may use whom is
+stated in the `ProjectReference` lines of each `<Module>.csproj` and in `tests/Komet.Test/Core/ModulesTests.cs`.
 
-Daneben: `Komet.Bench` (der Benchmark, eine eigene Mod, nie im Release), `tests/`, `tools/Komet.Rules` (der Analyzer,
-läuft bei jedem Build).
+Alongside: `Komet.Bench` (the benchmark, a mod of its own, never in a release), `tests/`, `tools/Komet.Rules` (the
+analyzer, runs on every build).
 
-## Wo liegt was
+## Where things are
 
-| Du suchst | Dort |
+| You are looking for | There |
 |---|---|
-| Welche Funktionen es gibt, in welcher Reihenfolge sie starten | `Komet/Modules.cs` (`InstallOrder`) |
-| Eine Funktion und ihr Schalter | die `*Features.cs` des Moduls (der Eintrag `new("Name")`) und die Klasse `Name.cs` im Modul |
-| Die öffentliche API für andere Mods | `Komet.Core/Api/` (Namespace `Komet.Api`, DLL `Komet.Core.dll`) |
-| Die Verträge `Assert`, `NotNull`, `Finite`, `Index`, `Bounded` | `Komet.Core/Contracts.cs` |
-| Texte im Menü und HUD | `Komet/assets/komet/lang/de.json` und `en.json` (Schlüssel `settings-…`, `hud-…`) |
-| Die Hilfeseiten im Spiel | `Komet/assets/komet/config/komet-docs/<de|en>/*.md` |
-| Die Entwickler-Seite (API-Referenz, Artikel) | `docs/site`, gebaut mit `scripts/apidocs.sh` |
-| Vorlagen für Mod-Autoren | `Komet/assets/komet/config/komet-templates/` |
-| Was ein Modul von einem höheren braucht | `<Modul>/Links.cs` und `Komet/Modules.cs` (`Wire`) |
-| Gemeinsame Build-Einstellungen aller Module | `Komet.Module.props` |
+| Which features exist, in which order they start | `Komet/Modules.cs` (`InstallOrder`) |
+| A feature and its switch | the module's `*Features.cs` (the entry `new("Name")`) and the class `Name.cs` in the module |
+| The public API for other mods | `Komet.Core/Api/` (namespace `Komet.Api`, DLL `Komet.Core.dll`) |
+| The contracts `Assert`, `NotNull`, `Finite`, `Index`, `Bounded` | `Komet.Core/Contracts.cs` |
+| Texts in the menu and HUD | `Komet/assets/komet/lang/de.json` and `en.json` (keys `settings-…`, `hud-…`) |
+| The in-game help pages | `Komet/assets/komet/config/komet-docs/<de|en>/*.md` |
+| The developer site (API reference, articles) | `docs/site`, built with `scripts/apidocs.sh` |
+| Templates for mod authors | `Komet/assets/komet/config/komet-templates/` |
+| What a module needs from a higher one | `<Module>/Links.cs` and `Komet/Modules.cs` (`Wire`) |
+| Build settings shared by all modules | `Komet.Module.props` |
 
-## Bauen und testen
+## Build and test
 
 ```bash
 ./build.sh
 ```
 
-Baut alles im Release, prüft die Regeln und legt die Mod unter `Releases/komet/` und als `Releases/komet_<version>.zip`
-ab. Jede Warnung ist ein Fehler.
+Builds everything in Release, checks the rules and puts the mod under `Releases/komet/` and as
+`Releases/komet_<version>.zip`. Every warning is an error.
 
 ```bash
 scripts/test.sh
 ```
 
-Die schnellen Tests; `scripts/test.sh --all` läuft alle. Vor einem Release beides und einmal den Debug-Build
-(`dotnet build Komet/Komet.csproj -c Debug`), der ein paar Regeln mehr prüft.
+The quick tests; `scripts/test.sh --all` runs all of them. Before a release run both, plus the Debug build once
+(`dotnet build Komet/Komet.csproj -c Debug`), which checks a few more rules.
 
 ```bash
 scripts/bench.sh --build --profile quick
 ```
 
-Startet das Spiel in einer Sandbox mit dem frischen Build und fliegt eine Runde: die einzige Prüfung, dass das Spiel die
-Mod wirklich lädt. Nie, während dein eigenes Spiel läuft.
+Starts the game in a sandbox with the fresh build and flies one round: the only check that the game really loads the
+mod. Never while your own game is running.
 
 ```bash
 scripts/seed-pipelines.sh
 ```
 
-Erneuert die Pipeline-Rezepte, die Komet mitliefert (`Komet/assets/komet/config/pipelines.json`). Sie sind an die
-Shader-Quellen gebunden: Nach einer Änderung an einem Shader-Patch einmal laufen lassen, sonst baut Vulkan beim ersten
-Betreten einer Welt jede Pipeline erst, wenn sie gezeichnet wird (Ruckler).
+Renews the pipeline recipes Komet ships (`Komet/assets/komet/config/pipelines.json`). They are tied to the shader
+sources: run it once after changing a shader patch, otherwise Vulkan builds every pipeline only when it is first drawn
+on entering a world (stutter).
 
-## Eine Funktion ändern
+## Changing a feature
 
-1. Finde sie: Der Name im Menü ist der Lang-Schlüssel `settings-<name>` in `de.json`; der Schalter heißt im Code so wie
-   der Schlüssel ohne `settings-`. Suche nach `new("Name")` in den `*Features.cs`.
-2. Der Eintrag in `*Features.cs` sagt, was beim Start passiert (`Install`), welcher Schalter dazugehört (`Knobs`), was beim
-   Stoppen passiert (`Stop`) und wie die Funktion ihren Zustand meldet (`Probe`).
-3. Die Arbeit selbst steht in der Klasse gleichen Namens im selben Modul.
-4. Baue (`./build.sh`). Der Analyzer meldet fehlende Texte (`KR0010`: Schlüssel fehlt in einer Sprache).
+1. Find it: its name in the menu is the lang key `settings-<name>` in `en.json`; the switch is named in code like the
+   key without `settings-`. Search for `new("Name")` in the `*Features.cs` files.
+2. The entry in `*Features.cs` says what happens at start (`Install`), which switch belongs to it (`Knobs`), what happens
+   on stop (`Stop`) and how the feature reports its state (`Probe`).
+3. The work itself is in the class of the same name in the same module.
+4. Build (`./build.sh`). The analyzer reports missing texts (`KR0010`: key missing in a language).
 
-## Eine Funktion hinzufügen
+## Adding a feature
 
-1. Lege die Klasse im passenden Modul an (siehe das Bild oben: Wo würde sie hingehören? Was braucht sie?).
-2. Trage sie in die `*Features.cs` des Moduls ein, an der Stelle ihrer Installationsreihenfolge innerhalb des Moduls.
-3. Trage ihren Namen in `Komet/Modules.cs` bei `InstallOrder` ein. Fehlt er, startet Komet nicht und sagt im Log, welcher
-   Name fehlt.
-4. Lege die Texte an: `settings-<name>` und `settings-<name>-hint` in `de.json` **und** `en.json`.
-5. Baue und schreib einen kurzen Test unter `tests/Komet.Test/<Modul>/`.
+1. Create the class in the fitting module (see the picture above: where would it belong? what does it need?).
+2. Add it to the module's `*Features.cs`, at its install position within the module.
+3. Add its name to `InstallOrder` in `Komet/Modules.cs`. If it is missing, Komet does not start and says in the log which
+   name is missing.
+4. Add the texts: `settings-<name>` and `settings-<name>-hint` in `de.json` **and** `en.json`.
+5. Build and write a short test under `tests/Komet.Test/<Module>/`.
 
-## Eine Funktion entfernen
+## Removing a feature
 
-1. Lösche den Eintrag in `*Features.cs`, den Namen in `Modules.cs` (`InstallOrder`), die Klasse und die Lang-Schlüssel.
-2. Baue. Der Compiler nennt jede Stelle, die die Funktion noch benutzt (meist das HUD in `Komet.Ui`).
-3. Ein alter `komet.json` eines Spielers mit dem Schalter stört nicht: Unbekannte Schlüssel werden ignoriert.
+1. Delete the entry in `*Features.cs`, the name in `Modules.cs` (`InstallOrder`), the class and the lang keys.
+2. Build. The compiler names every place that still uses the feature (usually the HUD in `Komet.Ui`).
+3. A player's old `komet.json` with the switch does no harm: unknown keys are ignored.
 
-## Ein ganzes Modul entfernen
+## Removing a whole module
 
-1. Lösche den Projektordner und seine Zeile in `Komet.slnx`.
-2. Nimm seine `ProjectReference` aus `Komet/Komet.csproj` und aus den Modulen, die es benutzten.
-3. Nimm seine Liste aus `Modules.cs` (`All`), seine Funktionsnamen aus `InstallOrder` und seine Zeilen aus `Wire`.
-4. Baue. Der Compiler nennt jede Stelle, die das Modul noch benutzt. Was ein tieferes Modul von ihm brauchte, hatte einen
-   Haken (`Links.cs`); der Haken behält seine Antwort "ohne das Modul".
+1. Delete the project folder and its line in `Komet.slnx`.
+2. Remove its `ProjectReference` from `Komet/Komet.csproj` and from the modules that used it.
+3. Remove its list from `Modules.cs` (`All`), its feature names from `InstallOrder` and its lines from `Wire`.
+4. Build. The compiler names every place that still uses the module. Whatever a lower module needed from it had a
+   hook (`Links.cs`); the hook keeps its "without the module" answer.
 
-## Haken statt Verweise nach oben (`Links.cs`)
+## Hooks instead of upward references (`Links.cs`)
 
-Braucht ein tiefes Modul etwas von einem höheren (`Komet.Rendering` fragt zum Beispiel, ob der Vulkan-Renderer zeichnet),
-hat es einen **Haken**: ein `Func<…>` oder `Action<…>` in seiner `Links.cs` mit einer Antwort für den Fall, dass das obere
-Modul fehlt. `Komet/Modules.cs` setzt beim Start (`Wire`) jeden Haken auf die echte Methode.
+If a low module needs something from a higher one (`Komet.Rendering` asks, for example, whether the Vulkan renderer is
+drawing), it has a **hook**: a `Func<…>` or `Action<…>` in its `Links.cs` with an answer for the case that the upper
+module is missing. At start (`Wire`), `Komet/Modules.cs` sets every hook to the real method.
 
-Neue Abhängigkeit nach oben? Nie ein `using` auf das obere Modul, sondern:
+New upward dependency? Never a `using` on the upper module, instead:
 
-1. Haken in der `Links.cs` des tiefen Moduls anlegen, mit Kommentar und einer Antwort ohne das Modul.
-2. In `Modules.cs` bei `Wire` setzen.
+1. Create the hook in the low module's `Links.cs`, with a comment and an answer for "without the module".
+2. Set it in `Wire` in `Modules.cs`.
 
-## Die Regeln (Komet.Rules)
+## The rules (Komet.Rules)
 
-Der Analyzer `tools/Komet.Rules` prüft bei jedem Build Regeln nach dem Muster "Power of Ten". Die wichtigsten:
+The analyzer `tools/Komet.Rules` checks rules after the "Power of Ten" pattern on every build. The most important:
 
-| Regel | Heißt | Was du tust |
+| Rule | Means | What you do |
 |---|---|---|
-| KR0001 | keine `while`-Schleifen | `for` mit fester Obergrenze, zum Beispiel `Math.Min(list.Count, MaxItems)` |
-| KR0004 | `for` braucht eine konstante Grenze | Grenze als `const` oder `Math.Min(…, Konstante)` |
-| KR0005 | `foreach` nur über `Bounded(…)` | `foreach (var x in list.Bounded(MaxItems))` |
-| KR0008 | eine Methode höchstens 60 Zeilen | aufteilen |
-| KR0010/11 | Lang-Schlüssel fehlt oder nur in einer Sprache | in `de.json` und `en.json` ergänzen |
+| KR0001 | no `while` loops | `for` with a fixed upper bound, for example `Math.Min(list.Count, MaxItems)` |
+| KR0004 | `for` needs a constant bound | bound as `const` or `Math.Min(…, constant)` |
+| KR0005 | `foreach` only over `Bounded(…)` | `foreach (var x in list.Bounded(MaxItems))` |
+| KR0008 | a method at most 60 lines | split it |
+| KR0010/11 | lang key missing or only in one language | add it to `de.json` and `en.json` |
 
-Verträge (`Assert`, `NotNull`, `Index`, `Finite`, `Bounded`) gehören dorthin, wo ein falscher Wert ein Fehler wäre, nicht
-überall.
+Contracts (`Assert`, `NotNull`, `Index`, `Finite`, `Bounded`) belong where a wrong value would be a bug, not
+everywhere.
 
-## Typische Compiler-Meldungen
+## Typical compiler messages
 
-| Meldung | Bedeutet | Lösung |
+| Message | Means | Fix |
 |---|---|---|
-| `CS0234: Namespace "X" ist im Namespace "Komet" nicht vorhanden` | Ein Modul greift nach oben | Haken in `Links.cs` (siehe oben) oder die Klasse ins tiefere Modul verschieben |
-| `CS0122: … ist aufgrund der Schutzstufe nicht zugänglich` | Ein `internal` aus einem anderen Modul | Alle Komet-Projekte sehen sich gegenseitig (`InternalsVisibleTo` in `Komet.Module.props`); fehlt dein Projekt dort, trage es ein |
-| `IDE0005: Using-Direktive ist unnötig` | Ein `using` ohne Verwendung | Zeile löschen |
-| `Found multiple .dll files with ModSystems` (im Spiel-Log) | Ein Modul enthält eine Klasse `: ModSystem` | Sie gehört ins Projekt `Komet` (`ModulesTests` prüft das) |
+| `CS0234: The type or namespace name 'X' does not exist in the namespace 'Komet'` | A module reaches upwards | Hook in `Links.cs` (see above) or move the class into the lower module |
+| `CS0122: '…' is inaccessible due to its protection level` | An `internal` from another module | All Komet projects see each other (`InternalsVisibleTo` in `Komet.Module.props`); if your project is missing there, add it |
+| `IDE0005: Using directive is unnecessary` | A `using` without use | Delete the line |
+| `Found multiple .dll files with ModSystems` (in the game log) | A module contains a class `: ModSystem` | It belongs in the project `Komet` (`ModulesTests` checks this) |
 
-## Für Mod-Autoren
+## For mod authors
 
-Andere Mods binden **`Komet.Core.dll`** ein, nicht `Komet.dll`: Dort liegt die öffentliche API (`Komet.Api`). Was in
-`Komet.Core/Api/` `public` ist, ist Teil der API und ändert sich nur mit Bedacht; ihre XML-Kommentare werden die
-API-Referenz auf `docs/site`.
+Other mods reference **`Komet.Core.dll`**, not `Komet.dll`: that is where the public API (`Komet.Api`) lives. Whatever
+is `public` in `Komet.Core/Api/` is part of the API and changes only with care; its XML comments become the API
+reference on `docs/site`.

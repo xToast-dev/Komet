@@ -220,9 +220,9 @@ internal sealed partial class SceneRenderer
     {
         var key = (array, array.Changes, program.Program.Id);
         if (_layouts.TryGetValue(key, out var known)) return known;
-        var (attributes, sources) = (_laidAttributes, _laidSources); // reused: a re-pointed array misses once per change
-        attributes.Clear();
-        sources.Clear();
+        // the lists are reused: a re-pointed array misses once per change
+        _laidAttributes.Clear();
+        _laidSources.Clear();
         foreach (var input in GlslPort.Columns(program.Program.Ported.Attributes).Bounded(MaxInputs))
         {
             var a = input.Location < GlTap.MaxAttributes ? array.Attributes[input.Location] : default;
@@ -231,20 +231,20 @@ internal sealed partial class SceneRenderer
             if (a.Divisor > 1 && !_terrain.Device.Divisors) return Remember(key, null);
             var constantType = (int)(integer ? GlInt : GlFloat);
             var made = a.Enabled
-                ? new TerrainPools.Attribute(input.Location, sources.Count, a.Size, (int)a.Type, a.Normalized, a.Integer)
+                ? new TerrainPools.Attribute(input.Location, _laidSources.Count, a.Size, (int)a.Type, a.Normalized, a.Integer)
                 {
                     Stride = a.Stride, Offset = a.Offset, Divisor = (int)a.Divisor
                 }
-                : new TerrainPools.Attribute(input.Location, sources.Count, 4, constantType, false, integer);
+                : new TerrainPools.Attribute(input.Location, _laidSources.Count, 4, constantType, false, integer);
             if (TerrainPipeline.Format(made) == 0) return Remember(key, null);
-            attributes.Add(made);
+            _laidAttributes.Add(made);
             var constant = integer ? 16L : 0L; // where the constant of the input's kind lies
             // Pointer offset goes into the binding, attributes start at 0 (interleaved instance data, e.g. particles at
             // 0 and 12)
-            sources.Add((input.Location, a.Enabled ? a.Buffer : 0, a.Enabled ? a.Offset : constant));
+            _laidSources.Add((input.Location, a.Enabled ? a.Buffer : 0, a.Enabled ? a.Offset : constant));
         }
 
-        return Remember(key, new Layout(FormatsOf(program.Laid?.Layout?.Formats), [.. sources]));
+        return Remember(key, new Layout(FormatsOf(program.Laid?.Layout?.Formats), [.. _laidSources]));
     }
 
     // The program's last formats while the inputs' formats are the same (no key text built), else the shared one by key
@@ -384,9 +384,9 @@ internal sealed partial class SceneRenderer
             if (bound.Buffer != 0)
             {
                 if (Mirrors.Read(bound.Buffer) is not { } m)
-                    return Refuse(out why, TerrainRenderer.Reason("{0}'s block {1} reads a buffer with no mirror", program.Name, blocks[i].Name, ""));
+                    return Refuse(out why, TerrainRenderer.Reason("{0}'s block {1} reads a buffer with no mirror", program.Name, blocks[i].Name));
                 if (bound.Offset < 0 || (ulong)bound.Offset + (ulong)Math.Max(bound.Size, 0) > m.Size)
-                    return Refuse(out why, TerrainRenderer.Reason("{0}'s block {1} reads past its buffer", program.Name, blocks[i].Name, ""));
+                    return Refuse(out why, TerrainRenderer.Reason("{0}'s block {1} reads past its buffer", program.Name, blocks[i].Name));
                 var size = bound.Size > 0 ? (ulong)bound.Size : m.Size - (ulong)bound.Offset;
                 descriptor = new Vk.BufferDescriptor
                 {

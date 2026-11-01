@@ -27,8 +27,7 @@ internal sealed class Rewrites
         if (original is null) return;
         lock (_done)
         {
-            if (rewritten) _ = _done.Add(original);
-            else _ = _done.Remove(original);
+            _ = rewritten ? _done.Add(original) : _done.Remove(original);
         }
     }
 }

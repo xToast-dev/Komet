@@ -1,6 +1,8 @@
 # Komet.World
 
-Die Weltseite: Licht, Karte, Wetter, Events und Puffer gegen Speichermüll; vieles läuft auch auf dem eingebauten
-Server. Benutzt nur `Komet.Core`: ein gutes Modul, um das Muster zu lernen.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `WorldFeatures.cs`.
+The world side: light, map, weather, events and buffers against garbage; much of it also runs on the built-in
+server. Uses only `Komet.Core`: a good module to learn the pattern from.
+
+Features: `WorldFeatures.cs`.

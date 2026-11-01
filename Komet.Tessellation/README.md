@@ -1,6 +1,8 @@
 # Komet.Tessellation
 
-Ein Chunk wird zum Mesh: Komets eigener Chunk-Aufbau (`Own/`), seine Planung auf dem Worker-Pool (`Scheduling/`) und
-ferne Details (`FarLod`, `FarFoliage`, `DeepCulling`). Benutzt `Komet.Core`, `Komet.Diagnostics` und `Komet.Rendering`.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `TessellationFeatures.cs`.
+A chunk becomes a mesh: Komet's own chunk building (`Own/`), its scheduling on the worker pool (`Scheduling/`) and
+far detail (`FarLod`, `FarFoliage`, `DeepCulling`). Uses `Komet.Core`, `Komet.Diagnostics` and `Komet.Rendering`.
+
+Features: `TessellationFeatures.cs`.

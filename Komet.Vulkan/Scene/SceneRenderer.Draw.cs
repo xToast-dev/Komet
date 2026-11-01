@@ -88,7 +88,7 @@ internal sealed partial class SceneRenderer
         var stencils = (rasterized.Caps & (uint)GlTap.Caps.Stencil) != 0; // may write the stencil, never read-only
         var target = _terrain.Target(rasterized, out var refused, depthReadOnly: stencils ? false : null);
         // refused every frame with the same reason: formatted once (TerrainRenderer.Reason)
-        if (target is null) return Refuse(out why, TerrainRenderer.Reason("{0} {1}", program.Name, refused, ""));
+        if (target is null) return Refuse(out why, TerrainRenderer.Reason("{0} {1}", program.Name, refused));
         var state = Stenciled(rasterized, target);
         var recorded = Sampled(program, target, out why);
         if (recorded is not null) recorded = Unfed(program, recorded, target, out why);

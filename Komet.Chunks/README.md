@@ -1,6 +1,8 @@
 # Komet.Chunks
 
-Das Ankommen der Chunks: Nachschlagen, Budgets für Upload und Laden, Packen im RAM, Recycler und Block-Entities.
-Benutzt `Komet.Core`, `Komet.Diagnostics` und `Komet.Tessellation`.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `ChunkFeatures.cs`.
+How chunks arrive: lookups, budgets for upload and loading, packing in RAM, the recycler and block entities.
+Uses `Komet.Core`, `Komet.Diagnostics` and `Komet.Tessellation`.
+
+Features: `ChunkFeatures.cs`.

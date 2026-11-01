@@ -1,7 +1,9 @@
 # Komet.Vulkan
 
-Der Vulkan-Renderer: Gerät und Speicher, der GL-Tap (liest jeden OpenGL-Aufruf des Spiels mit), Gelände, Szene,
-Swapchain und die Shader-Ports nach SPIR-V. Füllt die Haken von `Komet.Rendering` (über `Komet/Modules.cs`). Benutzt
-`Komet.Core`, `Komet.Diagnostics`, `Komet.Rendering`, `Komet.Chunks` und `Komet.Shapes`.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `VulkanFeatures.cs`.
+The Vulkan renderer: device and memory, the GL tap (reads along every OpenGL call of the game), terrain, scene,
+swapchain and the shader ports to SPIR-V. Fills the hooks of `Komet.Rendering` (via `Komet/Modules.cs`). Uses
+`Komet.Core`, `Komet.Diagnostics`, `Komet.Rendering`, `Komet.Chunks` and `Komet.Shapes`.
+
+Features: `VulkanFeatures.cs`.

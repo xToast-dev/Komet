@@ -1,7 +1,9 @@
 # Komet.Rendering
 
-Der OpenGL-Zeichenpfad des Spiels, beschleunigt: Culling, Mesh-Pools und Uploads, Shader und Shader-Packs, Schatten,
-Frame-Takt. Kennt Vulkan nicht; was es von dort braucht, fragt es über `Links.cs`. Benutzt `Komet.Core` und
+> Machine-translated from German; wording may be rough in places.
+
+The game's OpenGL drawing path, sped up: culling, mesh pools and uploads, shaders and shader packs, shadows,
+frame pacing. Knows nothing of Vulkan; whatever it needs from there it asks through `Links.cs`. Uses `Komet.Core` and
 `Komet.Diagnostics`.
 
-Funktionen: `RenderingFeatures.cs`.
+Features: `RenderingFeatures.cs`.

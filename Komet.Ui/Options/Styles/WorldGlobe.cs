@@ -75,7 +75,7 @@ internal sealed class WorldGlobe(ICoreClientAPI capi) : IDisposable
     {
         if (_next < 0 || capi.World?.BlockAccessor is not { } blocks) return;
         var end = Math.Min(Count, _next + PerFrame);
-        var last = (X: -1, Z: -1, Chunk: (IMapChunk?)null); // samples 4..24 blocks apart: up to 8 in a row share a chunk
+        (int X, int Z, IMapChunk? Chunk) last = (-1, -1, null); // samples 4..24 blocks apart: up to 8 in a row share a chunk
         for (var i = _next; i < Math.Min(end, Count); i++) Sample(blocks, i, ref last);
         _next = end;
         if (_next < Count) return;

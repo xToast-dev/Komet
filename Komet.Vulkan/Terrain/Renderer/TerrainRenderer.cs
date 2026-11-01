@@ -432,17 +432,34 @@ internal sealed partial class TerrainRenderer
 
     // A rejected draw comes again every frame with the same reason: its text is formatted once (keyed by its format and
     // parts), not allocated per draw. Render thread only, like Miss.
-    public static string Reason(string format, string a) => !NotNull(format) ? "" :
-        Made((format, a, "", ""), static k => string.Format(CultureInfo.InvariantCulture, k.Item1, k.Item2));
-
-    public static string Reason(string format, string a, string b, string c) => !NotNull(format) ? "" :
-        Made((format, a, b, c), static k => string.Format(CultureInfo.InvariantCulture, k.Item1, k.Item2, k.Item3, k.Item4));
-
-    private static string Made((string, string, string, string) key, System.Func<(string, string, string, string), string> format)
+    public static string Reason(string format, string a)
     {
-        if (!NotNull(key.Item2) || !NotNull(key.Item3) || !NotNull(key.Item4)) return "";
-        if (Reasons.TryGetValue(key, out var made)) return made;
-        made = format(key);
+        if (Cached((format, a, "", ""), out var made)) return made;
+        return Kept((format, a, "", ""), string.Format(CultureInfo.InvariantCulture, format, a));
+    }
+
+    public static string Reason(string format, string a, string b)
+    {
+        if (Cached((format, a, b, ""), out var made)) return made;
+        return Kept((format, a, b, ""), string.Format(CultureInfo.InvariantCulture, format, a, b));
+    }
+
+    public static string Reason(string format, string a, string b, string c)
+    {
+        if (Cached((format, a, b, c), out var made)) return made;
+        return Kept((format, a, b, c), string.Format(CultureInfo.InvariantCulture, format, a, b, c));
+    }
+
+    // True with the text when known; also true with "" for a missing part, so nothing is formatted
+    private static bool Cached((string, string, string, string) key, out string made)
+    {
+        made = "";
+        if (!NotNull(key.Item1) || !NotNull(key.Item2) || !NotNull(key.Item3) || !NotNull(key.Item4)) return true;
+        return Reasons.TryGetValue(key, out made!);
+    }
+
+    private static string Kept((string, string, string, string) key, string made)
+    {
         if (Reasons.Count < MaxReasons) Reasons[key] = made;
         return made;
     }

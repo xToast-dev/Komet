@@ -1,6 +1,8 @@
 # Komet.Diagnostics
 
-Alles, was Komet misst: Frame-Uhr, Render-Kosten, Spikes, Zeiten anderer Mods und Prozesswerte (GPU, RAM, Threads,
-Hänger). Hier wird nur gezählt, nie gezeichnet; das HUD in `Komet.Ui` zeigt die Zahlen. Benutzt `Komet.Core`.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `DiagnosticsFeatures.cs`.
+Everything Komet measures: frame clock, render costs, spikes, other mods' timings and process values (GPU, RAM, threads,
+hangs). This module only counts, it never draws; the HUD in `Komet.Ui` shows the numbers. Uses `Komet.Core`.
+
+Features: `DiagnosticsFeatures.cs`.

@@ -3,7 +3,7 @@
     <!-- Shared by the mod project (Komet) and every module project (Komet.Core … Komet.Ui): what they are built with, the game
          assemblies they compile against (supplied by the game at runtime, never copied into the mod), who may see their
          internals, and the Komet.Rules analyzer with the lang files it reads. A module's own csproj holds only its references to
-         the modules below it. See MODULE.md in each module and WARTUNG.md for the layering. -->
+         the modules below it. See README.md in each module and MAINTAINING.md for the layering. -->
 
     <PropertyGroup>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

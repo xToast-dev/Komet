@@ -78,7 +78,7 @@ internal static class PackCommit
     // The engine's walk: packed ones counted, the player's own column kept fresh, the rest past their time queued
     private static void Scan(object system, ClientWorldMap map, Dictionary<long, ClientChunk> chunks, (int X, int Y, int Z) at, int ttl)
     {
-        var (queue, compressed) = (_compactable!(system), 0);
+        var compressed = 0;
         var (own, pos) = (new Vec3i(at.X, at.Y, at.Z) / map.ClientChunkSize, new Vec3i());
         foreach (var (key, chunk) in chunks.Bounded(MaxChunks))
         {
@@ -91,7 +91,7 @@ internal static class PackCommit
             if (Environment.TickCount - chunk.lastReadOrWrite <= ttl || Centre(chunk) is null || Edge(chunk) is null) continue;
             MapUtil.PosInt3d(key, map.index3dMulX, map.index3dMulZ, pos);
             if (Math.Abs(own.X - pos.X) < 2 && Math.Abs(own.Z - pos.Z) < 2 && !chunk.Empty) chunk.MarkFresh();
-            else queue.Enqueue(key);
+            else _compactable!(system).Enqueue(key);
         }
 
         _compressed!(system) = compressed;

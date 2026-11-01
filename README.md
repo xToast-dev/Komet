@@ -20,7 +20,7 @@ Drop the release zip (`komet_<version>.zip`) into the game's `Mods` folder.
 
 - **Players and mod authors**: in game, Escape › Settings, sections **Help** and **Modding**.
 - **Code authors**: the developer site in `docs/site` (API reference and articles), built with `scripts/apidocs.sh`.
-- **Maintenance**: [WARTUNG.md](WARTUNG.md) (German).
+- **Maintenance**: [MAINTAINING.md](MAINTAINING.md).
 
 ## Building
 

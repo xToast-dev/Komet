@@ -1,7 +1,9 @@
 # Komet.Core
 
-Das Fundament: die öffentliche API für andere Mods (`Api/`, Namespace `Komet.Api`; Mod-Autoren binden nur
-`Komet.Core.dll` ein), das Funktions-Register (`Features/`), die Verträge (`Contracts.cs`) und kleine Helfer für alle
-Module. Benutzt kein anderes Komet-Modul.
+> Machine-translated from German; wording may be rough in places.
 
-Funktionen: `CoreFeatures.cs`.
+The foundation: the public API for other mods (`Api/`, namespace `Komet.Api`; mod authors reference only
+`Komet.Core.dll`), the feature registry (`Features/`), the contracts (`Contracts.cs`) and small helpers for all
+modules. Uses no other Komet module.
+
+Features: `CoreFeatures.cs`.

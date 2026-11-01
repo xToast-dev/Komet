@@ -264,6 +264,7 @@ internal sealed class BenchDriver : IRenderer
             (_t, _clock) = (_t + dt, _clock + dt);
             TurnShot(dt);
             StillShots(dt);
+            GroundShots(dt);
             if (!Step()) return;
             if (_run.Config.Gui == BenchGui.Creative && _run.Segments[_index].Kind == BenchKind.Still) BenchGui.Scroll(_capi, dt);
         }
@@ -288,6 +289,19 @@ internal sealed class BenchDriver : IRenderer
             $"burst-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-{_burst:D2}.png"));
         _burst++;
         _ = Assert(dt >= 0);
+    }
+
+    private static int Quarter(BenchSegment segment, double t) => Math.Clamp((int)(4 * t / segment.Seconds), 0, 3);
+
+    // Standing on the ground: one shot near the end of each quarter turn, the terrain around the player as it settled
+    private void GroundShots(float dt)
+    {
+        var segment = _run.Segments[_index];
+        if (_shots is null || segment.Kind != BenchKind.Ground || segment.Seconds <= 0) return;
+        var quarter = Quarter(segment, _t);
+        var at = (quarter + 0.9) * segment.Seconds / 4;
+        if (_t < at || _t - dt >= at) return;
+        _shots.Take(string.Create(CultureInfo.InvariantCulture, $"shot-ground-{quarter}.png"));
     }
 
     // Mid-turn as well: what a cache or reprojection gets wrong shows while the camera turns
@@ -481,7 +495,8 @@ internal sealed class BenchDriver : IRenderer
         if (segment.Kind == BenchKind.Setup || !NotNull(entity) || !Finite(_t)) return;
         if (segment.Kind == BenchKind.Climb) _pose = Glide(_from, _home, _t, _climbSeconds);
         else if (segment.Kind == BenchKind.Land) _pose = Glide(_lift, _landing, _t, _climbSeconds);
-        else if (segment.Kind == BenchKind.Ground) _pose = (_landing.X, _landing.Y, _landing.Z, BenchScenario.Heading);
+        else if (segment.Kind == BenchKind.Ground) // a quarter turn each quarter of the time: GroundShots looks all around
+            _pose = (_landing.X, _landing.Y, _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
         else
         {
             var pose = BenchScenario.Pose(segment, _t, BenchScenario.Heading, _run.Config.Speed * _run.Config.Leg);

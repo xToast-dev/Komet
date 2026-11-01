@@ -86,6 +86,7 @@ internal static partial class OcclusionCulling
         (_frameRanges, _frameDraws, _surfaceRanges, _surfaceDraws, _builtThisFrame, _captured) = (0, 0, 0, 0, false, false);
         (_camera, _view, _late, _compared) = (null, default, false, false);
         ClearBindings();
+        BeginBatch();
         BeginRows(engineless);
         Gpu.Zero(CounterBuffers[_frame % Ring], 0, StatUints);
     }
@@ -159,8 +160,13 @@ internal static partial class OcclusionCulling
             (_px, _py, _pz) = (camera.X, camera.Y, camera.Z);
         }
 
-        if (!_compared || _surfaceRanges == 0) return;
         var counters = CounterBuffers[_frame % Ring];
+        if (!_compared || _surfaceRanges == 0)
+        {
+            if (_builtThisFrame) CullLater(counters);
+            return;
+        }
+
         if (_surfaceRows) LateRows(counters, texture != 0);
         else
         {
@@ -169,6 +175,7 @@ internal static partial class OcclusionCulling
                 ((0, _surfaceRanges), (0, _surfaceDraws)));
         }
 
+        if (_builtThisFrame) CullLater(counters); // in the same break, before the late draws begin rendering again
         IssueLate(counters);
         Gpu.Texture(DepthPyramid.Unit, 0);
     }

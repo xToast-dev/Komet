@@ -352,6 +352,8 @@
   "settings-shaderusecache-hint": "Schickt nur geänderte Shader-Werte an die Grafikkarte statt jedes Mal alle.",
   "settings-distantshadows": "Schatten in der Ferne",
   "settings-distantshadows-hint": "Gelände wirft Schatten bis zur Sichtweite statt nur etwa 200 Blöcke weit. Ferne Schatten werden nur nach und nach neu gezeichnet, wenn die Sonne wandert oder du weit reist, und kosten daher wenig. Nahe Schatten bleiben wie im Spiel.",
+  "settings-insideblock": "Kein Durchblick aus Blöcken",
+  "settings-insideblock-hint": "Steckt die Kamera in einem festen Block (durch den Boden fliegen, eine Kamera an der Wand), wird das Bild in der abgedunkelten Farbe des Blocks abgedeckt, statt die Höhlen dahinter zu zeigen.",
   "settings-occlusionculling": "Verdecktes Gelände auslassen",
   "settings-occlusionculling-hint": "Die Grafikkarte lässt Gelände weg, das du nicht sehen kannst. 0: wie im Spiel. 1: auch Gelände, das hinter anderem liegt. 2: die Grafikkarte übernimmt alles selbst und entlastet den Prozessor. Nur mit Vulkan; braucht deine Grafikkarte für 2 eine bestimmte Fähigkeit nicht, gilt 1.",
   "settings-vulkan-advanced": "Erweitert: jeder Teil einzeln",

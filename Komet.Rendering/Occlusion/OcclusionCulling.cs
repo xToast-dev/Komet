@@ -100,6 +100,8 @@ internal static partial class OcclusionCulling
         Array.Clear(Draws);
         Array.Clear(Records);
         Array.Clear(Snapshots);
+        ClearBatch();
+        ClearShadowBatch();
         Release();
     }
 
@@ -141,6 +143,8 @@ internal static partial class OcclusionCulling
         var locations = Scan(pools);
         var rows = _rowsFrame;
         var backFaces = rows && pass is Opaque or Topsoil && BackFacesCulled();
+        if (rows && HoldingBatched(__instance, pools, playerpos, (originUniformName, surface, pass == Topsoil && last, backFaces)))
+            return;
         if (!Room(locations * (backFaces ? Runs : 1), pools.Count) ||
             (rows && !Rowed(Culler(__instance), pools, rows))) return;
         if (_camera is null)
@@ -218,11 +222,23 @@ internal static partial class OcclusionCulling
         if (!_holding) return;
         var rows = _rowsCall;
         (_holding, _rowsCall) = (false, false);
-        var (pools, shadow) = (Pools(__instance), _shadowCall);
-        _shadowCall = false;
+        var (pools, shadow, batched) = (Pools(__instance), _shadowCall, _batchCall);
+        (_shadowCall, _batchCall) = (false, -1);
+        if (batched >= 0 && IssuingBatched(batched))
+        {
+            if (_lastSurface && _late) FinishSurfaces();
+            return;
+        }
+
+        // laid out otherwise than drawn: culled on its own, as without the batch
+        if (batched >= 0 && (!NotNull(pools) || !Rowed(Culler(__instance), pools, true))) Held.Clear();
         if (rows && shadow && NotNull(pools) && Held.Count > 0)
         {
-            IssuingShadow(Culler(__instance), pools);
+            var entry = _shadowBatchCall;
+            _shadowBatchCall = -1;
+            if (entry >= 0 && IssuingShadowBatched(entry)) return;
+            if (entry < 0 || Rowed(Culler(__instance), pools, true)) IssuingShadow(Culler(__instance), pools);
+            else Held.Clear(); // laid out otherwise than drawn and no rows now: nothing to cull it from
             return;
         }
 
@@ -363,9 +379,10 @@ internal static partial class OcclusionCulling
     // Under Vulkan: whether it takes GL's draws now; counted draws have no GL fallback, so only then is a call held
     internal static Func<bool>? Takes { get; set; }
 
-    private static void ShadowOpening()
+    private static void ShadowOpening(ChunkRenderer __instance)
     {
         _ = Assert(!_holding);
+        BeginShadowBatch(__instance);
         (_holding, _rowsCall, _shadowCall) = (false, false, false); // as Opening: a call that threw left them set
         _shadowing = Active && RowsEnabled && VulkanDraws && Ready() && _rowsReady;
         _casting = _shadowing && ShadowView.Casting;
@@ -374,7 +391,7 @@ internal static partial class OcclusionCulling
     private static void ShadowClosing()
     {
         _ = Assert(!_holding);
-        (_shadowing, _shadowCall, _casting) = (false, false, false);
+        (_shadowing, _shadowCall, _casting, _shadowBatchCall) = (false, false, false, -1);
     }
 
     private static void HoldingShadow(MeshDataPoolManager manager, Vec3d playerpos, string origin, EnumFrustumCullMode mode)
@@ -388,6 +405,16 @@ internal static partial class OcclusionCulling
         if (pass == 0 || !NotNull(manager) || !NotNull(playerpos) || Pools(manager) is not { } pools) return;
         if (VulkanDraws && Takes?.Invoke() != true) return; // e.g. DistantShadows' own map: OpenGL's, culled by the CPU
         if (_shadowFrame != _frame) (_shadowRanges, _shadowDraws, _shadowFrame) = (0, MaxDraws, _frame);
+        PrepareShadow(Culler(manager), playerpos, pass);
+        if (ShadowBatching(manager, playerpos) is var entry and >= 0)
+        {
+            _ = Scan(pools); // Mini, for Hold
+            (_holding, _rowsCall, _shadowCall, _shadowBatchCall, _origin) = (true, true, true, entry, origin);
+            (_shadowCamera, _shadowMode) = (playerpos, pass); // for culling it on its own after all
+            Held.Clear();
+            return;
+        }
+
         var locations = Scan(pools);
         if (_shadowRanges + locations > MaxRanges || _shadowDraws + pools.Count > 2 * MaxDraws ||
             !Rowed(Culler(manager), pools, true)) return;
@@ -402,20 +429,23 @@ internal static partial class OcclusionCulling
         var (first, cursor) = (_shadowRanges, _shadowRanges);
         var draws = Lay(pools, camera, ref cursor, (_shadowDraws, 2 * MaxDraws), 1);
         if (draws > _shadowDraws)
-            CullShadow((first, cursor - first), (_shadowDraws, draws - _shadowDraws), culler, camera);
+            CullShadow((first, cursor - first), (_shadowDraws, draws - _shadowDraws), (culler, camera, _callMaxRows),
+                issue: true);
     }
 
-    private static void CullShadow((int First, int Count) ranges, (int First, int Count) draws, FrustumCulling culler,
-        Vec3d camera)
+    // issue: the draws follow now (one call), else from the stage's batch call by call
+    private static void CullShadow((int First, int Count) ranges, (int First, int Count) draws,
+        (FrustumCulling Culler, Vec3d Camera, int Rows) by, bool issue)
     {
+        var (culler, camera) = (by.Culler, by.Camera);
         if (!Assert(draws.First >= MaxDraws && draws.First + draws.Count <= 2 * MaxDraws) ||
             !Assert(ranges.First + ranges.Count <= MaxRanges)) return;
         var counters = CounterBuffers[_frame % Ring];
         UploadRows(draws, culler, camera, (_shadowMode, false));
         Prime(draws, counters, both: false);
         BindRows(counters);
-        RowsPass(ViewProjection, (0, 0, 0), (1, Keep, StatUints + MaxDraws, ShadowBase), draws, _callMaxRows);
-        Issue(draws, (ShadowBase, StatUints + MaxDraws), counters);
+        RowsPass(ViewProjection, (0, 0, 0), (1, Keep, StatUints + MaxDraws, ShadowBase), draws, by.Rows);
+        if (issue) Issue(draws, (ShadowBase, StatUints + MaxDraws), counters);
         (_shadowRanges, _shadowDraws) = (ranges.First + ranges.Count, draws.First + draws.Count);
         Gpu.Texture(DepthPyramid.Unit, 0);
     }

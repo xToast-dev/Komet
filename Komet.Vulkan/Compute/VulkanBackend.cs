@@ -32,6 +32,7 @@ internal sealed unsafe partial class VulkanBackend : IGpuBackend, IDisposable
     private int _placeholderImage, _placeholderBuffer;
     private long _collected = -1;
     private bool _disposed;
+    private bool _transferred; // copies or fills recorded since the last barrier
 
     // frame: recording into its segments; shared: the shared image of an engine texture, for Engine
     internal VulkanBackend(VulkanDevice device, VulkanFrame? frame, System.Func<int, SharedImage?>? shared)
@@ -185,9 +186,12 @@ internal sealed unsafe partial class VulkanBackend : IGpuBackend, IDisposable
         if (!Index(buffer, MaxHandles) || _buffers[buffer] is not { } b || !Assert(firstUint >= 0 && uints > 0)) return;
         var (target, at, size) = (b.View.Buffer, b.View.Offset + 4 * (ulong)firstUint, 4 * (ulong)uints);
         if (target == 0) return;
-        if (_frame is { } frame) // an op of its own: no closure per fill, a few dozen a frame
+        if (_frame is not null) // a pooled op: no closure per fill, a few dozen a frame
         {
-            if (!frame.Fill(target, at, size)) Refused++;
+            var op = Taken();
+            (op.Copy, op.Fill) = ((0, target, new Vk.BufferCopy { TargetOffset = at, Size = size }), true);
+            _transferred = true;
+            Record(op.Run);
             return;
         }
 
@@ -236,11 +240,14 @@ internal sealed unsafe partial class VulkanBackend : IGpuBackend, IDisposable
             });
     }
 
-    // Records the copy, ordered before what follows as a GL buffer copy is
+    // Records the copy; the next dispatch or barrier orders it before what follows, as GL orders a buffer copy. Copies
+    // and fills between two dispatches write apart (the culling's uploads), so one barrier serves them all: a barrier
+    // each drained the GPU some forty times a frame.
     private void Copied(ulong from, ulong to, Vk.BufferCopy region)
     {
         var op = Taken();
-        op.Copy = (from, to, region);
+        (op.Copy, op.Fill) = ((from, to, region), false);
+        _transferred = true;
         Record(op.Run);
     }
 
@@ -627,7 +634,8 @@ internal sealed unsafe partial class VulkanBackend
             }
         }
 
-        op.Program = p;
+        (op.Program, op.After) = (p, _transferred);
+        _transferred = false;
         Record(op.Run);
     }
 
@@ -649,6 +657,12 @@ internal sealed unsafe partial class VulkanBackend
         }
 
         VkApi.CmdDispatch(commands, (uint)groups.X, (uint)groups.Y, 1);
+    }
+
+    private static void Dispatched(IntPtr commands, Recorded described)
+    {
+        if (described.After) Ordered(commands); // the copies and fills since the last barrier
+        if (described.Program is { } p) Dispatched(commands, p, described);
     }
 
     private Vk.BufferDescriptor Described(Spirv.Resource r)
@@ -690,7 +704,9 @@ internal sealed unsafe partial class VulkanBackend
     // Every write before, by shaders or copies, is seen by every read or write after, including indirect commands
     public void Barrier(GpuBarrier wait)
     {
-        if (Assert(wait != GpuBarrier.None)) Record(Ordered);
+        if (!Assert(wait != GpuBarrier.None)) return;
+        _transferred = false;
+        Record(Ordered);
     }
 
     internal static void Ordered(IntPtr commands)
@@ -732,7 +748,8 @@ internal sealed unsafe partial class VulkanBackend
         public readonly Vk.ImageDescriptor[] Images = new Vk.ImageDescriptor[MaxResources];
         public readonly Action<IntPtr> Run;
         private readonly VulkanBackend _owner;
-        public ProgramSlot? Program; // a dispatch; null: the copy
+        public ProgramSlot? Program; // a dispatch; null: the copy or fill
+        public bool After, Fill; // a dispatch after copies or fills not yet ordered; the transfer fills
         public int Count;
         public (int X, int Y) Groups;
         public (ulong From, ulong To, Vk.BufferCopy Region) Copy;
@@ -744,18 +761,17 @@ internal sealed unsafe partial class VulkanBackend
 
         private void Execute(IntPtr commands)
         {
-            if (Program is { } p) Dispatched(commands, p, this);
-            else CopyRecorded(commands, Copy);
-            Program = null;
+            if (Program is not null) Dispatched(commands, this);
+            else if (Fill) VkApi.CmdFillBuffer(commands, Copy.To, Copy.Region.TargetOffset, Copy.Region.Size, 0);
+            else
+            {
+                var region = Copy.Region;
+                VkApi.CmdCopyBuffer(commands, Copy.From, Copy.To, 1, &region);
+            }
+
+            (Program, After) = (null, false);
             _owner.Recycled(this);
         }
-    }
-
-    private static void CopyRecorded(IntPtr commands, (ulong From, ulong To, Vk.BufferCopy Region) copy)
-    {
-        var region = copy.Region;
-        VkApi.CmdCopyBuffer(commands, copy.From, copy.To, 1, &region);
-        Ordered(commands);
     }
 
     private sealed record ProgramSlot(ulong Pipeline, ulong Layout, ulong Set, Spirv.Resource[] Resources);

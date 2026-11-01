@@ -248,6 +248,27 @@ bool Hidden(vec3 centre, vec3 extent, int axis, float least, float greatest)
     return high[axis] >= low[axis] && Hidden(low, high);
 }
 
+// Runs + 1 runs, the last just opened (its end still to come): the smallest gap is drawn over; returns Runs
+uint Joined(inout uint firsts[Runs + 1u], inout uint ends[Runs + 1u], uint runs)
+{
+    uint at = 0u, gap = 0xFFFFFFFFu;
+    for (uint r = 0u; r + 1u < runs; r++)
+        if (firsts[r + 1u] - ends[r] < gap)
+        {
+            gap = firsts[r + 1u] - ends[r];
+            at = r;
+        }
+
+    ends[at] = ends[at + 1u];
+    for (uint r = at + 1u; r + 1u < runs; r++)
+    {
+        firsts[r] = firsts[r + 1u];
+        ends[r] = ends[r + 1u];
+    }
+
+    return runs - 1u;
+}
+
 void main()
 {
     uint draw = uint(span.y) + gl_WorkGroupID.y;
@@ -287,8 +308,8 @@ void main()
     // The runs of faces to draw: the whole range, or for a sorted row the slabs facing the camera (each slab of a +a direction is
     // seen from above its least plane, of a -a one from below its greatest) that the depth pyramid does not hide, with misc.z 2;
     // with 1 a direction is one slab, its least plane to its greatest. Again for the slabs pass 0 hid (verdict bits) only those.
-    // Neighbours are joined; past Runs the smallest gaps are drawn over.
-    uint firsts[Segments], ends[Segments];
+    // Neighbours are joined; a run past Runs draws over the smallest gap so far (few registers, no scratch array).
+    uint firsts[Runs + 1u], ends[Runs + 1u];
     uint runs = 0u, drawn = 0u;
     if (misc.z == 0 || (row.flags & 16u) == 0u)
     {
@@ -338,7 +359,14 @@ void main()
             if (shown && n > 0u)
             {
                 uint first = row.first + 6u * faces;
-                if (!open) firsts[runs++] = first;
+                if (!open)
+                {
+                    firsts[runs] = first;
+                    ends[runs] = first;
+                    runs++;
+                    if (runs > Runs) runs = Joined(firsts, ends, runs);
+                }
+
                 ends[runs - 1u] = first + 6u * n;
                 open = true;
             }
@@ -347,25 +375,6 @@ void main()
         }
 
         if (!again && viewed) verdicts[index] = hid;
-        while (runs > Runs) // draw over the smallest gap
-        {
-            uint at = 0u, gap = 0xFFFFFFFFu;
-            for (uint r = 0u; r + 1u < runs; r++)
-                if (firsts[r + 1u] - ends[r] < gap)
-                {
-                    gap = firsts[r + 1u] - ends[r];
-                    at = r;
-                }
-
-            ends[at] = ends[at + 1u];
-            for (uint r = at + 1u; r + 1u < runs; r++)
-            {
-                firsts[r] = firsts[r + 1u];
-                ends[r] = ends[r + 1u];
-            }
-
-            runs--;
-        }
     }
 
     for (uint r = 0u; r < runs; r++) drawn += ends[r] - firsts[r];

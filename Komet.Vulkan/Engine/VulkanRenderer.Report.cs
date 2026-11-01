@@ -199,7 +199,8 @@ internal static partial class VulkanRenderer
         return $"; OcclusionCulling in Vulkan: {(double)renderer.Counted / frames:0.0} draws a frame, " +
                $"{OcclusionCulling.Refused} refused, {renderer.Compute.Refused} passes without a segment or memory" +
                (OcclusionCulling.RowsUsed > 0
-                   ? $", from rows ({OcclusionCulling.RowsUsed} rows, {OcclusionCulling.Rewrites} regions written in full, {OcclusionCulling.Resyncs} brought up to date)"
+                   ? $", from rows ({OcclusionCulling.RowsUsed} rows, {OcclusionCulling.Rewrites} regions written in full, {OcclusionCulling.Resyncs} brought up to date, " +
+                     $"{(double)OcclusionCulling.BatchedCalls / frames:0.0} calls a frame culled in the frame's batch, {OcclusionCulling.UnbatchedCalls} on their own after all)"
                    : "") + $", {(double)OcclusionCulling.SortedDraws / frames:0.0} draws a frame sorted near to far, shadow casters " +
                (ShadowView.Differed ? "no longer culled by the view (it differed from the engine's)" : "culled by the view") +
                DrawnTerrain();

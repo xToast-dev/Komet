@@ -142,11 +142,17 @@ internal static class RenderingFeatures
             Probe = () => IndirectDraw.Detected && !IndirectDraw.Supported ? NotApplicable : Active
         },
         // after IndirectDraw, whose RenderMesh prefix hands it the draws
+        new("InsideBlock")
+        {
+            Install = c => InsideBlock.Install(c.Api),
+            Knobs = [Switch("InsideBlock", "render", "culling", () => InsideBlock.Enabled, on => InsideBlock.Enabled = on)],
+            Stop = c => InsideBlock.Uninstall(c?.Api)
+        },
         new("OcclusionCulling")
         {
             Replaces = () => [AccessTools.DeclaredMethod(typeof(MeshDataPool), nameof(MeshDataPool.FrustumCull))],
             Install = c => OcclusionCulling.Install(c.Harmony, c.Api, c.Logger),
-            Knobs = [new("OcclusionCulling", "vulkan", "culling", 0, 2, 0, () => OcclusionCulling.Level,
+            Knobs = [new("OcclusionCulling", "vulkan", "culling", 0, 2, 2, () => OcclusionCulling.Level,
                 v => OcclusionCulling.Level = v) { Weighed = true, Needs = "VulkanOnly" }],
             Stop = _ => OcclusionCulling.Clear(),
             Probe = () => Found(OcclusionCulling.Installed, OcclusionCulling.Detected && !OcclusionCulling.Supported,

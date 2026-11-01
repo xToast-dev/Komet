@@ -35,7 +35,7 @@ internal static class Modules
     [
         "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows", "LeanVaryings",
         "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse", "NearShadowReuse", "EntityCasters",
-        "IndirectDraw", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes",
+        "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes",
         "TerrainRebuild", "PoolTrim", "VulkanTerrain", "AnimatableCulling",
         "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling", "MapTileUpload", "IdleAnimators", "PoolScale", "WindowSize", "ChunkLookup", "MeshRecycle", "FacePacking", "FaceSorting", "ClimateCache",
         "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch", "AnimationFrames", "ShapeInitMemo", "HeldItemsLast", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "JoinPacer", "ChunkPacking",

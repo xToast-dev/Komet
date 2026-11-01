@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Globalization;
 using Komet.Core;
 using Komet.Diagnostics;
+using Vintagestory.API.MathTools;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
@@ -291,6 +292,14 @@ internal sealed class BenchDriver : IRenderer
         _ = Assert(dt >= 0);
     }
 
+    // The landing point, or with GroundDepth the eye that far below the terrain's surface there
+    private double Ground()
+    {
+        if (_run.Config.GroundDepth <= 0) return _landing.Y;
+        var surface = _capi.World.BlockAccessor.GetTerrainMapheightAt(new BlockPos((int)_landing.X, 0, (int)_landing.Z));
+        return surface + 1 - _run.Config.GroundDepth - (_capi.World.Player?.Entity?.LocalEyePos.Y ?? 1.6);
+    }
+
     private static int Quarter(BenchSegment segment, double t) => Math.Clamp((int)(4 * t / segment.Seconds), 0, 3);
 
     // Standing on the ground: one shot near the end of each quarter turn, the terrain around the player as it settled
@@ -496,7 +505,7 @@ internal sealed class BenchDriver : IRenderer
         if (segment.Kind == BenchKind.Climb) _pose = Glide(_from, _home, _t, _climbSeconds);
         else if (segment.Kind == BenchKind.Land) _pose = Glide(_lift, _landing, _t, _climbSeconds);
         else if (segment.Kind == BenchKind.Ground) // a quarter turn each quarter of the time: GroundShots looks all around
-            _pose = (_landing.X, _landing.Y, _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
+            _pose = (_landing.X, Ground(), _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
         else
         {
             var pose = BenchScenario.Pose(segment, _t, BenchScenario.Heading, _run.Config.Speed * _run.Config.Leg);

@@ -96,6 +96,15 @@ public sealed class PlatformTests
         Assert.That((ShaderMods.Foreign(paths, "drtagx"), ShaderMods.Tally(paths, "drtagx").Own), Is.EqualTo((Elsewhere, Mine)));
     }
 
+    // A mod with items or blocks (Primitive Survival) has content: its systems run even while its shaders are held back
+    [Test]
+    public void ContentModsAreToldApartFromShaderMods()
+    {
+        string[] content = [@"assets\primitivesurvival\itemtypes\fish.json", "assets/game/shaders/chunkliquid.fsh"];
+        string[] shaders = ["assets/game/shaders/final.fsh", "assets/sheydermod/config/x.json"];
+        Assert.That((ShaderMods.HasContent(content), ShaderMods.HasContent(shaders)), Is.EqualTo((true, false)));
+    }
+
     private static byte[] Zip(string entry, string text)
     {
         using var memory = new MemoryStream();

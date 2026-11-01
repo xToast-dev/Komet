@@ -90,7 +90,7 @@ internal sealed partial class SceneRenderer : IGlWrites, IDisposable
     // Draws and clears are taken only between frame start and end
     public bool Framing { get; set; }
 
-    public string Unported => string.Join("; ", ((IEnumerable<string>)_unported.Values).Bounded(16));
+    public string Unported => string.Join("; ", _unported.Values.Take(16));
 
     public long Draws { get; private set; }
     public long Clears { get; private set; }

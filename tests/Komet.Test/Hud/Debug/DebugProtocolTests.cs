@@ -88,6 +88,23 @@ public sealed class DebugProtocolTests
     }
 
     [Test]
+    public void TheLogNamesOnlyMethodsKometSharesWithAnotherMod()
+    {
+        static PatchLink Link(string owner) => new(owner, PatchKind.Prefix, 400, "M", false);
+        var audit = new HarmonyAudit
+        {
+            Methods =
+            [
+                new PatchedMethod("A.Shared", [Link("komet"), Link("other")], 2, PatchRisk.Low),
+                new PatchedMethod("A.Own", [Link("komet"), Link("kometbench")], 2, PatchRisk.Low),
+                new PatchedMethod("A.Foreign", [Link("other"), Link("third")], 2, PatchRisk.Low)
+            ],
+            Owners = [("other", "Other 1.0", 2)]
+        };
+        Assert.That(SharedPatches.Lines(audit, "komet"), Is.EqualTo((List<string>)["A.Shared [Low] with other (Other 1.0)"]));
+    }
+
+    [Test]
     public void APrefixThatSkipsAnotherOwnersPatchIsHighRisk()
     {
         static PatchLink Link(string owner, PatchKind kind, bool skips = false) => new(owner, kind, 400, "M", skips);

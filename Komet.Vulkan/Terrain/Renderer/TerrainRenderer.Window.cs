@@ -7,7 +7,8 @@ namespace Komet.Vulkan;
 // A window-sized framebuffer stands in for OpenGL's default one, so the last passes and GUI are Vulkan's too.
 internal sealed partial class TerrainRenderer
 {
-    private const int MaxDropsLogged = 8;
+    private const int MaxDropsLogged = 8; // runs of dropped frames told in the log, each once (a minimized window drops every frame)
+    private long _dropRun, _dropRuns;
 
     private FrameBufferRef? _window;
     private WindowSwapchain? _swapchain;
@@ -178,7 +179,11 @@ internal sealed partial class TerrainRenderer
         var presenting = _presentations.Take() ?? new Presentation(_presentations);
         (presenting.Chain, presenting.Index, presenting.Bridge, presenting.Shot) = (chain, index, bridge, shot);
         Frame.Close("the frame shown by Vulkan", presenting.Run, endsFrame: true);
-        return Frame.Shown ? Showed.Shown : Dropped("the submission failed");
+        if (!Frame.Shown) return Dropped("the submission failed");
+        if (_dropRun > 1 && _dropRuns <= MaxDropsLogged)
+            _logger?.Notification("Komet: Vulkan shows frames again after {0} it could not show", _dropRun);
+        _dropRun = 0;
+        return Showed.Shown;
     }
 
     // Presented on the recording thread after the frame's submission, then published to the bridge; given back to the
@@ -217,7 +222,7 @@ internal sealed partial class TerrainRenderer
         Unshown++;
         if (!NotNull(why) || !Assert(why.Length > 0)) return Showed.Dropped;
         Frame.Close("a frame Vulkan could not show", endsFrame: true);
-        if (Unshown <= MaxDropsLogged)
+        if (_dropRun++ == 0 && ++_dropRuns <= MaxDropsLogged)
             _logger?.Warning("Komet: Vulkan could not show a frame, the window keeps the last one: {0}", why);
         return Showed.Dropped;
     }

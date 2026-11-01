@@ -96,7 +96,16 @@ internal sealed class RenderPassStats
         Array.Clear(_frameMs);
         Array.Clear(_frameTop);
         _frameMs[(int)Pass.Outside] = outside;
-        if (outside > 0) TopN.Rank(_frameTop, Outside, outside);
+        if (outside > 0)
+        {
+            TopN.Rank(_frameTop, Outside, outside);
+            var (gpu, smoothing) = (Math.Clamp(OutsideParts.GpuWaitMs, 0, outside), Math.Clamp(OutsideParts.SmoothingMs, 0, outside));
+            smoothing = Math.Min(smoothing, outside - gpu);
+            if (gpu > 0) AddMark(Pass.Outside, "gpu-wait", gpu);
+            if (smoothing > 0) AddMark(Pass.Outside, "smoothing", smoothing);
+            if (outside - gpu - smoothing > 0) AddMark(Pass.Outside, "events", outside - gpu - smoothing);
+        }
+
         var assigned = outside + AddMarks(frame.Marks) + AddRanges(frame.ChildRanges);
         _frameMs[(int)Pass.Other] += Math.Max(0, total - assigned);
         for (var i = 0; i < Keys.Length; i++) _sumMs[i] += _frameMs[i];

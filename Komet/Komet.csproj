@@ -83,6 +83,8 @@
         <Delete Files="@(ReleaseZip)"/>
         <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)"/>
         <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset->'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')"/>
+        <!-- Windows has no shaderc of its own: Vulkan-only must not wait for a download there (Shaderc.Shipped) -->
+        <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../scripts/shaderc-native.sh&quot; &quot;$(ReleaseDir)/native&quot;"/>
         <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip"/>
     </Target>
 

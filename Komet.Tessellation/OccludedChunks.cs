@@ -131,6 +131,8 @@ internal static class OccludedChunks
     {
         if (!Enabled || StoodDown || !NotNull(tessChunk)) return true;
         if (!Enclosed(__instance, chunkX, chunkY, chunkZ, tessChunk)) return true;
+        // enclosed, but next to a chunk drawn at another resolution: its open sides draw the seam, else a hole
+        if (FarLod.Seam(chunkX, chunkY, chunkZ)) return true;
         __result = Apply(__instance, chunkX, chunkY, chunkZ, tessChunk, skipChunkCenter);
         if (Counting.Hud) Counts.Add(0, 1);
         return false;

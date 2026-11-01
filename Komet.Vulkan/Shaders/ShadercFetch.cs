@@ -4,8 +4,8 @@ using System.Security.Cryptography;
 
 namespace Komet.Vulkan;
 
-// Vulkan-only compiles the game's shaders with shaderc. Where the system has none (Windows always, many Linux systems) it is
-// fetched once from nuget.org (Silk.NET.Shaderc.Native, Apache-2.0), checked against the hash pinned here, and only this
+// Vulkan-only compiles the game's shaders with shaderc. The mod ships it for Windows x64 (native/win-x64). Where neither the
+// mod nor the system has one (other Windows CPUs, many Linux systems) it is fetched once from nuget.org (Silk.NET.Shaderc.Native, Apache-2.0), checked against the hash pinned here, and only this
 // system's library is kept in the game's cache. Until it loads, Vulkan-only waits and OpenGL draws; the player is told.
 internal static class ShadercFetch
 {
@@ -23,6 +23,7 @@ internal static class ShadercFetch
     private static volatile int _percent;
     private static volatile string _failure = "";
     private static volatile Phase _told; // the phase the player heard of: a phase published while it is told is told next
+    private static bool _missed; // Loadable found none this join: the early ports leave it to Ready's fetch
 
     public static string Folder => Path.Join(GamePaths.Cache, "komet-shaderc", "2.23.0");
 
@@ -42,7 +43,21 @@ internal static class ShadercFetch
     public static void Joined(ILogger? logger)
     {
         Logger = logger;
+        Shaderc.Folder = Folder; // ports begin as the world loads, before Ready: they must find the fetched library too
+        _missed = false;
         if (_phase is Phase.Fetched or Phase.Failed) (_phase, _told) = (Phase.Unknown, Phase.Unknown);
+    }
+
+    // Main thread, as the world loads: whether a port may begin now. A port begun without shaderc fails for the whole join,
+    // so the early ones wait for Ready instead; one miss per join, the fetch is Ready's
+    public static bool Loadable()
+    {
+        if (_phase == Phase.Ready) return true;
+        if (_phase != Phase.Unknown || _missed) return false;
+        Shaderc.Folder = Folder;
+        if (Shaderc.Load()) _phase = Phase.Ready;
+        else _missed = true;
+        return !_missed;
     }
 
     // Render thread, each frame Vulkan-only waits: true once shaderc loads; the first miss starts the fetch, and every

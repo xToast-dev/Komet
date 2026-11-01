@@ -77,12 +77,21 @@ internal static unsafe class Shaderc
         return false;
     }
 
-    private static bool Shipped()
+    // The mod's own copy (native/<rid> beside its assemblies, Windows x64 only) before the one fetched into the cache
+    private static bool Shipped() => From(Bundled()) || From(Folder);
+
+    private static string Bundled()
     {
-        if (Folder.Length == 0) return false;
+        var mod = Path.GetDirectoryName(typeof(Shaderc).Assembly.Location);
+        return string.IsNullOrEmpty(mod) || ShadercFetch.Library() is not { } library ? "" : Path.Join(mod, "native", library.Rid);
+    }
+
+    private static bool From(string folder)
+    {
+        if (folder.Length == 0) return false;
         foreach (var name in Libraries.Bounded(Libraries.Length))
         {
-            var path = Path.Join(Folder, name);
+            var path = Path.Join(folder, name);
             if (File.Exists(path) && NativeLibrary.TryLoad(path, out _library)) return true;
         }
 

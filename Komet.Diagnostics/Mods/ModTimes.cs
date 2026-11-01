@@ -58,6 +58,9 @@ internal sealed class ModTimes
     public static bool Patched { get; private set; } // the patches went in, or were tried, this session
     public static bool Replays => _replay; // RenderStage knows the engine's loop: the renderers are timed too
 
+    // A world is in: the methods shared with other mods go to the log (SharedPatches)
+    public static void Joined() => SharedPatches.Log(_loader, _logger, _harmony?.Id ?? "");
+
     // World change: patches and engine objects are gone, the session starts over
     public static void Install(Harmony harmony, IModLoader loader, ILogger logger)
     {

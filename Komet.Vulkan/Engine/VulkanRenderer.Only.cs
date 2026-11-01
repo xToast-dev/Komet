@@ -221,7 +221,7 @@ internal static partial class VulkanRenderer
     // begins its port now; Started replaces this hook with Linked
     private static void EarlyLinked(uint program)
     {
-        if (!Only || _scene is not null || !Assert(program is > 0 and < int.MaxValue)) return;
+        if (!Only || _scene is not null || !Assert(program is > 0 and < int.MaxValue) || !ShadercFetch.Loadable()) return;
         var name = ProgramPorts.Name((int)program);
         var terrain = Array.FindIndex(Programs, p => p.Name == name) >= 0;
         ProgramPorts.Prestart((int)program, name, terrain ? Hot : null);

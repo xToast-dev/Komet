@@ -19,8 +19,8 @@ internal sealed class HarmonyAudit
     public const int MaxMethods = 8192, MaxPatches = 64, MaxLoadedMods = 512;
     private static readonly PatchKind[] Kinds = [PatchKind.Prefix, PatchKind.Postfix, PatchKind.Transpiler, PatchKind.Finalizer];
 
-    public PatchedMethod[] Methods { get; private init; } = [];
-    public (string Owner, string Mod, int Methods)[] Owners { get; private init; } = [];
+    public PatchedMethod[] Methods { get; internal init; } = [];
+    public (string Owner, string Mod, int Methods)[] Owners { get; internal init; } = [];
     public int Shared => Methods.Count(static m => m.Owners > 1);
 
     public static HarmonyAudit Walk(IModLoader loader)

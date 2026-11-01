@@ -12,7 +12,8 @@ namespace Komet.World;
 // World-side garbage and lookups: MapTileCulling, MapTileUpload (the map tiles the GL side draws), ClimateCache,
 // PartitionReuse, CookingMatch, AlloyMatch, EventBusSweep, ListenerSlots, BlockEntityCaches, CloudTileScratch,
 // TreeKeys, MapPieceBudget, MapSaveScratch, LightScratch, LightRepair, ParticleLight, RelightRedraws,
-// ColumnNoiseScratch, WorldGenScratch, SnowPeek, TickScratch, SoundScratch and WeatherLock.
+// ColumnNoiseScratch, WorldGenScratch, SnowPeek, TickScratch, SoundScratch, TickerCommit and
+// WeatherLock.
 // In install order; Core's Features places them among the other modules'.
 internal static class WorldFeatures
 {
@@ -276,6 +277,13 @@ internal static class WorldFeatures
             Install = c => SoundScratch.Install(c.Harmony),
             Knobs = [Switch("SoundScratch", "misc", "garbage", () => SoundScratch.Enabled, on => SoundScratch.Enabled = on)],
             Probe = () => Found(SoundScratch.Rewritten, false)
+        },
+        new("TickerCommit")
+        {
+            Install = c => TickerCommit.Install(c.Harmony),
+            Knobs = [Switch("TickerCommit", "misc", "frames", () => TickerCommit.Enabled, on => TickerCommit.Enabled = on)],
+            Stop = _ => TickerCommit.Forget(),
+            Probe = () => Found(TickerCommit.Rewritten, false)
         },
         new("WeatherLock")
         {

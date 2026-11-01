@@ -29,7 +29,8 @@ internal static class FarLod
     public const int MaxPixels = 3;
     private const int Size = 32, Ext = 34, Cells = 16, Near = ChunkBands.Near, Far = ChunkBands.Far, Farthest = ChunkBands.Farthest,
         Dimension = 1024;
-    private const int MaxMarks = 12, MaxKinds = 1 << 20, EveryMs = 100, PerScan = 4096, MaxRefines = 64, RefineMs = 1000, MaxReach = 96;
+    private const int MaxMarks = 14, MaxUnannounced = 256, MaxKinds = 1 << 20, EveryMs = 100, PerScan = 4096, MaxRefines = 64, RefineMs = 1000, MaxReach = 96;
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<long> Unannounced = new();
     private const double Band = 48, MinDistance = 256, Ragged = 0.2;
     private const byte Air = 1, Solid = 2, Sparse = 3; // Sparse: leaves and wood, a quarter of a cell is enough
 
@@ -111,6 +112,7 @@ internal static class FarLod
         // _air too: a Block holds its api, so the left world's ClientMain would outlive it until the next Install
         (_api, _air, _tick, Installed, Threshold, _kinds, _threshold) = (null, null, 0, false, double.NaN, [], double.MaxValue);
         Table.Clear();
+        Unannounced.Clear();
     }
 
     // Distance in blocks where a block covers `pixels` pixels
@@ -142,6 +144,15 @@ internal static class FarLod
         return PixelBand.Want(d, inner, threshold, Band);
     }
 
+    // Whether a chunk borders one drawn at another resolution: its pass must run, its open sides draw the seam
+    public static bool Seam(int cx, int cy, int cz)
+    {
+        if (Pixels <= 0 || Table.Bands.IsEmpty) return false;
+        var band = BandOf(cx, cy, cz);
+        return BandOf(cx - 1, cy, cz) != band || BandOf(cx + 1, cy, cz) != band || BandOf(cx, cy, cz - 1) != band ||
+               BandOf(cx, cy, cz + 1) != band || BandOf(cx, cy - 1, cz) != band || BandOf(cx, cy + 1, cz) != band;
+    }
+
     // The band a chunk has (tessellated) or would get now
     private static int BandOf(int cx, int cy, int cz)
     {
@@ -170,6 +181,9 @@ internal static class FarLod
         var drawn = Table.Drawn.TryRemove(key, out var was) ? was : band; // Bands may hold the band Scan announced
         var want = Want(Spread(chunkX, chunkZ, Volatile.Read(ref _x), Volatile.Read(ref _z)), band, threshold);
         Table.Bands[key] = (byte)want;
+        // a band the neighbours were not told (Scan announced another, or none): Scan marks them, else their sides stay
+        // closed against a resolution this chunk no longer draws
+        if (want != band && band != 0 && Unannounced.Count < MaxUnannounced) Unannounced.Enqueue(key);
         _ = Table.Pending.TryRemove(key, out _);
         (_chunkX, _chunkY, _chunkZ) = (chunkX, chunkY, chunkZ);
         // an edge-only pass (the engine drops a mark while one is queued) would leave the centre in the old band
@@ -209,19 +223,26 @@ internal static class FarLod
         }
 
         var (sb, sf, sl) = (_blocks ??= new Block[Ext * Ext * Ext], _fluids ??= new Block[Ext * Ext * Ext], _light ??= new int[Ext * Ext * Ext]);
-        // walls where a side's neighbour is drawn at another resolution: -x, +x, -z, +z
-        var open = (BandOf(_chunkX - 1, _chunkY, _chunkZ) != _band, BandOf(_chunkX + 1, _chunkY, _chunkZ) != _band,
-            BandOf(_chunkX, _chunkY, _chunkZ - 1) != _band, BandOf(_chunkX, _chunkY, _chunkZ + 1) != _band);
+        // walls where a side's neighbour is drawn at another resolution: -x, +x, -z, +z, -y, +y. The band follows the
+        // column's distance, but hysteresis and passes not yet run leave chunks of one column in different bands for a while
+        var open = new Sides(BandOf(_chunkX - 1, _chunkY, _chunkZ) != _band, BandOf(_chunkX + 1, _chunkY, _chunkZ) != _band,
+            BandOf(_chunkX, _chunkY, _chunkZ - 1) != _band, BandOf(_chunkX, _chunkY, _chunkZ + 1) != _band,
+            BandOf(_chunkX, _chunkY - 1, _chunkZ) != _band, BandOf(_chunkX, _chunkY + 1, _chunkZ) != _band);
         var grid = new Grid(blocks, fluids, light, sb, sf, sl);
         Halve(grid, air, Cells, Ext - 1, open);
         if (_band == Farthest) Halve(grid, air, Cells / 2, Cells + 1, open); // the 16³ grid once more, its border at 17
+    }
+
+    internal readonly record struct Sides(bool MinusX, bool PlusX, bool MinusZ, bool PlusZ, bool MinusY, bool PlusY)
+    {
+        public bool Any => MinusX || PlusX || MinusZ || PlusZ || MinusY || PlusY;
     }
 
     private readonly record struct Grid(Block[] Blocks, Block[] Fluids, int[] Light, Block[] SourceBlocks, Block[] SourceFluids,
         int[] SourceLight);
 
     // The grid's cells 0..last halved into cells 0..cells+1 of the same arrays, the rest air
-    private static void Halve(Grid grid, Block air, int cells, int last, (bool, bool, bool, bool) open)
+    private static void Halve(Grid grid, Block air, int cells, int last, Sides open)
     {
         var (blocks, fluids, light, sb, sf, sl) = grid;
         blocks.CopyTo(sb, 0);
@@ -243,8 +264,8 @@ internal static class FarLod
                     var lit = Brightest(sl, x, y, z, cells, last);
                     if (lit == 0) lit = above[column];
                     (above[column], light[at]) = (lit, lit);
-                    var wall = (x == 0 && open.Item1) || (x == cells + 1 && open.Item2) || (z == 0 && open.Item3) ||
-                               (z == cells + 1 && open.Item4);
+                    var wall = (x == 0 && open.MinusX) || (x == cells + 1 && open.PlusX) || (z == 0 && open.MinusZ) ||
+                               (z == cells + 1 && open.PlusZ) || (y == 0 && open.MinusY) || (y == cells + 1 && open.PlusY);
                     if (wall) continue;
                     blocks[at] = Cell(sb, x, y, z, false, cells, last) ?? air;
                     fluids[at] = Cell(sf, x, y, z, true, cells, last) ?? air;
@@ -277,17 +298,30 @@ internal static class FarLod
     {
         if (BlocksExt(tesselator) is not { Length: Ext * Ext * Ext } blocks || FluidsExt(tesselator) is not { Length: Ext * Ext * Ext } fluids)
             return;
-        var sides = (BandOf(_chunkX - 1, _chunkY, _chunkZ) != Near, BandOf(_chunkX + 1, _chunkY, _chunkZ) != Near,
-            BandOf(_chunkX, _chunkY, _chunkZ - 1) != Near, BandOf(_chunkX, _chunkY, _chunkZ + 1) != Near);
-        if (!sides.Item1 && !sides.Item2 && !sides.Item3 && !sides.Item4) return;
+        var sides = new Sides(BandOf(_chunkX - 1, _chunkY, _chunkZ) != Near, BandOf(_chunkX + 1, _chunkY, _chunkZ) != Near,
+            BandOf(_chunkX, _chunkY, _chunkZ - 1) != Near, BandOf(_chunkX, _chunkY, _chunkZ + 1) != Near,
+            BandOf(_chunkX, _chunkY - 1, _chunkZ) != Near, BandOf(_chunkX, _chunkY + 1, _chunkZ) != Near);
+        if (!sides.Any) return;
         for (var y = 0; y < Ext; y++)
             for (var i = 0; i < Ext; i++)
             {
-                if (sides.Item1) (blocks[(y * Ext + i) * Ext], fluids[(y * Ext + i) * Ext]) = (air, air);
-                if (sides.Item2) (blocks[(y * Ext + i) * Ext + Ext - 1], fluids[(y * Ext + i) * Ext + Ext - 1]) = (air, air);
-                if (sides.Item3) (blocks[y * Ext * Ext + i], fluids[y * Ext * Ext + i]) = (air, air);
-                if (sides.Item4) (blocks[(y * Ext + Ext - 1) * Ext + i], fluids[(y * Ext + Ext - 1) * Ext + i]) = (air, air);
+                if (sides.MinusX) (blocks[(y * Ext + i) * Ext], fluids[(y * Ext + i) * Ext]) = (air, air);
+                if (sides.PlusX) (blocks[(y * Ext + i) * Ext + Ext - 1], fluids[(y * Ext + i) * Ext + Ext - 1]) = (air, air);
+                if (sides.MinusZ) (blocks[y * Ext * Ext + i], fluids[y * Ext * Ext + i]) = (air, air);
+                if (sides.PlusZ) (blocks[(y * Ext + Ext - 1) * Ext + i], fluids[(y * Ext + Ext - 1) * Ext + i]) = (air, air);
             }
+
+        if (sides.MinusY) // the layer below, then above
+        {
+            blocks.AsSpan(0, Ext * Ext).Fill(air);
+            fluids.AsSpan(0, Ext * Ext).Fill(air);
+        }
+
+        if (sides.PlusY)
+        {
+            blocks.AsSpan((Ext - 1) * Ext * Ext).Fill(air);
+            fluids.AsSpan((Ext - 1) * Ext * Ext).Fill(air);
+        }
     }
 
     // Source coordinates of a coarse one on one axis, of `cells` cells halving a grid whose border layer is at `last`:
@@ -424,6 +458,12 @@ internal static class FarLod
         if (Pixels <= 0 && Table.Bands.IsEmpty) return; // off, every chunk drawn in full
         var (marks, now, busy) = (0, Environment.TickCount64, TessSeams.Backlogged);
         if (Pixels > 0) Refine(game, px, pz, threshold, now);
+        for (var n = 0; n < MaxUnannounced && marks < MaxMarks && Unannounced.TryDequeue(out var told); n++)
+        {
+            var (x, y, z) = ChunkKey.Unpack(told);
+            marks += Neighbours(game, x, y, z, now);
+        }
+
         Table.Begin(px, pz, published, now);
         for (var n = 0; n < PerScan && marks < MaxMarks && Table.TryNext(game, now, out var key, out var band); n++)
         {
@@ -441,9 +481,8 @@ internal static class FarLod
             Table.Announce(key, (byte)want);
             if (Table.Mark(game, x, y, z, now) == 0) continue;
             // the neighbours facing it follow its change: a coarse one's walls, a full one's open side. While off a
-            // near neighbour may already be forgotten this round, so all four are marked to close their sides.
-            marks += 1 + Neighbour(game, x - 1, y, z, now) + Neighbour(game, x + 1, y, z, now) +
-                     Neighbour(game, x, y, z - 1, now) + Neighbour(game, x, y, z + 1, now);
+            // near neighbour may already be forgotten this round, so all six are marked to close their sides.
+            marks += 1 + Neighbours(game, x, y, z, now);
         }
     }
 
@@ -485,9 +524,13 @@ internal static class FarLod
         if (drawn <= Near || Want(d, drawn, threshold) is var want && want >= drawn) return 0;
         Table.Announce(key, (byte)want);
         if (Table.Mark(game, x, y, z, now) == 0) return 0;
-        return 1 + Neighbour(game, x - 1, y, z, now) + Neighbour(game, x + 1, y, z, now) +
-               Neighbour(game, x, y, z - 1, now) + Neighbour(game, x, y, z + 1, now);
+        return 1 + Neighbours(game, x, y, z, now);
     }
+
+    // The six facing a chunk whose band changed: a coarse one's walls, a full one's open side
+    private static int Neighbours(ClientMain game, int x, int y, int z, long now) =>
+        Neighbour(game, x - 1, y, z, now) + Neighbour(game, x + 1, y, z, now) + Neighbour(game, x, y, z - 1, now) +
+        Neighbour(game, x, y, z + 1, now) + Neighbour(game, x, y - 1, z, now) + Neighbour(game, x, y + 1, z, now);
 
     private static int Neighbour(ClientMain game, int x, int y, int z, long now) =>
         ChunkKey.Pack(x, y, z) is var key && key >= 0 && (Pixels <= 0 || Table.Bands.ContainsKey(key))

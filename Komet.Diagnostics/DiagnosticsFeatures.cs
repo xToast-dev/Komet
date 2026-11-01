@@ -17,6 +17,7 @@ internal static class DiagnosticsFeatures
         {
             Install = c => ModTimes.Install(c.Harmony, c.Api.ModLoader, c.Logger),
             Probe = () => ModTimes.Replays ? Active : EngineChanged,
+            Recheck = ModTimes.Joined,
             Shapes =
             [
                 new EngineBodies(() => [AccessTools.Method(typeof(ClientEventManager),

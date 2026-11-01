@@ -19,12 +19,13 @@ internal static class FramePacer
     public static bool Enabled { get; set; } = true;
 
     // No cap and no VSync: frames run as fast as each can, 3 to 9 ms apart at a long view distance, and turning looks
-    // uneven although the rate is high. Smoothing paces each frame to a little above the recent median instead (the 75th
-    // percentile of the last frames' own time): the short ones wait, the rate stays near what it was, longer frames
-    // pass as they are.
+    // uneven although the rate is high. Smoothing paces the short frames up to the recent median (of the last frames' own
+    // time), by at most MaxPadMs: longer frames pass as they are. A protocol showed the 75th percentile cost ~10 % of the
+    // rate while the world loaded (frame times spread wide); the median keeps the evening-out and gives most of it back.
     public static bool Smoothing { get; set; } = true;
 
-    private const int Window = 64, Percentile = Window * 3 / 4;
+    private const int Window = 64, Percentile = Window / 2;
+    private const double MaxPadMs = 2;
     private static readonly double[] Recent = new double[Window], Sorted = new double[Window];
     private static int _recent, _filled;
 
@@ -43,7 +44,10 @@ internal static class FramePacer
     // Engine's condition, then its interval on its own stopwatch
     private static void Pace(ClientPlatformWindows __instance)
     {
+        var started = Stopwatch.GetTimestamp();
         Links.Paced();
+        OutsideParts.GpuWaitMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        OutsideParts.SmoothingMs = 0;
         var fps = __instance.MaxFps;
         if (FrameSettings.VsyncMode == 1 || _watch is not { } field || field(__instance) is not { IsRunning: true } watch)
         {
@@ -81,8 +85,11 @@ internal static class FramePacer
         if (_filled < Window) return;
         Array.Copy(Recent, Sorted, Window);
         Array.Sort(Sorted);
-        var target = Sorted[Percentile];
-        if (target > ms) Wait(watch, (float)(1000.0 / target));
+        var target = Math.Min(Sorted[Percentile], ms + MaxPadMs);
+        if (target <= ms) return;
+        var started = Stopwatch.GetTimestamp();
+        Wait(watch, (float)(1000.0 / target));
+        OutsideParts.SmoothingMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
     }
 
     internal static void Wait(Stopwatch watch, float fps)

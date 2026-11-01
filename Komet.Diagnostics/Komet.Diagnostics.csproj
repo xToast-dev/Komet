@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Komet.Diagnostics: what Komet measures: frame clock, render cost, spikes, mod times, process stats. Settings, game references and the analyzer: ../Komet.Module.props -->
+    <Import Project="../Komet.Module.props"/>
+
+    <!-- The modules this one builds on; a module never references one above it -->
+    <ItemGroup>
+        <ProjectReference Include="../Komet.Core/Komet.Core.csproj"/>
+    </ItemGroup>
+
+</Project>

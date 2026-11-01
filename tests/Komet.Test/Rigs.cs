@@ -1,5 +1,6 @@
 using Komet.Api;
 using Komet.Core;
+using Komet.Diagnostics;
 using Komet.Tessellation;
 using Vintagestory.API.Client.Tesselation;
 
@@ -129,5 +130,39 @@ internal static class TessMix
         var h = 0x9E3779B9u;
         foreach (var v in values) h = ((h ^ (uint)v) * 0x85EBCA6Bu) ^ (h >> 13);
         return ((h ^ (h >> 16)) & 1) != 0;
+    }
+}
+
+// IModLoader with one mod; only Mods is read by the walk
+public class OneModLoader : DispatchProxy
+{
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod?.Name != "get_Mods") throw new NotSupportedException(targetMethod?.Name);
+        var mod = new TestMod();
+        typeof(Mod).GetProperty(nameof(Mod.Info))!.SetValue(mod,
+            new ModInfo { Name = "Komet", Version = "1.2.3", ModID = "komet" });
+        return new Mod[] { mod };
+    }
+
+    private sealed class TestMod : Mod;
+}
+
+// FrameClock's switches and the engine's profiler as a test sets them, put back afterwards: no sink, a fresh frame start
+internal static class Clock
+{
+    public static void With(bool stats, FrameProfilerUtil? profiler, Action body)
+    {
+        var saved = (FrameClock.Stats, ScreenManager.FrameProfiler);
+        (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, profiler!);
+        try
+        {
+            body();
+        }
+        finally
+        {
+            (FrameClock.Stats, ScreenManager.FrameProfiler, FrameClock.Sink) = (saved.Stats, saved.FrameProfiler, null);
+            FrameClock.Begin();
+        }
     }
 }

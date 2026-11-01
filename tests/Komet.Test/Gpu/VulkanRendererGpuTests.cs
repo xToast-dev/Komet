@@ -7,7 +7,7 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class VulkanRendererGpuTests
 {
-    private const string Renderer = "Komet.Vulkan.VulkanRenderer, Komet";
+    private const string Renderer = "Komet.Vulkan.VulkanRenderer, Komet.Vulkan";
     private static readonly string[] Hot = ["origin"];
 
     private static GlslPort.Ported? Port(string name) =>
@@ -40,7 +40,7 @@ public sealed class VulkanRendererGpuTests
     }
 
     [Test]
-    public void TheProgramsTheDriverHoldsArePortedOncePerBuildOfAPassSwitchedOn()
+    public void TheProgramsTheDriverHoldsArePortedOncePerBuild()
     {
         GameInstall.RequireAssets();
         using var window = GlContext.Context();
@@ -50,7 +50,7 @@ public sealed class VulkanRendererGpuTests
         ShaderProgramBase?[] programs = [null, null, Program("chunkopaque"), Program("chunktopsoil"), null, null];
         try
         {
-            Updated(programs, [true, true, true, true, true]);
+            Updated(programs);
             var first = Port("chunkopaque");
             Assert.That(first?.Name, Is.EqualTo("chunkopaque"));
             Assert.That(Port("chunktopsoil")?.Name, Is.EqualTo("chunktopsoil"));
@@ -66,20 +66,17 @@ public sealed class VulkanRendererGpuTests
                     Is.EqualTo(VulkanRenderer.Pass.None), "only the opaque program draws them");
                 Assert.That(VulkanRenderer.PassOf(opaque + 1000, EnumRenderStage.Opaque), Is.EqualTo(VulkanRenderer.Pass.None));
             });
-            Updated(programs, [true, true, true, true, true]);
+            Updated(programs);
             Assert.That(Port("chunkopaque"), Is.SameAs(first), "the same build: no new port");
             GL.DeleteProgram(programs[2]!.ProgramId);
             programs[2] = Program("chunkopaque");
-            Updated(programs, [true, true, false, true, false]);
-            Assert.That(Port("chunkopaque"), Is.SameAs(first), "its pass switched off: not ported");
             var started = Builds.Started;
-            VulkanRenderer.Update(programs, null, [true, true, false, true, true]);
+            VulkanRenderer.Update(programs, null);
             Assert.That(Builds.Started, Is.EqualTo(started + 1), "ported on a builder");
             Assert.That(VulkanRenderer.PassOf(programs[2]!.ProgramId, EnumRenderStage.Opaque),
                 Is.EqualTo(VulkanRenderer.Pass.Opaque), "awaited: a pass without its port would be missing from the picture");
-            Updated(programs, [true, true, false, true, true]);
-            Assert.That(Port("chunkopaque"), Is.Not.SameAs(first).And.Not.Null,
-                "the engine rebuilt it, and the water plants need it without the opaque pass");
+            Updated(programs);
+            Assert.That(Port("chunkopaque"), Is.Not.SameAs(first).And.Not.Null, "the engine rebuilt it: ported anew");
         }
         finally
         {
@@ -89,11 +86,11 @@ public sealed class VulkanRendererGpuTests
     }
 
     // The ports are made on builders: once they are done, the next update takes them
-    private static void Updated(ShaderProgramBase?[] programs, bool[] passes)
+    private static void Updated(ShaderProgramBase?[] programs)
     {
-        VulkanRenderer.Update(programs, null, passes);
+        VulkanRenderer.Update(programs, null);
         Assert.That(Builds.Wait(TimeSpan.FromSeconds(60)), Is.True, "the ports are made");
-        VulkanRenderer.Update(programs, null, passes);
+        VulkanRenderer.Update(programs, null);
     }
 
     // A program as ShaderRegistry leaves it: both shaders compiled from the composed source, linked

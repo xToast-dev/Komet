@@ -1,4 +1,4 @@
-using Komet.Gpu;
+using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Test.Gpu;

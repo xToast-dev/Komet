@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Komet.Gpu;
+using Komet.Rendering;
 using Komet.Vulkan;
 
 namespace Komet.Test.Gpu;
@@ -36,7 +36,7 @@ public sealed class ShaderCacheTests
     private string _folder = "";
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_writes")]
-    private static extern ref Task Writes([UnsafeAccessorType("Komet.Vulkan.ShaderCache, Komet")] object? cache);
+    private static extern ref Task Writes([UnsafeAccessorType("Komet.Vulkan.ShaderCache, Komet.Vulkan")] object? cache);
 
     // The files ShaderCache has written so far are on disk
     private static void Flush() => Writes(null).Wait();
@@ -71,7 +71,7 @@ public sealed class ShaderCacheTests
     [Test]
     public void APipelineRecipeIsReadBackAtTheNextStartOnce()
     {
-        var recipe = new ShaderCache.Recipe("v|4", "37/126", 3, [37], 126, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        var recipe = new ShaderCache.Recipe("v|4", "37/126", 3, [37], 126, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
             [0, 0, 3, 0x1406, 0, 0, 12, 0, 0]);
         ShaderCache.Remember(Sources(), recipe);
         ShaderCache.Remember(Sources(), recipe with { Colors = [37] }); // the same pipeline again
@@ -86,14 +86,12 @@ public sealed class ShaderCacheTests
     }
 
     [Test]
-    public void ARecipeKeepsTheStencilAndReadsOneOfAnEarlierBuildWithout()
+    public void ARecipeKeepsTheStencil()
     {
         var state = new GlTap.Fixed(32, 0x4F, 0, 0, new GlTap.BlendState(1, 2, 3, 4, 5, 6, 7, 8), 0x2493);
         TerrainPools.Attribute[] attributes = [new(0, 0, 3, 0x1406, false, false) { Stride = 12 }];
         var recipe = PipelineRecipes.Packed(("v|4", "37/130", 0), state, attributes, new TerrainPipeline.Target([37], 130));
         Assert.That(PipelineRecipes.Unpacked(recipe)?.State, Is.EqualTo(state));
-        var earlier = recipe with { Fixed = recipe.Fixed[..12] }; // twelve words: no stencil
-        Assert.That(PipelineRecipes.Unpacked(earlier)?.State, Is.EqualTo(state with { Stencil = 0 }));
     }
 
     [Test]

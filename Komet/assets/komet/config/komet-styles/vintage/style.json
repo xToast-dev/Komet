@@ -1,0 +1,50 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-style.schema.json",
+  "_comment": "Vintage: the game's own dialog look. Colours from the game's GuiStyle (dialog brown #403529, text #e9ddce, wood, parchment, the active-button amber), its fonts Lora and Montserrat, the blurred world behind; no camera moves or decoding names.",
+  "id": "vintage",
+  "name": "Vintage",
+  "author": "Komet",
+  "base": "pragmatic",
+  "colors": {
+    "backdrop": "#1A140E40",
+    "backdropPlain": "#20190FB8",
+    "panel": "#403529CC",
+    "band": "#403529F2",
+    "row": "#00000000",
+    "line": "#E9DDCE1F",
+    "text": "#E9DDCE",
+    "soft": "#E9DDCEA6",
+    "faint": "#E9DDCE66",
+    "accent": "#C58948",
+    "select": "#845C43",
+    "selectText": "#FFF4E4",
+    "title": "#EDCE98",
+    "changed": "#F2C983",
+    "good": "#9CD67E",
+    "bad": "#FF8F80",
+    "glow": "#C58948",
+    "cell": "#E9DDCE0D",
+    "chip": "#E9DDCE14",
+    "bubble": "#2D2321F5"
+  },
+  "fonts": {
+    "text": "Montserrat",
+    "heading": "Lora",
+    "title": "Lora",
+    "numbers": "Montserrat"
+  },
+  "fontFiles": [
+    "game:fonts/Montserrat-Regular.ttf",
+    "game:fonts/Lora-Regular.ttf"
+  ],
+  "sizes": {
+    "ticks": 0,
+    "tracking": 1,
+    "scene": 0,
+    "veil": 0,
+    "pan": 0,
+    "slide": 1,
+    "decode": 0
+  },
+  "background": "blur"
+}

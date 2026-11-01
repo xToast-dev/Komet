@@ -10,7 +10,7 @@ public sealed class AnimationFramesTests
     private static readonly FieldInfo JointsDone =
         typeof(Animation).GetField("jointsDone", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
-    private const string Frames = "Komet.Shapes.AnimationFrames, Komet";
+    private const string Frames = "Komet.Shapes.AnimationFrames, Komet.Shapes";
 
     private static int _foreignCalls;
 

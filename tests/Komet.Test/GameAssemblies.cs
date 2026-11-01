@@ -11,6 +11,7 @@ public sealed class GameAssemblies
     public void ResolveLikeTheGame()
     {
         GameInstall.ResolveAssemblies();
+        Komet.Modules.Register(); // the feature table, as the mod's StartPre fills it
         // the essentials mod, loaded before Komet as in the game: features find its types by name
         _ = typeof(Vintagestory.GameContent.MultiChunkMapComponent).Assembly;
         if (Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") == "wayland" &&

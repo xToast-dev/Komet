@@ -1,4 +1,4 @@
-using Komet.Gpu;
+using Komet.Rendering;
 using Komet.Vulkan;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Windowing.Desktop;

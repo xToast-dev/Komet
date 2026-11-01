@@ -1,4 +1,3 @@
-using Komet.Gpu;
 using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 
@@ -6,8 +5,7 @@ namespace Komet.Test.Gpu;
 
 public sealed class OcclusionCullingGpuTests
 {
-    private const int CommandUints = 5, Commands = 2 * CommandUints; // two DrawElementsIndirectCommands
-    private const string Culling = "Komet.Rendering.OcclusionCulling, Komet";
+    private const int Commands = 2 * CullingState.CommandUints; // two DrawElementsIndirectCommands
 
     private static readonly Occlusion.Range[] Ranges =
     [
@@ -33,7 +31,7 @@ public sealed class OcclusionCullingGpuTests
     {
         var counters = new uint[8 + 2 * OcclusionCulling.MaxDraws];
         var (first, late) = (new uint[Commands], new uint[Commands]);
-        ReadFrame(counters, first, late);
+        CullingState.Frame(counters, first, late);
         return (counters[..8], counters[8], counters[8 + OcclusionCulling.MaxDraws], first, late);
     }
 
@@ -88,7 +86,7 @@ public sealed class OcclusionCullingGpuTests
         OcclusionCulling.RunFrame(Ranges, projection, (0, 0, 0), [0, 1, 0, 0, 1, 0]);
         var counters = new uint[8 + 2 * OcclusionCulling.MaxDraws];
         var (first, late) = (new uint[Commands], new uint[Commands]);
-        ReadFrame(counters, first, late);
+        CullingState.Frame(counters, first, late);
         Assert.Multiple(() =>
         {
             Assert.That(counters[8..14], Is.EqualTo(new uint[] { 0, 1, 0, 0, 1, 0 }), "a range per draw with ranges");
@@ -109,27 +107,4 @@ public sealed class OcclusionCullingGpuTests
         var read = Enumerable.Range(0, 8).Select(i => (uint)OcclusionCulling.Stat(i)).ToArray();
         Assert.That(read, Is.EqualTo(frames[2]));
     });
-
-    // The frame just run: its counters, and its first draw's commands of both passes (or the shadow first draw's, which
-    // OcclusionCulling places after both camera passes')
-    internal static void ReadFrame(Span<uint> counters, Span<uint> first, Span<uint> late, bool shadow = false)
-    {
-        if (!OcclusionCulling.Supported) return;
-        var (gpu, buffers, commands) = (CullingGpu(null), CounterBuffers(null), CommandBuffer(null));
-        gpu.Read(buffers[(FrameCount(null) - 1) % buffers.Length], 0, counters);
-        gpu.Read(commands, (shadow ? 2 * OcclusionCulling.MaxRanges : 0) * CommandUints, first);
-        gpu.Read(commands, OcclusionCulling.MaxRanges * CommandUints, late);
-    }
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_Gpu")]
-    private static extern IGpuBackend CullingGpu([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
-    private static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_commands")]
-    private static extern ref int CommandBuffer([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_frame")]
-    private static extern ref int FrameCount([UnsafeAccessorType(Culling)] object? culling);
 }

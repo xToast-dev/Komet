@@ -1,13 +1,14 @@
 using HarmonyLib;
 using Komet.Api;
 using Komet.Core;
+using Komet.Rendering;
 using Vintagestory.Client.NoObf;
 
 namespace Komet;
 
 public sealed class KometModSystem : ModSystem, IDisposable
 {
-    internal const string ModId = "komet";
+    internal const string ModId = KometMod.Id;
     private const int HudStageCount = 3, PoolMs = 250;
 
     private static readonly EnumRenderStage[] HudStages =
@@ -17,15 +18,16 @@ public sealed class KometModSystem : ModSystem, IDisposable
     private FeatureContext? _context;
     private long _pool;
 
-    // Server in this process (singleplayer or LAN; set before mods start): only then are server-side patches installed
-    internal static bool LocalServer { get; private set; }
+    internal static bool LocalServer => KometMod.LocalServer;
 
     public override void Dispose()
     {
-        if (_api is not null && _pool != 0) _api.Event.UnregisterGameTickListener(_pool);
+        Komet.Core.Listeners.Unregister(_api?.Event, _pool);
         Features.Stop(_context);
         _context?.Harmony.UnpatchAll(_context.Harmony.Id);
         Features.Unpatched();
+        ShaderMods.Release();
+        Komet.Options.ModAdapters.Stop();
         (_context, _api, _pool) = (null, null, 0);
     }
 
@@ -33,10 +35,20 @@ public sealed class KometModSystem : ModSystem, IDisposable
     public override void StartPre(ICoreAPI api)
     {
         if (!NotNull(api) || !NotNull(Mod.Logger)) return;
+        KometMod.Attach(typeof(KometModSystem).Assembly);
+        Modules.Register();
         ApiEvents.Logger = Mod.Logger;
+        if (api is ICoreClientAPI) ShaderMods.HoldBack(api, Mod.Logger); // before the other mods' Start
     }
 
-    // Besides modinfo "side": "Client": a singleplayer server instance's Dispose would clear the client's statics
+    // The mods' assets are there, no other mod has started: held-back mods' files give way, Komet versions stand in
+    public override void AssetsLoaded(ICoreAPI api)
+    {
+        if (api is ICoreClientAPI capi && NotNull(Mod.Logger)) ShaderMods.Swap(capi);
+    }
+
+    // Client only, though modinfo says "Universal" for MapTracking: a singleplayer server instance's Dispose would clear the
+    // client's statics
     public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Client;
 
     public override void StartClientSide(ICoreClientAPI api)
@@ -62,13 +74,14 @@ public sealed class KometModSystem : ModSystem, IDisposable
 
     private void Install(ICoreClientAPI api)
     {
-        LocalServer = api.IsSinglePlayer;
+        KometMod.LocalServer = api.IsSinglePlayer;
         (_context, _api) = (new FeatureContext(new Harmony(Mod.Info.ModID), api, Mod.Logger, LocalServer), api);
         Mod.Logger.Notification(LocalServer
             ? "Komet: the server runs in this process, its chunk and worldgen patches are installed"
             : "Komet: remote server, Komet patches the client only");
         Features.Install(_context, FeatureStage.Main);
         Features.InstallQueued(_context);
+        Komet.Options.ModAdapters.Start(api);
         api.Event.LevelFinalize += Features.Recheck;
         _pool = api.Event.RegisterGameTickListener(dt =>
         {

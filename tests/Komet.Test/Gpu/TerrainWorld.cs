@@ -10,8 +10,7 @@ namespace Komet.Test.Gpu;
 internal sealed class TerrainWorld : IDisposable
 {
     public const double Cx = 512000, Cz = 512000;
-    private const int Chunk = 32, CommandBytes = 20, StatUints = 8;
-    private const string Culling = "Komet.Rendering.OcclusionCulling, Komet";
+    private const int Chunk = 32, CommandBytes = 4 * CullingState.CommandUints;
 
     private readonly List<VAO> _vaos = [];
     private readonly List<int> _buffers = [];
@@ -38,8 +37,7 @@ internal sealed class TerrainWorld : IDisposable
     public List<float[]> Positions { get; } = [];
 
     // Each location of each pool, in the order its pool lists them
-    public IEnumerable<ModelDataPoolLocation> Locations => Pools.SelectMany(p =>
-        (List<ModelDataPoolLocation>)AccessTools.Field(typeof(MeshDataPool), "poolLocations").GetValue(p)!);
+    public IEnumerable<ModelDataPoolLocation> Locations => Pools.SelectMany(CullingState.Listed);
 
     public static int Height(int x, int z) => (int)(100 + 18 * Math.Sin(x / 37.0) * Math.Cos(z / 53.0) +
                                                    9 * Math.Sin((x + z) / 23.0) + 5 * Math.Cos(x / 11.0 - z / 17.0));
@@ -274,15 +272,14 @@ internal sealed class TerrainWorld : IDisposable
     {
         Prepare(program, mvp);
         Origin(program, camera);
-        var (counters, frame) = (CounterBuffers(null), FrameCount(null));
-        GL.BindBuffer(BufferTarget.DrawIndirectBuffer, sorted ? SortedBuffer(null) : CommandBuffer(null));
+        var (counters, frame) = (CullingState.CounterBuffers(null), CullingState.FrameCount(null));
+        GL.BindBuffer(BufferTarget.DrawIndirectBuffer, sorted ? CullingState.SortedBuffer(null) : CullingState.CommandBuffer(null));
         GL.BindBuffer(BufferTarget.ParameterBuffer, counters[(frame - 1) % counters.Length]);
         var (region, draw) = (shadow ? 2 * OcclusionCulling.MaxRanges : 0, shadow ? OcclusionCulling.MaxDraws : 0);
-        var countBase = StatUints + (shadow ? OcclusionCulling.MaxDraws : 0);
+        var countBase = CullingState.StatUints + (shadow ? OcclusionCulling.MaxDraws : 0);
         for (var p = 0; p < _vaos.Count; p++)
         {
-            var rows = factor * ((List<ModelDataPoolLocation>)AccessTools.Field(typeof(MeshDataPool), "poolLocations")
-                .GetValue(Pools[p])!).Count;
+            var rows = factor * CullingState.Listed(Pools[p]).Count;
             GL.BindVertexArray(_vaos[p].VaoId);
             GL.MultiDrawElementsIndirectCount(PrimitiveType.Triangles, DrawElementsType.UnsignedInt,
                 region * CommandBytes, 4 * (countBase + draw + p), rows, CommandBytes);
@@ -295,17 +292,54 @@ internal sealed class TerrainWorld : IDisposable
         GL.UseProgram(0);
     }
 
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
-    private static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
+    // OcclusionCulling installed on a GPU backend with doubles in compute shaders, and a world of radius blocks in six pools
+    internal static void Run(string backend, int radius, Action<TerrainWorld> test, bool sorted = false)
+    {
+        using var rig = GpuRig.Open(backend);
+        if (!GpuBackends.Current.Doubles()) Assert.Ignore(backend + " has no doubles in compute shaders");
+        using var harmony = new TestHarmony("komet-test-terrain-gpu");
+        OcclusionCulling.Install(harmony, Client(), new CapturingLogger());
+        var saved = ModelDataPoolLocation.VisibleBufIndex;
+        ModelDataPoolLocation.VisibleBufIndex = 0;
+        using var world = new TerrainWorld(radius, 6, 5, sorted);
+        try
+        {
+            OcclusionCulling.Enabled = true;
+            test(world);
+        }
+        finally
+        {
+            OcclusionCulling.Enabled = false;
+            ModelDataPoolLocation.VisibleBufIndex = saved;
+            OcclusionCulling.Clear();
+            FaceSorting.Clear();
+        }
+    }
 
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_commands")]
-    private static extern ref int CommandBuffer([UnsafeAccessorType(Culling)] object? culling);
+    private static ICoreClientAPI Client() =>
+        Answers.Of<ICoreClientAPI>(new() { ["get_Render"] = _ => Answers.Of<IRenderAPI>([]) });
 
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_sorted")]
-    internal static extern ref int SortedBuffer([UnsafeAccessorType(Culling)] object? culling);
+    // The camera's culler as the engine sets it up for a view distance of 1024
+    internal static FrustumCulling Culler(TerrainView view)
+    {
+        var culler = new FrustumCulling();
+        culler.CalcFrustumEquations(view.Block, view.Projection, view.World);
+        culler.UpdateViewDistance(1024);
+        (culler.lod0BiasSq, culler.lod2BiasSq) = (128 * 128, 0.45 * culler.ViewDistanceSq);
+        return culler;
+    }
 
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_frame")]
-    private static extern ref int FrameCount([UnsafeAccessorType(Culling)] object? culling);
+    // One culled call of the camera's rows, with or without the faces facing away left out
+    internal void CullRows(TerrainView view, bool backFaces) =>
+        Assert.That(OcclusionCulling.RunRows(Pools, Culler(view), view.Camera, view.CameraMvp, backFaces), Is.True);
+
+    // As RenderOpaque draws: back faces culled, front faces counter-clockwise
+    internal static void BackCulled()
+    {
+        GL.Enable(EnableCap.CullFace);
+        GL.CullFace(TriangleFace.Back);
+        GL.FrontFace(FrontFaceDirection.Ccw);
+    }
 
     public void Dispose()
     {

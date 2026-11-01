@@ -8,7 +8,7 @@ namespace Komet.Test.Rendering;
 public sealed class FrustumSweepTests
 {
     private const int Locations = 777, Seeds = 25; // not a multiple of any vector width
-    private const string Sweep = "Komet.Rendering.FrustumSweep, Komet";
+    private const string Sweep = "Komet.Rendering.FrustumSweep, Komet.Rendering";
 
     private static FrustumCulling Culler(Random r)
     {
@@ -145,21 +145,19 @@ public sealed class FrustumSweepTests
         });
     }
 
-    // A settled pool has most of its locations turned away by a cell box without a test of their own; a churning one is never sorted
-    [TestCase(0, ExpectedResult = true, TestName = "ASettledPoolSkipsMostOfItsLocations")]
-    [TestCase(1, ExpectedResult = false, TestName = "AChurningPoolSkipsNothing")]
-    public bool TheGridSkipsWhatItsBoxesReject(int inserts)
+    // A settled pool has most of its locations turned away by a cell box without a test of their own (a churning one is never
+    // sorted: AChurningPoolIsNeverSorted)
+    [Test]
+    public void ASettledPoolSkipsMostOfItsLocations()
     {
         const int pool = 3000, frames = 20, culls = 3;
         var list = Pool(pool);
         int[] starts = new int[2 * pool], sizes = new int[pool];
         var start = Count();
-        Frame(list, starts, sizes, Scene(640, 0.3), frames, inserts);
+        Frame(list, starts, sizes, Scene(640, 0.3), frames, 0);
         var share = (double)start.Since().Skipped / (frames * culls * pool);
-        TestContext.Out.WriteLine(
-            $"{inserts} insert per frame: {100 * share:F1} % of the location tests skipped by a cell box");
-        Assert.That(share, Is.InRange(0, 1));
-        return share > 0.5;
+        TestContext.Out.WriteLine($"{100 * share:F1} % of the location tests skipped by a cell box");
+        Assert.That(share, Is.GreaterThan(0.5).And.LessThanOrEqualTo(1));
     }
 
     // A pool that changes every frame never reaches the quiet run the sort waits for, so it keeps the engine's order

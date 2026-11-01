@@ -52,19 +52,11 @@ public sealed class GlslPortTests
     }
 
     [Test]
-    public void VulkanOnlysVertexStageWritesOpenGLsPointSize()
+    public void TheVertexStageWritesOpenGLsPointSize()
     {
-        GlslPort.PointSized = true;
-        try
-        {
-            Assert.That(Port(Vertex, Fragment).VertexSource, Does.Contain("komet_main(); gl_PointSize = 1.0;"));
-            var sized = Vertex.Replace("gl_Position = mvp", "gl_PointSize = 4.0; gl_Position = mvp", StringComparison.Ordinal);
-            Assert.That(Port(sized, Fragment).VertexSource, Does.Not.Contain("komet_main"), "the shader's own size stays");
-        }
-        finally
-        {
-            GlslPort.PointSized = false;
-        }
+        Assert.That(Translated(Vertex).Vertex, Does.Contain("komet_main(); gl_PointSize = 1.0;"));
+        var sized = Vertex.Replace("gl_Position = mvp", "gl_PointSize = 4.0; gl_Position = mvp", StringComparison.Ordinal);
+        Assert.That(Translated(sized).Vertex, Does.Not.Contain("komet_main"), "the shader's own size stays");
     }
 
     private static GlslPort.Ported Port(string vertex, string fragment, Dictionary<string, int>? attributes = null)
@@ -72,6 +64,14 @@ public sealed class GlslPortTests
         var ported = GlslPort.Build("test", vertex, fragment, attributes, out var error);
         Assert.That(ported, Is.Not.Null, error);
         return ported!;
+    }
+
+    // The GLSL handed to shaderc
+    private static (string Vertex, string Fragment) Translated(string vertex)
+    {
+        var ported = GlslPort.Build("test", (vertex, Fragment), null, out var error, out var translated);
+        Assert.That(ported, Is.Not.Null, error);
+        return translated;
     }
 
     [Test]
@@ -98,11 +98,11 @@ public sealed class GlslPortTests
     [Test]
     public void FragmentInputsMeetTheVertexOutputsOfTheirName()
     {
-        var ported = Port(Vertex, Fragment);
-        Assert.That(Location(ported.VertexSource, "out", "a"), Is.EqualTo(0));
-        Assert.That(Location(ported.VertexSource, "out", "c"), Is.EqualTo(2));
-        Assert.That(Location(ported.FragmentSource, "in", "c"), Is.EqualTo(2), "declared first, matched by name");
-        Assert.That(Location(ported.FragmentSource, "in", "a"), Is.EqualTo(0));
+        var (ported, translated) = (Port(Vertex, Fragment), Translated(Vertex));
+        Assert.That(Location(translated.Vertex, "out", "a"), Is.EqualTo(0));
+        Assert.That(Location(translated.Vertex, "out", "c"), Is.EqualTo(2));
+        Assert.That(Location(translated.Fragment, "in", "c"), Is.EqualTo(2), "declared first, matched by name");
+        Assert.That(Location(translated.Fragment, "in", "a"), Is.EqualTo(0));
         Assert.That(ported.Outputs, Is.EqualTo(TwoOutputs));
         Assert.That(ported.Attributes, Is.EqualTo(Xyz));
     }
@@ -119,9 +119,9 @@ public sealed class GlslPortTests
     [Test]
     public void TheVersionStaysAndTheLinesKeepTheirNumbers()
     {
-        var ported = Port(Vertex, Fragment);
-        Assert.That(ported.VertexSource, Does.StartWith("#version 330 core\n"));
-        Assert.That(ported.VertexSource, Does.Contain("gl_VertexIndex").And.Not.Contain("gl_VertexID"));
+        var vertex = Translated(Vertex).Vertex;
+        Assert.That(vertex, Does.StartWith("#version 330 core\n"));
+        Assert.That(vertex, Does.Contain("gl_VertexIndex").And.Not.Contain("gl_VertexID"));
         var broken = Vertex.Replace("b = xyz.xy;", "b = nope;", StringComparison.Ordinal);
         Assert.That(GlslPort.Build("test", broken, Fragment, null, out var error), Is.Null);
         Assert.That(error, Does.Contain("test.vsh:11:").And.Contain("nope"), "main's body is line 11 of the source");

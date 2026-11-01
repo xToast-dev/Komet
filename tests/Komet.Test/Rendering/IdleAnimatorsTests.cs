@@ -28,8 +28,18 @@ public sealed class IdleAnimatorsTests
 
     // Every combination of what the util's OnRenderFrame reads: an idle one does nothing there, any other one does something
     [Test]
-    public void AnIdleUtilIsOneTheEngineWouldHaveReturnedFrom([Values] bool animator, [Values] bool renderer,
-        [Values] bool active, [Values] bool running, [Values] bool shouldRender, [Values] bool stopped)
+    public void AnIdleUtilIsOneTheEngineWouldHaveReturnedFrom()
+    {
+        Assert.Multiple(() =>
+        {
+            for (var bits = 0; bits < 64; bits++)
+                Compared((bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0, (bits & 8) != 0, (bits & 16) != 0,
+                    (bits & 32) != 0);
+        });
+    }
+
+    private static void Compared(bool animator, bool renderer, bool active, bool running, bool shouldRender,
+        bool stopped)
     {
         var util = new RecordingUtil();
         var recorder = (RecordingAnimator)RuntimeHelpers.GetUninitializedObject(typeof(RecordingAnimator));
@@ -39,7 +49,9 @@ public sealed class IdleAnimatorsTests
         AccessTools.Field(typeof(AnimationUtil), "stopRenderTriggered").SetValue(util, stopped);
         var idle = IdleAnimators.Idle(util);
         util.OnRenderFrame(0.016f, EnumRenderStage.Opaque); // the engine's body, unpatched
-        Assert.That(recorder.Frames + util.Changes > 0, Is.EqualTo(!idle));
+        Assert.That(recorder.Frames + util.Changes > 0, Is.EqualTo(!idle),
+            $"animator {animator}, renderer {renderer}, active {active}, running {running}, " +
+            $"shouldRender {shouldRender}, stopped {stopped}");
     }
 
     // The extended-debug loop of the patched TriggerRenderStage: an idle renderer is neither checked for a GL error nor marked, a

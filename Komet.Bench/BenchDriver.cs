@@ -2,76 +2,10 @@ using System.ComponentModel;
 using System.Globalization;
 using Komet.Core;
 using Komet.Diagnostics;
-using Komet.Host;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Bench;
-
-internal readonly record struct BenchChat(double Seconds, string Type, string Text);
-
-// What the driver saw of a segment once it ended (frames are in the recorder). NaN cpu: no resource sample.
-internal readonly record struct BenchSegmentLog(
-    bool Ran, double Seconds, double CpuPercent, double SystemCpuPercent, long WorkingSetMb, long ManagedMb);
-
-internal sealed class BenchRun
-{
-    public const int MaxChat = 64, MaxChatText = 300, MaxInfo = 64;
-
-    public BenchRun(BenchConfig config, BenchSegment[] segments)
-    {
-        if (!NotNull(config) || !Assert(segments.Length is > 0 and <= BenchScenario.MaxSegments))
-            segments = [new BenchSegment(BenchKind.Setup, -1, 0, false, false, 1)];
-        (Config, Segments, Logs) = (config, segments, new BenchSegmentLog[segments.Length]);
-        Array.Fill(Logs, new BenchSegmentLog(false, 0, double.NaN, double.NaN, 0, 0));
-    }
-
-    public BenchConfig Config { get; }
-    public BenchSegment[] Segments { get; }
-    public BenchSegmentLog[] Logs { get; }
-    public List<BenchChat> Chat { get; } = [];
-    public List<KeyValuePair<string, string>> Info { get; } = [];
-    public int[] Baseline { get; set; } = [];
-    public int[][] ArmValues { get; set; } = [];
-    public string? Error { get; private set; }
-    public bool Complete { get; set; }
-    public DateTime Started { get; } = DateTime.UtcNow;
-    public DateTime Finished { get; set; }
-
-    // The first error wins: later ones are usually its consequences
-    public void Fail(string error)
-    {
-        if (!Assert(error.Length > 0) || !Assert(error.Length < 4096)) error = "unknown error";
-        Error ??= error;
-    }
-
-    // The line the script's watchdog polls, written at phase changes outside measured frames
-    public void Status(string phase)
-    {
-        if (!Assert(phase.Length > 0) || !Assert(Config.Status.Length > 0)) return;
-        try
-        {
-            var seconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            File.WriteAllText(Config.Status, string.Create(CultureInfo.InvariantCulture, $"{phase} {seconds}\n"));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            Fail("status file not written: " + e.Message);
-        }
-    }
-
-    public void AddChat(double seconds, string type, string text)
-    {
-        if (!Finite(seconds) || !NotNull(text) || Chat.Count >= MaxChat) return;
-        Chat.Add(new BenchChat(seconds, type, text.Length > MaxChatText ? text[..MaxChatText] : text));
-    }
-
-    public void AddInfo(string key, string? value)
-    {
-        if (!Assert(key.Length > 0) || !Assert(Info.Count < MaxInfo)) return;
-        Info.Add(new KeyValuePair<string, string>(key, value ?? ""));
-    }
-}
 
 // Flies the scenario from a Before-stage renderer at RenderOrder -1, ahead of camera, tesselator, physics and HUD,
 // inert until LevelFinalize. Kinematic like SystemCinematicCamera.AdvanceTo; the clock is the engine's dt.
@@ -81,7 +15,8 @@ internal sealed class BenchDriver : IRenderer
     public const double MaxStep = 2;
 
     public const int Spikes = 10; // per segment
-    private const int PulseMs = 2000;
+    private const int PulseMs = 2000, Burst = 6;
+    private const double BurstAt = 1.0, BurstGap = 0.25;
     private const string Done = "komet bench done", LapCommand = "/time set 10:00";
 
     // Time keeps running (with /time stop particles pile to the pool limit); the hour is reset in each lap settle
@@ -104,6 +39,10 @@ internal sealed class BenchDriver : IRenderer
     private Phase _phase = Phase.Waiting;
     private (double X, double Y, double Z, double Yaw) _pose;
     private double _t, _clock, _climbSeconds;
+    private long _joinedAt;
+    private float _joinYaw = float.NaN;
+    private bool _captured;
+    private int _burst;
 
     public BenchDriver(ICoreClientAPI capi, BenchRun run, BenchRecorder recorder)
     {
@@ -141,7 +80,6 @@ internal sealed class BenchDriver : IRenderer
             var frames = Interlocked.Read(ref _frames);
             File.WriteAllText(path, string.Create(CultureInfo.InvariantCulture,
                 $"{frames} {DateTimeOffset.UtcNow.ToUnixTimeSeconds()}\n"));
-            _ = Assert(frames >= 0);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -261,9 +199,6 @@ internal sealed class BenchDriver : IRenderer
         Enter(0);
     }
 
-    private long _joinedAt;
-    private float _joinYaw = float.NaN;
-
     // The world as joined, before the setup sets hour and weather (JoinSeconds): true while waiting. gui "help": the
     // camera sweeps over the ground blocks around the player (the block interaction help recomposes at each), under a
     // debug capture that lands in Logs/komet-debug
@@ -280,8 +215,6 @@ internal sealed class BenchDriver : IRenderer
         _joinedAt = -1;
         return Assert(wait > 0) && Assert(_joinedAt < 0); // the shot is taken this frame; the setup starts with the next
     }
-
-    private bool _captured;
 
     // Komet's own debug capture, as a player's ".komet debug" (ExecuteUnparsed drops the leading dot)
     private void Capture(float seconds)
@@ -302,7 +235,6 @@ internal sealed class BenchDriver : IRenderer
         var pitch = MathF.PI + 0.55f;
         (pos.Yaw, pos.Pitch) = (yaw, pitch);
         (_capi.Input.MouseYaw, _capi.Input.MousePitch) = (yaw, pitch);
-        _ = Assert(float.IsFinite(yaw));
     }
 
     // ResourceStats rethrows its first failure, then stays silent: no cpu and memory, the run goes on
@@ -331,11 +263,31 @@ internal sealed class BenchDriver : IRenderer
         {
             (_t, _clock) = (_t + dt, _clock + dt);
             TurnShot(dt);
+            StillShots(dt);
             if (!Step()) return;
             if (_run.Config.Gui == BenchGui.Creative && _run.Segments[_index].Kind == BenchKind.Still) BenchGui.Scroll(_capi, dt);
         }
 
         Stamp(paused);
+    }
+
+    // Still, a second in: six consecutive frames, then six a quarter second apart. The camera does not move, so what differs
+    // between them flickers (a shadow map kept and redrawn, far foliage, a cache)
+    private void StillShots(float dt)
+    {
+        var segment = _run.Segments[_index];
+        if (_shots is null || segment.Kind != BenchKind.Still || segment.Warmup || !Index(segment.Arm, _run.Config.Arms.Count))
+        {
+            _burst = 0;
+            return;
+        }
+
+        if (_t < BurstAt || _burst >= 2 * Burst) return;
+        if (_burst >= Burst && _t < BurstAt + (_burst - Burst + 1) * BurstGap) return;
+        _shots.Take(string.Create(CultureInfo.InvariantCulture,
+            $"burst-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-{_burst:D2}.png"));
+        _burst++;
+        _ = Assert(dt >= 0);
     }
 
     // Mid-turn as well: what a cache or reprojection gets wrong shows while the camera turns
@@ -345,7 +297,6 @@ internal sealed class BenchDriver : IRenderer
         if (_shots is null || segment.Kind != BenchKind.Rotate || segment.Warmup || !Index(segment.Arm, _run.Config.Arms.Count) ||
             _t < segment.Seconds / 2 || _t - dt >= segment.Seconds / 2) return;
         _shots.Take(string.Create(CultureInfo.InvariantCulture, $"shot-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-turn.png"));
-        _ = Assert(segment.Seconds > 0) && Assert(dt >= 0);
     }
 
     private bool Step()
@@ -404,13 +355,16 @@ internal sealed class BenchDriver : IRenderer
                 Land();
                 break;
             case BenchKind.LapSettle when Index(segment.Arm, _run.ArmValues.Length):
+                // the run's first lap settle: the warm-ups absorb the shader reload and warm up with the mod running
+                if (segment.Lap == 0 && segment.Warmup == (_run.Config.WarmupLaps > 0)) StartLate();
                 if (_run.Config.Gui == BenchGui.Options)
                 {
-                    BenchGui.Switch(_capi, _run.ArmValues[segment.Arm]);
-                    _shots?.Take(string.Create(CultureInfo.InvariantCulture, $"shot-menu-lap{segment.Lap}.png")); // the menu as players see it
+                    var name = string.Create(CultureInfo.InvariantCulture, $"shot-menu-{(segment.Warmup ? "warmup-" : "")}lap{segment.Lap}.png");
+                    BenchGui.Switch(_capi, _run.ArmValues[segment.Arm], _run.Config.MenuPage,
+                        _shots is { } shots ? () => shots.Take(name) : null); // the menu as players see it, once drawn
                 }
                 else _ = Knobs.Apply(_run.ArmValues[segment.Arm]); // the lap settle and the discard window follow
-                _capi.SendChatMessage(LapCommand); // every lap starts at the hour the setup set
+                _capi.SendChatMessage(Time()); // every lap starts at the hour the setup set
                 if (segment.Lap == 0) _run.Status(segment.Warmup ? "warmup" : "measuring");
                 if (_run.Config.HudWindow == "cycle") Hud.HudOverlay.ShowForBench?.Invoke(segment.Lap);
                 if (_run.Config.Gui == BenchGui.Creative) BenchGui.Open(_capi);
@@ -422,15 +376,22 @@ internal sealed class BenchDriver : IRenderer
         }
     }
 
+    private void StartLate()
+    {
+        foreach (var id in _run.Config.LateStart.Bounded(16))
+        {
+            var mod = Rendering.ShaderMods.All(_capi).Find(m => m.Id == id);
+            var started = mod is not null && Rendering.ShaderMods.Start(_capi, mod);
+            _capi.Logger.Notification("Komet bench: late start of {0}: {1}", id, started);
+        }
+    }
+
     private void Climb()
     {
         if (_capi.World.Player?.Entity?.Pos is { } position) _pose = (position.X, position.Y, position.Z, _pose.Yaw);
         _from = (_pose.X, _pose.Y, _pose.Z);
         _landing = _from;
-        var (dx, dy, dz) = (_home.X - _from.X, _home.Y - _from.Y, _home.Z - _from.Z);
-        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-        _climbSeconds = Finite(distance) && Assert(distance < 1e7)
-            ? Math.Max(1, distance / BenchScenario.ClimbSpeed) : 1;
+        _climbSeconds = GlideSeconds(_from, _home);
     }
 
     // From where the laps left the player down to the ground spot the world was joined at (Climb's start)
@@ -439,11 +400,25 @@ internal sealed class BenchDriver : IRenderer
         // down where the player is: the join spot after a lap home, the terrain just flown to without route.back
         var ground = _capi.World?.BlockAccessor?.GetTerrainMapheightAt(new Vintagestory.API.MathTools.BlockPos((int)_pose.X, (int)_pose.Y, (int)_pose.Z, 0)) ?? -1;
         if (ground > 0 && Math.Abs(_pose.X - _landing.X) + Math.Abs(_pose.Z - _landing.Z) > 8) _landing = (_pose.X, ground + 1.5, _pose.Z);
-        var (dx, dy, dz) = (_landing.X - _pose.X, _landing.Y - _pose.Y, _landing.Z - _pose.Z);
-        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
         _lift = (_pose.X, _pose.Y, _pose.Z);
-        _climbSeconds = Finite(distance) && Assert(distance < 1e7) ? Math.Max(1, distance / BenchScenario.ClimbSpeed) : 1;
+        _climbSeconds = GlideSeconds(_lift, _landing);
         _run.Status("landing");
+    }
+
+    // A straight flight at ClimbSpeed: its seconds, at least one
+    private static double GlideSeconds((double X, double Y, double Z) from, (double X, double Y, double Z) to)
+    {
+        var (dx, dy, dz) = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        return Finite(distance) && Assert(distance < 1e7) ? Math.Max(1, distance / BenchScenario.ClimbSpeed) : 1;
+    }
+
+    // Where that flight is after t of its seconds, facing the route's heading
+    private static (double X, double Y, double Z, double Yaw) Glide((double X, double Y, double Z) from,
+        (double X, double Y, double Z) to, double t, double seconds)
+    {
+        var s = Assert(seconds >= 1) && Finite(t) ? Math.Clamp(t / seconds, 0, 1) : 1;
+        return (from.X + (to.X - from.X) * s, from.Y + (to.Y - from.Y) * s, from.Z + (to.Z - from.Z) * s, BenchScenario.Heading);
     }
 
     private void End(int index)
@@ -483,9 +458,19 @@ internal sealed class BenchDriver : IRenderer
 
         if (_command >= Commands.Length) return Assert(_command == Commands.Length);
         if (!Index(_command, Commands.Length)) return true;
-        if (_run.Config.Spawning && Commands[_command].Contains("entityspawning", StringComparison.Ordinal)) _command++;
-        else _capi.SendChatMessage(Commands[_command++]);
+        var command = Commands[_command++];
+        if (_run.Config.Rain) command = command.Replace("setprecip -1", "setprecip 1", StringComparison.Ordinal)
+            .Replace("set clearsky", "set overcast", StringComparison.Ordinal);
+        if (!_run.Config.Spawning || !command.Contains("entityspawning", StringComparison.Ordinal))
+            _capi.SendChatMessage(command == LapCommand ? Time() : command);
         return false;
+    }
+
+    // The configured hour as the game's command (LapCommand stands for it in the setup's list)
+    private string Time()
+    {
+        var hour = _run.Config.Hour;
+        return string.Create(CultureInfo.InvariantCulture, $"/time set {(int)hour:00}:{(int)((hour - (int)hour) * 60):00}");
     }
 
     // The player stands where it spawned until the server has made it a flyer
@@ -494,18 +479,8 @@ internal sealed class BenchDriver : IRenderer
         var segment = _run.Segments[_index];
         var entity = _capi.World.Player?.Entity;
         if (segment.Kind == BenchKind.Setup || !NotNull(entity) || !Finite(_t)) return;
-        if (segment.Kind == BenchKind.Climb)
-        {
-            var s = Math.Clamp(_t / _climbSeconds, 0, 1);
-            _pose = (_from.X + (_home.X - _from.X) * s, _from.Y + (_home.Y - _from.Y) * s,
-                _from.Z + (_home.Z - _from.Z) * s, BenchScenario.Heading);
-        }
-        else if (segment.Kind == BenchKind.Land)
-        {
-            var s = Math.Clamp(_t / _climbSeconds, 0, 1);
-            _pose = (_lift.X + (_landing.X - _lift.X) * s, _lift.Y + (_landing.Y - _lift.Y) * s,
-                _lift.Z + (_landing.Z - _lift.Z) * s, BenchScenario.Heading);
-        }
+        if (segment.Kind == BenchKind.Climb) _pose = Glide(_from, _home, _t, _climbSeconds);
+        else if (segment.Kind == BenchKind.Land) _pose = Glide(_lift, _landing, _t, _climbSeconds);
         else if (segment.Kind == BenchKind.Ground) _pose = (_landing.X, _landing.Y, _landing.Z, BenchScenario.Heading);
         else
         {
@@ -543,8 +518,16 @@ internal sealed class BenchDriver : IRenderer
         if (ReferenceEquals(FrameClock.Sink, _recorder)) FrameClock.Sink = null;
         if (_recorder.Recording) _recorder.Stop();
         Counting.Bench = false;
+        // an options switch cut short (an exception mid-switch): Reset drops it, so unpause and close the menu here,
+        // or the single-player server stays suspended into the exit
+        if (_run.Config.Gui == BenchGui.Options && _capi.IsGamePaused && _capi.World is ClientMain paused)
+        {
+            paused.PauseGame(false);
+            Hud.HudOverlay.OptionsForBench?.Invoke(false, null);
+        }
+
+        BenchGui.Reset();
         _run.Finished = DateTime.UtcNow;
-        _ = Assert(_run.Finished >= _run.Started);
         if (_run.Baseline.Length == Knobs.Count) _ = Knobs.Apply(_run.Baseline);
         var profiler = _capi.World?.FrameProfiler; // only ours: End() of this frame then returns early, as for the HUD
         if (_profilerOwned && profiler is not null) profiler.Enabled = false;
@@ -565,7 +548,7 @@ internal sealed class BenchDriver : IRenderer
         _capi.Logger.Notification("Komet bench: {0}, result in {1}", _run.Error ?? "complete", _run.Config.Output);
         if (_capi.World is not ClientMain game) return;
         game.AllowCameraControl = true;
-        if (exit && (_capi.IsSinglePlayer || HostLaunch.Hosting)) Benchmark.Exit(game, Done);
+        if (exit && _capi.IsSinglePlayer) Benchmark.Exit(game, Done);
     }
 
     private enum Phase

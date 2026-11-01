@@ -1,0 +1,8 @@
+{
+  "type": "content",
+  "modid": "mymod",
+  "name": "My Komet Mod",
+  "version": "1.0.0",
+  "authors": ["you"],
+  "description": "A starting point for a shader mod made for Komet. Rename mymod everywhere (the folder under assets, modid, the uniform mymodWarmth) to your own id."
+}

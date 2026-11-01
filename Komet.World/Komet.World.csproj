@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Komet.World: world side: light, map, events, scratch buffers. Settings, game references and the analyzer: ../Komet.Module.props -->
+    <Import Project="../Komet.Module.props"/>
+
+    <!-- The modules this one builds on; a module never references one above it -->
+    <ItemGroup>
+        <ProjectReference Include="../Komet.Core/Komet.Core.csproj"/>
+    </ItemGroup>
+
+</Project>

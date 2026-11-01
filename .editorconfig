@@ -57,39 +57,46 @@ dotnet_diagnostic.RCS1123.severity = none   # redundant parentheses stay out
 dotnet_diagnostic.CA1031.severity = none    # thread and engine boundaries catch everything: an escaping exception ends the game
 dotnet_diagnostic.CA1308.severity = none    # lang keys are lower case
 dotnet_diagnostic.S1144.severity = none     # flags [InlineArray] elements; IDE0051/IDE0052 cover unused members
-dotnet_diagnostic.S1075.severity = none     # the release feed URL has exactly one home
 
-[{Komet/KometModSystem.cs,Komet/Host/HostSystem.cs}]
+[{Komet.Ui/Hud/UpdateCheck.cs,Komet.Vulkan/Shaders/ShadercFetch.cs}]
+dotnet_diagnostic.S1075.severity = none     # the release feed and the shader compiler's download each have exactly one home
+
+[Komet/KometModSystem.cs]
 dotnet_diagnostic.CA1063.severity = none    # sealed override of ModSystem's virtual Dispose
 
 [Komet.Bench/Benchmark.cs]
 dotnet_diagnostic.CA2000.severity = none    # the engine disposes a registered renderer with the world
 
-[Komet/Rendering/Pools/IndirectDraw.cs]
-dotnet_diagnostic.S6640.severity = none     # the persistent GL mapping is a raw pointer
+# Mapped memory (the backend's staging, GL's persistent mappings: draws, packed faces, query results) read and filled through raw
+# pointers; GL entry points that take pointers; an object's address handed to a prefetch hint (IdleAnimators), never read through
+[{Komet.Rendering/Gpu/IGpuBackend.cs,Komet.Rendering/Occlusion/OcclusionCulling.cs,Komet.Rendering/Pools/FacePacking.cs,Komet.Rendering/Pools/IndirectDraw.cs,Komet.Rendering/IdleAnimators.cs,Komet.Rendering/Gl/GlQueryCache.cs,Komet.Rendering/Gl/RoundTrips.cs}]
+dotnet_diagnostic.S6640.severity = none
 
-[{Komet/Gpu/IGpuBackend.cs,Komet/Rendering/Occlusion/OcclusionCulling.Gather.cs,Komet/Rendering/Pools/FacePacking.cs}]
-dotnet_diagnostic.S6640.severity = none     # mapped memory (the backend's staging, GL's persistent mappings), filled through a raw pointer
-
-[Komet/Rendering/IdleAnimators.Ahead.cs]
-dotnet_diagnostic.S6640.severity = none     # an object's address handed to a prefetch hint, never read through
-
-[Komet/Vulkan/**.cs]
+[Komet.Vulkan/**.cs]
 dotnet_diagnostic.S6640.severity = none     # Vulkan and the GL extensions are a C API: structures with pointers, function pointers
 
-[Komet/Vulkan/Device/VulkanCore.cs]
+[Komet.Vulkan/Device/VulkanCore.cs]
 dotnet_diagnostic.CA2000.severity = none    # the device made passes to VulkanCore.Device
 
-[Komet/Vulkan/Terrain/**.cs]
+[Komet.Diagnostics/Frames/RenderCost.cs]
+dotnet_diagnostic.CA2000.severity = none    # Owned.Kept disposes an unreadable schedstat handle; Tracked owns the others until Stop
+
+[Komet.Ui/Hud/Overlay/HudOverlay.Debug.cs]
+dotnet_diagnostic.CA2213.severity = none    # RuntimeEvents.Stop (Komet.Diagnostics) takes the snapshot and disposes the session
+
+[Komet.Vulkan/Device/**.cs]
+dotnet_diagnostic.CA2000.severity = none    # Owned.Kept (Komet.Core) disposes a buffer, image or device whose setup failed; the caller owns it from then
+
+[Komet.Vulkan/Terrain/**.cs]
 dotnet_diagnostic.CA2000.severity = none    # the renderer owns its pools, targets, images, samplers, pipelines and frames until Dispose; an adopted pool its buffers, the targets their images, the quad pattern goes to its caller
 
-[Komet/Vulkan/Frame/**.cs]
+[Komet.Vulkan/Frame/**.cs]
 dotnet_diagnostic.CA2000.severity = none    # the frame owns its slots' uploads and fences until Dispose
 
-[Komet/Vulkan/Scene/**.cs]
+[Komet.Vulkan/Scene/**.cs]
 dotnet_diagnostic.CA2000.severity = none    # the scene owns its mirrors, heap, staging buffers, pipelines and query pool until Dispose
 
-[Komet/Vulkan/Engine/VulkanRenderer*.cs]
+[Komet.Vulkan/Engine/VulkanRenderer*.cs]
 dotnet_diagnostic.CA2000.severity = none    # the engine disposes registered renderers with the world; the renderer lives until then
 
 [tests/**.cs]
@@ -97,15 +104,18 @@ dotnet_diagnostic.CA5394.severity = none    # seeded Random: reproducible, not s
 
 [tests/Komet.Test/**.cs]
 dotnet_diagnostic.CA1515.severity = none    # NUnit finds fixtures by reflection
+dotnet_diagnostic.CA1062.severity = none    # NUnit passes the case arguments
 dotnet_diagnostic.S6640.severity = none     # the GPU tests record Vulkan commands through its C API
-dotnet_diagnostic.CA2000.severity = none
-dotnet_diagnostic.CA1810.severity = none
-dotnet_diagnostic.CA1812.severity = none
-dotnet_diagnostic.CA2211.severity = none
-dotnet_diagnostic.S1215.severity = none
-dotnet_diagnostic.S2223.severity = none
-dotnet_diagnostic.S3236.severity = none
-dotnet_diagnostic.S3963.severity = none
+dotnet_diagnostic.CA2000.severity = none    # GL, Vulkan and rig objects live until the test or the fixture's teardown ends them
+dotnet_diagnostic.CA1812.severity = none    # mods, entities and animators the engine or Harmony instantiate by reflection
+dotnet_diagnostic.CA2211.severity = none    # patch probes record into public static fields
+dotnet_diagnostic.S1215.severity = none     # memory and allocation tests collect to measure
+dotnet_diagnostic.S2223.severity = none     # patch probes record into public static fields
+dotnet_diagnostic.S3236.severity = none     # the contract tests pass the caller information a real call site would
+
+[tests/Komet.Portable/**.cs]
+dotnet_diagnostic.CA1515.severity = none    # NUnit finds fixtures by reflection
+dotnet_diagnostic.S3236.severity = none     # the contract test passes the caller information a Windows build would
 
 # A public library of test rigs: its callers are tests
 [tests/Komet.Testing/**.cs]
@@ -118,8 +128,5 @@ dotnet_diagnostic.CA1819.severity = none    # the arrays are the engine's own bu
 dotnet_diagnostic.RS2008.severity = none
 dotnet_diagnostic.CA1062.severity = none
 
-[Komet/Rendering/Gl/GlQueryCache.cs]
+[Komet.Rendering/Gl/GlQueryCache.cs]
 dotnet_diagnostic.S6640.severity = none     # GL entry points are C functions taking pointers
-
-[Komet/Rendering/Gl/RoundTrips.cs]
-dotnet_diagnostic.S6640.severity = none     # the query buffer is read through its persistent mapping

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Komet.Vulkan: the Vulkan renderer: device, GL tap, terrain, scene, shader ports. Settings, game references and the analyzer: ../Komet.Module.props -->
+    <Import Project="../Komet.Module.props"/>
+
+    <!-- The modules this one builds on; a module never references one above it -->
+    <ItemGroup>
+        <ProjectReference Include="../Komet.Core/Komet.Core.csproj"/>
+        <ProjectReference Include="../Komet.Diagnostics/Komet.Diagnostics.csproj"/>
+        <ProjectReference Include="../Komet.Rendering/Komet.Rendering.csproj"/>
+        <ProjectReference Include="../Komet.Chunks/Komet.Chunks.csproj"/>
+        <ProjectReference Include="../Komet.Shapes/Komet.Shapes.csproj"/>
+    </ItemGroup>
+
+</Project>

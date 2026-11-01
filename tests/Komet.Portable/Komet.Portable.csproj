@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- What CI can test on Windows and Linux with only the game assemblies in .github/vintagestory (no assets, no
+         VSSurvivalMod): code whose behaviour depends on the system, its paths and its files. The full suite is Komet.Test. -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>
+        <PackageReference Include="NUnit.Analyzers" Version="4.15.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="6.3.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="$(KometRepo)Komet/Komet.csproj"/>
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll"/>
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll"/>
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll"/>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,28 @@
+- name: Introduction
+  href: introduction.md
+- name: Getting started
+  href: getting-started.md
+- name: Shaders
+  items:
+  - name: The Vulkan shader template
+    href: vulkan-template.md
+  - name: komet.json reference
+    href: komet-json.md
+  - name: Writing passes
+    href: passes.md
+  - name: Render passes and stages
+    href: render-pipeline.md
+  - name: GLSL on Komet's Vulkan renderer
+    href: vulkan-rules.md
+  - name: Shaders from code
+    href: shaders-code.md
+- name: Options, features and styles
+  items:
+  - name: Options pages
+    href: options.md
+  - name: Features
+    href: features.md
+  - name: Menu styles
+    href: styles.md
+  - name: Debug timings
+    href: debug.md

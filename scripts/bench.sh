@@ -22,6 +22,8 @@
 #   --build         run ./build.sh (Release) into Releases/komet and package Komet.Bench into Releases/kometbench first; not
 #                   with another --mod
 #   --golden        make the golden copy of the save again (the game must be closed)
+#   --extra-mod F   also put this mod zip or folder into the sandbox's Mods (another mod Komet must get along with); repeatable
+#   --data-file S=R copy file S to R inside the sandbox's data folder (ModConfig/komet/shader-settings.json, say); repeatable
 #   --keep          keep the copied clientsettings.json and save in the run folder (they hold the session key)
 #   --env N=V       extra environment for the game process, e.g. --env DOTNET_gcServer=1 --env DOTNET_GCgen0size=0x4000000
 #   --force         run although another Vintagestory process is up (GPU contention, shared URI pipe) or the desktop is locked
@@ -41,6 +43,8 @@ CONFIG=$REPO/scripts/bench.json
 PROFILE=smoke
 LABEL=
 KEEP=0
+EXTRA_MODS=()
+DATA_FILES=()
 GOLDEN=0
 BUILD=0
 FORCE=0
@@ -67,6 +71,8 @@ while (($#)); do
     --build) BUILD=1; shift ;;
     --golden) GOLDEN=1; shift ;;
     --keep) KEEP=1; shift ;;
+    --extra-mod) EXTRA_MODS+=("${2:?}"); shift 2 ;;
+    --data-file) DATA_FILES+=("${2:?}"); shift 2 ;;
     --force) FORCE=1; shift ;;
     --timeout) TIMEOUT=${2:?}; shift 2 ;;
     --boot-timeout) BOOT_TIMEOUT=${2:?}; shift 2 ;;
@@ -128,7 +134,7 @@ BENCH_MOD=$(dirname "$MOD")/kometbench
 python3 -c 'import sys; sys.exit(open(sys.argv[1], "rb").read().find("komet-bench/2".encode("utf-16-le")) < 0)' "$BENCH_MOD/Komet.Bench.dll" ||
   die "$BENCH_MOD holds an older bench harness than this script (no komet-bench/2): run it with its own tree's scripts/bench.sh"
 if [[ $MOD == "$DEFAULT_MOD" ]] &&
-  [[ -n $(find "$REPO/Komet" -name '*.cs' -newer "$MOD/Komet.dll" -not -path '*/obj/*' -not -path '*/bin/*' -print -quit) ||
+  [[ -n $(find "$REPO"/Komet "$REPO"/Komet.[A-Z]* -name '*.cs' -newer "$MOD/Komet.dll" -not -path '*/obj/*' -not -path '*/bin/*' -print -quit) ||
      -n $(find "$REPO/Komet.Bench" -name '*.cs' -newer "$BENCH_MOD/Komet.Bench.dll" -not -path '*/obj/*' -not -path '*/bin/*' -print -quit) ]]; then
   echo "bench: warning: sources are newer than the builds in $(dirname "$MOD"), pass --build to benchmark them" >&2
 fi
@@ -190,6 +196,8 @@ cp "$GOLDEN_SAVE" "$RUN/data/Saves/bench.vcdbs"
 if [[ -f $GOLDEN_MAP ]]; then cp "$GOLDEN_MAP" "$RUN/data/Maps/$SAVEGAME_ID.db"; fi
 cp -r "$MOD" "$RUN/data/Mods/komet"
 cp -r "$BENCH_MOD" "$RUN/data/Mods/kometbench"
+for extra in "${EXTRA_MODS[@]}"; do cp -r "$extra" "$RUN/data/Mods/"; done
+for pair in "${DATA_FILES[@]}"; do mkdir -p "$(dirname "$RUN/data/${pair#*=}")"; cp "${pair%%=*}" "$RUN/data/${pair#*=}"; done
 
 # Patch the copies in place and write the flat bench.json the mod reads. Prints the time budget and the game's extra environment.
 mapfile -t PLAN < <(KOMET_BENCH_ARMS="${ARMS[*]}" KOMET_BENCH_HUD="${HUDS[*]}" python3 - "$CONFIG" "$PROFILE" "$RUN" "$SAVEGAME_ID" "$REVISION" "${EXTRA_ENV[@]}" <<'PY'
@@ -362,7 +370,7 @@ def show(value, digits=2):
     return "-" if value is None else f"{value:.{digits}f}"
 for arm in result.get("arms", []):
     pooled = arm["pooled"]["all"]
-    segs = [s for s in result.get("segments", []) if s.get("arm") == arm["name"] and s.get("measured")]
+    segs = [s for s in result.get("segments", []) if s.get("arm") == arm["name"] and s.get("measured") and s.get("lap", 0) >= 0]
     gcs = sum(s["gc"]["gen0"] + s["gc"]["gen1"] + s["gc"]["gen2"] for s in segs)
     pause, secs = sum(s["gc"]["pauseMs"] for s in segs), sum(s["seconds"] for s in segs) or 1
     print(f"  {arm['name']:>10}: n={pooled['n']:>7} avg {show(pooled['avgMs'])} ms  p99 {show(pooled['p99Ms'])} ms  "

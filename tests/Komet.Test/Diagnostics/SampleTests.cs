@@ -30,13 +30,14 @@ public sealed class SampleTests
         });
     }
 
+    // A log shorter than the tail keeps its first line
     [Test]
     public void ALogIsParsedAgainOnlyOnceItChanged()
     {
         var path = Path.Combine(Path.GetTempPath(), $"komet-logstats-{Environment.ProcessId}.log");
         try
         {
-            File.WriteAllText(path, "cut\n1.1.2026 10:00:00 [Notification] first\n1.1.2026 10:00:01 [Warning] second\n");
+            File.WriteAllText(path, "1.1.2026 10:00:00 [Notification] first\n1.1.2026 10:00:01 [Warning] second\n");
             var log = new LogStats("client-main.log");
             AccessTools.Field(typeof(LogStats), "_path").SetValue(log, path);
             log.Sample();

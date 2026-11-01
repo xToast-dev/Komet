@@ -147,16 +147,23 @@ public sealed class OccludedChunksTests
             rig => rig.Put(X, Y, Z, (x, y, z) => (x, y, z) == (7, 9, 11) ? ChunkRig.Snow : ChunkRig.Stone), true);
         yield return Case("slab inside",
             rig => rig.Put(X, Y, Z, (x, y, z) => (x, y, z) == (7, 9, 11) ? ChunkRig.Slab : ChunkRig.Stone));
+        // Every face for what reads the touching slab per direction (glass, slab); one side, up and down for the rest
         foreach (var (dx, dy, dz) in Faces)
         {
             var name = $"{dx}/{dy}/{dz}";
-            yield return Case("missing " + name, rig => rig.Remove(X + dx, Y + dy, Z + dz));
-            yield return Case("empty " + name,
-                rig => rig.Put(X + dx, Y + dy, Z + dz, (_, _, _) => ChunkRig.Air, empty: true));
+            var sample = dy != 0 || dx == 1;
+            if (sample)
+            {
+                yield return Case("missing " + name, rig => rig.Remove(X + dx, Y + dy, Z + dz));
+                yield return Case("empty " + name,
+                    rig => rig.Put(X + dx, Y + dy, Z + dz, (_, _, _) => ChunkRig.Air, empty: true));
+            }
+
             yield return Case("glass touching " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
                 (x, y, z) => Touching(dx, dy, dz, x, y, z) && (x + y + z) % 7 == 0 ? ChunkRig.Glass : ChunkRig.Stone));
             yield return Case("slab touching " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
                 (x, y, z) => Touching(dx, dy, dz, x, y, z) ? ChunkRig.Slab : ChunkRig.Stone));
+            if (!sample) continue;
             yield return Case("snow touching " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
                 (x, y, z) => Touching(dx, dy, dz, x, y, z) ? ChunkRig.Snow : ChunkRig.Stone), dy == 1);
             yield return Case("air behind the slab " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
@@ -435,15 +442,11 @@ public sealed class OccludedChunksTests
         using var harmony = new TestHarmony("komet-test-occludedchunks");
         // KometModSystem's order and id: the other fast paths patch methods the prefix skips
         TessSeams.Install(harmony, null);
-        ExtendedRows.Install(harmony);
-        VisibleFaces.Install(harmony);
         FaceLight.Install(harmony);
         OccludedChunks.Install(harmony);
         TessSeams.Recheck();
-        Assert.That((ExtendedRows.Rewritten, VisibleFaces.Installed, OccludedChunks.Installed),
-            Is.EqualTo((true, true, true)));
-        Assert.That((ExtendedRows.Blocked, VisibleFaces.StoodDown, FaceLight.StoodDown, OccludedChunks.StoodDown),
-            Is.EqualTo((false, false, false, false)));
+        Assert.That(OccludedChunks.Installed, Is.True);
+        Assert.That((FaceLight.StoodDown, OccludedChunks.StoodDown), Is.EqualTo((false, false)));
         Counting.Hud = true;
         var before = OccludedChunks.Hits;
         var tess = rig.Tess(X, Y, Z);

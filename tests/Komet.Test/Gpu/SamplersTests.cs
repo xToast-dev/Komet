@@ -21,11 +21,23 @@ public sealed class SamplersTests
                         foreach (var to in new[] { 0x2600, 0x2601 })
                             Assert.That(Samplers.Tuned(state, 0x2800, to), Is.EqualTo(Samplers.FromGl(min, to, wrap, compare)));
                         foreach (var to in Wraps)
-                            Assert.That(Samplers.Tuned(state, 0x2802, to), Is.EqualTo(Samplers.FromGl(min, mag, to, compare)));
+                        {
+                            Assert.That(Samplers.Tuned(state, 0x2802, to), Is.EqualTo(Samplers.FromGl(min, mag, to, compare, wrap)));
+                            Assert.That(Samplers.Tuned(state, 0x2803, to), Is.EqualTo(Samplers.FromGl(min, mag, wrap, compare, to)));
+                        }
+
                         Assert.That(Samplers.Tuned(state, 0x884C, compare ? 0 : 0x884E),
                             Is.EqualTo(Samplers.FromGl(min, mag, wrap, !compare)));
-                        Assert.That(Samplers.Tuned(state, 0x2803, 0x2901), Is.EqualTo(state), "wrap T is not read");
                         Assert.That(Samplers.Tuned(state, 0x813D, 4), Is.Null, "the max level: not followed");
                     }
+    }
+
+    [Test]
+    public void EachWrapIsVulkansOwnAddressModeAlongItsAxis()
+    {
+        var state = Samplers.FromGl(0x2601, 0x2601, 0x8370, false, 0x812D); // mirrored along S, border along T
+        Assert.That((state.U, state.V, state.W), Is.EqualTo((1u, 3u, 1u)));
+        Assert.That(Samplers.Tuned(state, 0x8072, 0x812F)?.W, Is.EqualTo(2u), "wrap R");
+        Assert.That(Samplers.FromGl(0x2601, 0x2601, 0x2900, false).U, Is.EqualTo(2u), "GL_CLAMP: to the edge");
     }
 }

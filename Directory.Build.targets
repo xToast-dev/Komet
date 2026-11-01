@@ -1,0 +1,9 @@
+<Project>
+
+    <!-- The shipped assemblies (KometShipped, set by Komet.Module.props and Komet.Bench) embed /_/-relative source paths in a release
+         ([CallerFilePath] in Contracts, the pdb); Debug and the tests keep absolute ones for the debugger -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(KometShipped)' == 'true'">
+        <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+    </PropertyGroup>
+
+</Project>

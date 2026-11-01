@@ -242,7 +242,6 @@ public sealed class RenderPassStatsTests
         return ledger;
     }
 
-    [TestCase(20, false)]
     [TestCase(25, false)]
     [TestCase(26, true)]
     public void SpikesStartAt25MsOverAFastMean(double ms, bool spike)

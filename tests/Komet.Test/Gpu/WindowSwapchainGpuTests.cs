@@ -26,7 +26,6 @@ public sealed class WindowSwapchainGpuTests
         }
 
         Assert.That((chain.Width, chain.Height), Is.EqualTo((width, height)), "the window's size");
-        Assert.That(chain.Format, Is.EqualTo(Vk.FormatBgra8).Or.EqualTo(Vk.FormatRgba8));
     }
 
     // An image acquired that no present showed (the frame went to OpenGL instead) is what the next acquire gives: acquiring
@@ -60,8 +59,8 @@ public sealed class WindowSwapchainGpuTests
         if (!rig.Device!.Swapchains) Assert.Ignore("this Vulkan has no swapchains for windows");
         rig.Backend!.Flush(); // the device's own command buffer is the test's from here on
         var native = platform == Platform.Wayland
-            ? new WindowSwapchain.Native(true, GLFW.GetWaylandDisplay(), (nuint)GLFW.GetWaylandWindow(window.WindowPtr))
-            : new WindowSwapchain.Native(false, GLFW.GetX11Display(), GLFW.GetX11Window(window.WindowPtr));
+            ? new WindowSwapchain.Native(WindowSwapchain.WindowKind.Wayland, GLFW.GetWaylandDisplay(), (nuint)GLFW.GetWaylandWindow(window.WindowPtr))
+            : new WindowSwapchain.Native(WindowSwapchain.WindowKind.X11, GLFW.GetX11Display(), GLFW.GetX11Window(window.WindowPtr));
         var chain = WindowSwapchain.Create(rig.Device, native, out var why);
         TestContext.Out.WriteLine($"a swapchain on a {platform} window");
         Assert.That(chain, Is.Not.Null, why);

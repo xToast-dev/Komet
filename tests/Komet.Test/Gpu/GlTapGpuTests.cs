@@ -41,7 +41,7 @@ public sealed class GlTapGpuTests
             var lights = scene.Ported.VertexUniforms.Members.Single(u => u.Name == "pointLights");
             Assert.That(mirror.Held(lights).Skip(3).Take(3).Select(BitConverter.UInt32BitsToSingle), Is.EqualTo(Light),
                 "element 1 of the array");
-            Assert.That(GlTap.Unit(mirror.Int("terrainTex")), Is.EqualTo((texture, sampler)));
+            Assert.That(GlTap.Unit((int)mirror.EntryOf("terrainTex")!.Held[0]), Is.EqualTo((texture, sampler)));
             var held = new float[4];
             GL.GetUniform(scene.Program, GL.GetUniformLocation(scene.Program, "rgbaFogIn"), held);
             Assert.That(held, Is.EqualTo(Fog), "and OpenGL got it");
@@ -110,6 +110,33 @@ public sealed class GlTapGpuTests
             GL.Disable(EnableCap.CullFace);
             GL.DepthMask(true);
             GL.ColorMask(true, true, true, true);
+        }
+    }
+
+    [Test]
+    public void ADeletedBoundFramebufferLeavesTheStandInBound()
+    {
+        using var window = GlContext.Context();
+        if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
+        var standIn = GL.GenFramebuffer();
+        var framebuffer = GL.GenFramebuffer();
+        Assert.That(GlTap.Tap(), Is.True);
+        GlTap.Window = (uint)standIn;
+        try
+        {
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+            GL.DeleteFramebuffer(framebuffer);
+            Assert.That(GlTap.DrawFramebuffer, Is.EqualTo(standIn));
+            Assert.That(GlTap.ReadFramebuffer, Is.EqualTo(standIn));
+            Assert.That(GL.GetInteger(GetPName.DrawFramebufferBinding), Is.EqualTo(standIn), "and OpenGL draws into it");
+            Assert.That(GL.GetInteger(GetPName.ReadFramebufferBinding), Is.EqualTo(standIn), "and reads from it");
+        }
+        finally
+        {
+            GlTap.Window = 0;
+            GlTap.Untap();
+            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            GL.DeleteFramebuffer(standIn);
         }
     }
 }

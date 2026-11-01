@@ -1,0 +1,63 @@
+<Project>
+
+    <!-- Shared by the mod project (Komet) and every module project (Komet.Core … Komet.Ui): what they are built with, the game
+         assemblies they compile against (supplied by the game at runtime, never copied into the mod), who may see their
+         internals, and the Komet.Rules analyzer with the lang files it reads. A module's own csproj holds only its references to
+         the modules below it. See MODULE.md in each module and WARTUNG.md for the layering. -->
+
+    <PropertyGroup>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport stubs, the Vulkan C API (pointers, function pointers), mapped GPU buffers, [SkipLocalsInit] -->
+        <GenerateDependencyFile>false</GenerateDependencyFile>   <!-- the game loads the mod assemblies itself -->
+        <KometShipped>true</KometShipped>   <!-- Directory.Build.targets: release paths are /_/-relative in these assemblies -->
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Using Include="Vintagestory.API.Client.GuiElement" Static="true"/>
+        <Using Include="Komet.Contracts" Static="true"/>
+    </ItemGroup>
+
+    <!-- Supplied by the game at runtime -->
+    <ItemGroup>
+        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false"/>
+        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false"/>
+        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false"/>
+        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll" Private="false"/>
+        <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll" Private="false"/>
+        <Reference Include="OpenTK.Windowing.Common" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Common.dll" Private="false"/>
+        <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll" Private="false"/>
+        <!-- GLFW: the GL entry points OpenTK does not bind (Komet.Vulkan/Device/VulkanCore.cs) and the window's native handles for the swapchain -->
+        <Reference Include="OpenTK.Windowing.GraphicsLibraryFramework" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.GraphicsLibraryFramework.dll" Private="false"/>
+        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false"/>
+        <Reference Include="VSEssentials" HintPath="$(VsInstall)/Mods/VSEssentials.dll" Private="false"/>   <!-- the world generation layers the menu's globe samples -->
+        <Reference Include="SkiaSharp" HintPath="$(VsInstall)/Lib/SkiaSharp.dll" Private="false"/>   <!-- BitmapExternal's overloads name SKBitmap -->
+        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false"/>
+        <!-- the world map's database, written through raw statements (Komet.World/Map/MapSaveScratch) -->
+        <Reference Include="Microsoft.Data.Sqlite" HintPath="$(VsInstall)/Lib/Microsoft.Data.Sqlite.dll" Private="false"/>
+        <Reference Include="SQLitePCLRaw.core" HintPath="$(VsInstall)/Lib/SQLitePCLRaw.core.dll" Private="false"/>
+    </ItemGroup>
+
+    <!-- The modules above a module, the mod, the developer benchmark and the tests reach its internals -->
+    <ItemGroup>
+        <InternalsVisibleTo Include="Komet" Condition="'$(MSBuildProjectName)' != 'Komet'"/>
+        <InternalsVisibleTo Include="Komet.Core" Condition="'$(MSBuildProjectName)' != 'Komet.Core'"/>
+        <InternalsVisibleTo Include="Komet.Diagnostics" Condition="'$(MSBuildProjectName)' != 'Komet.Diagnostics'"/>
+        <InternalsVisibleTo Include="Komet.Rendering" Condition="'$(MSBuildProjectName)' != 'Komet.Rendering'"/>
+        <InternalsVisibleTo Include="Komet.Tessellation" Condition="'$(MSBuildProjectName)' != 'Komet.Tessellation'"/>
+        <InternalsVisibleTo Include="Komet.Chunks" Condition="'$(MSBuildProjectName)' != 'Komet.Chunks'"/>
+        <InternalsVisibleTo Include="Komet.Shapes" Condition="'$(MSBuildProjectName)' != 'Komet.Shapes'"/>
+        <InternalsVisibleTo Include="Komet.World" Condition="'$(MSBuildProjectName)' != 'Komet.World'"/>
+        <InternalsVisibleTo Include="Komet.Vulkan" Condition="'$(MSBuildProjectName)' != 'Komet.Vulkan'"/>
+        <InternalsVisibleTo Include="Komet.Ui" Condition="'$(MSBuildProjectName)' != 'Komet.Ui'"/>
+        <InternalsVisibleTo Include="Komet.Bench" Condition="'$(MSBuildProjectName)' != 'Komet.Bench'"/>
+        <InternalsVisibleTo Include="Komet.Test" Condition="'$(MSBuildProjectName)' != 'Komet.Test'"/>
+        <InternalsVisibleTo Include="Komet.Portable" Condition="'$(MSBuildProjectName)' != 'Komet.Portable'"/>
+    </ItemGroup>
+
+    <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build; the lang files are their input -->
+    <ItemGroup>
+        <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
+        <AdditionalFiles Include="$(KometRepo)Komet/assets/**/lang/*.json" Exclude="$(KometRepo)Komet/assets/komet/config/komet-templates/**"/>
+    </ItemGroup>
+
+</Project>

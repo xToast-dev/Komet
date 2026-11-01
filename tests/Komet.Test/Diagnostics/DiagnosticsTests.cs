@@ -157,21 +157,6 @@ public sealed class DiagnosticsTests
 
 }
 
-// IModLoader with one mod; only Mods is read by the walk
-public class OneModLoader : DispatchProxy
-{
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-    {
-        if (targetMethod?.Name != "get_Mods") throw new NotSupportedException(targetMethod?.Name);
-        var mod = new TestMod();
-        typeof(Mod).GetProperty(nameof(Mod.Info))!.SetValue(mod,
-            new ModInfo { Name = "Komet", Version = "1.2.3", ModID = "komet" });
-        return new Mod[] { mod };
-    }
-
-    private sealed class TestMod : Mod;
-}
-
 // The lows are taken over the frames actually recorded, so an empty or short history must report nothing rather than a number
 public sealed class FrameStatsTests
 {
@@ -375,25 +360,6 @@ public sealed class FrameStatsTests
 
             Assert.That(FrameClock.Completed, Is.EqualTo(completed));
         });
-    }
-}
-
-// FrameClock's switches and the engine's profiler as a test sets them, put back afterwards: no sink, a fresh frame start
-internal static class Clock
-{
-    public static void With(bool stats, FrameProfilerUtil? profiler, Action body)
-    {
-        var saved = (FrameClock.Stats, ScreenManager.FrameProfiler);
-        (FrameClock.Stats, ScreenManager.FrameProfiler) = (stats, profiler!);
-        try
-        {
-            body();
-        }
-        finally
-        {
-            (FrameClock.Stats, ScreenManager.FrameProfiler, FrameClock.Sink) = (saved.Stats, saved.FrameProfiler, null);
-            FrameClock.Begin();
-        }
     }
 }
 

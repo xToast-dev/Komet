@@ -1,11 +1,12 @@
-using Komet.Gpu;
+using Komet.Rendering;
 
 namespace Komet.Test.Gpu;
 
-// glslangValidator does the compiling; without it on the PATH those cases are skipped.
+// glslangValidator, the reference compiler, is stricter than some drivers; without it on the PATH those cases are skipped. The
+// Vulkan side is compiled by shaderc (the same glslang) in the GPU tests that run the shaders.
 public sealed class GpuShadersTests
 {
-    private static readonly string Folder = Path.Combine(Paths.KometDir, "Gpu", "Shaders");
+    private static readonly string Folder = Path.Combine(Paths.Repo, "Komet.Rendering", "Gpu", "Shaders");
 
     [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
     public void TheAssemblyCarriesTheFile(string name)
@@ -16,21 +17,13 @@ public sealed class GpuShadersTests
     [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
     public void ItCompilesForOpenGl(string name)
     {
-        Compile(name, "-G", "opengl");
-    }
-
-    [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
-    public void ItCompilesForVulkan(string name)
-    {
-        Compile(name, "-V", "vulkan1.3");
-    }
-
-    private static void Compile(string name, string api, string target)
-    {
         var info = new ProcessStartInfo("glslangValidator")
         {
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
-            ArgumentList = { api, "--target-env", target, "-S", "comp", "-o", "/dev/null", Path.Combine(Folder, name) }
+            ArgumentList =
+            {
+                "-G", "--target-env", "opengl", "-S", "comp", "-o", "/dev/null", Path.Combine(Folder, name)
+            }
         };
         Process? process;
         try

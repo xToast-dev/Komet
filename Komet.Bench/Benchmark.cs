@@ -5,11 +5,28 @@ using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Komet.Diagnostics;
-using Komet.Host;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
+using Komet.Core;
 
 namespace Komet.Bench;
+
+// The developer benchmark's mod ("kometbench", scripts/bench.sh puts it beside the build under test): inert unless KOMET_BENCH
+// names a bench.json. After Komet's StartClientSide, so every Komet patch and the HUD are in place when the driver registers.
+public sealed class KometBenchSystem : ModSystem
+{
+    private const double AfterKomet = 1;
+
+    public override double ExecuteOrder() => Assert(AfterKomet > base.ExecuteOrder()) ? AfterKomet : base.ExecuteOrder();
+
+    public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Client;
+
+    public override void StartClientSide(ICoreClientAPI api)
+    {
+        if (!NotNull(api)) return;
+        Benchmark.Install(api);
+    }
+}
 
 // The automated benchmark (scripts/bench.sh), started by KometBenchSystem: inert unless KOMET_BENCH names a bench.json, once per process.
 internal static class Benchmark
@@ -71,13 +88,13 @@ internal static class Benchmark
     private static string? Refusal(ICoreClientAPI capi, BenchConfig config)
     {
         if (!NotNull(capi) || !NotNull(config)) return "no client api";
-        if (!capi.IsSinglePlayer && !HostLaunch.Hosting) return "a benchmark runs only in singleplayer";
+        if (!capi.IsSinglePlayer) return "a benchmark runs only in singleplayer";
         var (assembly, bench) = (typeof(KometModSystem).Assembly, typeof(Benchmark).Assembly);
         if (!Under(assembly.Location, config.ModDir))
             return $"Komet was loaded from {assembly.Location}, not from {config.ModDir}";
         if (!Under(bench.Location, config.ModDir))
             return $"the benchmark mod was loaded from {bench.Location}, not from {config.ModDir}";
-        var mods = capi.ModLoader.Mods.Bounded(HarmonyAudit.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometModSystem.ModId)
+        var mods = capi.ModLoader.Mods.Bounded(HarmonyAudit.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometMod.Id)
             .ToList();
         if (mods.Count != 1)
             return $"{mods.Count} enabled mods have the id komet, the build under test must be the only one";
@@ -101,7 +118,7 @@ internal static class Benchmark
 
     public static void Collect(ICoreClientAPI capi, BenchRun run)
     {
-        var (assembly, mod) = (typeof(KometModSystem).Assembly, capi.ModLoader.GetMod(KometModSystem.ModId));
+        var (assembly, mod) = (typeof(KometModSystem).Assembly, capi.ModLoader.GetMod(KometMod.Id));
         if (!NotNull(mod) || !NotNull(run) || !NotNull(capi.Render)) return;
         run.AddInfo("komet.version", mod.Info.Version);
         run.AddInfo("komet.configuration",
@@ -160,7 +177,7 @@ internal static class Benchmark
             capi.Logger.Error("Komet bench: {0} not written: {1}", output, e.Message);
         }
 
-        if (!exit || (!capi.IsSinglePlayer && !HostLaunch.Hosting) || capi.World is not ClientMain game || !NotNull(capi.Event)) return;
+        if (!exit || !capi.IsSinglePlayer || capi.World is not ClientMain game || !NotNull(capi.Event)) return;
         capi.Event.LevelFinalize += () => Exit(game, "komet bench refused");
     }
 

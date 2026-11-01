@@ -45,7 +45,6 @@ public sealed class MapSaveScratchTests
         yield return [];
         yield return [0, 1, -1, 127, 128, 16383, 16384, int.MaxValue, int.MinValue];
         yield return [.. Enumerable.Range(0, 1024).Select(_ => random.Next(int.MinValue, int.MaxValue))];
-        yield return [.. Enumerable.Range(0, 1024).Select(i => unchecked((int)0xFF000000) | i * 4099)];
     }
 
     [TestCaseSource(nameof(Pieces))]

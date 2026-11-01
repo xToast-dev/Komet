@@ -21,7 +21,8 @@ internal sealed class BenchConfig
     private static readonly string[] TopKeys =
     [
         "name", "output", "modDir", "revision", "env", "world", "settle", "route", "lap", "laps", "warmupLaps", "arms",
-        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds", "spawning"
+        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds", "spawning", "rain", "hour", "menuPage",
+        "lateStart"
     ];
 
     public JsonElement Raw { get; private init; }
@@ -49,6 +50,7 @@ internal sealed class BenchConfig
     // Seconds in the world before the setup's commands (the hour, the weather), a screenshot at their end: the world as a
     // player joins it
     public double JoinSeconds { get; private set; }
+    public double Hour { get; private set; } = 10; // the hour every lap starts at (dusk lighting: about 19)
 
     // A debug capture (Logs/komet-debug) of this many seconds, started as the world is up
     public double CaptureSeconds { get; private set; }
@@ -61,9 +63,16 @@ internal sealed class BenchConfig
 
     // Entity spawning left on (the setup switches it off otherwise): creatures appear as they would for a player
     public bool Spawning { get; private set; }
+    public bool Rain { get; private set; } // steady rain instead of a clear sky
 
     // "cycle": each lap shows the next HUD window tab, the last the debug window
     public string HudWindow { get; private set; } = "";
+
+    // "gui": "options": the page the menu opens on (an options page id, e.g. docs-api); unset: Komet's overview
+    public string MenuPage { get; private set; } = "";
+
+    // Shader mods Komet holds back, started before the first lap as their switch on Active shaders starts them
+    public string[] LateStart { get; private set; } = [];
     public string Gui { get; private set; } = ""; // BenchGui.Creative: the creative inventory scrolled while standing still
     public string Frames => Path.Join(Path.GetDirectoryName(Output) ?? "", "frames.csv");
     public string Status => Output + ".status";
@@ -85,6 +94,8 @@ internal sealed class BenchConfig
         if (!Assert(arms is > 0 and <= MaxArms) || config.Laps % arms != 0)
             throw Bad("laps",
                 string.Create(CultureInfo.InvariantCulture, $"a multiple of the {arms} arms: whole mirrored blocks"));
+        if (!config.Back && config.WarmupLaps + config.Laps > 1) // the next lap would start a leg further out
+            throw Bad("route.back", "true for more than one lap, warm-up laps included");
         return config;
     }
 
@@ -115,10 +126,9 @@ internal sealed class BenchConfig
         LapSettle = Number(settle, "lapSeconds", "settle.", LapSettle, 0, 600);
         var route = Section(root, "route", ["speed", "back"]);
         Speed = Number(route, "speed", "route.", Speed, 0.5, MaxSpeed);
-        if (Get(route, "back", out var back))
-            Back = back.ValueKind is JsonValueKind.True or JsonValueKind.False ? back.GetBoolean() : throw Bad("route.back", "true or false");
-        if (Get(root, "spawning", out var spawning))
-            Spawning = spawning.ValueKind is JsonValueKind.True or JsonValueKind.False ? spawning.GetBoolean() : throw Bad("spawning", "true or false");
+        Back = Flag(route, "back", "route.", Back);
+        Spawning = Flag(root, "spawning", "", Spawning);
+        Rain = Flag(root, "rain", "", Rain);
         var lap = Section(root, "lap", ["still", "rotate", "leg", "turn"]);
         Still = Number(lap, "still", "lap.", Still, 0, 600);
         Rotate = Number(lap, "rotate", "lap.", Rotate, 0, 600);
@@ -129,12 +139,17 @@ internal sealed class BenchConfig
         HudWindow = Choice(root, "hudWindow", ["cycle"]);
         Gui = Choice(root, "gui", [BenchGui.Creative, BenchGui.Debug, BenchGui.Options, BenchGui.Help]);
         JoinSeconds = Number(root, "joinSeconds", "", JoinSeconds, 0, 300);
+        Hour = Number(root, "hour", "", Hour, 0, 23.99);
+        MenuPage = Text(root, "menuPage", "", false);
+        // GetString throws InvalidOperationException on a non-string, which Benchmark.Install does not catch
+        if (Get(root, "lateStart", out var late))
+            LateStart = late.ValueKind == JsonValueKind.Array &&
+                        late.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String)
+                ? [.. late.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).Take(MaxArms)]
+                : throw Bad("lateStart", "an array of mod ids");
         CaptureSeconds = Number(root, "captureSeconds", "", CaptureSeconds, 0, 300);
         LandSeconds = Number(root, "landSeconds", "", LandSeconds, 0, 300);
-        if (Get(root, "shots", out var shots))
-            Shots = shots.ValueKind is JsonValueKind.True or JsonValueKind.False
-                ? shots.GetBoolean()
-                : throw Bad("shots", "true or false");
+        Shots = Flag(root, "shots", "", Shots);
     }
 
     private static void Env(JsonElement root)
@@ -169,10 +184,7 @@ internal sealed class BenchConfig
         var path = string.Create(CultureInfo.InvariantCulture, $"arms[{index}].");
         if (arm.ValueKind != JsonValueKind.Object) throw Bad(path.TrimEnd('.'), "an object");
         Keys(arm, path, ["name", "engine", "set"]);
-        var engine = false;
-        if (Get(arm, "engine", out var flag))
-            engine = flag.ValueKind is JsonValueKind.True or JsonValueKind.False
-                ? flag.GetBoolean() : throw Bad(path + "engine", "true or false");
+        var engine = Flag(arm, "engine", path, false);
         List<BenchSetting> settings = [];
         if (Get(arm, "set", out var set))
         {
@@ -195,7 +207,7 @@ internal sealed class BenchConfig
         var (knob, external) = (Knobs.Find(entry.Name), entry.Name.Contains(':', StringComparison.Ordinal));
         if (!Assert(path.Length > 0) || (external && !Features.IsExternalId(entry.Name)))
             throw Bad(path + entry.Name, "a knob of another mod as modid:name");
-        if (knob < 0 && !external) throw Bad(path + entry.Name, "one of the knob names in Komet/Core/Features/Features.cs");
+        if (knob < 0 && !external) throw Bad(path + entry.Name, "a knob name from the modules' *Features.cs (Knobs table)");
         var value = entry.Value.ValueKind switch
         {
             JsonValueKind.True => 1,
@@ -209,7 +221,6 @@ internal sealed class BenchConfig
 
     private static InvalidDataException Bad(string key, string expected)
     {
-        _ = Assert(key.Length > 0) && Assert(expected.Length > 0);
         return new InvalidDataException($"bench.json: {key} must be {expected}");
     }
 
@@ -248,6 +259,13 @@ internal sealed class BenchConfig
             throw Bad(path + key, "a number");
         return number >= min && number <= max
             ? number : throw Bad(path + key, string.Create(CultureInfo.InvariantCulture, $"between {min} and {max}"));
+    }
+
+    private static bool Flag(JsonElement obj, string key, string path, bool fallback)
+    {
+        if (!Get(obj, key, out var value)) return fallback;
+        return value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean() : throw Bad(path + key, "true or false");
     }
 
     private static int Integer(JsonElement obj, string key, int fallback, int min, int max)

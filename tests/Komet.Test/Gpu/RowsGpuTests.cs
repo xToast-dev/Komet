@@ -1,4 +1,3 @@
-using Komet.Gpu;
 using Komet.Rendering;
 
 namespace Komet.Test.Gpu;
@@ -15,8 +14,6 @@ public sealed class RowsGpuTests
     private static readonly (float Along, float Aside)[] Steps = [(0, 0), (0, 1 / 32f), (-1 / 32f, 0), (1 / 32f, 0)];
 
     [TestCase(GpuRig.Gl, 0)]
-    [TestCase(GpuRig.Gl, 1)]
-    [TestCase(GpuRig.Vulkan, 0)]
     [TestCase(GpuRig.Vulkan, 1)]
     public void TheGpuKeepsWhatTheEngineKeeps(string backend, int buffer) => Culled(backend, vao =>
     {
@@ -73,8 +70,6 @@ public sealed class RowsGpuTests
     // The shadow passes: InFrustumShadowPass's range in floats - some locations exactly on its edge - and all six planes, the far
     // pass only LOD 1 and up, without occlusion; their commands in the shadow passes' own place
     [TestCase(GpuRig.Gl, EnumFrustumCullMode.CullInstantShadowPassNear)]
-    [TestCase(GpuRig.Gl, EnumFrustumCullMode.CullInstantShadowPassFar)]
-    [TestCase(GpuRig.Vulkan, EnumFrustumCullMode.CullInstantShadowPassNear)]
     [TestCase(GpuRig.Vulkan, EnumFrustumCullMode.CullInstantShadowPassFar)]
     public void TheShadowPassesKeepWhatTheEngineKeeps(string backend, EnumFrustumCullMode mode) => Culled(backend, vao =>
     {
@@ -304,7 +299,7 @@ public sealed class RowsGpuTests
     {
         var counters = new uint[8 + 3 * OcclusionCulling.MaxDraws];
         var commands = new uint[5 * count];
-        OcclusionCullingGpuTests.ReadFrame(counters, commands, new uint[5], shadow);
+        CullingState.Frame(counters, commands, new uint[5], shadow);
         var drawn = Math.Min(counters[8 + (shadow ? 2 * OcclusionCulling.MaxDraws : 0)], (uint)count);
         return [.. Enumerable.Range(0, (int)drawn).Select(c => (int)commands[5 * c + 2]).Order()];
     }

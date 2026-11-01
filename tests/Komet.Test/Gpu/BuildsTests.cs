@@ -7,7 +7,7 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class BuildsTests
 {
-    private const int Workers = 2; // Builds.Workers
+    private static readonly int Workers = Builds.Workers;
     private static readonly TimeSpan Long = TimeSpan.FromSeconds(30);
 
     private sealed class Made
@@ -121,16 +121,6 @@ public sealed class BuildsTests
             Builds.Waited = false;
         }
     }
-
-    [Test]
-    public void TheBuildsAreCountedOffTheEngineThread()
-    {
-        var before = Builds.Started;
-        var build = new Build<Made>(Builds.Kind.Pipeline, () => (new Made(), ""));
-        Assert.That(Builds.Started, Is.EqualTo(before + 1));
-        Assert.That(build.Wait(Long), Is.True);
-        Assert.That(Builds.Report(), Does.Contain("pipelines"));
-    }
 }
 
 // A renderer's pipelines: made on builders, forgotten into a list that is destroyed only once the frames that may have recorded
@@ -154,8 +144,9 @@ public sealed class PipelineSetGpuTests
         void main() { color = vec4(1.0, 0.5, 0.25, 1.0); }
         """;
 
+    // A draw awaits its pipeline; forgotten, it goes once the frames that may have recorded it are done
     [Test]
-    public void APipelineGoesOnceTheFramesThatMayHaveRecordedItAreDone()
+    public void APipelineIsAwaitedAndGoesOnceTheFramesThatMayHaveRecordedItAreDone()
     {
         using var rig = GpuRig.Open(GpuRig.Vulkan);
         Builds.Waited = false;
@@ -170,23 +161,16 @@ public sealed class PipelineSetGpuTests
             Build<TerrainPipeline> Start(GlslPort.Ported port) => TerrainPipeline.Started(device, port, [Position],
                 (default, new TerrainPipeline.Target([Rgba8], 0), Vk.TopologyTriangles));
             frame!.Next();
-            Assert.That(set.Get(1, ("test", ported), Start, false, out var waiting), Is.Null);
-            Assert.That(waiting, Is.True, "made on a builder, the draw OpenGL's meanwhile");
-            Assert.That(Builds.Wait(Long), Is.True);
-            Assert.That(set.Get(1, ("test", ported), Start, false, out waiting), Is.Null);
-            Assert.That(waiting, Is.True, "done, but the frame that asked first goes on as it began");
-            frame.Next();
-            var made = set.Get(1, ("test", ported), Start, false, out waiting);
-            Assert.That(made, Is.Not.Null);
-            Assert.That(made!.Pipeline, Is.Not.Zero);
-            Assert.That(waiting, Is.False, "the next frame draws with it");
             var started = Builds.Started;
-            Assert.That(set.Get(1, ("test", ported), Start, false, out _), Is.SameAs(made), "made once");
-            Assert.That(set.Get(2, ("test", ported), Start, true, out waiting), Is.Not.Null, "waited for where a draw cannot do without");
+            var made = set.Get(1, ("test", ported), Start, out var waiting);
+            Assert.That(made, Is.Not.Null, "made on a builder and awaited: the draw would be missing without it");
+            Assert.That(made!.Pipeline, Is.Not.Zero);
             Assert.That(waiting, Is.False);
+            Assert.That(Builds.Started, Is.EqualTo(started + 1), "on a builder");
+            Assert.That(set.Get(1, ("test", ported), Start, out _), Is.SameAs(made), "made once");
             Assert.That(Builds.Started, Is.EqualTo(started + 1));
             set.Forget(key => key == 1);
-            Assert.That((set.Count, set.Retired), Is.EqualTo((1, 1)));
+            Assert.That((set.Count, set.Retired), Is.EqualTo((0, 1)));
             for (var i = 1; i < VulkanFrame.Slots; i++)
             {
                 frame.Next();
@@ -197,7 +181,7 @@ public sealed class PipelineSetGpuTests
             frame.Next();
             set.Forget(static _ => false);
             Assert.That((made.Pipeline, set.Retired), Is.EqualTo((0UL, 0)), "that frame's slot came round again: destroyed");
-            Assert.That(set.Get(3, ("test", ported), Start, false, out _), Is.Null);
+            set.Start(3, ("test", ported), Start);
             set.Forget(key => key == 3); // still being made, or made and not taken: its builder or the drop destroys it
             Assert.That(set.Building, Is.Zero);
         }
@@ -224,10 +208,10 @@ public sealed class PipelineSetGpuTests
                 TerrainPipeline.Started(device, port, [Position],
                     (default, new TerrainPipeline.Target([format], 0), Vk.TopologyTriangles));
             frame!.Next();
-            foreach (var format in (uint[])[Rgba8, Bgra8]) _ = set.Get((1, format), ("test", first), Start(format), false, out _);
-            Assert.That(Builds.Wait(Long), Is.True);
+            foreach (var format in (uint[])[Rgba8, Bgra8]) _ = set.Get((1, format), ("test", first), Start(format), out _);
             frame.Next();
-            Assert.That(set.Get((1, Rgba8), ("test", first), Start(Rgba8), false, out _), Is.Not.Null);
+            Assert.That(set.Get((1, Rgba8), ("test", first), Start(Rgba8), out _), Is.Not.Null);
+            Assert.That(set.Made([]), Is.True, "the frame's first ask: what is done by now counts");
             var keys = set.Warm(key => key.Port == 1, key => key with { Port = 2 }, ("test", second));
             Assert.That(keys, Is.EquivalentTo(((int, uint)[])[(2, Rgba8), (2, Bgra8)]), "both, the one not drawn with this frame too");
             Assert.That(set.Made(keys), Is.False);
@@ -235,7 +219,7 @@ public sealed class PipelineSetGpuTests
             Assert.That(set.Made(keys), Is.False, "this frame counts them as it began");
             frame.Next();
             Assert.That(set.Made(keys), Is.True);
-            Assert.That(set.Get((2, Bgra8), ("test", second), Start(Bgra8), false, out var waiting), Is.Not.Null);
+            Assert.That(set.Get((2, Bgra8), ("test", second), Start(Bgra8), out var waiting), Is.Not.Null);
             Assert.That(waiting, Is.False);
             Assert.That(set.Count, Is.EqualTo(4));
         }

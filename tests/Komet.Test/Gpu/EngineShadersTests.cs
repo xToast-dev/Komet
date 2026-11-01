@@ -43,19 +43,6 @@ public sealed class EngineShadersTests
         Assert.That(uniforms.First(u => u.Name == "shadowIntensity").Default, Is.EqualTo(One));
     }
 
-    // Vulkan-only's packed face data: each chunk program takes the patch and still ports and compiles, reading the same block
-    [TestCase("chunkopaque"), TestCase("chunktopsoil"), TestCase("chunktransparent"), TestCase("chunkshadowmap")]
-    public void TheChunkProgramsReadPackedFaces(string name)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        var (vertex, fragment) = EngineShaders.Program(name, true);
-        var patched = CompactFaces.Patch(vertex);
-        Assert.That(patched, Is.Not.Null.And.Contains("kometFace(gl_VertexID / 4)"));
-        var ported = GlslPort.Build(name, patched!, fragment, EngineShaders.Attributes(name), out var error);
-        Assert.That(ported, Is.Not.Null, error);
-        Assert.That(ported!.Blocks, Does.Contain(Faces));
-    }
-
     // Every vertex and fragment pair the game ships: what the port cannot take yet, by name and reason, so the list only shrinks
     [Test]
     public void TheGamesProgramsPort()
@@ -66,7 +53,7 @@ public sealed class EngineShadersTests
         {
             if (!File.Exists(Path.Combine(EngineShaders.Folder, name + ".fsh"))) continue;
             var (vertex, fragment) = EngineShaders.Program(name!, true);
-            if (GlslPort.Build(name!, vertex, fragment, EngineShaders.Attributes(name!), out var error) is null)
+            if (GlslPort.Build(name!, vertex, fragment, null, out var error) is null)
                 failed.Add($"{name}: {error.Split('\n')[0]}");
         }
 
@@ -96,12 +83,6 @@ internal static class EngineShaders
         var ssbo = name.StartsWith("chunk", StringComparison.Ordinal) || name == "decals";
         return (Compose(name + ".vsh", vertex, ssbo), Compose(name + ".fsh", fragment, false));
     }
-
-    // The locations the engine binds with glBindAttribLocation, for sources that name none
-    public static Dictionary<string, int>? Attributes(string name) => name switch
-    {
-        _ => null
-    };
 
     private static string Compose(string file, string prefix, bool ssbo)
     {

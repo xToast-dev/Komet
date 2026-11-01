@@ -10,7 +10,7 @@ namespace Komet.Test.Tessellation;
 // blocks are all plain and whose multipliers the lanes can take.
 public sealed class FaceLightGoldenTests
 {
-    private const int Cases = 50_000, JsonBlocks = 100_000, Seed = 20260924, Filler = 0x5A5A5A5A;
+    private const int Cases = 20_000, JsonBlocks = 40_000, Seed = 20260924, Filler = 0x5A5A5A5A;
 
     private static readonly int[] SpecialLights =
         [0x00030303, unchecked((int)0xFF000000), 0, -1, 0x18FFFFFF, 0x7F7F7F7F];

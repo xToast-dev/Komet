@@ -1,0 +1,9 @@
+{
+  "type": "content",
+  "modid": "myshaders",
+  "name": "My Shaders",
+  "version": "1.0.0",
+  "authors": ["you"],
+  "description": "A shader mod made for Komet, on OpenGL and on Komet's Vulkan renderer. Rename myshaders everywhere to your own id.",
+  "dependencies": { "game": "1.22.0" }
+}

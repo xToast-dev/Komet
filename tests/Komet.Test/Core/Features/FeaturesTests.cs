@@ -17,49 +17,28 @@ public sealed class FeaturesTests
     private static readonly string[] InstallOrder =
     [
         "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows",
-        "LeanVaryings", "SharpUpscale", "SsaoLean", "LeanGodRays", "FrustumSweep", "FarShadowReuse", "NearShadowReuse", "EntityCasters", "IndirectDraw", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "VulkanCompactFaces", "TerrainRebuild", "PoolTrim",
-        "VulkanTerrain", "SunOcclusion", "AnimatableCulling", "PotCulling", "HelpCompose", "MapTileCulling", "MapTileUpload",
-        "IdleAnimators", "WindowSizeCache", "PoolScale", "GlErrorPoll", "ChunkLookup", "MeshPool", "MeshRecycle",
-        "FacePacking", "FaceSorting", "ClimateCache", "PartitionReuse", "HandlerLists", "CookingMatch", "AnimationFrames", "InitOnce",
-        "ShapeInitMemo", "EntityTessBudget", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "RecyclerTrim", "ChunkPacking", "BlockEntityBudget", "EventBusSweep",
-        "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure", "CloudTileScratch",
-        "DecompressScratch", "ProtoListCache", "BushShapes", "ClutterMeshes", "CullerRays", "MapReads", "Ascii85Text", "TreeKeys", "MapPixels", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight",
-        "ColumnNoiseScratch", "TessSafety", "TessSeams", "ExtendedRows", "VisibleFaces", "FaceLight", "OwnTessellation",
-        "TessBlockPos", "PartRecycling",
-        "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm", "OccludedChunks", "DeepCulling", "FarFoliage", "GcLatency", "GcCompact", "ServerProcess", "InventoryShapes", "WorldGenScratch", "PatchLookup", "IconBudget", "SelectionScratch", "ProfilerPool", "WeatherLock", "FramePacer", "FrameClock", "HangWatch",
-        "PreJit"
+        "LeanVaryings", "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse", "NearShadowReuse", "EntityCasters", "IndirectDraw", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "TerrainRebuild", "PoolTrim",
+        "VulkanTerrain", "AnimatableCulling", "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling", "MapTileUpload",
+        "IdleAnimators", "PoolScale", "WindowSize", "ChunkLookup", "MeshRecycle",
+        "FacePacking", "FaceSorting", "ClimateCache", "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch", "AnimationFrames", "ShapeInitMemo", "HeldItemsLast", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "JoinPacer", "ChunkPacking", "EventBusSweep",
+        "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure", "CloudTileScratch", "CloudUploads",
+        "DecompressScratch", "DirectChunks", "BushShapes", "MapPixels", "TreeKeys", "MapPieceBudget", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
+        "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation",
+        "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm", "OccludedChunks", "DeepCulling", "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes", "WorldGenScratch", "IconBudget", "SnowPeek", "TickScratch", "SoundScratch", "ProfilerPool", "WeatherLock", "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
     ];
 
-    // komet.json as Komet 1.x wrote it: the display settings, then every knob under its saved name, a switch as a bool
+    // komet.json as Komet writes it without a knob set by the player: the display settings, the preset and the layout
     private static readonly string[] SettingsFile =
     [
         "Visible:Boolean", "Corner:String", "Opacity:Float", "Interval:Float", "BenchSeconds:Float", "ShowFps:Boolean",
-        "ShowLows:Boolean", "ShowFrametime:Boolean", "ShowGraph:Boolean", "ShowMods:Boolean", "ShowPins:Boolean",
-        "ToastMs:Float", "PinnedMods:Array", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String", "WindowX:String", "WindowY:String", "DebugLanguage:String",
-        "UpdateCheck:Boolean", "UpdateAsked:Boolean", "FontScale:Float", "ShowAdvanced:Boolean", "GraphicsMenu:Boolean",
-        "MenuBlur:Boolean", "ShaderUseCache:Boolean", "DistantShadows:Boolean", "LeanVaryings:Boolean", "SharpUpscale:Boolean", "SsaoLean:Boolean", "LeanGodRays:Boolean", "FrustumSweep:Boolean",
-        "FarShadowReuse:Boolean", "NearShadowReuse:Boolean", "EntityCasters:Boolean", "IndirectDraw:Boolean", "OcclusionCulling:Boolean",
-        "GpuTerrainCulling:Boolean", "GlQueryCache:Boolean", "VulkanShaderCache:Boolean",
-        "VulkanGpuTimes:Boolean", "VulkanCompactFaces:Boolean", "PoolTrimLevel:Integer", "VulkanOnly:Boolean",
-        "VulkanPacing:Boolean", "VulkanOnlyLean:Boolean", "VulkanFrameBridge:Boolean", "VulkanFarCache:Boolean", "VulkanQuietUniforms:Boolean", "SunOcclusion:Boolean", "AnimatableCulling:Boolean",
-        "PotCulling:Boolean", "HelpCompose:Boolean", "MapTileCulling:Boolean", "MapTileUpload:Boolean", "IdleAnimators:Boolean",
-        "WindowSizeCache:Boolean", "PoolScale:Integer", "GlErrorPoll:Boolean", "ChunkLookup:Boolean",
-        "PoolFragments:Boolean", "MeshRecycle:Boolean", "FacePacking:Boolean", "FaceSorting:Boolean",
-        "ClimateCache:Boolean", "PartitionReuse:Boolean", "HandlerLists:Boolean", "CookingMatch:Boolean",
-        "AnimationFrames:Boolean", "InitOnce:Boolean", "ShapeInitMemo:Boolean", "EntityTessBudget:Integer",
-        "UploadCap:Integer", "UploadYield:Boolean", "ChunkLoadBudget:Integer", "RecyclerTrim:Integer", "ChunkPacking:Integer",
-        "BlockEntityBudget:Boolean", "EventBusSweep:Boolean", "ListenerSlots:Boolean", "BlockEntityCaches:Boolean",
-        "CloudTileScratch:Boolean", "DecompressScratch:Boolean", "ProtoListCache:Boolean", "BushShapes:Boolean",
-        "ClutterMeshes:Boolean", "CullerRays:Boolean", "MapReads:Boolean", "Ascii85Text:Boolean",
-        "TreeKeys:Boolean", "MapPixels:Boolean", "MapSaveScratch:Boolean", "LightScratch:Boolean", "LightRepair:Boolean",
-        "ParticleLight:Boolean", "ColumnNoiseScratch:Boolean", "ExtendedRows:Boolean", "VisibleFaces:Boolean",
-        "FaceLight:Boolean", "OwnTessellation:Boolean", "TessBlockPos:Boolean", "PartRecycling:Boolean",
-        "NearFirst:Boolean", "WorkerThreads:Integer", "TessPriority:Integer", "JitWarm:Boolean", "OccludedChunks:Boolean", "DeepCulling:Boolean", "FarFoliage:Integer",
-        "GcLatency:Boolean", "GcCompact:Boolean", "ServerProcess:Boolean", "InventoryShapes:Boolean", "WorldGenScratch:Boolean", "PatchLookup:Boolean",
-        "IconBudget:Boolean", "SelectionScratch:Boolean", "ProfilerPool:Boolean", "FramePacer:Boolean", "PreJit:Boolean"
+        "ShowLows:Boolean", "ShowFrametime:Boolean", "ShowGraph:Boolean", "ShowMods:Boolean",
+        "ToastMs:Float", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String",
+        "WindowX:String", "WindowY:String", "DebugX:String", "DebugY:String", "DebugLanguage:String", "DebugOnJoin:Boolean", "UpdateCheck:Boolean",
+        "UpdateAsked:Boolean", "FontScale:Float", "ShowAdvanced:Boolean", "MenuStyle:String",
+        "MenuOpacity:Float", "MenuMotion:Integer"
     ];
 
-    private static readonly string[] Last = ["PreJit"], Unpatched = ["TessSafety"];
+    private static readonly string[] Last = [], Unpatched = ["TessSafety"];
 
     [OneTimeSetUp]
     public void LoadALanguage() => GameLang.EnsureLoaded();
@@ -96,7 +75,7 @@ public sealed class FeaturesTests
         });
     }
 
-    // PreJit after the HUD's renderers; the stages install in table order
+    // no built-in feature waits for the HUD's renderers; the stages install in table order
     [Test]
     public void TheLateStagesAreFew()
     {
@@ -108,14 +87,17 @@ public sealed class FeaturesTests
         });
     }
 
-    // The server process (HostSystem) installs these without a client API
-    [TestCaseSource(nameof(ServerOnly))]
-    public void AServerFeatureInstallsWithoutTheClient(string id)
+    // Komet's own fill at most MaxBuiltIn slots, so MaxExternal stay for other mods' features, and their knobs fit too
+    [Test]
+    public void OtherModsHaveTheirSlots()
     {
-        Assert.That(() => new FeatureRig(id).Dispose(), Throws.Nothing);
+        Assert.Multiple(() =>
+        {
+            Assert.That(All(), Has.Length.LessThanOrEqualTo(Features.MaxBuiltIn));
+            Assert.That(Features.MaxFeatures - All().Length, Is.GreaterThanOrEqualTo(Features.MaxExternal));
+            Assert.That(Knobs.MaxKnobs - Knobs.BuiltInCount, Is.GreaterThanOrEqualTo(Features.MaxExternal));
+        });
     }
-
-    private static IEnumerable<string> ServerOnly() => All().Where(f => f.ServerOnly).Select(f => f.Id);
 
     // One key and one saved name a knob, each in its owner's list and starting at a value in its range
     [Test]
@@ -126,15 +108,14 @@ public sealed class FeaturesTests
         {
             Assert.That(knobs.Select(k => k.Key), Is.Unique);
             Assert.That(knobs.Select(k => k.Persisted), Is.Unique);
-            Assert.That(knobs.Select((k, i) => k.Order == i && All()[k.Owner].Knobs.Any(o => o.Key == k.Key)), Is.All.True);
+            Assert.That(knobs.Select(k => All()[k.Owner].Knobs.Any(o => o.Key == k.Key)), Is.All.True);
             Assert.That(knobs.Where(k => k.Engine < k.Min || k.Engine > k.Max).Select(k => k.Key), Is.Empty);
             Assert.That(Knobs.Count, Is.EqualTo(Knobs.BuiltInCount));
         });
     }
 
-    // Stops run in reverse install order before UnpatchAll: PreJit's first, TessWorkers' before the pool's, GraphicsMenu's before
+    // Stops run in reverse install order before UnpatchAll: TessWorkers' before the pool's, GraphicsMenu's before
     // the HUD's window goes, the renderer's before the Vulkan device's; TessSafety clears after the unpatch
-    [TestCase("PreJit", "HangWatch")]
     [TestCase("TessWorkers", "WorkerPool")]
     [TestCase("GraphicsMenu", "Hud")]
     [TestCase("VulkanTerrain", "VulkanCore")]
@@ -285,24 +266,24 @@ public sealed class FeaturesTests
     [Test]
     public void AHeldKnobsRowIsLocked()
     {
-        var pages = new KometPages(new HudSettings { ShowAdvanced = true }, () => { }, _ => { }, () => { }, () => { }, () => { })
-            .Build();
+        var pages = new KometPages(new HudSettings { ShowAdvanced = true },
+            new KometActions(() => { }, _ => { }, () => { }, () => { }, () => { })).Build();
         var render = pages.Single(p => p.Id == "komet-render");
         var row = Enumerable.Range(0, render.Count).Select(i => render[i])
-            .Single(r => r.Label == KometPages.T("distantshadows"));
+            .Single(r => r.Label == OptionsText.T("distantshadows"));
         Assert.That((row.IsEnabled, row.Locked?.Invoke()), Is.EqualTo((true, (string?)null)));
         _ = Features.Hold(Features.Find("DistantShadows"));
         Assert.Multiple(() =>
         {
             Assert.That(row.IsEnabled, Is.False);
-            Assert.That(row.Locked?.Invoke(), Is.EqualTo(HudText.Translate("settings-held")));
+            Assert.That(row.Locked?.Invoke(), Is.EqualTo(KometText.Translate("settings-held")));
             Assert.That(row.Get(), Is.EqualTo(1), "the player's value");
         });
     }
 
-    // An installed feature at its knob's engine value is off, held it is held off; the HUD lists what is not active
+    // An installed feature at its knob's engine value is off, held it is held off: not active, but no trouble the HUD warns about
     [Test]
-    public void TheHudListsWhatIsNotActive()
+    public void TheHudWarnsOnlyAboutTroubledFeatures()
     {
         using var rig = new FeatureRig("MenuBlur");
         var before = Backdrop.Enabled;
@@ -310,14 +291,14 @@ public sealed class FeaturesTests
         {
             Backdrop.Enabled = true;
             Features.Poll();
-            var active = Features.NotActive;
+            var (active, troubled) = (Features.NotActive, Features.Troubled);
             Assert.That((rig.State, Features.StateOf(rig.Feature)), Is.EqualTo((FeatureState.Active, FeatureState.Active)));
             Backdrop.Enabled = false;
             Features.Poll();
-            Assert.That((rig.State, Features.NotActive), Is.EqualTo((FeatureState.Off, active + 1)));
+            Assert.That((rig.State, Features.NotActive, Features.Troubled), Is.EqualTo((FeatureState.Off, active + 1, troubled)));
             _ = Features.Hold(rig.Feature);
             Features.Poll();
-            Assert.That((Features.StateOf(rig.Feature), Features.FirstNotActive().Length > 0), Is.EqualTo((FeatureState.HeldOff, true)));
+            Assert.That((Features.StateOf(rig.Feature), Features.Troubled), Is.EqualTo((FeatureState.HeldOff, troubled)));
         }
         finally
         {
@@ -326,9 +307,32 @@ public sealed class FeaturesTests
         }
     }
 
+    // Replaces: another mod's prefix on a method the feature skips stands it down; on a method it only rewrites (Body) a
+    // prefix is harmless and a second transpiler is not. Gone again, the feature is back.
+    [TestCase("FrustumSweep", false)]
+    [TestCase("PoolScale", true)]
+    public void AnotherModOnAReplacedMethodStandsTheFeatureDown(string id, bool rewrites)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        using var rig = new FeatureRig(id);
+        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+        var method = All()[rig.Feature].Replaces!()[0]!;
+        using (var foreign = new TestHarmony("komet-test-feature-foreign"))
+        {
+            _ = foreign.Patch(method, prefix: Foreign.Prefix);
+            Features.Recheck();
+            Assert.That(rig.State, Is.EqualTo(rewrites ? FeatureState.Active : FeatureState.StoodDown), "a prefix");
+            _ = foreign.Patch(method, transpiler: Foreign.Transpiler);
+            Features.Recheck();
+            Assert.That(rig.State, Is.EqualTo(FeatureState.StoodDown), "a transpiler");
+        }
+
+        Features.Recheck();
+        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+    }
+
     // A transpiler of another mod on the body the feature replaces stands it down at the recheck, and it comes back once that is gone
     [TestCase("AnimationFrames")]
-    [TestCase("InitOnce")]
     [TestCase("ShapeInitMemo")]
     [TestCase("AnimatableCulling")]
     [TestCase("IdleAnimators")]
@@ -343,6 +347,7 @@ public sealed class FeaturesTests
             _ = foreign.Patch(seam, transpiler: Foreign.Transpiler);
             Features.Recheck();
             Assert.That(rig.State, Is.EqualTo(FeatureState.StoodDown));
+            Assert.That(Features.FirstTroubled(), Does.StartWith(id + ": "), "the HUD's warning names it");
         }
 
         Features.Recheck();
@@ -362,7 +367,8 @@ public sealed class FeaturesTests
         });
     }
 
-    // Every knob under the name it is saved as, a switch as a bool; a file read back and saved again is the same file
+    // Only the knobs the player set, under their saved names, a switch as a bool; a file read back and saved again is the
+    // same file
     [Test]
     public void TheSettingsFileKeepsItsKeys()
     {
@@ -370,12 +376,35 @@ public sealed class FeaturesTests
         var loaded = JsonConvert.DeserializeObject<HudSettings>(json)!;
         var logger = new CapturingLogger();
         loaded.Knobs.Apply(logger, HudSettings.FileName);
+        var (packing, shadows) = (Knobs.Find("ChunkPacking"), Knobs.Find("DistantShadows"));
+        loaded.Knobs.SetKnob(packing, 3);
+        loaded.Knobs.SetKnob(shadows, 1 - KometSettings.KnobDefault(shadows));
+        var chosen = JObject.Parse(JsonConvert.SerializeObject(loaded));
         Assert.Multiple(() =>
         {
-            Assert.That(JObject.Parse(json).Properties().Select(p => p.Name + ":" + p.Value.Type),
-                Is.EqualTo(SettingsFile));
-            Assert.That(JsonConvert.SerializeObject(loaded), Is.EqualTo(json));
+            Assert.That(JObject.Parse(json).Properties().Select(p => p.Name + ":" + p.Value.Type), Is.EqualTo(SettingsFile));
             Assert.That(logger.Lines, Is.Empty);
+            Assert.That(chosen.Properties().Select(p => p.Name + ":" + p.Value.Type),
+                Is.EqualTo(SettingsFile.Append("DistantShadows:Boolean").Append("ChunkPacking:Integer")), "in the knobs' order");
+        });
+        loaded.Knobs.SetKnob(packing, KometSettings.KnobDefault(packing));
+        loaded.Knobs.SetKnob(shadows, KometSettings.KnobDefault(shadows));
+        Assert.That(JsonConvert.SerializeObject(loaded), Is.EqualTo(json), "back to following: out of the file");
+    }
+
+    // A key written into the file by hand counts as set by the player
+    [Test]
+    public void AHandEditedKnobIsKept()
+    {
+        var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
+        file["ChunkPacking"] = 3;
+        var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
+        loaded.Knobs.Apply(new CapturingLogger(), HudSettings.FileName);
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
+            Assert.That(loaded.Knobs.Knob(Knobs.Find("ChunkPacking")), Is.EqualTo(3));
+            Assert.That(JObject.Parse(JsonConvert.SerializeObject(loaded))["ChunkPacking"]?.Value<int>(), Is.EqualTo(3));
         });
     }
 
@@ -384,7 +413,6 @@ public sealed class FeaturesTests
     {
         var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
         _ = file.Remove("Profiled");
-        _ = file.Remove("Chosen");
         file["ChunkPacking"] = 3; // changed by the player (Komet's default is 1)
         var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
         loaded.Knobs.Apply(new CapturingLogger(), HudSettings.FileName);
@@ -393,10 +421,30 @@ public sealed class FeaturesTests
         {
             Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
             Assert.That(loaded.Knobs.Knob(packing), Is.EqualTo(3));
-            Assert.That(loaded.Profiled, Is.EqualTo(1));
+            Assert.That(loaded.Profiled, Is.EqualTo(KometSettings.Layout));
         });
         loaded.Knobs.SetKnob(packing, KometSettings.KnobDefault(packing)); // back to the default: follows the computer again
         Assert.That(loaded.Chosen, Is.Empty);
+    }
+
+    // A file with a Chosen list (layout 1) saved every knob: only the listed ones are the player's; the list is still
+    // written for older builds
+    [Test]
+    public void AListedFileKeepsTheListedKnobs()
+    {
+        var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
+        (file["Profiled"], file["Chosen"], file["ChunkPacking"], file["ChunkLoadBudget"]) = (1, new JArray("ChunkPacking"), 3, 2);
+        var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
+        loaded.Knobs.Apply(new CapturingLogger(), HudSettings.FileName);
+        var (saved, trim) = (JObject.Parse(JsonConvert.SerializeObject(loaded)), Knobs.Find("ChunkLoadBudget"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
+            Assert.That(loaded.Knobs.Knob(trim), Is.EqualTo(KometSettings.KnobDefault(trim)), "not listed: follows");
+            Assert.That(saved.ContainsKey("ChunkLoadBudget"), Is.False);
+            Assert.That(saved["Chosen"]?.ToObject<string[]>(), Is.EquivalentTo((string[])["ChunkPacking"]));
+            Assert.That(saved["Profiled"]?.Value<int>(), Is.EqualTo(KometSettings.Layout));
+        });
     }
 
     // Before 3.0 the renderer was several switches: the hybrid (VulkanOnly off) becomes OpenGL, Vulkan-only stays Vulkan only
@@ -409,7 +457,7 @@ public sealed class FeaturesTests
         var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
         foreach (var part in (string[])["VulkanCore", "VulkanTerrain", "VulkanScene"]) file[part] = parts;
         file["VulkanOnly"] = only;
-        file["Chosen"] = new JArray("VulkanCore", "VulkanTerrain", "VulkanScene", "VulkanOnly");
+        (file["Profiled"], file["Chosen"]) = (1, new JArray("VulkanCore", "VulkanTerrain", "VulkanScene", "VulkanOnly"));
         var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
         try
         {
@@ -424,6 +472,27 @@ public sealed class FeaturesTests
         finally
         {
             VulkanRenderer.Only = false;
+        }
+    }
+
+    // Before the culling level, occlusion culling and the rows were two switches: off stays 0, the rows off become 1
+    [TestCase(false, true, 0)]
+    [TestCase(true, false, 1)]
+    [TestCase(true, true, 2)]
+    public void OldCullingSwitchesBecomeALevel(bool culling, bool rows, int expected)
+    {
+        var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
+        (file["OcclusionCulling"], file["GpuTerrainCulling"], file["Profiled"]) = (culling, rows, KometSettings.Layout);
+        var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
+        var level = Knobs.Find("OcclusionCulling");
+        try
+        {
+            loaded.Knobs.Apply(new CapturingLogger(), HudSettings.FileName);
+            Assert.That(loaded.Knobs.Knob(level), Is.EqualTo(expected));
+        }
+        finally
+        {
+            OcclusionCulling.Level = 2;
         }
     }
 }

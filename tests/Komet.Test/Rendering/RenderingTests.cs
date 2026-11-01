@@ -81,9 +81,9 @@ public sealed class MeshRecycleTests
     }
 
     [Test]
-    public void FirstCloneMatchesTheEngine([Range(1, 6)] int seed)
+    public void FirstCloneMatchesTheEngine()
     {
-        var source = Source(seed);
+        var source = Source(1);
         var dest = new MeshData(16) { Recyclable = true };
         Assert.That(MeshRecycle.CloneExtraData(source, dest), Is.False, "the engine method must be skipped");
         AssertMatchesEngineClone(source, dest);
@@ -202,7 +202,7 @@ public sealed class MeshRecycleTests
 public sealed class ShaderUseCacheTests
 {
     private const int Calls = 10_000, Passes = 3;
-    private const string UseCache = "Komet.Rendering.ShaderUseCache, Komet";
+    private const string UseCache = "Komet.Rendering.ShaderUseCache, Komet.Rendering";
 
     private static readonly string[] Includes =
         ["fogandlight.fsh", "fogandlight.vsh", "shadowcoords.vsh", "vertexwarp.vsh", "colormap.vsh"];

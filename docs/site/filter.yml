@@ -1,0 +1,8 @@
+# Only Komet.Api is meant for other mods; the rest is public for the game's mod loader
+apiRules:
+- exclude:
+    uidRegex: ^Komet\.(Host|World)$
+    type: Namespace
+- exclude:
+    uidRegex: ^Komet\.KometModSystem$
+    type: Class

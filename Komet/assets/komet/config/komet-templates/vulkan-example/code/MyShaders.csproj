@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build: dotnet build -c Release -p:VintageStory=/path/to/game -p:Komet=/path/to/Komet.Core.dll
+       MyShaders.dll lands in ../myshaders next to modinfo.json; set "type": "code" there. The sources stay out of the
+       mod folder: the game refuses a zipped mod with .cs files outside src/. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>MyShaders</AssemblyName>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutDir>../myshaders/</OutDir>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>none</DebugType>
+    <VintageStory Condition="'$(VintageStory)' == ''">$(VINTAGE_STORY)</VintageStory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="VintagestoryAPI" HintPath="$(VintageStory)/VintagestoryAPI.dll" Private="false" />
+    <!-- Komet's public API lives in Komet.Core.dll (the mod's Komet.dll only starts it). Never shipped with the mod: the player's
+         copy is used, and only when Komet runs -->
+    <Reference Include="Komet.Core" HintPath="$(Komet)" Private="false" />
+  </ItemGroup>
+</Project>

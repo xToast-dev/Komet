@@ -1,4 +1,5 @@
 using Komet.Core;
+using Vintagestory.Client;
 
 namespace Komet.Bench;
 
@@ -14,11 +15,13 @@ internal static class BenchGui
     private static GuiDialog? _dialog;
     private static double _owed;
     private static (int[] Values, long SwitchAt, long ResumeAt)? _switching;
+    private static Action? _shot; // the menu's screenshot, taken once it is drawn (at the switch)
 
-    public static void Switch(ICoreClientAPI capi, int[] values)
+    public static void Switch(ICoreClientAPI capi, int[] values, string page, Action? shot)
     {
-        if (!NotNull(capi) || !NotNull(values) || capi.World is not Vintagestory.Client.NoObf.ClientMain game) return;
-        Hud.HudOverlay.OptionsForBench?.Invoke(true);
+        if (!NotNull(capi) || !NotNull(values) || !NotNull(page) || capi.World is not Vintagestory.Client.NoObf.ClientMain game) return;
+        Hud.HudOverlay.OptionsForBench?.Invoke(true, page.Length > 0 ? page : null);
+        _shot = shot;
         game.PauseGame(true);
         var now = Environment.TickCount64;
         _switching = (values, now + SwitchMs, now + ResumeMs);
@@ -31,13 +34,15 @@ internal static class BenchGui
         var now = Environment.TickCount64;
         if (values.Length > 0 && now >= switchAt)
         {
+            _shot?.Invoke();
+            _shot = null;
             _ = Knobs.Apply(values);
             _switching = ([], switchAt, resumeAt);
         }
 
         if (now < resumeAt) return;
         (capi.World as Vintagestory.Client.NoObf.ClientMain)?.PauseGame(false);
-        Hud.HudOverlay.OptionsForBench?.Invoke(false);
+        Hud.HudOverlay.OptionsForBench?.Invoke(false, null);
         _switching = null;
     }
 
@@ -64,11 +69,46 @@ internal static class BenchGui
         for (var i = 0; i < Math.Min((int)_owed, 8); i++)
             bar.OnMouseWheel(capi, new MouseWheelEventArgs { delta = -1, deltaPrecise = -1 });
         _owed -= Math.Floor(_owed);
-        _ = Assert(_owed is >= 0 and < 1);
     }
 
     private static GuiElementScrollbar? Scrollbar() =>
         Assert(TicksPerSecond > 0) && _dialog is { } dialog && dialog.IsOpened() && dialog.Composers["maininventory"] is { } composer
             ? composer.GetScrollbar("scrollbar")
             : null;
+
+    // The run is over: the cached dialog holds its capi, so a world left mid-run would stay reachable all process long
+    public static void Reset() => (_dialog, _owed, _switching, _shot) = (null, 0, null, null);
+}
+
+// The default framebuffer after the GUI, read in the next frame's Done stage
+internal sealed class BenchShots(string folder) : IRenderer
+{
+    private string? _pending;
+
+    public double RenderOrder => 10;
+    public int RenderRange => 0;
+
+    public void Take(string name)
+    {
+        if (!NotNull(name) || !Assert(name.EndsWith(".png", StringComparison.Ordinal))) return;
+        _pending = Path.Combine(folder, name);
+    }
+
+    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
+    {
+        if (_pending is not { } path || !Assert(stage == EnumRenderStage.Done)) return;
+        _pending = null;
+        try
+        {
+            ScreenManager.Platform.LoadFrameBuffer(EnumFrameBuffer.Default);
+            _ = ScreenManager.Platform.SaveScreenshot(folder, path, flip: true); // glReadPixels reads bottom up
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            // SaveScreenshot throws a bare Exception for a folder it cannot write; an escape from a renderer ends the game
+            ScreenManager.Platform.Logger.Warning("Komet bench: no screenshot {0}: {1}", path, e.Message);
+        }
+    }
+
+    public void Dispose() { }
 }

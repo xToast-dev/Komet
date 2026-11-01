@@ -1,7 +1,17 @@
 <Solution>
     <Project Path="Komet/Komet.csproj"/>
+    <Project Path="Komet.Core/Komet.Core.csproj"/>
+    <Project Path="Komet.Diagnostics/Komet.Diagnostics.csproj"/>
+    <Project Path="Komet.Rendering/Komet.Rendering.csproj"/>
+    <Project Path="Komet.Tessellation/Komet.Tessellation.csproj"/>
+    <Project Path="Komet.Chunks/Komet.Chunks.csproj"/>
+    <Project Path="Komet.Shapes/Komet.Shapes.csproj"/>
+    <Project Path="Komet.World/Komet.World.csproj"/>
+    <Project Path="Komet.Vulkan/Komet.Vulkan.csproj"/>
+    <Project Path="Komet.Ui/Komet.Ui.csproj"/>
     <Project Path="Komet.Bench/Komet.Bench.csproj"/>
     <Folder Name="/tests/">
+        <Project Path="tests/Komet.Portable/Komet.Portable.csproj"/>
         <Project Path="tests/Komet.Test/Komet.Test.csproj"/>
         <Project Path="tests/Komet.Testing/Komet.Testing.csproj"/>
     </Folder>

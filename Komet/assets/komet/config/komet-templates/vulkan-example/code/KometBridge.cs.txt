@@ -1,0 +1,25 @@
+using Komet.Api;
+using Vintagestory.API.Client;
+
+namespace MyShaders;
+
+// Every call into Komet sits in this class. Komet drops the registrations when the world closes, so StartClientSide
+// registers them again on every join.
+internal static class KometBridge
+{
+    // The same id as the komet.json pack (the mod's domain): Komet hands a mod's defines and uniforms to its own passes
+    private const string Mod = "myshaders";
+
+    public static void Start(ICoreClientAPI api)
+    {
+        // A define for one pass only ("pass:<id>"): haze.fsh takes its day/night branch
+        KometShaders.Define(Mod, "MYSHADERS_CODE", () => "1", "pass:haze");
+
+        // A live uniform, asked once per frame; every program and pass that declares it gets it
+        KometShaders.Uniform(Mod, "myshadersHour", () => api.World.Calendar.HourOfDay);
+
+        // Komet rebuilds the shaders itself when the renderer switches; this is only for the log
+        KometShaders.RendererChanged += (_, _) =>
+            api.Logger.Notification("myshaders: now drawing with {0}", KometShaders.Renderer);
+    }
+}

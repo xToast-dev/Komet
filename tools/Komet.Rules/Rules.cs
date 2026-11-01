@@ -10,7 +10,6 @@ namespace Komet.Rules;
 internal static class Rules
 {
     public const int MaxLines = 60;
-    public const double MinDensity = 2.0;
     private const string Category = "Komet";
     private const string End = WellKnownDiagnosticTags.CompilationEnd;
 
@@ -39,9 +38,6 @@ internal static class Rules
     public static readonly DiagnosticDescriptor Length = new("KR0008", "Function too long",
         "'{0}' spans {1} lines, more than {2}", Category, DiagnosticSeverity.Error, true);
 
-    public static readonly DiagnosticDescriptor Density = new("KR0009", "Assertion density too low",
-        "Assertion density {0}/{1} = {2} is below {3} (calls of Contracts.Assert/NotNull/Finite/Index/Bounded per method, constructor and local function)",
-        Category, DiagnosticSeverity.Error, true, customTags: End);
 
     public static readonly DiagnosticDescriptor MissingKey = new("KR0010", "Lang key missing",
         "Lang key '{0}' is missing in {1}", Category, DiagnosticSeverity.Error, true);
@@ -59,18 +55,18 @@ internal static class Rules
 }
 
 // Every rule in one analyzer, one registration per compilation over one Sources. The rule families stay classes of their own:
-// Statements (KR0001-KR0005, KR0008), CallGraph (KR0006, KR0007), Density (KR0009) and Lang (KR0010-KR0013).
+// Statements (KR0001-KR0005, KR0008), CallGraph (KR0006, KR0007) and Lang (KR0010-KR0013). KR0009 (assertion density) is retired: contracts check real assumptions, not a quota.
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class KometAnalyzer : DiagnosticAnalyzer
 {
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
     [
         Rules.Unbounded, Rules.Goto, Rules.Directive, Rules.For, Rules.ForEach, Rules.Recursion, Rules.MutualRecursion,
-        Rules.Length, Rules.Density, Rules.MissingKey, Rules.LangMismatch, Rules.Placeholder, Rules.KnobKey
+        Rules.Length, Rules.MissingKey, Rules.LangMismatch, Rules.Placeholder, Rules.KnobKey
     ];
 
-    // Statements and Lang register their own actions; the call graph and the density are state per compilation, created here with
-    // the end actions that report them
+    // Statements and Lang register their own actions; the call graph is state per compilation, created here with the end
+    // action that reports it
     public override void Initialize(AnalysisContext context)
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze |
@@ -81,20 +77,16 @@ public sealed class KometAnalyzer : DiagnosticAnalyzer
             var sources = Sources.Of(start.Compilation, start.Options);
             Statements.Register(start, sources);
             Lang.Register(start, sources);
-            var (graph, density) = (new CallGraph(start.Compilation.Assembly), new Density());
+            var graph = new CallGraph(start.Compilation.Assembly);
             start.RegisterOperationAction(sources.Operation(graph.Add), CallGraph.Kinds);
-            start.RegisterOperationAction(sources.Operation(density.Call), OperationKind.Invocation);
-            start.RegisterSyntaxNodeAction(sources.Node(density.Function), SyntaxKind.MethodDeclaration,
-                SyntaxKind.ConstructorDeclaration, SyntaxKind.LocalFunctionStatement);
             start.RegisterCompilationEndAction(graph.Report);
-            start.RegisterCompilationEndAction(density.Report);
         });
     }
 }
 
 internal static class Symbols
 {
-    // Komet.Contracts holds the assertion helpers; the loop, foreach and density rules skip the class itself
+    // Komet.Contracts holds the assertion helpers; the loop and foreach rules skip the class itself
     public static bool IsContracts(ITypeSymbol? type) => type is
     {
         Name: "Contracts", ContainingType: null,

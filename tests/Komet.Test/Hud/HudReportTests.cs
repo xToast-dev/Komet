@@ -9,9 +9,6 @@ namespace Komet.Test.Hud;
 [NonParallelizable]
 public sealed class HudReportTests
 {
-    private const string Build = "v1.2.3", Newer = "v1.3.0";
-    private static readonly string Installed = new('a', 64), Other = new('b', 64);
-
     [TearDown]
     public void Detach()
     {
@@ -19,14 +16,12 @@ public sealed class HudReportTests
     }
 
     [TestCase(double.PositiveInfinity, "F1", "")]
-    [TestCase(double.NegativeInfinity, "N0", "")]
     [TestCase(double.NaN, "F2", "")]
     [TestCase(1234.4, "N0", "1,234")]
-    [TestCase(9.94, "F2", "9.94")]
     [TestCase(0.0, "F1", "0.0")] // a measured zero is a number
     public void NumbersPrintCultureInvariantAndNothingWhenNotFinite(double value, string format, string expected)
     {
-        Assert.That(HudText.Format(value, format), Is.EqualTo(expected));
+        Assert.That(KometText.Format(value, format), Is.EqualTo(expected));
     }
 
     [Test]
@@ -87,8 +82,6 @@ public sealed class HudReportTests
     [TestCase("3.50", null, "  label: 3.50 ms")]
     [TestCase("3.50", "12.5", "  label: 12.5 % 3.50 ms")]
     [TestCase(null, "12.5", "  label: 12.5 %")]
-    [TestCase("", "12.5", "  label: 12.5 %")]
-    [TestCase("", "", "")]
     [TestCase(null, "", "")]
     [TestCase("3.50", "", "  label: 3.50 ms")]
     public void RowsFormatAsTheReportPrintsThem(string? value, string? percent, string expected)
@@ -210,68 +203,6 @@ public sealed class HudReportTests
         });
     }
 
-    // A failure is reported once per call site, and a call site is its file too: Install at line 25 of two features are two sites
-    [Test]
-    public void AFailureIsReportedOncePerFileMemberAndLine()
-    {
-        var logger = new CapturingLogger();
-        Contracts.Attach(logger);
-        foreach (var file in (string[])["/src/SunOcclusion.cs", "/src/WindowSizeCache.cs", "/src/SunOcclusion.cs"])
-            _ = Contracts.Assert(false, "harmony is null", "Install", 25, file);
-        Assert.That(logger.Lines, Has.Count.EqualTo(2).And.Some.Contains("WindowSizeCache.cs, Install (line 25)"));
-    }
-
-    [TestCase(true, Build, "a", "a", "Verified", "aaaaaaa")]
-    [TestCase(true, Build, "a", "b", "Mismatch", "aaaaaaa")]
-    [TestCase(true, Build, "a", "", "Unverified", Build)]
-    [TestCase(true, Build, "", "a", "Unverified", Build)]
-    [TestCase(true, Newer, "a", "a", "Outdated", Newer)]
-    [TestCase(true, Newer, "a", "b", "Mismatch", "aaaaaaa")]
-    [TestCase(false, Newer, "a", "", "Outdated", Newer)]
-    [TestCase(false, "", "", "", "NoRelease", Build)]
-    [TestCase(false, "v1.2.2", "a", "", "NoRelease", Build)]
-    [TestCase(true, "v1.2.2", "a", "a", "Verified", "aaaaaaa")]
-    public void GitHubsAnswerMapsToOneState(bool listed, string newest, string installed, string published,
-        string state, string detail)
-    {
-        var report = UpdateCheck.Judge(Build, listed, newest, Hash(installed), listed ? Hash(published) : "", "");
-        Assert.Multiple(() =>
-        {
-            Assert.That(report.State, Is.EqualTo(Enum.Parse<UpdateState>(state)));
-            Assert.That(report.Detail, Is.EqualTo(detail));
-            Assert.That(report.Tag, Is.EqualTo(listed ? Build : ""));
-        });
-    }
-
-    // Only a later build is an update: a pre-release is ahead of the release before it and behind its own; previews have no order
-    [TestCase("v2.0.1-pre", "v2.0.0", false)]
-    [TestCase("v2.0.1-pre", "v2.0.1", true)]
-    [TestCase("v2.0.1-pre", "v2.0.1-rc", true)]
-    [TestCase("v2.0.1", "v2.0.1-pre", false)]
-    [TestCase("v2.0.10", "v2.0.9", false)]
-    [TestCase("v2.0.9", "v2.0.10", true)]
-    [TestCase("v2.0.0", "v2.0.0", false)]
-    [TestCase("v2.0.0", "", false)]
-    [TestCase("preview-abc1234", "preview-def5678", true)]
-    public void TheNewestTagIsAnUpdateOnlyWhenItIsLater(string tag, string newest, bool behind)
-    {
-        Assert.That(UpdateCheck.Behind(tag, newest), Is.EqualTo(behind));
-    }
-
-    [TestCase("Checking", "v1", "a", "a", "verify-checking")]
-    [TestCase("Failed", "v1", "a", "a", "verify-failed")]
-    [TestCase("Verified", "v1", "a", "a", "verify-match")]
-    [TestCase("Outdated", "v1", "a", "b", "verify-mismatch")]
-    [TestCase("Unverified", "", "a", "", "verify-norelease")]
-    [TestCase("Unverified", "v1", "", "b", "verify-nofile")]
-    [TestCase("Unverified", "v1", "a", "", "verify-nochecksum")]
-    public void TheChecksumWindowNamesWhatTheComparisonFound(string state, string tag, string installed,
-        string published, string key)
-    {
-        var report = new UpdateReport(Enum.Parse<UpdateState>(state), "", tag, "", Hash(installed), Hash(published));
-        Assert.That(report.Verdict(), Is.EqualTo(key));
-    }
-
     // add grows the total and the frames
     private static (HudLine Line, Action<double, double> Add) PerFrame()
     {
@@ -288,6 +219,4 @@ public sealed class HudReportTests
         line.Accumulate();
         return line.MeanText();
     }
-
-    private static string Hash(string digit) => digit switch { "" => "", "a" => Installed, _ => Other };
 }

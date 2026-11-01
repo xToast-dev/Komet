@@ -21,14 +21,13 @@ public sealed class LightRepairTests
     private static readonly BlockPos Low = new(0, 0, 0);
     private static readonly BlockPos High = new(LightWorld.SizeX - 1, LightWorld.SizeY - 1, LightWorld.SizeZ - 1);
 
-    private int[][] _reference = [];
-
-    [OneTimeSetUp]
-    public void Reference() => _reference = Lit().Light();
+    // Lit on first use: the quick set runs no test that reads it
+    private static readonly Lazy<int[]?[]> Snapshot = new(Take);
+    private static readonly Lazy<int[][]> Reference = new(() => Lit().Light());
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Waiting")]
     private static extern ref Queue<(int Dimension, int X, int Z)> Waiting(
-        [UnsafeAccessorType("Komet.World.LightRepair, Komet")] object? repair);
+        [UnsafeAccessorType("Komet.World.LightRepair, Komet.World")] object? repair);
 
     [Test]
     public void Installs()
@@ -65,7 +64,7 @@ public sealed class LightRepairTests
         Assert.Multiple(() =>
         {
             Assert.That(broken, Has.Length.EqualTo(lost).And.Length.GreaterThan(0));
-            Assert.That(Differences(Sun(found), Sun(_reference)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
             Assert.That(Differences(found, expected), Is.Empty, "light that is not the intact world's");
         });
     }
@@ -90,7 +89,7 @@ public sealed class LightRepairTests
         {
             Assert.That(untouched, Is.Zero, "a column with its light");
             Assert.That(lit, Is.EqualTo(lost).And.GreaterThan(0));
-            Assert.That(Differences(Sun(found), Sun(_reference)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
             Assert.That(Differences(found, intact.Light()), Is.Empty, "light that is not the intact world's");
             Assert.That(changed, Is.SupersetOf(Reported), "the column reported");
         });
@@ -131,7 +130,9 @@ public sealed class LightRepairTests
     }
 
     // Over a world loaded whole the relight is the engine's but for its sources: the same sunlight, every source where it is and
-    // none added, and the light of the intact world after every source was placed again in the order the relight places them
+    // none added, and the light of the intact world after every source was placed again in the order the relight places them.
+    // Why the reference is not FullRelight's: it places every light source again at its chunk's offset plus the position within
+    // the world, a source in a chunk off the origin twice as far out - a light source where there is none, or none at all
     [Test]
     [Category("Slow")]
     public void TheRelightGivesTheEnginesSunlightAndPlacesEverySourceWhereItIs()
@@ -148,8 +149,10 @@ public sealed class LightRepairTests
         {
             Assert.That(relit, Is.True);
             Assert.That(Sources(world), Is.EqualTo(before), "a light source added or moved");
-            Assert.That(Differences(Sun(found), Sun(_reference)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
             Assert.That(Differences(Sun(found), Sun(engine.Light())), Is.Empty, "sunlight that is not the engine's");
+            Assert.That(Sources(engine).Except(before).ToList(), Is.Not.Empty.And.Contains("2,2,2:13312"),
+                "the engine's FullRelight: a source of chunk 1,1,1 placed in chunk 2,2,2");
             Assert.That(Differences(found, intact.Light()), Is.Empty, "light that is not the intact world's");
         });
     }
@@ -177,7 +180,7 @@ public sealed class LightRepairTests
         _ = LightRepair.BlockLight(intact.Illuminator, intact, 1, 1, [0, 1, 2], 0);
         var (found, expected) = (world.Light(), intact.Light());
         int[] part = [Index(1, 0, 1), Index(1, 1, 1)];
-        var sun = Sun(_reference);
+        var sun = Sun(Reference.Value);
         Assert.Multiple(() =>
         {
             Assert.That(relit, Is.True);
@@ -193,19 +196,6 @@ public sealed class LightRepairTests
                 [.. Enumerable.Range(0, 3).Select(y => expected[Index(1, y, 1)])]), Is.Empty, "the column's light");
             Assert.That(changed, Is.SupersetOf(Reported), "the column reported");
         });
-    }
-
-    // Why the reference is not FullRelight's: it places every light source again at its chunk's offset plus the position within the
-    // world, a source in a chunk off the origin twice as far out - a light source where there is none, or none at all
-    [Test]
-    [Category("Slow")]
-    public void TheEnginesFullRelightPlacesLightSourcesAtTwiceTheirChunksOffset()
-    {
-        var world = Lit();
-        var before = Sources(world);
-        world.Illuminator.FullRelight(Low, High);
-        var added = Sources(world).Except(before).ToList();
-        Assert.That(added, Is.Not.Empty.And.Contains("2,2,2:13312"), "a source of chunk 1,1,1 placed in chunk 2,2,2");
     }
 
     // The chunks of a column that reach the sky lose their light, as a save left by a relight; how many
@@ -248,8 +238,23 @@ public sealed class LightRepairTests
     private static int[][] Sun(int[][] light) =>
         [.. light.Select(chunk => chunk.Select(value => value & 0x1F).ToArray())];
 
-    // LightWorld with its light sources placed, then the sunlight of every column, in the order FullRelight takes them
+    // LightWorld with its light sources placed, then the sunlight of every column, in the order FullRelight takes them. Lit once:
+    // the sunlight takes seconds, so every other world is a new one given that world's light value for value
     private static LightWorld Lit()
+    {
+        var world = new LightWorld(LightWorld.MakeBlocks(), Seed) { Recording = false };
+        var lit = Snapshot.Value;
+        for (var c = 0; c < lit.Length; c++)
+        {
+            if (lit[c] is not { } light) continue;
+            var cells = Cells(world, c);
+            for (var i = 0; i < light.Length; i++) cells.SetLight(i, (uint)light[i]);
+        }
+
+        return world;
+    }
+
+    private static int[]?[] Take()
     {
         var world = new LightWorld(LightWorld.MakeBlocks(), Seed) { Recording = false };
         world.LightUp();
@@ -259,8 +264,14 @@ public sealed class LightRepairTests
                 _ = LightRepair.Sunlight(world.Illuminator, Column(world, x, z), x, z, 0);
         }
 
-        return world;
+        var light = world.Light();
+        return [.. light.Select((values, c) => Cells(world, c).lightLayer is null ? null : values)];
     }
+
+    // The chunk's ChunkData by the index Light() lists it under
+    private static ChunkData Cells(LightWorld world, int c) =>
+        (ChunkData)world.GetChunk(c % LightWorld.ChunksX, c / (LightWorld.ChunksX * LightWorld.ChunksZ),
+            c / LightWorld.ChunksX % LightWorld.ChunksZ).Lighting;
 
     private static int Index(int x, int y, int z) => (y * LightWorld.ChunksZ + z) * LightWorld.ChunksX + x;
 

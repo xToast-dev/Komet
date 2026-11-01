@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet.schema.json",
+  "_comment": "Komet reads this file from every mod; it is the whole binding. Settings become a page under Shaders in Komet's options, passes draw over the finished picture. The same file works on OpenGL and on Komet's Vulkan renderer. Every field: Komet's options › Modding › Shader reference.",
+  "programs": ["pass:grade", "pass:haze"],
+  "settings": [
+    { "type": "group", "label": "myshaders:group-grade" },
+    { "key": "grade", "label": "myshaders:grade", "type": "switch", "default": 1, "hint": "myshaders:grade-hint" },
+    { "key": "exposure", "label": "myshaders:exposure", "type": "slider", "min": -1, "max": 1, "step": 0.05, "default": 0,
+      "unit": "EV", "uniform": "myshadersExposure", "hint": "myshaders:exposure-hint" },
+    { "key": "saturation", "label": "myshaders:saturation", "type": "slider", "min": 0, "max": 2, "step": 0.05, "default": 1.1,
+      "uniform": "myshadersSaturation", "hint": "myshaders:saturation-hint" },
+    { "key": "quality", "label": "myshaders:quality", "type": "choice", "options": ["myshaders:quality-fast", "myshaders:quality-fine"],
+      "default": 1, "define": "MYSHADERS_QUALITY", "hint": "myshaders:quality-hint" },
+    { "type": "group", "label": "myshaders:group-haze" },
+    { "key": "haze", "label": "myshaders:haze", "type": "switch", "default": 1, "hint": "myshaders:haze-hint" },
+    { "key": "hazeStrength", "label": "myshaders:haze-strength", "type": "slider", "min": 0, "max": 1, "step": 0.05, "default": 0.4,
+      "uniform": "myshadersHaze", "hint": "myshaders:haze-strength-hint" }
+  ],
+  "passes": [
+    { "id": "haze", "fragment": "shaders/haze.fsh", "order": 10, "when": "haze" },
+    { "id": "grade", "fragment": "shaders/grade.fsh", "order": 20, "when": "grade" }
+  ],
+  "renderer": "both"
+}

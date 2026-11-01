@@ -70,46 +70,49 @@
         { "name": "komet" },
         {
           "name": "engine",
-          "set": { "ExtendedRows": false, "VisibleFaces": false, "FaceLight": false, "OccludedChunks": false, "TessSchedule": false }
+          "set": { "FaceLight": false, "OccludedChunks": false, "TessSchedule": false }
         }
       ]
     },
     "gcreg": {
       "_comment": "the always-on features outside the tessellation fast paths (shape init memo, entity budget, particle light) on against off, in one process: frame time and GC pauses",
       "warmupLaps": 2,
-      "arms": [{ "name": "all" }, { "name": "lean", "set": { "ShapeInitMemo": false, "EntityTessBudget": 0, "ParticleLight": false } }]
+      "arms": [{ "name": "all" }, { "name": "lean", "set": { "ShapeInitMemo": false, "ParticleLight": false } }]
     },
     "culling": {
-      "_comment": "OcclusionCulling (terrain culled on the GPU against a depth pyramid, two passes) off against on, in one process, A B B A A B B A: frame time, lows, the tessellation it must not disturb",
+      "_comment": "OcclusionCulling (terrain culled on the GPU against a depth pyramid, two passes; it culls only under VulkanOnly) off against on, in one process, A B B A A B B A: frame time, lows, the tessellation it must not disturb",
       "warmupLaps": 3,
       "laps": 8,
-      "arms": [{ "name": "off" }, { "name": "on", "set": { "OcclusionCulling": true } }]
+      "arms": [
+        { "name": "off", "set": { "OcclusionCulling": 0, "VulkanOnly": true } },
+        { "name": "on", "set": { "OcclusionCulling": 2, "VulkanOnly": true } }
+      ]
     },
     "culling1440": {
       "_comment": "culling, but at 2560x1440 as the player plays, where the GPU is the limit more often",
       "sandbox": { "window": [2560, 1440] },
       "warmupLaps": 3,
       "laps": 8,
-      "arms": [{ "name": "off" }, { "name": "on", "set": { "OcclusionCulling": true } }]
+      "arms": [
+        { "name": "off", "set": { "OcclusionCulling": 0, "VulkanOnly": true } },
+        { "name": "on", "set": { "OcclusionCulling": 2, "VulkanOnly": true } }
+      ]
     },
     "hud": {
-      "_comment": "the HUD itself in game: every panel shown, one lap, to catch what unit tests cannot (Cairo, GL uploads, the frame clock)",
+      "_comment": "the HUD itself in game: every overlay line shown and the window cycling through its tabs, to catch what unit tests cannot (Cairo, GL uploads, the frame clock)",
       "sandbox": {
         "hud": {
           "Visible": true,
+          "ShowFps": true,
+          "ShowLows": true,
+          "ShowFrametime": true,
           "ShowGraph": true,
-          "ShowSystem": true,
-          "ShowPasses": true,
-          "ShowModTimes": true,
-          "Detail": true,
-          "ShowMods": true,
-          "ShowCounters": true,
-          "ShowLog": true,
-          "ShowDebugLog": true
+          "ShowMods": true
         }
       },
+      "hudWindow": "cycle",
       "lap": { "still": 20, "rotate": 20, "leg": 30 },
-      "laps": 1,
+      "laps": 10,
       "warmupLaps": 0
     },
     "vulkan": {

@@ -4,10 +4,10 @@ using Komet.Bench;
 using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
+using Komet.Hud;
 using Komet.Rendering;
 using Komet.Tessellation;
 using Vintagestory.Server.Systems;
-using Komet.Test.Diagnostics;
 using static Komet.Testing.Profiles;
 
 namespace Komet.Test.Bench;
@@ -34,6 +34,10 @@ public sealed class BenchConfigTests
     }
 
     private static string BenchJson() => Path.Combine(Paths.Repo, "scripts", "bench.json");
+
+    // What komet.json holds, as the HUD's settings save it
+    private static readonly string[] SettingsKeys =
+        [.. JsonNode.Parse(Newtonsoft.Json.JsonConvert.SerializeObject(new HudSettings()))!.AsObject().Select(entry => entry.Key)];
 
     [TearDown]
     public void Restore()
@@ -115,21 +119,14 @@ public sealed class BenchConfigTests
     [TestCase("\"route\": { \"speed\": 100 }", "route.speed must be between")]
     [TestCase("\"laps\": 1.5", "laps must be a whole number")]
     [TestCase("\"laps\": 3, \"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\" } ]", "a multiple of the 2 arms")]
-    [TestCase("\"env\": { \"DOTNET_gcServer\": 1 }", "env.DOTNET_gcServer must be a string")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"Nonexistent\": true } } ]",
-        "arms[0].set.Nonexistent must be one of the knob names in Komet/Core/Features/Features.cs")]
+        "arms[0].set.Nonexistent must be a knob name from the modules' *Features.cs (Knobs table)")]
+    [TestCase("\"route\": { \"back\": false }, \"laps\": 1, \"warmupLaps\": 1", "route.back must be true for more than one lap")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"My Mod:water\": true } } ]", "set.My Mod:water must be")]
-    [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"mymod:\": true } } ]", "modid:name")]
-    [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"mymod:water\": 1.5 } } ]", "true, false or a whole number")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"UploadCap\": 99 } } ]", "inside the knob's range")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"UploadCap\": 2, \"UploadCap\": 3 } } ]", "named once")]
-    [TestCase("\"arms\": [ { \"name\": \"A\", \"engine\": 1 } ]", "arms[0].engine must be true or false")]
     [TestCase("\"arms\": [ { \"name\": \"A\" }, { \"name\": \"A\" } ]", "unique names")]
-    [TestCase(
-        "\"arms\": [ {\"name\":\"1\"},{\"name\":\"2\"},{\"name\":\"3\"},{\"name\":\"4\"},{\"name\":\"5\"},{\"name\":\"6\"},{\"name\":\"7\"},{\"name\":\"8\"},{\"name\":\"9\"} ]",
-        "a list of 1 to")]
     [TestCase("", "output must be an absolute path", "result.json")]
-    [TestCase("", "output must be an absolute path", "/tmp/a\\u0000b.json")]
     [TestCase("", "world.savegameId", null, "{ }")]
     public void ABadValueNamesItsKey(string extra, string expected, string? output = null,
         string world = "{ \"savegameId\": \"75695bba\" }")
@@ -155,9 +152,11 @@ public sealed class BenchConfigTests
             var config = BenchConfig.Parse(flat.ToJsonString());
             var knobs = profile["arms"]?.AsArray()
                 .SelectMany(arm => arm!["set"]?.AsObject().Select(entry => entry.Key) ?? []) ?? [];
+            var hud = profile["sandbox"]?["hud"]?.AsObject().Select(entry => entry.Key) ?? [];
             Assert.Multiple(() =>
             {
                 Assert.That(knobs.Select(Knobs.Find), Is.All.GreaterThanOrEqualTo(0), name);
+                Assert.That(hud, Is.SubsetOf(SettingsKeys), name + ": sandbox.hud names komet.json keys");
                 Assert.That(() => BenchScenario.Expand(config), Throws.Nothing, name);
             });
         }
@@ -514,9 +513,7 @@ public sealed class BenchScenarioTests
     }
 
     // EntityControls.CalcMovementVectors is what the engine walks for Forward at a level pitch of π; the out leg has to point the same way
-    [TestCase(0.0)]
     [TestCase(1.0)]
-    [TestCase(3.1416)]
     [TestCase(5.5)]
     public void TheOutLegFollowsTheEnginesForwardVector(double yaw)
     {

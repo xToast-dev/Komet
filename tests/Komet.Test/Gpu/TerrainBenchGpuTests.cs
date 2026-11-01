@@ -20,7 +20,7 @@ public sealed class TerrainBenchGpuTests
         [(0.3, -0.15, [0.4, 0.8, 0.3]), (2.4, -0.5, [-0.7, 0.35, 0.2]), (4.2, 0.1, [0.1, 0.25, -0.9])];
 
     [Test]
-    public void TheTerrainsDrawsOnTheGpu() => ShadowCastersGpuTests.Run(GpuRig.Gl, 320, world =>
+    public void TheTerrainsDrawsOnTheGpu() => TerrainWorld.Run(GpuRig.Gl, 320, world =>
     {
         var (shadow, opaque) = (TerrainWorld.Program(TerrainWorld.ShadowFragment), TerrainWorld.Program(TerrainWorld.OpaqueFragment));
         using var map = new DepthTarget(Map, Map);
@@ -33,7 +33,7 @@ public sealed class TerrainBenchGpuTests
             {
                 var view = new TerrainView(yaw, pitch, sun);
                 var mvp = TerrainView.Floats(view.ShadowMvp);
-                var culler = ShadowCastersGpuTests.Culler(view);
+                var culler = TerrainWorld.Culler(view);
                 var times = new List<double>[4];
                 for (var v = 0; v < times.Length; v++) times[v] = [];
                 for (var round = 0; round < Rounds; round++)
@@ -60,7 +60,7 @@ public sealed class TerrainBenchGpuTests
     });
 
     [Test]
-    public void FacesFacingAwayLeftOut() => ShadowCastersGpuTests.Run(GpuRig.Gl, 320, world =>
+    public void FacesFacingAwayLeftOut() => TerrainWorld.Run(GpuRig.Gl, 320, world =>
     {
         var opaque = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
         using var screen = new DepthTarget(Width, Height, 4);
@@ -95,9 +95,9 @@ public sealed class TerrainBenchGpuTests
     private static double[] Facing(TerrainWorld world, TerrainView view, bool backFaces,
         (int Program, DepthTarget Screen, int[] Queries) with)
     {
-        var culling = Timed(with.Queries[0], () => FaceSplitsGpuTests.Run(world, view, backFaces));
+        var culling = Timed(with.Queries[0], () => world.CullRows(view, backFaces));
         with.Screen.Begin();
-        FaceSplitsGpuTests.BackCulled();
+        TerrainWorld.BackCulled();
         int[] targets = [VertexShaderInvocations, PrimitivesSubmitted, ClippingOutputPrimitives];
         for (var q = 0; q < targets.Length; q++) GL.BeginQuery((QueryTarget)targets[q], with.Queries[q + 1]);
         var drawing = Timed(with.Queries[0],

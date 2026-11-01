@@ -113,7 +113,7 @@ internal sealed class BenchRecorder : IFrameSink
 
     public void Stop()
     {
-        _ = Assert(Recording) && Assert(Count <= Capacity);
+        _ = Assert(Recording);
         Recording = false;
     }
 
@@ -198,17 +198,7 @@ internal sealed class BenchRecorder : IFrameSink
 
     private static void Insert(Span<BenchSpikeMark> top, BenchSpikeMark mark)
     {
-        if (!Assert(top.Length is > 0 and <= MarksPerSpike) || !Finite(mark.Ms)) return;
-        var slot = Math.Min(top.Length, MarksPerSpike);
-        for (var i = 0; i < Math.Min(top.Length, MarksPerSpike); i++)
-            if (top[i].Empty || top[i].Ms < mark.Ms)
-            {
-                slot = i;
-                break;
-            }
-
-        if (slot >= top.Length) return;
-        top[slot..^1].CopyTo(top[(slot + 1)..]);
-        top[slot] = mark;
+        if (!Assert(top.Length == MarksPerSpike) || !Finite(mark.Ms)) return;
+        TopN.Insert(top, mark, mark.Ms, static m => m.Empty ? -1 : m.Ms);
     }
 }

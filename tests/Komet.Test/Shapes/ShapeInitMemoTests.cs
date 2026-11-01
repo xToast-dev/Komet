@@ -344,24 +344,7 @@ public sealed class ShapeInitMemoTests
         Assert.That(ShapeInitMemo.Blocked, Is.True);
     }
 
-    // InitOnce skips the local player's second init through the memo's patch; its own patches are not foreign to the memo, nor the
-    // memo's to InitOnce
-    [Test]
-    public void NextToInitOnceTheMemoStillAnswers()
-    {
-        _harmony = new Harmony("komet-test-shapeinitmemo");
-        InitOnce.Install(_harmony, null);
-        ShapeInitMemo.Install(_harmony, null);
-        (Counting.Hud, _skipped) = (true, ShapeInitMemo.Skipped);
-        Assert.Multiple(() =>
-        {
-            Assert.That(InitOnce.Blocked, Is.False);
-            Assert.That(ShapeInitMemo.Blocked, Is.False);
-        });
-        AssertThirdInit(_ => { }, true);
-    }
-
-    // A changed engine: every init runs, with one warning, and the patch InitOnce rides on stays
+    // A changed engine: every init runs unpatched, with one warning
     [Test]
     public void AChangedEngineRunsEveryInit()
     {
@@ -372,7 +355,7 @@ public sealed class ShapeInitMemoTests
         {
             Assert.That(ShapeInitMemo.Blocked, Is.True);
             Assert.That(logger.Lines, Has.Count.EqualTo(1).And.All.Contains("1.22.7"));
-            Assert.That(_harmony!.GetPatchedMethods(), Has.Exactly(1).Items);
+            Assert.That(_harmony!.GetPatchedMethods(), Is.Empty);
         });
     }
 }

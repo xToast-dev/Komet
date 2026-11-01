@@ -4,7 +4,6 @@ using Komet.Core;
 using Komet.Hud;
 using Komet.Options;
 using Komet.Rendering;
-using Komet.Tessellation;
 
 namespace Komet.Test.Api;
 
@@ -12,12 +11,14 @@ namespace Komet.Test.Api;
 public sealed class KometFeaturesTests
 {
     private CapturingLogger _log = null!;
+    private int _mainThread;
 
     [SetUp]
     public void Attach()
     {
         _log = new CapturingLogger();
         ApiEvents.Logger = _log;
+        (_mainThread, RuntimeEnv.MainThreadId) = (RuntimeEnv.MainThreadId, Environment.CurrentManagedThreadId);
     }
 
     [TearDown]
@@ -26,6 +27,7 @@ public sealed class KometFeaturesTests
         Features.Close();
         KometOptions.Clear();
         ApiEvents.Logger = null;
+        RuntimeEnv.MainThreadId = _mainThread;
     }
 
     [Test]
@@ -189,24 +191,8 @@ public sealed class KometFeaturesTests
     [Test]
     public void TheFingerprintIsEngineShapes()
     {
-        MethodBase?[] methods = [VisibleFaces.Target(), AccessTools.Method(typeof(Block), nameof(Block.DoEmitSideAo))];
+        MethodBase?[] methods = [AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.CalculateVisibleFaces),
+            [typeof(bool), typeof(int), typeof(int), typeof(int)]), AccessTools.Method(typeof(Block), nameof(Block.DoEmitSideAo))];
         Assert.That(KometFeatures.Fingerprint(methods), Is.EqualTo(EngineShape.Of(methods)).And.Not.Zero);
-    }
-
-    [Test]
-    public void PatchKindsAreEngineShapesKinds()
-    {
-        var kinds = Enum.GetValues<PatchKinds>().Select(k => (k.ToString(), (int)k));
-        Assert.That(Enum.GetValues<PatchKinds>().Select(k => (k.ToString(), (int)k)), Is.EqualTo(kinds));
-    }
-
-    [Test]
-    public void ThePageIdsAreKometsPages()
-    {
-        GameLang.EnsureLoaded();
-        var pages = new KometPages(new HudSettings { ShowAdvanced = true }, () => { }, _ => { }, () => { }, () => { }, () => { })
-            .Build().Select(p => p.Id);
-        string[] ids = [KometFeatures.RenderPage, KometFeatures.ChunksPage, KometFeatures.MiscPage];
-        Assert.That(pages, Is.SupersetOf(ids));
     }
 }

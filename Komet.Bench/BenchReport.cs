@@ -377,7 +377,7 @@ internal static class BenchReport
         {
             var n = 0;
             for (var s = 0; s < Math.Min(run.Segments.Length, MaxSegments); s++)
-                if (run.Segments[s] is { Measured: true, Warmup: false } segment && segment.Arm == arm &&
+                if (run.Segments[s] is { Measured: true, Warmup: false, Lap: >= 0 } segment && segment.Arm == arm &&
                     (k == PooledKinds.Length || segment.Kind == PooledKinds[k]))
                     n = Gather(frames, ranges[s], scratch, n);
             Frametime(json, k < PooledKinds.Length ? BenchSegment.KindName(PooledKinds[k]) : "all",

@@ -50,7 +50,7 @@ SHARDS=(
 
 PIDS=()
 for shard in "${SHARDS[@]}"; do
-  name=${shard%%|*} filter="(${shard#*|})${QUICK:-}"
+  name=${shard%%|*} filter="(${shard#*|})${QUICK:-}&TestCategory!=Synth" # the synthetic bench runs alone (synth.sh)
   dotnet test "$PROJECT" -c Release --no-build --filter "$filter" -nologo "${EXTRA[@]}" >"$OUT/$name.log" 2>&1 &
   PIDS+=("$!:$name")
 done

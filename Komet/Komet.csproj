@@ -1,35 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+    <!-- The mod the game loads (Komet.dll: KometModSystem, MapTracking, Modules.cs) with modinfo.json and the assets; the
+         code lives in the module projects it references, which the build copies beside it and Package ships in the zip.
+         Settings, game references and the analyzer: ../Komet.Module.props -->
+    <Import Project="../Komet.Module.props"/>
+
     <PropertyGroup>
-        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <OutputPath>bin\$(Configuration)\Mods\mod</OutputPath>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>   <!-- LibraryImport stubs, [SkipLocalsInit] (ExtendedRows), IndirectDraw's mapped buffer -->
-        <GenerateDependencyFile>false</GenerateDependencyFile>   <!-- the game loads the mod assembly itself -->
     </PropertyGroup>
 
+    <!-- Every module, top down; the mod names them all (Modules.cs) -->
     <ItemGroup>
-        <Using Include="Vintagestory.API.Client.GuiElement" Static="true"/>
-        <Using Include="Komet.Contracts" Static="true"/>
-        <InternalsVisibleTo Include="Komet.Test"/>
-        <InternalsVisibleTo Include="Komet.Bench"/>   <!-- the developer benchmark, a mod of its own that never ships -->
-    </ItemGroup>
-
-    <!-- Supplied by the game at runtime, never copied into the mod output -->
-    <ItemGroup>
-        <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll" Private="false"/>
-        <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll" Private="false"/>
-        <Reference Include="VintagestoryLib" HintPath="$(VsInstall)/VintagestoryLib.dll" Private="false"/>
-        <Reference Include="OpenTK.Graphics" HintPath="$(VsInstall)/Lib/OpenTK.Graphics.dll" Private="false"/>
-        <Reference Include="OpenTK.Windowing.Desktop" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Desktop.dll" Private="false"/>
-        <Reference Include="OpenTK.Windowing.Common" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.Common.dll" Private="false"/>
-        <Reference Include="OpenTK.Mathematics" HintPath="$(VsInstall)/Lib/OpenTK.Mathematics.dll" Private="false"/>
-        <!-- glfwGetProcAddress: the GL interop entry points OpenTK does not bind (Vulkan/GlInterop) -->
-        <Reference Include="OpenTK.Windowing.GraphicsLibraryFramework" HintPath="$(VsInstall)/Lib/OpenTK.Windowing.GraphicsLibraryFramework.dll" Private="false"/>
-        <Reference Include="cairo-sharp" HintPath="$(VsInstall)/Lib/cairo-sharp.dll" Private="false"/>
-        <Reference Include="Newtonsoft.Json" HintPath="$(VsInstall)/Lib/Newtonsoft.Json.dll" Private="false"/>
-        <!-- the world map's database, written through raw statements (World/Map/MapSaveScratch) -->
-        <Reference Include="Microsoft.Data.Sqlite" HintPath="$(VsInstall)/Lib/Microsoft.Data.Sqlite.dll" Private="false"/>
-        <Reference Include="SQLitePCLRaw.core" HintPath="$(VsInstall)/Lib/SQLitePCLRaw.core.dll" Private="false"/>
+        <ProjectReference Include="../Komet.Ui/Komet.Ui.csproj"/>
+        <ProjectReference Include="../Komet.Vulkan/Komet.Vulkan.csproj"/>
+        <ProjectReference Include="../Komet.World/Komet.World.csproj"/>
+        <ProjectReference Include="../Komet.Shapes/Komet.Shapes.csproj"/>
+        <ProjectReference Include="../Komet.Chunks/Komet.Chunks.csproj"/>
+        <ProjectReference Include="../Komet.Tessellation/Komet.Tessellation.csproj"/>
+        <ProjectReference Include="../Komet.Rendering/Komet.Rendering.csproj"/>
+        <ProjectReference Include="../Komet.Diagnostics/Komet.Diagnostics.csproj"/>
+        <ProjectReference Include="../Komet.Core/Komet.Core.csproj"/>
     </ItemGroup>
 
     <!-- Stamped by CI (see .github/workflows/build.yml); a local build carries neither and the HUD shows plain Release -->
@@ -59,15 +49,9 @@
         <Message Importance="high" Text="Komet $(KometVersion): $(KometEdition) build"/>
     </Target>
 
-    <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build of this project; the lang files are their input -->
     <ItemGroup>
-        <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-        <AdditionalFiles Include="assets/**/lang/*.json"/>
-    </ItemGroup>
-
-    <!-- The compute shaders, read by GpuShaders; the tests compile the same files to SPIR-V -->
-    <ItemGroup>
-        <EmbeddedResource Include="Gpu/Shaders/*.comp" LogicalName="Komet.Gpu.Shaders.%(Filename)%(Extension)"/>
+        <!-- the templates' code is the mods' own, compiled by them; not part of Komet -->
+        <Compile Remove="assets/**"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -78,18 +62,17 @@
     <!-- `dotnet build -c Release -t:Package` (build.sh) builds, lays the mod out in ../Releases/<modid> (scripts/bench.sh loads it from
          there, beside the benchmark mod from Komet.Bench) and zips it as <modid>_<version>.zip. An explicit target, not one after every Release build: a Release build of the tests
          must neither replace the gate's zip nor delete the folder a bench is running from. -->
-    <Target Name="Package" DependsOnTargets="ValidateJson;Build">
+    <Target Name="Package" DependsOnTargets="ValidateJson;Build;KometEdition">
         <Error Condition="'$(Configuration)' != 'Release'" Text="Package takes a Release build: dotnet build -c Release -t:Package"/>
         <PropertyGroup>
-            <ModInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/modinfo.json'))</ModInfo>
-            <ModId>$([System.Text.RegularExpressions.Regex]::Match($(ModInfo), '(?&lt;="modid"\s*:\s*")[^"]+'))</ModId>
-            <ModVersion>$([System.Text.RegularExpressions.Regex]::Match($(ModInfo), '(?&lt;="version"\s*:\s*")[^"]+'))</ModVersion>
+            <ModId>$([System.Text.RegularExpressions.Regex]::Match($(KometModInfo), '(?&lt;="modid"\s*:\s*")[^"]+'))</ModId>
             <ReleaseRoot>$(MSBuildProjectDirectory)/../Releases</ReleaseRoot>
             <ReleaseDir>$(ReleaseRoot)/$(ModId)</ReleaseDir>
         </PropertyGroup>
-        <Error Condition="'$(ModId)' == '' or '$(ModVersion)' == ''" Text="modinfo.json: modid and version must not be empty"/>
+        <Error Condition="'$(ModId)' == '' or '$(KometVersion)' == ''" Text="modinfo.json: modid and version must not be empty"/>
         <ItemGroup>
-            <ReleaseFile Include="$(TargetPath);$(TargetDir)$(TargetName).pdb;@(Content)"/>
+            <!-- the mod and every module assembly the build copied beside it, with their pdbs for stack-trace lines -->
+            <ReleaseFile Include="$(TargetDir)Komet*.dll;$(TargetDir)Komet*.pdb;@(Content)"/>
             <ReleaseAsset Include="assets/**"/>
         </ItemGroup>
         <!-- only this mod's folder and zips: Komet.Bench lays the developer benchmark out beside it (Releases/kometbench) -->
@@ -100,7 +83,7 @@
         <Delete Files="@(ReleaseZip)"/>
         <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)"/>
         <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset->'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')"/>
-        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(ModVersion).zip"/>
+        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip"/>
     </Target>
 
     <!-- The zip carries modinfo.json and the assets as they are, and the game parses them with Newtonsoft. The analyzer reads the lang

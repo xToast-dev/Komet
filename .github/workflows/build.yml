@@ -1,6 +1,7 @@
 name: build
 
-# Gate: build.sh (JSON check, Komet.Rules, warnings as errors, package). Tests need a game install and run locally only.
+# Gate: build.sh (JSON check, Komet.Rules, warnings as errors, package) and the portable tests on Linux, the build and the
+# portable tests on Windows. The full suite (tests/Komet.Test) needs a game install and runs locally only.
 on:
   push:
     branches: [main, nightly]
@@ -44,6 +45,9 @@ jobs:
       - name: Build, check and pack
         run: ./build.sh
 
+      - name: Portable tests
+        run: dotnet test tests/Komet.Portable -c Release --nologo
+
       - name: Report checksums
         run: |
           cd Releases
@@ -65,9 +69,33 @@ jobs:
             Releases/komet.sha256
           if-no-files-found: error
 
+  # The same build and the portable tests on Windows: paths, file locks and native library names differ there
+  windows:
+    runs-on: windows-latest
+
+    env:
+      VsInstall: ${{ github.workspace }}/.github/vintagestory
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+
+      - name: Check the game assemblies
+        working-directory: .github/vintagestory
+        shell: bash
+        run: tr -d '\r' < SHA256SUMS | sha256sum --check --strict - # the checkout turns text files to CRLF here
+
+      - name: Build
+        run: dotnet build Komet/Komet.csproj -c Release --nologo
+
+      - name: Portable tests
+        run: dotnet test tests/Komet.Portable -c Release --nologo
+
   # main -> draft release v<version> (tags are never moved); other branches -> prerelease preview-<sha>; PRs publish nothing.
   release:
-    needs: build
+    needs: [build, windows]
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
     permissions:

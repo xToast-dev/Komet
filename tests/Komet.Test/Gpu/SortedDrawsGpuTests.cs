@@ -1,4 +1,3 @@
-using Komet.Gpu;
 using Komet.Rendering;
 using Komet.Vulkan;
 using OpenTK.Graphics.OpenGL;
@@ -10,18 +9,17 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class SortedDrawsGpuTests
 {
-    private const string Culling = "Komet.Rendering.OcclusionCulling, Komet";
     private static readonly bool[] Expected = [true, false, false, false, true, false];
 
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
-    public void TheSortedCommandsAreTheWrittenOnesNearestFirst(string backend) => ShadowCastersGpuTests.Run(backend, 160, world =>
+    public void TheSortedCommandsAreTheWrittenOnesNearestFirst(string backend) => TerrainWorld.Run(backend, 160, world =>
     {
         var view = new TerrainView(0.3, -0.15, [0.4, 0.8, 0.3]);
         OcclusionCulling.SortAlways = true;
         try
         {
-            Assert.That(OcclusionCulling.RunRows(world.Pools, ShadowCastersGpuTests.Culler(view), view.Camera, view.CameraMvp),
+            Assert.That(OcclusionCulling.RunRows(world.Pools, TerrainWorld.Culler(view), view.Camera, view.CameraMvp),
                 Is.True);
         }
         finally
@@ -29,19 +27,13 @@ public sealed class SortedDrawsGpuTests
             OcclusionCulling.SortAlways = false;
         }
 
-        var gpu = CullingGpu(null);
-        var counters = new uint[8 + OcclusionCulling.MaxDraws];
-        var buffers = CounterBuffers(null);
-        gpu.Read(buffers[(FrameCount(null) - 1) % buffers.Length], 0, counters);
+        var counters = CullingState.Counters(1);
         var (region, reordered) = (0, 0);
         for (var p = 0; p < world.Pools.Count; p++)
         {
-            var listed = (List<ModelDataPoolLocation>)AccessTools.Field(typeof(MeshDataPool), "poolLocations")
-                .GetValue(world.Pools[p])!;
-            var count = (int)counters[8 + p];
-            var (written, sorted) = (new uint[5 * Math.Max(count, 1)], new uint[5 * Math.Max(count, 1)]);
-            gpu.Read(CommandBuffer(null), 5 * region, written);
-            gpu.Read(TerrainWorld.SortedBuffer(null), 5 * region, sorted);
+            var listed = CullingState.Listed(world.Pools[p]);
+            var count = (int)counters[CullingState.StatUints + p];
+            var (written, sorted) = (CullingState.Commands(region, count), CullingState.Commands(region, count, sorted: true));
             var buckets = Enumerable.Range(0, count)
                 .Select(c => Bucket(listed.First(l => l.IndicesStart == (int)sorted[5 * c + 2]).FrustumCullSphere, view.Camera))
                 .ToList();
@@ -105,16 +97,4 @@ public sealed class SortedDrawsGpuTests
         var distance = Math.Sqrt(d.Sum(v => Math.Max(v, 0) * Math.Max(v, 0)));
         return Math.Min((int)(Math.Sqrt(distance) * 2.8), 63);
     }
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_Gpu")]
-    private static extern IGpuBackend CullingGpu([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
-    private static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_commands")]
-    private static extern ref int CommandBuffer([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_frame")]
-    private static extern ref int FrameCount([UnsafeAccessorType(Culling)] object? culling);
 }

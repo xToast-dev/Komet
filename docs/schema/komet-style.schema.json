@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-style.schema.json",
+  "title": "Komet menu style (style.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "Shown in the style choice; may be a lang key"
+    },
+    "author": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string",
+      "description": "The style this one starts from: pragmatic or another id"
+    },
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backdrop": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "backdropPlain": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "panel": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "band": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "row": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "line": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "text": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "soft": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "faint": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "select": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "selectText": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "title": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "changed": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "good": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "bad": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "glow": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "cell": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "chip": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        },
+        "bubble": {
+          "type": "string",
+          "pattern": "^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"
+        }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "heading": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "numbers": {
+          "type": "string"
+        }
+      }
+    },
+    "fontFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sizes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "corner": {
+          "type": "number"
+        },
+        "ticks": {
+          "type": "number"
+        },
+        "logo": {
+          "type": "number"
+        },
+        "header": {
+          "type": "number"
+        },
+        "footer": {
+          "type": "number"
+        },
+        "row": {
+          "type": "number"
+        },
+        "gap": {
+          "type": "number"
+        },
+        "pad": {
+          "type": "number"
+        },
+        "tracking": {
+          "type": "number"
+        },
+        "scene": {
+          "type": "number"
+        },
+        "veil": {
+          "type": "number"
+        },
+        "pan": {
+          "type": "number"
+        },
+        "slide": {
+          "type": "number"
+        },
+        "decode": {
+          "type": "number"
+        }
+      }
+    },
+    "logo": {
+      "type": "string",
+      "description": "PNG, GIF or WebP drawn in the header"
+    },
+    "background": {
+      "type": "string",
+      "description": "blur, none, or a GLSL 330 fragment shader file"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "_comment": {
+      "type": "string",
+      "description": "Ignored; a note for readers"
+    }
+  }
+}

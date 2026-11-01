@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!-- Komet.Core: the public API (Komet.Api), the feature registry and knobs, contracts and the shared helpers every module builds on. Settings, game references and the analyzer: ../Komet.Module.props -->
+    <Import Project="../Komet.Module.props"/>
+
+    <!-- The bottom of the stack: no Komet project below this one -->
+
+</Project>

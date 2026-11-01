@@ -13,8 +13,8 @@ public sealed class DebugProtocolTests
     private static readonly string[] RuntimeKeys =
     [
         "hud-dbg-level-high", "hud-dbg-level-medium", "hud-dbg-level-low", "hud-dbg-level-info", "hud-dbg-risk-high",
-        "hud-dbg-risk-medium", "hud-dbg-risk-low", "hud-dbg-mark-gc", "hud-dbg-mark-jit", "hud-dbg-mark-runqueue",
-        "hud-dbg-mark-outside", "hud-dbg-mark-unprofiled", "hud-dbg-mark-other"
+        "hud-dbg-risk-medium", "hud-dbg-risk-low", "hud-cause-gc", "hud-cause-jit", "hud-cause-runqueue", "hud-cause-outside",
+        "hud-cause-unprofiled", "hud-cause-other"
     ];
 
     private string _assets = "";
@@ -53,7 +53,7 @@ public sealed class DebugProtocolTests
             Assert.That(text, Does.Contain("[1] BEFUNDE"));
             Assert.That(text, Does.Not.Contain("hud-dbg-"), "an untranslated key");
             Assert.That(text, Does.Not.Contain("NaN").And.Not.Contain("Infinity"));
-            Assert.That(text, Does.Contain("[18] TEST (TESTMOD)"), "a section another mod added comes last");
+            Assert.That(text, Does.Contain("[19] TEST (TESTMOD)"), "a section another mod added comes last");
             Assert.That(text, Does.Contain("HOCH"), "the 120 ms frame is a finding");
         });
     }
@@ -90,7 +90,7 @@ public sealed class DebugProtocolTests
     [Test]
     public void APrefixThatSkipsAnotherOwnersPatchIsHighRisk()
     {
-        static PatchLink Link(string owner, PatchKind kind, bool skips = false) => new(owner, "", kind, 400, "M", skips);
+        static PatchLink Link(string owner, PatchKind kind, bool skips = false) => new(owner, kind, 400, "M", skips);
         Assert.Multiple(() =>
         {
             Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix, true), Link("b", PatchKind.Postfix)], 2),
@@ -121,7 +121,7 @@ public sealed class DebugProtocolTests
         return new DebugInput
         {
             Code = code, Mode = "record", Started = DateTimeOffset.Now, Komet = "2.0.0", Frames = frames,
-            Spikes = [(new DebugSpike(99, frames[99]), [("~gc", 30f), ("entities", 12f), (null, 0f)])],
+            Spikes = [(new DebugSpike(frames[99]), [("~gc", 30f), ("entities", 12f), (null, 0f)])],
             Causes = [("~gc", 10, 120, 118)], ModTimes = [("testmod", 0.4, [("Renderer (60/s)", 0.3)])],
             Scopes = [("testmod:path", 12.5, 300)], Extra = [("Test (testmod)", "cached: 4")], HudMeans = "FPS: 60",
             System = [("hud-dbg-os", "Linux")], Runtime = [("hud-dbg-locks", "3")], World = [("hud-dbg-chunks", "100 loaded")],

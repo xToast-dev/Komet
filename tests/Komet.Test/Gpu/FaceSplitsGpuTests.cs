@@ -1,5 +1,3 @@
-using Komet.Gpu;
-using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Test.Gpu;
@@ -11,10 +9,10 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class FaceSplitsGpuTests
 {
-    private const string Culling = "Komet.Rendering.OcclusionCulling, Komet";
-    private const int Width = 1280, Height = 683, Runs = 4, StatUints = 8;
+    private const int Width = 1280, Height = 683, Runs = 4;
 
-    private static readonly (double Yaw, double Pitch)[] Views = [(0.3, -0.15), (2.4, -0.5), (4.2, 0.1), (1.1, -1.2)];
+    // Two views looking roughly opposite ways, so each side direction faces away in one of them
+    private static readonly (double Yaw, double Pitch)[] Views = [(0.3, -0.15), (2.4, -0.5)];
 
     // Whole; directions and their splits left out
     internal static readonly bool[] Variants = [false, true];
@@ -22,7 +20,7 @@ public sealed class FaceSplitsGpuTests
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
     [Category("Slow")]
-    public void EveryFaceSeenIsDrawn(string backend) => ShadowCastersGpuTests.Run(backend, 160, world =>
+    public void EveryFaceSeenIsDrawn(string backend) => TerrainWorld.Run(backend, 160, world =>
     {
         foreach (var (yaw, pitch) in Views)
         {
@@ -41,7 +39,7 @@ public sealed class FaceSplitsGpuTests
 
     [Test]
     [Category("Slow")]
-    public void ThePictureStaysTheSame() => ShadowCastersGpuTests.Run(GpuRig.Gl, 160, world =>
+    public void ThePictureStaysTheSame() => TerrainWorld.Run(GpuRig.Gl, 160, world =>
     {
         var program = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
         using var target = new DepthTarget(Width, Height, 1);
@@ -72,31 +70,20 @@ public sealed class FaceSplitsGpuTests
     // Each pool's commands (first index, index count) after one culled call
     internal static List<(uint First, uint Count)>[] Culled(TerrainWorld world, TerrainView view, bool backFaces)
     {
-        Run(world, view, backFaces);
-        var gpu = CullingGpu(null);
-        var counters = new uint[StatUints + OcclusionCulling.MaxDraws];
-        var buffers = CounterBuffers(null);
-        gpu.Read(buffers[(FrameCount(null) - 1) % buffers.Length], 0, counters);
+        world.CullRows(view, backFaces);
+        var counters = CullingState.Counters(1);
         var (region, factor) = (0, backFaces ? Runs : 1);
         var pools = new List<(uint, uint)>[world.Pools.Count];
         for (var p = 0; p < world.Pools.Count; p++)
         {
-            var count = (int)counters[StatUints + p];
-            var commands = new uint[5 * Math.Max(count, 1)];
-            gpu.Read(CommandBuffer(null), 5 * region, commands);
+            var count = (int)counters[CullingState.StatUints + p];
+            var commands = CullingState.Commands(region, count);
             pools[p] = [.. Enumerable.Range(0, count).Select(c => (commands[5 * c + 2], commands[5 * c]))];
-            region += factor * Listed(world, p).Count;
+            region += factor * CullingState.Listed(world.Pools[p]).Count;
         }
 
         return pools;
     }
-
-    internal static void Run(TerrainWorld world, TerrainView view, bool backFaces) =>
-        Assert.That(OcclusionCulling.RunRows(world.Pools, ShadowCastersGpuTests.Culler(view), view.Camera, view.CameraMvp,
-            backFaces), Is.True);
-
-    private static List<ModelDataPoolLocation> Listed(TerrainWorld world, int pool) =>
-        (List<ModelDataPoolLocation>)AccessTools.Field(typeof(MeshDataPool), "poolLocations").GetValue(world.Pools[pool])!;
 
     // Faces facing the eye, of the locations drawn whole, the culled commands leave out
     private static int Missing(TerrainWorld world, TerrainView view, List<(uint First, uint Count)>[] whole,
@@ -110,7 +97,7 @@ public sealed class FaceSplitsGpuTests
             var drawn = new bool[positions.Length / 12];
             foreach (var (first, count) in culled[p])
                 for (var f = first / 6; f < (first + count) / 6; f++) drawn[f] = true;
-            foreach (var location in Listed(world, p).Where(l => whole[p].Any(c => c.First == l.IndicesStart)))
+            foreach (var location in CullingState.Listed(world.Pools[p]).Where(l => whole[p].Any(c => c.First == l.IndicesStart)))
                 for (var f = location.IndicesStart / 6; f < location.IndicesEnd / 6; f++)
                     if (!drawn[f] && Facing(positions, f, eye))
                         missing++;
@@ -132,9 +119,9 @@ public sealed class FaceSplitsGpuTests
     private static (float[] Depth, float[] Color) Drawn(TerrainWorld world, TerrainView view, bool backFaces,
         (int Program, DepthTarget Target) into)
     {
-        Run(world, view, backFaces);
+        world.CullRows(view, backFaces);
         into.Target.Begin();
-        BackCulled();
+        TerrainWorld.BackCulled();
         world.DrawCulled(into.Program, view.CameraMvp, view.Camera, false, false, backFaces ? Runs : 1);
         GL.Disable(EnableCap.CullFace);
         var color = new float[4 * Width * Height];
@@ -145,26 +132,6 @@ public sealed class FaceSplitsGpuTests
         return (into.Target.Read(), color);
     }
 
-    // As RenderOpaque draws: back faces culled, front faces counter-clockwise
-    internal static void BackCulled()
-    {
-        GL.Enable(EnableCap.CullFace);
-        GL.CullFace(TriangleFace.Back);
-        GL.FrontFace(FrontFaceDirection.Ccw);
-    }
-
     private static int Differing(float[] a, float[] b) =>
         a.Zip(b).Count(p => BitConverter.SingleToInt32Bits(p.First) != BitConverter.SingleToInt32Bits(p.Second));
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_Gpu")]
-    private static extern IGpuBackend CullingGpu([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
-    private static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_commands")]
-    private static extern ref int CommandBuffer([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_frame")]
-    private static extern ref int FrameCount([UnsafeAccessorType(Culling)] object? culling);
 }

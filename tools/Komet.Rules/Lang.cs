@@ -13,14 +13,14 @@ namespace Komet.Rules;
 
 // Four ways a translation breaks. A key the code asks for but a language file lacks renders as the bare key; a key only some files
 // know leaves the others bare; a placeholder in a key that Value(), Bar(), Title() or Warn() renders stays literal, because those pass
-// no arguments; a knob on a settings page needs "settings-" + its lower-case key, "settings-page-" + its page and "settings-" + its
-// group. Keys built at runtime ("hud-pass-" + name) carry no literal and stay unchecked.
+// no arguments; a knob on a settings page needs "settings-" + its lower-case key, its "-hint", "settings-page-" + its page and
+// "settings-" + its group. Keys built at runtime ("hud-pass-" + name) carry no literal and stay unchecked.
 internal static class Lang
 {
-    // A lang key spelled out in full: one of the prefixes the mod uses, and no trailing dash, which would be a concatenation
+    // A lang key spelled out in full: a first segment some lang file's keys start with (Prefixes), and no trailing dash, which
+    // would be a concatenation
     private static readonly Regex KeyLiteral = new(
-        "^(?:hud|settings|verify|hotkey|cmd|time|update)-[a-z0-9-]*[a-z0-9]$",
-        RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+        "^([a-z0-9]+)-[a-z0-9-]*[a-z0-9]$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
 
     private static readonly Regex
         PanelKey = new("^[a-z0-9-]+$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
@@ -30,7 +30,8 @@ internal static class Lang
     public static void Register(CompilationStartAnalysisContext start, Sources sources)
     {
         var langs = LangFile.ReadAll(start.Options.AdditionalFiles, start.CancellationToken);
-        start.RegisterSyntaxNodeAction(sources.Node(c => Literal(c, langs)), SyntaxKind.StringLiteralExpression,
+        var prefixes = Prefixes(langs);
+        start.RegisterSyntaxNodeAction(sources.Node(c => Literal(c, langs, prefixes)), SyntaxKind.StringLiteralExpression,
             SyntaxKind.InterpolatedStringExpression);
         start.RegisterSyntaxNodeAction(sources.Node(c => Panel(c, langs)), SyntaxKind.InvocationExpression);
         start.RegisterOperationAction(sources.Operation(c => Knob(c, langs)), OperationKind.ObjectCreation,
@@ -38,7 +39,21 @@ internal static class Lang
         start.RegisterAdditionalFileAction(c => Mismatch(c, langs));
     }
 
-    private static void Literal(SyntaxNodeAnalysisContext context, LangFile[] langs)
+    // The keys' first segments ("hud", "settings", "vk", ...): a literal starting with one of them is meant as a key
+    private static HashSet<string> Prefixes(LangFile[] langs)
+    {
+        var prefixes = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var lang in langs)
+        {
+            foreach (var key in lang.Keys)
+                if (key.IndexOf('-') is var dash and > 0)
+                    _ = prefixes.Add(key.Substring(0, dash));
+        }
+
+        return prefixes;
+    }
+
+    private static void Literal(SyntaxNodeAnalysisContext context, LangFile[] langs, HashSet<string> prefixes)
     {
         var text = context.Node switch
         {
@@ -48,7 +63,8 @@ internal static class Lang
                 only.TextToken.ValueText,
             _ => ""
         };
-        if (KeyLiteral.IsMatch(text) && Missing(langs, text) is { } missing)
+        if (KeyLiteral.Match(text) is { Success: true } key && prefixes.Contains(key.Groups[1].Value) &&
+            Missing(langs, text) is { } missing)
             context.ReportDiagnostic(Diagnostic.Create(Rules.MissingKey, context.Node.GetLocation(), text, missing));
     }
 
@@ -93,9 +109,10 @@ internal static class Lang
         var group = Argument(arguments, "group")?.ConstantValue is { HasValue: true, Value: string name }
             ? "settings-" + name
             : null;
-        foreach (var lang in (string?[])["settings-" + knob.ToLowerInvariant(), "settings-page-" + page, group])
-            if (lang is not null && Missing(langs, lang) is { } missing)
-                context.ReportDiagnostic(Diagnostic.Create(Rules.KnobKey, key.Syntax.GetLocation(), knob, page, lang,
+        var label = "settings-" + knob.ToLowerInvariant();
+        foreach (var needed in (string?[])[label, label + "-hint", "settings-page-" + page, group])
+            if (needed is not null && Missing(langs, needed) is { } missing)
+                context.ReportDiagnostic(Diagnostic.Create(Rules.KnobKey, key.Syntax.GetLocation(), knob, page, needed,
                     missing));
     }
 

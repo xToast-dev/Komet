@@ -102,9 +102,9 @@ public sealed class AnimationFramesGoldenTests
     }
 
     // A humanoid arm with a gear piece step-parented onto it, which is the shape the cache exists for
-    private static ShapeElement[] Arm(bool geared)
+    private static ShapeElement[] Arm()
     {
-        return [Element("upperarm", geared ? [Element("lowerarm"), Element("sleeve")] : [Element("lowerarm")])];
+        return [Element("upperarm", Element("lowerarm"), Element("sleeve"))];
     }
 
     // A group has to be set whole: IsSet reports PositionSet when any one of OffsetX/Y/Z has a value, but
@@ -153,46 +153,16 @@ public sealed class AnimationFramesGoldenTests
     }
 
     // The property the cache is built on, for the geared shape it was built for
-    [TestCase(true)]
-    [TestCase(false)]
-    public void TheSameDescriptorMeansTheSameCompiledPoses(bool geared)
+    [Test]
+    public void TheSameDescriptorMeansTheSameCompiledPoses()
     {
         var (one, two) = (Walk(30, 10), Walk(30, 10));
-        var (rootsOne, rootsTwo) = (Arm(geared), Arm(geared));
+        var (rootsOne, rootsTwo) = (Arm(), Arm());
         var (compiledOne, compiledTwo) = (Compile(one, rootsOne), Compile(two, rootsTwo));
         Assert.That(AnimationFramesTests.Descriptor(one, rootsOne),
             Is.Not.Null.And.EqualTo(AnimationFramesTests.Descriptor(two, rootsTwo)),
             "separately built but structurally identical shapes must describe the same");
         Assert.That(AnimationShapes.Diff(compiledOne, compiledTwo, true), Is.Null);
-    }
-
-    // And the converse where it matters: step-parented gear really does compile differently, so separating it is not
-    // conservatism but necessity. A shared entry here would animate a geared entity with a bare entity's pose tree.
-    [Test]
-    public void StepParentedGearCompilesToADifferentShapeOfPoseTree()
-    {
-        var (bare, geared) = (Walk(30, 10), Walk(30, 10));
-        var (rootsBare, rootsGeared) = (Arm(false), Arm(true));
-        var (compiledBare, compiledGeared) = (Compile(bare, rootsBare), Compile(geared, rootsGeared));
-        Assert.That(AnimationFramesTests.Descriptor(bare, rootsBare),
-            Is.Not.Null.And.Not.EqualTo(AnimationFramesTests.Descriptor(geared, rootsGeared)));
-        var posesBare = compiledBare[0][0].RootElementTransforms[0].ChildElementPoses.Count;
-        var posesGeared = compiledGeared[0][0].RootElementTransforms[0].ChildElementPoses.Count;
-        Assert.That(posesGeared, Is.Not.EqualTo(posesBare),
-            "the gear adds a child pose, so the trees cannot be indexed interchangeably");
-    }
-
-    // A changed keyframe value has to reach the compiled pose, or the descriptor would be separating for nothing
-    [Test]
-    public void ADifferentKeyframeValueCompilesDifferently()
-    {
-        var (one, two) = (Walk(30, 10), Walk(45, 10));
-        var (rootsOne, rootsTwo) = (Arm(true), Arm(true));
-        var (compiledOne, compiledTwo) = (Compile(one, rootsOne), Compile(two, rootsTwo));
-        Assert.That(AnimationFramesTests.Descriptor(one, rootsOne),
-            Is.Not.Null.And.Not.EqualTo(AnimationFramesTests.Descriptor(two, rootsTwo)));
-        Assert.That(compiledOne[0][0].RootElementTransforms[0].degX,
-            Is.Not.EqualTo(compiledTwo[0][0].RootElementTransforms[0].degX));
     }
 
     // Engine first, then Komet's compile on the same Animation. Where the engine throws, the compile must decline or throw the same
@@ -281,7 +251,6 @@ public sealed class AnimationFramesGoldenTests
 
     // Seraph-faceless plus four skin parts and seven or eight pieces of gear, reparented by Shape.StepParentShape with the gear's
     // keyframes merged into the player's animations: the shape the cache and the compile exist for
-    [TestCase("naked")]
     [TestCase("clothed")]
     [TestCase("armored")]
     [Category("Slow")]
@@ -299,7 +268,7 @@ public sealed class AnimationFramesGoldenTests
             Assert.That(failures, Is.Empty, string.Join("\n", failures.Take(20)));
             Assert.That(rejected, Is.Zero, "every player animation compiles in the engine");
             Assert.That(shape.Animations, Has.Length.GreaterThan(200));
-            Assert.That(elements, outfit == "naked" ? Is.GreaterThan(20) : Is.GreaterThan(120),
+            Assert.That(elements, Is.GreaterThan(120),
                 "the gear did not step-parent");
         });
     }

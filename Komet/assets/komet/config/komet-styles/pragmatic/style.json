@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-style.schema.json",
+  "id": "pragmatic",
+  "name": "Pragmatic",
+  "author": "Komet",
+  "colors": {
+    "backdrop": "#00000033",
+    "backdropPlain": "#010208B0",
+    "panel": "#0000008C",
+    "band": "#03060CD9",
+    "row": "#00000000",
+    "line": "#EEF1F41A",
+    "text": "#EEF1F4",
+    "soft": "#EEF1F499",
+    "faint": "#EEF1F45C",
+    "accent": "#2F72E2",
+    "select": "#1F56B6",
+    "selectText": "#FFFFFF",
+    "title": "#8DBBFF",
+    "changed": "#8DBBFF",
+    "good": "#8FE3B4",
+    "bad": "#FF9A8A",
+    "glow": "#8DBBFF",
+    "cell": "#EEF1F40A",
+    "chip": "#EEF1F40F",
+    "bubble": "#03060CF5"
+  },
+  "fonts": {
+    "text": "Saira SemiCondensed",
+    "heading": "Saira SemiCondensed Medium",
+    "title": "Saira SemiCondensed Medium",
+    "numbers": "Saira SemiCondensed Medium"
+  },
+  "fontFiles": [
+    "komet:config/fonts/SairaSemiCondensed-Regular.ttf",
+    "komet:config/fonts/SairaSemiCondensed-Medium.ttf"
+  ],
+  "sizes": {
+    "corner": 0,
+    "ticks": 0,
+    "logo": 96,
+    "header": 136,
+    "footer": 44,
+    "row": 38,
+    "gap": 14,
+    "pad": 18,
+    "tracking": 6,
+    "scene": 1,
+    "veil": 0,
+    "pan": 1,
+    "slide": 1,
+    "decode": 1
+  },
+  "background": "background.fsh"
+}

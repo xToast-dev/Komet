@@ -1,0 +1,40 @@
+{
+  "$comment": "How Komet steers SheyderMod: its settings file and reload command, SheyderMod's own presets per Komet level, the effects shown as switches, and Komet features held while it runs. Any mod may ship such a file under assets/<domain>/config/komet-adapters/.",
+  "mod": "sheydermod",
+  "config": "sheydermod.json",
+  "reload": ".sheyder reload",
+  "levels": {
+    "quality": { "from": "default.json" },
+    "balanced": {
+      "from": "default.json",
+      "set": {
+        "VolumetricFog.StepCount": 8,
+        "Water.Steps": 8,
+        "DynamicShadows.MaxPlacedLights": 96,
+        "DynamicShadows.RadiusBlocks": 96,
+        "DynamicShadows.NearTierLights": 8,
+        "DynamicShadows.MidTierLights": 16,
+        "LensFlare.Enabled": false
+      }
+    },
+    "speed": { "from": "performance.json" }
+  },
+  "settings": [
+    { "key": "SunShadows.Enabled", "label": "komet:sheyder-sunshadows" },
+    { "key": "DynamicShadows.Enabled", "label": "komet:sheyder-dynamicshadows" },
+    { "key": "Gtao.Enabled", "label": "komet:sheyder-gtao" },
+    { "key": "VolumetricFog.Enabled", "label": "komet:sheyder-fog" },
+    { "key": "Water.Enabled", "label": "komet:sheyder-water" },
+    { "key": "WaterRipples.Enabled", "label": "komet:sheyder-ripples" },
+    { "key": "Bloom.Enabled", "label": "komet:sheyder-bloom" },
+    { "key": "GodRays.Enabled", "label": "komet:sheyder-godrays" },
+    { "key": "LensFlare.Enabled", "label": "komet:sheyder-lensflare" },
+    { "key": "Specular.Enabled", "label": "komet:sheyder-specular" },
+    { "key": "SubSurface.Enabled", "label": "komet:sheyder-subsurface" },
+    { "key": "CloudShadows.Enabled", "label": "komet:sheyder-cloudshadows" }
+  ],
+  "holds": [
+    { "feature": "FrustumSweep", "reason": "SheyderMod asks for the game's own frustum culling" },
+    { "feature": "VulkanOnly", "reason": "SheyderMod draws into OpenGL framebuffers that Komet's Vulkan renderer cannot show" }
+  ]
+}

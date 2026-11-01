@@ -232,3 +232,9 @@ public sealed class FaceSortingTests
         return true;
     }
 }
+
+// A mesh reference the engine reports as uploaded, for pools that never draw
+internal sealed class NoMesh : MeshRef
+{
+    public override bool Initialized => true;
+}

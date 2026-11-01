@@ -3,7 +3,6 @@ using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
 using Komet.Rendering;
-using Komet.Shapes;
 using Komet.Tessellation;
 using Komet.World;
 using OpenTK.Windowing.Desktop;
@@ -28,7 +27,6 @@ public sealed class EngineSeamTests
         yield return Case<MeshDataPoolMasterManager>("OnFrame", null);
         yield return Case<ClientPlatformWindows>("RenderMesh",
             [typeof(MeshRef), typeof(int[]), typeof(int[]), typeof(int), typeof(bool)]);
-        yield return Case<SystemRenderSunMoon>("OnRenderFrame3DPost", null);
         yield return Case<ClientEventManager>("TriggerRenderStage", null);
         yield return Case<GameTickListener>("OnTriggered", null);
         yield return Case<GameTickListenerBlock>("OnTriggered", null);
@@ -67,13 +65,10 @@ public sealed class EngineSeamTests
         yield return Field<ClientWorldMap>("chunksLock", typeof(object));
         yield return Field<ClientWorldMap>("LerpedClimateMaps");
         yield return Field<ClientWorldMap>("LerpedClimateMapsLock");
+        yield return Field<ShaderRegistry>("includes", typeof(Dictionary<string, string>));
         yield return Field<ClientMain>("reversedQueue", typeof(Queue<ClientTask>));
         yield return Field<ProcessPacketTask>("packet", typeof(Packet_Server));
         yield return Field<ClientEventManager>("EventBusListeners", typeof(List<EventBusListener>));
-        yield return Field<SystemRenderSunMoon>("occlQueryId");
-        yield return Field<SystemRenderSunMoon>("firstTickDone");
-        yield return Field<SystemRenderSunMoon>("nowQuerying");
-        yield return Field<SystemRenderSunMoon>("targetSunSpec");
         yield return Field<List<int>>("_version");
         // IdleAnimators' accessors: the count's offset is measured at install, the version is read by every parked stage
         yield return Field<AnimatorBase>("activeAnimCount", typeof(int));
@@ -115,10 +110,6 @@ public sealed class EngineSeamTests
 
     private static IEnumerable<TestCaseData> Patches()
     {
-        yield return Patch<SystemRenderSunMoon>("OnRenderFrame3DPost", null, typeof(SunOcclusion), "Prefix");
-        yield return Patch<MeshDataPool>("InsertAt", null, typeof(MeshPool), "InsertAt");
-        yield return Patch<MeshDataPool>("RemoveLocation", null, typeof(MeshPool), "RemoveLocation");
-        yield return Patch<MeshDataPool>("TrySqueezeInbetween", null, typeof(MeshPool), "TrySqueezeInbetween");
         yield return Patch<MeshDataPool>("FrustumCull", null, typeof(FrustumSweep), "FrustumCull");
         yield return Patch<ClientPlatformWindows>("RenderMesh",
             [typeof(MeshRef), typeof(int[]), typeof(int[]), typeof(int), typeof(bool)],
@@ -131,7 +122,6 @@ public sealed class EngineSeamTests
         yield return Patch<ClientWorldMap>("OverloadChunkMT", null, typeof(ChunkLookup), "Overloading");
         yield return Patch<ClientWorldMap>("OverloadChunkMT", null, typeof(ChunkLookup), "Overloaded");
         yield return Patch<SystemUnloadChunks>("HandleChunkUnload", null, typeof(ChunkLookup), "Unloading");
-        yield return Patch<SystemRenderEntities>("OnBeforeRender", [typeof(float)], typeof(EntityTessBudget), "Frame");
         yield return Patch<ChunkTesselatorManager>("TesselateChunk", null, typeof(TessAccounting), "Begin");
         yield return Patch<ChunkTesselatorManager>("TesselateChunk", null, typeof(TessAccounting), "End");
         yield return Patch<ClientEventManager>("TriggerRenderStage", null, typeof(ModTimes), "RenderStage");
@@ -141,7 +131,6 @@ public sealed class EngineSeamTests
         yield return Patch<BlockEntity>("OnBlockRemoved", null, typeof(EventBusSweep), "Died");
         yield return Patch<BlockEntity>("Initialize", null, typeof(EventBusSweep), "Revived");
         yield return Patch<ClientEventAPI>("RegisterEventBusListener", null, typeof(EventBusSweep), "Registered");
-        yield return Patch<WorldChunk>("GetLocalBlockEntityAtBlockPos", null, typeof(BlockEntityBudget), "Accessed");
         yield return Patch<EventManager>("AddGameTickListenerBlockInternal", null, typeof(ListenerSlots), "AddTick");
         yield return Patch<EventManager>("RemoveGameTickListener", null, typeof(ListenerSlots), "RemovingTick");
         yield return Patch<EventManager>("RemoveGameTickListener", null, typeof(ListenerSlots), "RemovedTick");
@@ -175,15 +164,8 @@ public sealed class EngineSeamTests
     [Test]
     public void BindsRefusesAParameterOrFieldTheOriginalLacks()
     {
-        var remove = AccessTools.Method(typeof(MeshDataPool), "RemoveLocation");
         var squeeze = AccessTools.Method(typeof(MeshDataPool), "TrySqueezeInbetween");
-        Assert.Multiple(() =>
-        {
-            Assert.That(Il.Binds(remove, AccessTools.Method(typeof(MeshPool), "TrySqueezeInbetween")), Is.False,
-                "modeldata");
-            Assert.That(Il.Binds(squeeze, AccessTools.Method(typeof(SunOcclusion), "Prefix")), Is.False,
-                "___firstTickDone");
-        });
+        Assert.That(Il.Binds(squeeze, AccessTools.Method(typeof(EntityCasters), "Opening")), Is.False, "___game");
     }
 
     [Test]
@@ -204,7 +186,8 @@ public sealed class EngineShapeTests
     [Test]
     public void FingerprintIsStableAndTellsMethodsApart()
     {
-        var visible = VisibleFaces.Target();
+        var visible = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.CalculateVisibleFaces),
+            [typeof(bool), typeof(int), typeof(int), typeof(int)]);
         var fluids = AccessTools.DeclaredMethod(typeof(ChunkTesselator),
             nameof(ChunkTesselator.CalculateVisibleFaces_Fluids));
         var emit = AccessTools.DeclaredMethod(typeof(Block), nameof(Block.DoEmitSideAo));
@@ -228,13 +211,14 @@ public sealed class EngineShapeTests
     private static bool RunOriginal() => true;
 
     // The guard's patch check on the sweep's method, counted as each copy it replaces counts: a prefix of the same class is its own
-    // (VisibleFaces, FaceLight, ExtendedRows), one of another class under the same id is not; under an own id no patch is
-    // (ColumnNoiseScratch, ShapeInitMemo, InitOnce); prefixes and postfixes leave the body (AnimationFrames' and OccludedChunks' seam
+    // (FaceLight), one of another class under the same id is not; under an own id no patch is
+    // (ColumnNoiseScratch, ShapeInitMemo); prefixes and postfixes leave the body (AnimationFrames' and OccludedChunks' seam
     // 0); with nobody own, any patch counts (FaceLight's AO methods and ForFluidsLayer overrides); a missing seam is foreign
     [Test]
     public void ForeignCountsOtherPatchesOfTheKindsAsked()
     {
-        var target = VisibleFaces.Target();
+        var target = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.CalculateVisibleFaces),
+            [typeof(bool), typeof(int), typeof(int), typeof(int)]);
         Assert.That(Harmony.GetPatchInfo(target!)?.Owners, Is.Null.Or.Empty, "a patch another test left behind");
         using var other = new TestHarmony("komet-test-foreign-other");
         using var own = new TestHarmony("komet-test-foreign-own");
@@ -250,7 +234,7 @@ public sealed class EngineShapeTests
         {
             Assert.That(EngineShape.Foreign([target], replacing, null, typeof(EngineShapeTests)), Is.False,
                 "its own class");
-            Assert.That(EngineShape.Foreign([target], replacing, null, typeof(VisibleFaces)), Is.True,
+            Assert.That(EngineShape.Foreign([target], replacing, null, typeof(FaceLight)), Is.True,
                 "another class, the same id");
             Assert.That(EngineShape.Foreign([target], all, own.Id), Is.False, "its own id");
             Assert.That(EngineShape.Foreign([target], body, null), Is.False, "a prefix leaves the body");
@@ -311,12 +295,8 @@ public sealed class EngineShapeTests
     {
         return
         [
-            Case("visiblefaces", (h, l) => VisibleFaces.Install(h, l, VisibleFaces.Shape ^ 1),
-                () => VisibleFaces.Installed),
             Case("occludedchunks", (h, l) => OccludedChunks.Install(h, l, OccludedChunks.Shape ^ 1),
-                () => OccludedChunks.Installed),
-            Case("extendedrows", (h, l) => ExtendedRows.Install(h, l, ExtendedRows.Shape ^ 1),
-                () => ExtendedRows.Rewritten)
+                () => OccludedChunks.Installed)
         ];
 
         static TestCaseData Case(string name, Action<Harmony, ILogger> install, Func<bool> installed) =>

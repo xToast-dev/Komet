@@ -14,6 +14,7 @@ public sealed class ExternalFeatureTests
     private CapturingLogger _log = null!;
     private TestHarmony _komet = null!;
     private Water _water = null!;
+    private int _mainThread;
 
     private static MethodInfo Seam => AccessTools.Method(typeof(ExternalFeatureTests), nameof(Patched));
     private static MethodInfo Skipped => AccessTools.Method(typeof(ExternalFeatureTests), nameof(Replaced));
@@ -23,6 +24,7 @@ public sealed class ExternalFeatureTests
     {
         (_log, _komet, _water) = (new CapturingLogger(), new TestHarmony("komet-test-external"), new Water());
         ApiEvents.Logger = _log;
+        (_mainThread, RuntimeEnv.MainThreadId) = (RuntimeEnv.MainThreadId, Environment.CurrentManagedThreadId);
     }
 
     [TearDown]
@@ -32,6 +34,7 @@ public sealed class ExternalFeatureTests
         KometOptions.Clear();
         ApiEvents.Logger = null;
         _komet.Dispose();
+        RuntimeEnv.MainThreadId = _mainThread;
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -89,6 +92,8 @@ public sealed class ExternalFeatureTests
             Assert.That(KometFeatures.Register(new FeatureDefinition("mymod", "water", "")), Is.False);
             Assert.That(KometFeatures.Register(new FeatureDefinition("mymod", "range", "Range")
                 { Knob = FeatureKnob.Range(1, 5, 0, () => 1, _ => { }, _ => { }) }), Is.False);
+            Assert.That(KometFeatures.Register(new FeatureDefinition("mymod", "watcher", "Watcher") { Watched = () => [Seam] }),
+                Is.False, "a stand-down without a knob would leave its patches in");
             Assert.That(KometFeatures.Register(_water.Definition()), Is.True);
             Assert.That(KometFeatures.Register(_water.Definition()), Is.False, "taken");
         });
@@ -97,8 +102,21 @@ public sealed class ExternalFeatureTests
         Assert.Multiple(() =>
         {
             Assert.That(KometFeatures.Register(_water.Definition("ice")), Is.False);
-            Assert.That(_log.Lines, Has.Count.EqualTo(5).And.All.Contain("is not registered"));
+            Assert.That(_log.Lines, Has.Count.EqualTo(6).And.All.Contain("is not registered"));
             Assert.That(_log.Lines[^1], Does.Contain("the world has loaded"));
+        });
+    }
+
+    // In singleplayer a mod's Start runs again on the server's thread: that call neither registers nor holds, and warns not
+    [Test]
+    public void ACallOffTheMainThreadIsIgnored()
+    {
+        RuntimeEnv.MainThreadId = Environment.CurrentManagedThreadId + 1;
+        Assert.Multiple(() =>
+        {
+            Assert.That(KometFeatures.Register(_water.Definition()), Is.False);
+            Assert.That(KometFeatures.HoldOff("MenuBlur", "mymod", "test").IsHolding, Is.False);
+            Assert.That(_log.Lines, Has.Count.EqualTo(2).And.All.StartWith("Debug Komet: "));
         });
     }
 
@@ -215,7 +233,8 @@ public sealed class ExternalFeatureTests
             Knob = _water.Definition().Knob, Page = KometFeatures.RenderPage, Group = "My mod", Hint = "Faster water"
         }), Is.True);
         _ = Start();
-        var render = new KometPages(new HudSettings(), () => { }, _ => { }, () => { }, () => { }, () => { }).Build()
+        var render = new KometPages(new HudSettings(),
+            new KometActions(() => { }, _ => { }, () => { }, () => { }, () => { })).Build()
             .Single(p => p.Id == KometFeatures.RenderPage);
         var rows = Enumerable.Range(0, render.Count).Select(i => render[i]).ToList();
         var row = rows.Single(r => r.Label == "Water");

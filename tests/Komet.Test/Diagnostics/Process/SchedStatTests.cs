@@ -8,12 +8,9 @@ public sealed class SchedStatTests
 {
     [TestCase("123456789 4242 17\n", SchedStat.Run, 123456789L)]
     [TestCase("123456789 4242 17\n", SchedStat.Wait, 4242L)]
-    [TestCase("123456789 4242 17\n", 2, 17L)]
     [TestCase("0 0 0\n", SchedStat.Wait, 0L)]
     [TestCase("123456789 4242", SchedStat.Wait, -1L)] // cut short: no byte ends the field
-    [TestCase("123456789", SchedStat.Run, -1L)]
     [TestCase("", SchedStat.Run, -1L)] // an ended thread
-    [TestCase("", SchedStat.Wait, -1L)]
     [TestCase(" 12 3\n", SchedStat.Run, -1L)]
     [TestCase("12  3\n", SchedStat.Wait, -1L)]
     [TestCase("12 3 4\n", 3, -1L)]

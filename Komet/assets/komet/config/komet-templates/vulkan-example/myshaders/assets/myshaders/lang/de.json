@@ -1,0 +1,18 @@
+{
+  "group-grade": "Farbe",
+  "grade": "Farbkorrektur",
+  "grade-hint": "Belichtung, Sättigung und leichtes Nachschärfen über dem fertigen Bild.",
+  "exposure": "Belichtung",
+  "exposure-hint": "Heller oder dunkler, in Blendenstufen. Wirkt sofort.",
+  "saturation": "Sättigung",
+  "saturation-hint": "1 lässt die Farben, wie sie sind.",
+  "quality": "Qualität",
+  "quality-fast": "Schnell",
+  "quality-fine": "Fein",
+  "quality-hint": "Fein schärft leicht nach. Ein Define: Die Shader werden neu gebaut.",
+  "group-haze": "Dunst",
+  "haze": "Ferndunst",
+  "haze-hint": "Ferne Landschaft verblasst zur Farbe des Himmels.",
+  "haze-strength": "Dunststärke",
+  "haze-strength-hint": "Wie stark die ferne Landschaft verblasst."
+}

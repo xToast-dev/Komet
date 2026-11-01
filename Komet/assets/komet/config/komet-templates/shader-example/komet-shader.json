@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-shader.schema.json",
+  "_comment": "Komet's example shader pack: a template to copy. Texts may be lang keys (komet:...) or plain text. After an edit, Shaders › Active shaders › Reload packs shows it. Guide in game: Komet's options › Modding › Shader reference.",
+  "name": "komet:shaderpack-example",
+  "author": "Komet",
+  "programs": [
+    "final"
+  ],
+  "settings": [
+    {
+      "type": "group",
+      "label": "komet:shaderpack-example-look"
+    },
+    {
+      "key": "tint",
+      "label": "komet:shaderpack-example-tint",
+      "hint": "komet:shaderpack-example-tint-hint",
+      "type": "switch",
+      "default": 0,
+      "define": "EXAMPLE_TINT"
+    },
+    {
+      "key": "strength",
+      "label": "komet:shaderpack-example-strength",
+      "hint": "komet:shaderpack-example-strength-hint",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "default": 0.6,
+      "uniform": "exampleStrength"
+    }
+  ],
+  "passes": [
+    {
+      "id": "tint",
+      "fragment": "tint.fsh",
+      "when": "tint"
+    }
+  ]
+}

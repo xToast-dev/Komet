@@ -1,0 +1,7 @@
+/* Komet's pixel-art icon in the header, at a header's size and sharp */
+#logo {
+  width: 40px;
+  height: 40px;
+  image-rendering: pixelated;
+  margin-right: 8px;
+}

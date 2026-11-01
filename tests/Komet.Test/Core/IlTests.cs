@@ -1,6 +1,5 @@
 using Komet.Chunks;
 using Komet.Core;
-using Komet.Tessellation;
 using Komet.World;
 using Vintagestory.ServerMods;
 using ColumnNoise = Vintagestory.API.MathTools.NewNormalizedSimplexFractalNoise.ColumnNoise;
@@ -21,7 +20,7 @@ public sealed class IlTests
             nameof(CloudTileScratch) => new Site(CloudTileScratch.Target()!,
                 c => c.opcode == OpCodes.Newobj && Equals(c.operand, CloudTileScratch.Constructor()),
                 AccessTools.Method(typeof(CloudTileScratch), nameof(CloudTileScratch.At)), true,
-                CloudTileScratch.Substitute),
+                code => CloudTileScratch.Substitute(code, CloudTileScratch.Target()!)),
             nameof(DecompressScratch) => new Site(DecompressScratch.Target()!, c => c.Calls(decompress),
                 AccessTools.Method(typeof(DecompressScratch), nameof(DecompressScratch.Decompress)), false,
                 DecompressScratch.Rewrite),
@@ -93,7 +92,8 @@ public sealed class IlTests
         MethodBase?[] methods =
         [
             LightScratch.Method("CollectLightValuesForLightSource"), LightScratch.Method("UpdateLightAt"), ColumnBody(),
-            ExtendedRows.Target()
+            AccessTools.DeclaredMethod(typeof(ChunkTesselator), "BuildExtendedChunkData",
+                [typeof(ClientChunk), typeof(int), typeof(int), typeof(int), typeof(bool), typeof(bool)])
         ];
         var seen = Il.Uses.None;
         foreach (var method in methods)

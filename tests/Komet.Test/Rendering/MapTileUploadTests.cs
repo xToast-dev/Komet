@@ -1,5 +1,5 @@
 using Komet.Core;
-using Komet.Rendering;
+using Komet.World;
 
 namespace Komet.Test.Rendering;
 

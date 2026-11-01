@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet.schema.json",
+  "settings": [
+    { "type": "group", "label": "Look" },
+    { "key": "warm", "label": "Warm picture", "type": "switch", "default": 1,
+      "hint": "Turns the warm pass on and off." },
+    { "key": "warmth", "label": "Warmth", "type": "slider", "min": 0, "max": 1, "step": 0.05, "default": 0.7,
+      "uniform": "mymodWarmth", "hint": "How warm the picture gets. A uniform: it changes at once." }
+  ],
+  "passes": [
+    { "id": "warm", "fragment": "shaders/warm.fsh", "when": "warm" }
+  ],
+  "renderer": "both"
+}

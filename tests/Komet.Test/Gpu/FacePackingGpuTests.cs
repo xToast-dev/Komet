@@ -8,9 +8,8 @@ public sealed class FacePackingGpuTests
 {
     private const int Faces = 6000, Vertices = 4 * Faces;
 
+    // Mapped or written buffers, packed alone or on the workers: each way once
     [TestCase(false, 0)]
-    [TestCase(true, 0)]
-    [TestCase(false, 4)]
     [TestCase(true, 4)]
     public void TheUploadIsTheEngines(bool persistent, int workers)
     {

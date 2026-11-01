@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-style.schema.json",
+  "_comment": "Komet's example style: a template to change. It starts from Pragmatic (base) and changes only what it names. After an edit, Komet › Style › Reload styles shows it; Komet › Style › Copy this style copies the style shown into a new folder. Guide in game: Komet's options › Modding › Menu styles.",
+  "id": "example",
+  "name": "komet:example-style",
+  "author": "Komet",
+  "base": "pragmatic",
+  "colors": {
+    "accent": "#E8A23A",
+    "select": "#B8741C",
+    "title": "#F2C27A",
+    "changed": "#FFD08A"
+  },
+  "sizes": {
+    "tracking": 4
+  }
+}

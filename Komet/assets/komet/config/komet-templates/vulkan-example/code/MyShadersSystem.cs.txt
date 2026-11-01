@@ -1,0 +1,17 @@
+using Vintagestory.API.Client;
+using Vintagestory.API.Common;
+
+namespace MyShaders;
+
+// The optional code part. Without it the mod is content only and komet.json does everything; with it the mod can feed
+// the game's state into its shaders. Nothing here names a Komet type: those live in KometBridge, which is only touched
+// when Komet runs, so the mod still loads without Komet.
+public sealed class MyShadersSystem : ModSystem
+{
+    public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Client;
+
+    public override void StartClientSide(ICoreClientAPI api)
+    {
+        if (api.ModLoader.IsModEnabled("komet")) KometBridge.Start(api);
+    }
+}

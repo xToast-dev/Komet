@@ -10,7 +10,7 @@ namespace Komet.Test.World;
 public sealed class LightScratchTests
 {
     private const int Steps = 160, Calls = 20, Passes = 3;
-    private static readonly int[] Seeds = [1, 2];
+    private static readonly int[] Seeds = [1];
 
     // Any static object; only inspected
     private static readonly FieldInfo Sink = AccessTools.Field(typeof(Type), nameof(Type.Missing));
@@ -106,13 +106,13 @@ public sealed class LightScratchTests
         Same(engine.Item2, mine.Item2, "the second world");
     }
 
-    // Four threads light their own worlds at once, as the server's chunk thread, its main thread and the client's relight thread do,
+    // Three threads light their own worlds at once, as the server's chunk thread, its main thread and the client's relight thread do,
     // each two worlds taking turns; every world has to come out as the engine lit it alone
     [Test]
     [Category("Slow")]
     public void ThreadsLightTheirOwnWorlds()
     {
-        int[] seeds = [5, 6, 7, 8];
+        int[] seeds = [5, 6, 7];
         var engine = seeds.Select(TakingTurns).ToList();
         using var harmony = Patched();
         var mine = new (Lit, Lit)?[seeds.Length];

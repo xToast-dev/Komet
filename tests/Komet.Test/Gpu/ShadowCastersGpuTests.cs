@@ -1,4 +1,3 @@
-using Komet.Gpu;
 using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 using Plane = Vintagestory.API.Client.Plane;
@@ -10,7 +9,6 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class ShadowCastersGpuTests
 {
-    private const string Culling = "Komet.Rendering.OcclusionCulling, Komet";
     private const int Map = 2048, Width = 960, Height = 512, Kernel = 2;
 
     // yaw, pitch (radians), the sun; whether some caster is left out (looking down, the view reaches every caster below the sun)
@@ -24,7 +22,7 @@ public sealed class ShadowCastersGpuTests
     // drawn; nothing the engine leaves out is
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
-    public void WhatCastsIntoTheViewIsKept(string backend) => Run(backend, 160, world =>
+    public void WhatCastsIntoTheViewIsKept(string backend) => TerrainWorld.Run(backend, 160, world =>
     {
         foreach (var (yaw, pitch, sun, culls) in Views)
         {
@@ -52,7 +50,7 @@ public sealed class ShadowCastersGpuTests
     // camera's draws sorted near to far leave every depth as it was
     [Test]
     [Category("Slow")]
-    public void TheShadowsInViewAndTheSortedDepthsAreTheEngines() => Run(GpuRig.Gl, 160, world =>
+    public void TheShadowsInViewAndTheSortedDepthsAreTheEngines() => TerrainWorld.Run(GpuRig.Gl, 160, world =>
     {
         var shadow = TerrainWorld.Program(TerrainWorld.ShadowFragment);
         using var map = new DepthTarget(Map, Map);
@@ -90,7 +88,7 @@ public sealed class ShadowCastersGpuTests
     // The camera's terrain culled from rows, drawn as written and sorted: its depth both ways
     private static (float[] Unsorted, float[] Sorted) Viewed(TerrainWorld world, TerrainView view, int program, DepthTarget target)
     {
-        var culler = Culler(view);
+        var culler = TerrainWorld.Culler(view);
         var results = new float[2][];
         for (var i = 0; i < 2; i++)
         {
@@ -103,15 +101,6 @@ public sealed class ShadowCastersGpuTests
 
         OcclusionCulling.SortAlways = false;
         return (results[0], results[1]);
-    }
-
-    internal static FrustumCulling Culler(TerrainView view)
-    {
-        var culler = new FrustumCulling();
-        culler.CalcFrustumEquations(view.Block, view.Projection, view.World);
-        culler.UpdateViewDistance(1024);
-        (culler.lod0BiasSq, culler.lod2BiasSq) = (128 * 128, 0.45 * culler.ViewDistanceSq);
-        return culler;
     }
 
     private static float[] Shadow(TerrainWorld world, TerrainView view, FrustumCulling? casters, int program, DepthTarget map,
@@ -155,18 +144,13 @@ public sealed class ShadowCastersGpuTests
     // The draws' commands as rows.comp wrote them for the shadow pass: their locations
     private static HashSet<ModelDataPoolLocation> Drawn(TerrainWorld world, List<ModelDataPoolLocation> locations)
     {
-        var gpu = CullingGpu(null);
-        var counters = new uint[8 + 3 * OcclusionCulling.MaxDraws];
-        var buffers = CounterBuffers(null);
-        gpu.Read(buffers[(FrameCount(null) - 1) % buffers.Length], 0, counters);
+        var counters = CullingState.Counters(3);
         var (drawn, region, at) = (new HashSet<ModelDataPoolLocation>(), 2 * OcclusionCulling.MaxRanges, 0);
         for (var p = 0; p < world.Pools.Count; p++)
         {
-            var listed = (List<ModelDataPoolLocation>)AccessTools.Field(typeof(MeshDataPool), "poolLocations")
-                .GetValue(world.Pools[p])!;
-            var count = (int)counters[8 + 2 * OcclusionCulling.MaxDraws + p];
-            var commands = new uint[5 * Math.Max(count, 1)];
-            gpu.Read(CommandBuffer(null), 5 * region, commands);
+            var listed = CullingState.Listed(world.Pools[p]);
+            var count = (int)counters[CullingState.StatUints + 2 * OcclusionCulling.MaxDraws + p];
+            var commands = CullingState.Commands(region, count);
             for (var c = 0; c < count; c++) _ = drawn.Add(listed.First(l => l.IndicesStart == (int)commands[5 * c + 2]));
             (region, at) = (region + listed.Count, at + listed.Count);
         }
@@ -225,109 +209,4 @@ public sealed class ShadowCastersGpuTests
 
     private static Plane[] Planes(FrustumCulling culler) =>
         (Plane[])AccessTools.Field(typeof(FrustumCulling), "frustum").GetValue(culler)!;
-
-    internal static void Run(string backend, int radius, Action<TerrainWorld> test, bool sorted = false)
-    {
-        using var rig = GpuRig.Open(backend);
-        if (!GpuBackends.Current.Doubles()) Assert.Ignore(backend + " has no doubles in compute shaders");
-        using var harmony = new TestHarmony("komet-test-casters-gpu");
-        OcclusionCulling.Install(harmony, Client(), new CapturingLogger());
-        var saved = ModelDataPoolLocation.VisibleBufIndex;
-        ModelDataPoolLocation.VisibleBufIndex = 0;
-        using var world = new TerrainWorld(radius, 6, 5, sorted);
-        try
-        {
-            OcclusionCulling.Enabled = true;
-            test(world);
-        }
-        finally
-        {
-            OcclusionCulling.Enabled = false;
-            ModelDataPoolLocation.VisibleBufIndex = saved;
-            OcclusionCulling.Clear();
-            FaceSorting.Clear();
-        }
-    }
-
-    private static ICoreClientAPI Client() =>
-        Answers.Of<ICoreClientAPI>(new() { ["get_Render"] = _ => Answers.Of<IRenderAPI>([]) });
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_Gpu")]
-    private static extern IGpuBackend CullingGpu([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
-    private static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_commands")]
-    private static extern ref int CommandBuffer([UnsafeAccessorType(Culling)] object? culling);
-
-    [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_frame")]
-    private static extern ref int FrameCount([UnsafeAccessorType(Culling)] object? culling);
-}
-
-// A depth texture of its own framebuffer, drawn into with the depth test as the engine's passes have it, read back as floats
-internal sealed class DepthTarget : IDisposable
-{
-    private readonly int _framebuffer, _texture;
-
-    public DepthTarget(int width, int height, int colors = 0)
-    {
-        (Width, HeightPixels) = (width, height);
-        _framebuffer = GL.GenFramebuffer();
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
-        _texture = GL.GenTexture();
-        GL.BindTexture(TextureTarget.Texture2D, _texture);
-        GL.TexStorage2D(TextureTarget2d.Texture2D, 1, SizedInternalFormat.DepthComponent32f, width, height);
-        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D,
-            _texture, 0);
-        Colors = new int[colors];
-        for (var i = 0; i < colors; i++)
-        {
-            Colors[i] = GL.GenTexture();
-            GL.BindTexture(TextureTarget.Texture2D, Colors[i]);
-            GL.TexStorage2D(TextureTarget2d.Texture2D, 1, SizedInternalFormat.Rgba16f, width, height);
-            GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0 + i,
-                TextureTarget.Texture2D, Colors[i], 0);
-        }
-
-        if (colors == 0) GL.DrawBuffer(DrawBufferMode.None);
-        else GL.DrawBuffers(colors, [.. Enumerable.Range(0, colors).Select(i => DrawBuffersEnum.ColorAttachment0 + i)]);
-        GL.BindTexture(TextureTarget.Texture2D, 0);
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-    }
-
-    public int Width { get; }
-    public int HeightPixels { get; }
-    public int Framebuffer => _framebuffer;
-    public int[] Colors { get; }
-
-    public void Begin()
-    {
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
-        GL.Viewport(0, 0, Width, HeightPixels);
-        GL.Enable(EnableCap.DepthTest);
-        GL.DepthFunc(DepthFunction.Lequal);
-        GL.DepthMask(true);
-        GL.Disable(EnableCap.CullFace);
-        GL.Disable(EnableCap.Blend);
-        GL.ClearDepth(1);
-        GL.ClearColor(0, 0, 0, 0);
-        GL.Clear(ClearBufferMask.DepthBufferBit | (Colors.Length > 0 ? ClearBufferMask.ColorBufferBit : 0));
-    }
-
-    public float[] Read()
-    {
-        var depth = new float[Width * HeightPixels];
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
-        GL.ReadPixels(0, 0, Width, HeightPixels, PixelFormat.DepthComponent, PixelType.Float, depth);
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-        return depth;
-    }
-
-    public void Dispose()
-    {
-        GL.DeleteFramebuffer(_framebuffer);
-        GL.DeleteTexture(_texture);
-        foreach (var color in Colors) GL.DeleteTexture(color);
-    }
 }

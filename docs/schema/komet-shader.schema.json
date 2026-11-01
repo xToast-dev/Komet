@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/xtoast-dev/Komet/main/docs/schema/komet-shader.schema.json",
+  "title": "Komet shader pack (komet-shader.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "description": "Defaults to the mod's domain or the folder's name"
+    },
+    "name": {
+      "type": "string",
+      "description": "Page title; may be a lang key"
+    },
+    "author": {
+      "type": "string"
+    },
+    "programs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Programs that get the defines (final, chunkopaque ..., pass:<id> for one of the pack's passes); none: all programs and the pack's passes"
+    },
+    "settings": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Unique name in the pack; the player's value is stored under it"
+          },
+          "label": {
+            "type": "string",
+            "description": "Shown in the menu; may be a lang key (domain:key)"
+          },
+          "hint": {
+            "type": "string",
+            "description": "Shown in the detail panel; may be a lang key"
+          },
+          "type": {
+            "enum": [
+              "switch",
+              "slider",
+              "choice",
+              "group"
+            ],
+            "default": "switch"
+          },
+          "min": {
+            "type": "number",
+            "default": 0
+          },
+          "max": {
+            "type": "number",
+            "default": 1
+          },
+          "step": {
+            "type": "number",
+            "default": 0.1,
+            "exclusiveMinimum": 0
+          },
+          "unit": {
+            "type": "string",
+            "description": "Shown after a slider's value"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "A choice's names; its value is the index"
+          },
+          "default": {
+            "type": "number",
+            "default": 0
+          },
+          "define": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "#define NAME value in the programs; a change reloads the shaders"
+          },
+          "uniform": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "description": "uniform float NAME, set live"
+          }
+        }
+      }
+    },
+    "passes": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "fragment"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fragment": {
+            "type": "string",
+            "description": "Fragment shader file beside komet-shader.json"
+          },
+          "order": {
+            "type": "integer",
+            "default": 0,
+            "description": "Lower draws first"
+          },
+          "when": {
+            "type": "string",
+            "description": "Key of a switch that turns the pass on and off"
+          }
+        }
+      }
+    },
+    "_comment": {
+      "type": "string",
+      "description": "Ignored; a note for readers"
+    }
+  }
+}

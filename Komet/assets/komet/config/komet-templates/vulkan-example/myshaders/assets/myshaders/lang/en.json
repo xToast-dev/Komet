@@ -1,0 +1,18 @@
+{
+  "group-grade": "Colour",
+  "grade": "Colour grading",
+  "grade-hint": "Exposure, saturation and a light sharpen over the finished picture.",
+  "exposure": "Exposure",
+  "exposure-hint": "Brighter or darker, in stops. Changes at once.",
+  "saturation": "Saturation",
+  "saturation-hint": "1 leaves the colours as they are.",
+  "quality": "Quality",
+  "quality-fast": "Fast",
+  "quality-fine": "Fine",
+  "quality-hint": "Fine adds a light sharpen. A define: the shaders are built again.",
+  "group-haze": "Haze",
+  "haze": "Distance haze",
+  "haze-hint": "Far terrain fades towards the sky's colour.",
+  "haze-strength": "Haze strength",
+  "haze-strength-hint": "How much the far terrain fades."
+}

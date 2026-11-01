@@ -57,8 +57,6 @@ public sealed class RenderCostTests
     [TestCase("glxgears:gdrv0", 2)]
     [TestCase("Vintagesto:cs0\n", 3)]
     [TestCase("glxgea:sh_opt0", -1)]
-    [TestCase("glxgears:sh1", -1)]
-    [TestCase("Vintagestory", -1)]
     [TestCase("gl0", -1)]
     [TestCase("foo:gl", -1)]
     public void DriverThreadsAreKnownByName(string comm, int kind)

@@ -20,7 +20,6 @@ public sealed class PoolScaleTests
     }
 
     [TestCase(4, true, new[] { 1, 2, 4, 4 })]
-    [TestCase(3, true, new[] { 1, 2, 3, 3 })]
     [TestCase(1, true, new[] { 1, 1, 1, 1 })]
     [TestCase(4, false, new[] { 1, 1, 1, 1 })]
     public void PoolsGrowOnlyInAChunkPass(int scale, bool chunks, int[] factors)

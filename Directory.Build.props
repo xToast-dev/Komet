@@ -14,15 +14,9 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <CopyDocumentationFileToOutputDirectory>false</CopyDocumentationFileToOutputDirectory>
         <NoWarn>$(NoWarn);CS1591</NoWarn>
-        <VsInstall Condition="'$(VsInstall)' == ''">/opt/vintagestory</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == ''">/home/xtoast/.local/share/vintagestory/</VsInstall>
         <!-- The repository root, with its trailing slash: the projects reach each other and the tests the mod's folder from here -->
         <KometRepo>$(MSBuildThisFileDirectory)</KometRepo>
-    </PropertyGroup>
-
-    <!-- The shipped assembly embeds /_/-relative source paths in a release ([CallerFilePath] in Contracts, the pdb); Debug and the tests
-         keep absolute ones for the debugger -->
-    <PropertyGroup Condition="'$(Configuration)' == 'Release' and ('$(MSBuildProjectName)' == 'Komet' or '$(MSBuildProjectName)' == 'Komet.Bench')">
-        <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
     </PropertyGroup>
 
     <!-- The game's API in every project that runs against the game; the analyzer project knows none of it -->

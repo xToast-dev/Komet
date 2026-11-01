@@ -1,5 +1,221 @@
 # Changelog
 
+## 3.0.0-pre.3
+
+### New
+
+- **Pragmatic**, the options menu's style: a header with your logo and one tab per section (Q/E), the page list, the
+  rows and the chosen row's detail; switches as pills, choices between arrows, sliders as a rail; the keyboard alone
+  works. Behind it a planet built from the world you explored, with the game's sun, season and your weather. Font:
+  Saira Semi Condensed (SIL OFL, shipped).
+- **Pragmatic's look and name are a nod to the menus of Capcom's game Pragmata. Komet has no connection to Capcom and is not
+  endorsed by it.**
+- **Exact optimisations** have their own page (with *Advanced* on): one master over all, a master per area, every switch
+  singly; a switch turned off is marked, and the page sums up how many are on and names each one off. The area pages
+  keep only the trade-offs.
+- **Vintage**, a second menu style in the game's own look: the dialog brown and parchment, the amber of an active
+  button, Lora and Montserrat from the game's fonts, the blurred world behind.
+- The overlay and Komet's windows wear the menu style's frame: accent brackets at the corners, and in the overlay the
+  name letter-spaced on a head band with a short outlined edition chip ("Pre-Release" instead of a cut-off "Vorabversi…").
+- The options menu's footer shows the edition and the update check next to the version ("New version … available",
+  "File differs", "Checked"); a click opens Komet's version window.
+- **Far LOD catches up near you**: terrain you come close to turns full detail at once, nearest first, instead of
+  waiting for the round over every tracked chunk (seconds at a far view, so close ground stayed coarse).
+- **Far LOD without a hard line**: each chunk column moves its border by up to 20 % (fixed per column), so the switch
+  from full to coarse frays over a zone instead of one circle where plants and detail end.
+- Menu styles for everyone: a `style.json` (colours, fonts, sizes, logo, background shader) in `ModConfig/komet/styles/`
+  or in a mod's assets; *Komet › Style* copies and reloads styles in game.
+- Click the change count in the footer to see every pending change; [R] Standard resets the whole page, Enter applies,
+  Del drops.
+- Option names and descriptions rewritten for players, in German and English.
+- Controls: an × beside a key leaves it unbound.
+- **Help** and **Modding** sections in the options menu, in German and English: Komet, the options menu, HUD and
+  measuring, Vulkan explained, Troubleshooting, Glossary; Getting started, Templates, Your mod for Komet, Shader
+  reference, Shaders on Vulkan, Menu styles, API for mods. Code blocks copy on a click; flow diagrams.
+- **Modding › Templates**: example shader pack, example style, mod template and Vulkan template, with buttons for the
+  templates folder and the Mods folder.
+- **Shaders** section: a page per shader pack; *Active shaders* lists every pack and shader mod with its renderer,
+  status, problems and a switch to take it out; *Reload packs* works without leaving the world.
+- Mod adapters: a mod with its own settings follows Komet's preset (SheyderMod's adapter ships with Komet).
+- Distant chunks are simplified (*Simplify distant chunks*, now on at 2 px): past the distance where a block covers
+  under two pixels chunks are built at half resolution, past twice that distance at a quarter. Bench at 2560x1440,
+  view distance 1536: frame time in flight −30 % (7.5 → 5.2 ms), GPU time 7.8 → 5.3 ms, the distant look alike to the
+  eye (0.1 % of the pixels differ). 0 turns it off.
+- Joining a world in singleplayer no longer floods the game with chunks (*JoinPacer*).
+- Background threads (built-in server, tessellation, relight, driver shader compilers) yield to the frame.
+- Garbage collection moves into spare frame time with an fps cap or VSync (*GcIdle*).
+- Less garbage while flying: snow scan, alloy matching, dialogs.
+- Firepits and forges out of view are not drawn; map pieces upload spread over frames.
+- Komet's own code is compiled ahead when joining a world.
+- Debug protocol: allocations and lock waits per thread, frame-to-frame figures; `.komet debug join` records the first
+  minute of every join. The debug window has an "on join" switch and remembers its position.
+- Vulkan on Windows: Win32 surfaces; shaderc is fetched once when missing.
+
+### Changed
+
+- The mod zip holds ten DLLs: `Komet.dll` and nine module libraries.
+- Vulkan: shaders are ported while the world loads, so the first second after a join no longer waits for them. The
+  shader cache is smaller; all shaders are rebuilt once after this update.
+- Loading chunks while exploring touches the frame rate far less: *Pace chunk loading* now slows the built-in server
+  as soon as collections take 3 % of the time (was 8 %) or 3 000 chunks wait to be built (was 6 000); far terrain
+  arrives later instead. Worldgen re-encodes placed structures' data without a new char[5] for every four bytes
+  (the same text, one string of its exact size).
+- Fewer threads waiting on each other while a world loads: chunk lookups for building chunks (GetClientChunk, the 27
+  neighbours of each chunk) come from Komet's lock-free mirror, and the engine's 4-second pass that commits packed
+  chunks and looks for new ones no longer holds the chunk lock (only the main thread changes it). Lock waits while
+  joining: 4.1 s to 3.4 s in 30 s.
+- A world ended from another thread (a crash path, a refused bench run) no longer crashes Komet's shutdown: tick
+  listeners leave only on the main thread.
+- The pipeline recipes Komet ships are renewed for this version's shaders (god rays, SSAO blur, raindrops changed).
+- Rain no longer cuts the frame rate: every pixel of every raindrop (up to 80 000 alpha-blended quads close to the
+  camera) read both shadow maps 3 x 3 times, at shadow quality 4 from 6144 x 6144 maps; with *Leaner effects* (was
+  *Leaner post-processing*, on) quad particles read each shadow map once, 2 reads a pixel instead of 18. Same light and
+  shadow on the drops, without a soft edge nobody sees on a falling drop.
+- Rain: the rain particle buffers (rewritten every frame) no longer reach OpenGL a second time under Vulkan-only, and
+  the large one is mirrored from its first upload instead of read back from OpenGL when a storm starts; the particles'
+  collision step keeps one delegate per particle system even with *FrameScratch* off.
+- Joining a world, sounds: the game decodes every sound into a stream that doubles as it fills and is copied out at the
+  end; Komet's *Leaner sound loading* writes into a buffer each loading thread reuses and copies out only the result
+  (same sound data; the large-object-heap garbage of the stream is gone). The Vulkan pipeline cache is written only
+  when it grew, instead of being read and copied twice every time a set of pipelines finished during a join.
+- Joining a world: the menu planet no longer reads the whole world map while the world loads. It waits a minute (opening
+  the menu reads at once), reads only the map pieces it shows and decodes them without copies: on a 42 000-piece map
+  6 MB of garbage instead of about 1 GB, which had been a sixth of everything allocated during a join.
+- Less work per frame: *Leaner effects* (new, on) halves the god rays' steps and drops the SSAO blur's four
+  outermost taps (7 instead of 11), both a little softer; *Save video memory* is on by default (OpenGL keeps no second copy of the world's large data under Vulkan-only); the
+  frame bridge is suggested from 120 Hz instead of 100 Hz.
+- Fewer garbage collections while playing: chunk building only reads its neighbour chunks (*Read neighbour chunks only*),
+  so their packed data is kept instead of packed anew 8 s later; the climate and wind events and the particles'
+  collision step no longer make new delegates each call. Bench at view distance 1536, world loaded, turning on the spot:
+  allocation 13.1 → 9.4 MB/s, collections 1.7 → 1.2 a second, 1 % low 80 → 90 fps, 0.1 % low 53 → 58 fps, p99 −1 ms.
+- Chunks stay packed while they are drawn (*Read chunks packed*, new, on): chunk building and the world map decode a
+  packed chunk into memory of their own thread, reused from chunk to chunk, instead of unpacking it into new arrays the
+  chunk then held for seconds and packed again. While a world loads that was most of the chunk data made on the client.
+  Untested in game.
+- Singleplayer chunks go straight from the built-in server to the game (*Hand chunks over directly*, new, on): chunk and
+  map column packets were serialized, copied and read back into new arrays as over a network; now the game takes the
+  server's packets as they are, in the same order. The packed chunk data is held once instead of twice. Single block
+  changes (leaf, grass and snow updates, one packet a block) take the same way: in an old world they were most of the
+  network thread's ~30 MB/s of garbage. Bench: chunks load as before, no errors. Untested in your world.
+- Single block and light reads of a packed chunk (block accessors, the world map, rooms, an arriving chunk's block
+  entities, the server's block ticks) read it packed instead of unpacking the whole chunk (with *Read chunks packed*); a
+  thread reading across very many chunks at once falls back to unpacking. Packed reads reuse their decoding memory.
+- The built-in server packs chunks more than four chunks away from you after 5 s untouched instead of 15 s (*Pack chunks
+  sooner*, level 1 and up). A heap dump while flying held 8 200 unpacked server chunks (about 330 MB) against 134 MB for
+  all 92 000 packed chunks of client and server together. Untested in game.
+- Each block change goes out once per server round (*Send each block change once*, new, on): berry bushes and other
+  growing block entities catch up on growth when their chunk loads and report their block on nearly every 3.5-hour step,
+  up to ~2500 times after a year away; the server sent a packet for every report and the game rebuilt the chunk for each.
+  In a world at day 230 that was ~26 000 packets a second while loading. Bench: block packets ~15x fewer, no errors.
+- The window size is no longer asked of the window system a dozen times a frame (*Window size without asking*, new, on):
+  on Linux/X11 each ask was a round trip to the display server, 5 % of the main thread at 2560x1440.
+- World map pieces are reused once saved and drawn (*Reuse map pieces*, new, on): each piece waited up to 4 s for its
+  save and was moved into old memory by the garbage collector. Bench: map allocations while loading 136 → 31 MB per 40 s.
+- Fewer chunk rebuilds after block changes (*Fewer chunk rebuilds after block changes*, new, on): every block change
+  on the client also queues a lighting task, and the game marked the block's chunk for a rebuild again after each one,
+  though 95–99 % of them change no light (snow, grass, leaves, crops); by then the chunk was often built already, so it
+  was built and uploaded twice. In a winter world at day 230 that was ~30 extra chunk rebuilds a second standing still
+  and up to ~300 a second after joining. Untested in game.
+- Faster game ticks (*Faster game ticks*, new, on): each frame the game read the timer of every block entity and
+  rendered entity (containers, torches, firepits, ground storage: tens of thousands at long view distances) though
+  almost none were due, 2.6 % of the main thread in a large base. Komet keeps when each is next due in a compact list
+  and skips the rest; the same timers fire in the same order. Untested in game.
+- Mod shader uniforms are asked once per frame, as the API documents, instead of on every use of every program.
+- Komet's module libraries are compiled ahead when joining a world too (only `Komet.dll` was since the module split).
+- Particles take a block's light once per half second: falling snow read the light of every flake every third tick
+  and waited for chunk locks the chunk builders held, 4.6 % of the main thread in a snowy world. Untested in game.
+- Less garbage while playing: inventory slot names, settings reads and animation names are no longer built anew each
+  frame (*Less garbage per frame*), the game profiler's entries are reused, the built-in server's grass and barrel
+  ticks no longer make new objects for every check (*Leaner block ticks*, new, on), and presenting a Vulkan frame
+  allocates nothing. Bench in a world at day 230, both in one game process: allocation −42 to −50 %, collections
+  about a third fewer (each a little longer), time in collections −21 to −28 %; turning: p99 10.2 → 7.7 ms, 1 % low
+  84 → 91 fps.
+- Chunk meshes reuse their face groups (sorting for culling by direction) when rebuilt instead of making new ones: they
+  were 14 % of what outlived each garbage collection in that world.
+- Cloud textures are uploaded only when their content changed (*Upload clouds only when changed*, new, on); at view
+  distance 1536 two 200x200 images went to the graphics card up to 25 times a second.
+- Packed chunk reads reuse their small decoder helpers (*Reuse chunk read helpers*, new, on): every decode bound new
+  delegates in the game's chunk layers. Bench, loading trace: delegate garbage 125 → 10 MB per 25 s.
+- Vulkan: the pipeline recipes Komet ships match today's shaders again (they had gone stale, so a first start built
+  nearly every pipeline as its first draw waited); `scripts/seed-pipelines.sh` renews them. Bench, cold cache: 110
+  pipelines begun before the first draw instead of 4, join stutter from pipelines 213 → 9 ms.
+- One setting, *Terrain culling on the GPU* (0, 1, 2), replaces three culling switches; saved choices carry over.
+- Options regrouped; rows that cannot act are greyed; slider defaults follow the preset and this computer.
+- Distant shadows reach the view distance up to 2048 blocks and fade out instead of ending in a line.
+- Features that rewrite a game method stand down when another mod patches it; the switch is held and says why.
+- The HUD takes the style's colours and font and warns only about features that stood down or failed.
+- The update question is a Komet window; pre-releases are told of newer pre-releases.
+- The debug folder keeps the newest 30 captures.
+- A saved style `pragmata` or `luna` is read as `pragmatic`.
+
+### Removed
+
+- Features without measurable gain: SsaoLean, Ascii85Text, JoinedNames, BlockPackets, SoilTicks,
+  GcCompact, GcPacing, TessBlockPos, ProtoListCache, HandlerLists, WindowSizeCache, the frame time target,
+  VulkanCompactFaces (compact terrain data). A saved komet.json that names them still loads.
+- More features without measurable gain: *Cache distant terrain* (VulkanFarCache; it warped and flickered while
+  turning, off in every preset), SunOcclusion, InitOnce, AnimationQueries, PatchLookup and the small garbage fixes
+  LeafDecay, SelectionScratch and ClimatePeek (each under 5 % of allocations, no frame gain measured).
+- After a code review: EntityTessBudget, BlockEntityBudget, PreJit (startup method warm-up), RecyclerTrim and
+  ShaderLight (no measured gain, or measurably worse when on).
+- Features a synthetic off/on bench (`scripts/synth.sh`) measured without gain or slower: CullerRays, GlErrorPoll,
+  MeshPool, LayerDelegates, VisibleFaces, ExtendedRows, PartRecycling, MapReads (slower on the map thread) and
+  ClutterMeshes (cheaper first build, but every rebuild of a chunk cost more).
+- The singleplayer server in its own process (ServerProcess): it halved collection time but cost about 3 GB of memory
+  and 15 s more loading. A `serverconfig.json.komet-backup` left by a crash while it ran is no longer restored.
+- The **Klassik** style and its sidebar layout; Pragmatic is the one style and the fallback.
+- The mod profiler (`.komet profile`) and the HUD window's **Mods** tab with pinning mods to the overlay. Mod times stay
+  in the overlay, the overview's hints and the debug protocol.
+
+### Fixed
+
+- Smoother turning at long view distances: the mesh recycler trim (RecyclerTrim) is off by default (1 % low +13 %,
+  frames over 25 ms a quarter as often); Komet suggests it on computers with 12 GB RAM or less. New: even frame times
+  without a frame cap (FrameSmoothing), and Vulkan presents with Mailbox when VSync is off (no tearing).
+- Switching off a running shader mod under Shaders › Active shaders pauses it at once (its renderers and patches
+  out, the game's shaders back) instead of waiting for the next world.
+- A debug capture with many mods loaded no longer fails to finish.
+- Komet's chat command is named `.komet` everywhere (`/komet` goes to the server).
+- Vulkan-only: the terrain no longer vanishes leaving only water (unbuilt depth pyramid, lost row uploads, nights
+  without distant shadows); the second world of a game run no longer shows one colour.
+- Vulkan: item icons no longer go missing in the inventory, handbook and creative inventory.
+- Switching Vulkan-only off rebuilds the terrain for OpenGL and frees Vulkan's video memory.
+- A body no longer vanishes behind a pane of glass in its own hand.
+- Dynamic lights no longer swim, jump or light single spots.
+- Creative inventory rows no longer stay empty for seconds after a search.
+- No more frame spike every half second from the deep culling and far foliage scans.
+- Far LOD chunks draw no fake border faces; deep culling switched off no longer rebuilds chunks every 20 s.
+- Windows: rejoining a world no longer fails on the world map database.
+- Player arrows show on the map in worlds without an `allowMap` entry; new map pieces are saved every 4 s.
+- Holding back DRTAgX beside SheyderMod no longer stops the game; adapters' reload commands run; ShaderUseCache and
+  LeanVaryings no longer break DRTAgX's shaders.
+- A minimized window no longer idles the GPU every frame; texture wrap modes are honoured.
+- Creating the example style twice keeps both.
+- HUD: tabs keep their scroll position, the Settings tab shows your key bindings, the Render tab shows no Vulkan zeros
+  under OpenGL, the garbage section no longer warns forever in multiplayer.
+- The debug protocol and the HUD name what Vulkan could not draw.
+- Code review of the whole source in two rounds (about 150 fixes): state left over from the previous world (occlusion culling, chunk
+  bands, light repair, the bench, chunk views holding the old world), Vulkan device and shader cache races, a worker
+  pool that could miss a wake-up, the pool trim skipping pools, LeanPost's particle shadow edit that never applied,
+  a mod's options setter or shader port that throws no longer crashes the client.
+  Leaving a world no longer keeps it in memory through chunk views on worker threads, shader states, block light
+  tables or Vulkan report counters; Vulkan swapchain fences are no longer reset while pending.
+
+### For mod authors
+
+- Reference **`Komet.Core.dll`** (it holds `Komet.Api`); `Komet.dll` only starts the mod.
+- One file binds a mod in without code: `assets/<modid>/config/komet.json` (settings, passes, `renderer`, `config`,
+  `holds`). Shader packs without a mod: `komet-shader.json`.
+- Every shader gets `#define KOMET` (`KOMET_VULKAN` under Vulkan); `assets/<domain>/config/komet/<shaders|shaderincludes>/`
+  holds Komet-only versions of a file.
+- `KometShaders`: renderer, defines, uniforms, source edits, fullscreen passes, batched reloads. Passes get their mod's
+  defines (`pass:<id>`) and every uniform. All of it runs on OpenGL and Vulkan-only.
+- `KometOptions.Default(value)` for [R] Standard; `KometStyles` registers styles from code; `KometStyle.Layout` is gone.
+- Mods register features in `StartClientSide`; a watched feature needs a knob; room for 32 features of other mods.
+- JSON schemas in `docs/schema/`; a failed shader's full source goes to `Logs/komet-shader-<file>.txt`.
+- Developer site in `docs/site` (built with `scripts/apidocs.sh`): API reference, articles, the Vulkan template as a
+  download.
+
 ## 3.0.0-pre1
 
 ### New

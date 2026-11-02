@@ -134,6 +134,8 @@ internal static class ShaderMods
     public static void HoldBack(ICoreAPI api, ILogger logger)
     {
         Release();
+        new Harmony(HoldId).UnpatchAll(HoldId);
+        Skipped.Clear();
         foreach (var mod in All(api).Bounded(MaxMods))
             if ((mod.Replaces || mod.Declared) && (!Wanted(api, mod) || Mismatch(api, mod.Id) is not null))
             {
@@ -150,11 +152,18 @@ internal static class ShaderMods
     // Held-back mods with content: their systems run, only their files give way
     private static readonly HashSet<string> Serving = [];
 
+    // Systems whose start was skipped skip their Dispose too, also after Release: Komet goes first at the close, and
+    // Rivers' Dispose read the api its skipped StartPre never set
+    private static readonly HashSet<ModSystem> Skipped = [];
+
     // A held-back mod's system skips the phase as if it ran (no "failed to start" in the log)
-    private static bool Skip(Mod mod, ModSystem system, ICoreAPI api, ref bool __result)
+    private static bool Skip(Mod mod, ModSystem system, ICoreAPI api, Vintagestory.Common.ModRunPhase phase, ref bool __result)
     {
-        if (api?.Side != EnumAppSide.Client || mod?.Info?.ModID is not { } id || !Off.Contains(id) || Serving.Contains(id)) return true;
-        __result = NotNull(system);
+        if (api?.Side != EnumAppSide.Client || system is null) return true;
+        if (phase == Vintagestory.Common.ModRunPhase.Dispose && Skipped.Remove(system)) return __result = true;
+        if (mod?.Info?.ModID is not { } id || !Off.Contains(id) || Serving.Contains(id)) return true;
+        if (phase != Vintagestory.Common.ModRunPhase.Dispose) _ = Skipped.Add(system);
+        __result = true;
         return false;
     }
 
@@ -168,6 +177,7 @@ internal static class ShaderMods
         var systems = (api.ModLoader?.Systems ?? []).Where(s => s?.Mod?.Info?.ModID == mod.Id && s.ShouldLoad(api))
             .OrderBy(s => s.ExecuteOrder()).Take(MaxMods).ToList();
         _ = Off.Remove(mod.Id); // from here its phases are its own (Skip lets them through)
+        Skipped.ExceptWith(systems);
         var started = true;
         foreach (var phase in Phases.Bounded(Phases.Length))
             foreach (var system in systems.Bounded(MaxMods))
@@ -308,8 +318,7 @@ internal static class ShaderMods
     public static void Release()
     {
         Pauses.Clear(); // the world goes: a paused mod is held back from the start of the next
-        new Harmony(HoldId).UnpatchAll(HoldId);
-        Off.Clear();
+        Off.Clear(); // the hold patch stays until the next HoldBack: skipped systems' Dispose comes after Komet's
         Serving.Clear();
     }
 
@@ -576,14 +585,14 @@ internal static class ShaderMods
                 var list = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Select(f => "assets/" + Path.GetRelativePath(root, f)).ToList();
                 var (replaced, own) = Tally(list, mod.Info?.ModID);
                 return Made(mod, replaced, own, Declares(list), KometVersions(list), Foreign(list, mod.Info?.ModID)) is { } folder
-                    ? folder with { Content = HasContent(list) } : null;
+                    ? folder with { Content = HasContent(list) || Universal(mod) } : null;
             }
 
             using var zip = ZipFile.OpenRead(mod.SourcePath);
             var entries = zip.Entries.Select(e => e.FullName).ToList();
             var (zipped, owned) = Tally(entries, mod.Info?.ModID);
             return Made(mod, zipped, owned, Declares(entries), KometVersions(entries), Foreign(entries, mod.Info?.ModID)) is { } made
-                ? made with { Content = HasContent(entries) } : null;
+                ? made with { Content = HasContent(entries) || Universal(mod) } : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
         {
@@ -632,6 +641,10 @@ internal static class ShaderMods
         NotNull(paths) && paths.Take(MaxEntries).Any(raw => raw.Replace('\\', '/').ToLowerInvariant().Split('/') is ["assets", _, "config", "komet.json"]);
 
     // Replaced: game asset paths in lower case ("shaders/final.fsh"); Own: "domain:pass" of the mod's programs
+    // A mod for both sides (Rivers: world generation in code, river current in its client half): skipping its client
+    // systems would leave the server's half talking to nothing
+    private static bool Universal(Mod mod) => mod.Info?.Side is EnumAppSide.Universal or EnumAppSide.Server;
+
     // Any asset of a content category: assets/<domain>/itemtypes/..., blocktypes, entities, patches, recipes, worldgen
     internal static bool HasContent(IEnumerable<string> paths) => paths.Bounded(MaxEntries).Any(raw =>
         raw.Replace('\\', '/').ToLowerInvariant().Split('/') is ["assets", _, "itemtypes" or "blocktypes" or "entities" or "patches" or "recipes" or "worldgen", _, ..]);

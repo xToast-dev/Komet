@@ -51,13 +51,15 @@ internal static class ShaderMods
     // The mod's declaration for Komet, read from its files before the assets load
     public const string Manifest = "config/komet.json";
 
-    // Whether the player wants the mod to run: a declared mod runs unless switched off, an undeclared one that replaces
-    // game shaders only once switched on
+    // Whether the player wants the mod to run: a declared mod or one with content runs unless switched off (Rivers'
+    // chunkliquid shaders are its river current), an undeclared shader pack that replaces game shaders only once switched on
     public static bool Wanted(ICoreAPI api, Found mod)
     {
         var state = ShaderState.Of(api);
-        return mod.Declared ? !state.Stopped.Contains(mod.Id) : !mod.Replaces || state.On.Contains(mod.Id);
+        return Opted(mod) ? !state.Stopped.Contains(mod.Id) : !mod.Replaces || state.On.Contains(mod.Id);
     }
+
+    private static bool Opted(Found mod) => mod.Declared || mod.Content;
 
     public static void Want(ICoreAPI api, Found mod, bool on)
     {
@@ -65,8 +67,8 @@ internal static class ShaderMods
         if (!NotNull(mod)) return;
         _ = state.On.Remove(mod.Id);
         _ = state.Stopped.Remove(mod.Id);
-        if (mod.Declared && !on) state.Stopped.Add(mod.Id);
-        if (!mod.Declared && on) state.On.Add(mod.Id);
+        if (Opted(mod) && !on) state.Stopped.Add(mod.Id);
+        if (!Opted(mod) && on) state.On.Add(mod.Id);
         ShaderState.Store(api);
     }
 

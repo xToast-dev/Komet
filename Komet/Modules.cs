@@ -44,7 +44,7 @@ internal static class Modules
         "TreeKeys", "MapPieceBudget", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
         "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation", "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm",
         "OccludedChunks", "DeepCulling", "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes",
-        "WorldGenScratch", "IconBudget", "SnowPeek", "TickScratch", "SoundScratch", "TickerCommit", "ProfilerPool", "WeatherLock", "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
+        "WorldGenScratch", "IconBudget", "SnowPeek", "TickScratch", "SoundScratch", "SoundsOnDemand", "TickerCommit", "ProfilerPool", "WeatherLock", "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
     ];
 
     private static bool _wired;

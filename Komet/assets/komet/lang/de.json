@@ -402,6 +402,8 @@
   "settings-gcidle-hint": "Die Speicherbereinigung hält das Spiel kurz an. Mit FPS-Begrenzung oder VSync hat ein Bild oft Zeit übrig; Komet räumt dann genau dort auf statt mitten in einem späteren Bild. Ohne freie Zeit ändert sich nichts.",
   "settings-soundscratch": "Sounds sparsamer laden",
   "settings-soundscratch-hint": "Beim Betreten einer Welt entpackt das Spiel alle Sounds. Komet legt den Speicher dafür gleich in der richtigen Größe an, statt ihn mehrmals zu vergrößern und umzukopieren. Weniger Speicherbereinigung beim Laden.",
+  "settings-soundsondemand": "Sounds erst beim Abspielen entpacken",
+  "settings-soundsondemand-hint": "Das Spiel entpackt beim Betreten einer Welt alle Sounds und behält sie im Speicher, auch die nie gespielten (rund 200 MB). Komet entpackt vorab nur Wetter- und Umgebungsgeräusche, jeden anderen Sound beim ersten Abspielen, wie die Einstellung \"RAM optimieren\" des Spiels auf höchster Stufe. Der erste Ton eines langen Sounds kann einen Augenblick später kommen.",
   "settings-frames": "Frame-Zeit",
   "settings-tickercommit": "Tickende Blöcke außerhalb des Frames",
   "settings-tickercommit-hint": "Alle paar Sekunden sucht das Spiel Blöcke um dich herum, die Partikel oder Umgebungsgeräusche erzeugen, und übernimmt das Ergebnis mitten im Frame – ein kurzer Ruckler in Wiesen und Wäldern. Komet bereitet das Ergebnis im Such-Thread vor, der Frame tauscht es nur noch ein.",

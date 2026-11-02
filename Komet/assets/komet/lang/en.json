@@ -402,6 +402,8 @@
   "settings-gcidle-hint": "Garbage collection briefly pauses the game. With an FPS cap or VSync a frame often has time to spare; Komet cleans up right there instead of in the middle of a later frame. Without spare time nothing changes.",
   "settings-soundscratch": "Leaner sound loading",
   "settings-soundscratch-hint": "When you join a world the game unpacks every sound. Komet sizes the memory for each one right away instead of growing and copying it several times. Less garbage collection while loading.",
+  "settings-soundsondemand": "Unpack sounds when first played",
+  "settings-soundsondemand-hint": "When you join a world the game unpacks every sound and keeps all of them in memory, also those never played (about 200 MB). Komet unpacks only weather and ambient sounds up front and every other sound when it is first played, as the game's highest \"optimize RAM\" setting does. A long sound may start a moment later the first time.",
   "settings-frames": "Frame time",
   "settings-tickercommit": "Ticking blocks off the frame",
   "settings-tickercommit-hint": "Every few seconds the game looks for blocks around you that make particles or ambient sounds and applies the result inside a frame, a short stutter in meadows and forests. Komet prepares the result on the scanning thread; the frame only swaps it in.",

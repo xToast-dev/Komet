@@ -187,6 +187,26 @@ public sealed class RowsGpuTests
         });
     });
 
+    // Pools past the rows buffer's first size grow it mid-call: the rows already on the GPU stay
+    [TestCase(GpuRig.Gl)]
+    [TestCase(GpuRig.Vulkan)]
+    public void RowsOnTheGpuOutliveItsGrowth(string backend) => Culled(backend, vao =>
+    {
+        ModelDataPoolLocation.VisibleBufIndex = 0;
+        var (culler, random, camera) = (Culler(), new Random(19), new Vec3d(Cx, Cy, Cz));
+        var (first, bools) = Locations(culler, random);
+        var pool = Pool(first, vao);
+        _ = OcclusionCulling.RunRows([pool], culler, camera, ViewProjection());
+        List<MeshDataPool> pools = [pool];
+        for (var i = 1; i <= 12; i++) pools.Add(Pool(Locations(culler, random, i * Count, bools).Item1, vao));
+        Assert.Multiple(() =>
+        {
+            Assert.That(OcclusionCulling.RunRows(pools, culler, camera, ViewProjection()), Is.True, "culled from rows");
+            Assert.That(OcclusionCulling.RowsUsed, Is.GreaterThan(1 << 16), "past the first size");
+            Assert.That(Drawn(first.Count), Is.EqualTo(Kept(first, culler)), "the first pool's rows kept");
+        });
+    });
+
     private static void Culled(string backend, Action<VAO> test)
     {
         using var rig = GpuRig.Open(backend);

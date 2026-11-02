@@ -188,13 +188,15 @@ internal static partial class OcclusionCulling
         return joined > 0;
     }
 
-    // Row arrays doubled until rows fit (the GPU buffer holds MaxRows from the start); false past MaxRows
+    // Row arrays and the GPU's rows buffer doubled until rows fit; false past MaxRows. The buffer keeps its rows and
+    // waits for the GPU (a stall, at most three a process: the arrays start at the process's peak)
     private static bool Grown(int rows)
     {
         var size = RowLocations.Length;
         if (rows <= size) return true;
         for (var i = 0; i < MaxGrowths && size < rows; i++) size = Math.Min(2 * Math.Max(size, FirstRows), MaxRows);
-        if (size < rows) return false;
+        if (size < rows || !Assert(_rowBuffer != 0)) return false;
+        Gpu.Upload<uint>(_rowBuffer, [], size * RowBytes);
         Array.Resize(ref RowData, size * RowUints);
         Array.Resize(ref RowLocations, size);
         Array.Resize(ref Marks, size);

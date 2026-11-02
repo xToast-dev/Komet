@@ -70,17 +70,33 @@ internal sealed class GlBackend : IGpuBackend
         return buffer;
     }
 
-    // Orphans the old store
+    // Orphans the old store; growing a store without data keeps its contents, as IGpuBackend promises
     public void Upload<T>(int buffer, ReadOnlySpan<T> data, int minBytes = 0) where T : unmanaged
     {
         if (!Assert(buffer != 0) || !Assert(minBytes >= 0)) return;
         var bytes = Math.Max(data.Length * Marshal.SizeOf<T>(), Math.Max(minBytes, 16));
+        if (data.IsEmpty && Grown(buffer, bytes)) return;
         GL.BindBuffer(BufferTarget.CopyWriteBuffer, buffer);
         GL.BufferData(BufferTarget.CopyWriteBuffer, bytes, IntPtr.Zero, BufferUsageHint.StreamDraw);
         if (data.Length > 0)
             GL.BufferSubData(BufferTarget.CopyWriteBuffer, IntPtr.Zero, data.Length * Marshal.SizeOf<T>(),
                 ref MemoryMarshal.GetReference(data));
         GL.BindBuffer(BufferTarget.CopyWriteBuffer, 0);
+    }
+
+    // A store smaller than bytes copied out, made anew at bytes and copied back; false for a store never specified
+    private static bool Grown(int buffer, int bytes)
+    {
+        GL.GetNamedBufferParameter(buffer, BufferParameterName.BufferSize, out int size);
+        if (size <= 0 || size >= bytes) return false;
+        GL.CreateBuffers(1, out int scratch);
+        if (!Assert(scratch != 0)) return false;
+        GL.NamedBufferData(scratch, size, IntPtr.Zero, BufferUsageHint.StreamCopy);
+        GL.CopyNamedBufferSubData(buffer, scratch, IntPtr.Zero, IntPtr.Zero, size);
+        GL.NamedBufferData(buffer, bytes, IntPtr.Zero, BufferUsageHint.StreamDraw);
+        GL.CopyNamedBufferSubData(scratch, buffer, IntPtr.Zero, IntPtr.Zero, size);
+        GL.DeleteBuffer(scratch);
+        return true;
     }
 
     public void UploadAt<T>(int buffer, int offsetBytes, ReadOnlySpan<T> data) where T : unmanaged

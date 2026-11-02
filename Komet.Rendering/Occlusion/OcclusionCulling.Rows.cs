@@ -136,12 +136,13 @@ internal static partial class OcclusionCulling
         (_rowsProgram, _sortProgram) = (Gpu.Program(GpuShaders.Rows, _logger), Gpu.Program(GpuShaders.Sort, _logger));
         (_rowBuffer, _chunkBuffer, _poolBuffer, _frustumBuffer) = (Gpu.Buffer(), Gpu.Buffer(), Gpu.Buffer(), Gpu.Buffer());
         (_keys, _sorted) = (Gpu.Buffer(), Gpu.Buffer());
-        Gpu.Upload<uint>(_rowBuffer, [], MaxRows * RowBytes);
+        // the rows buffer as large as the row arrays, growing with them (Grown): 75 MB at MaxRows, held from the start
+        var size = Math.Clamp(_peakRows, FirstRows, MaxRows);
+        Gpu.Upload<uint>(_rowBuffer, [], size * RowBytes);
         Gpu.Upload<uint>(_chunkBuffer, [], MaxChunks * 4);
         Gpu.Upload<uint>(_poolBuffer, [], 2 * MaxDraws * 8);
         Gpu.Upload<uint>(_keys, [], MaxRanges * 4); // the camera's first pass's commands only
         Gpu.Upload<uint>(_sorted, [], MaxRanges * CommandBytes);
-        var size = Math.Clamp(_peakRows, FirstRows, MaxRows);
         (RowData, RowLocations, Marks) = (new uint[size * RowUints], new ModelDataPoolLocation?[size], new int[size]);
         (ChunkBools, ChunkRefs, ChunkBits) = (new Bools?[MaxChunks], new int[MaxChunks], new uint[MaxChunks]);
         _rowsReady = _rowsProgram != 0 && Assert(_keys != 0);

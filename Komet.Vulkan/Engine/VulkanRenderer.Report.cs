@@ -30,6 +30,9 @@ internal static partial class VulkanRenderer
 
     private static Totals _reported, _window;
 
+    // This world drew with Vulkan-only (VulkanRecord: Pending until the world is left cleanly)
+    private static bool _ran;
+
     private static Totals Now(TerrainRenderer renderer)
     {
         return new Totals(renderer.Frame.Frames, renderer.Draws, _scene?.Draws ?? 0, renderer.Missed + renderer.MissedWaiting,
@@ -47,6 +50,12 @@ internal static partial class VulkanRenderer
         {
             Status = waits.Length > 0 ? waits : "drawing: " + Passes();
             if (waits.Length > 0 || State != Phase.Running) _logger?.Notification("Komet: Vulkan {0}", Status);
+        }
+
+        if (phase == Phase.Running && !_ran)
+        {
+            _ran = true;
+            Komet.Core.VulkanRecord.Began();
         }
 
         (State, _waits) = (phase, waits);

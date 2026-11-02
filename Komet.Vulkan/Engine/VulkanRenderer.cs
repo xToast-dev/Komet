@@ -98,7 +98,8 @@ internal static partial class VulkanRenderer
         Unleaned();
         Release();
         GlTap.Untap();
-        (_failed, _failure, State, Status) = (false, "", Phase.Off, "");
+        if (_ran && !_failed) VulkanRecord.Ended();
+        (_failed, _failure, State, Status, _ran) = (false, "", Phase.Off, "", false);
         if (_held) (_only, _held) = (false, false); // switched off while lean could not give back: off with the world
         GlTap.GuiStage = false;
         foreach (var porting in Porting.Bounded(Programs.Length)) porting?.Drop();

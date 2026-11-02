@@ -448,6 +448,7 @@ internal static partial class VulkanRenderer
     {
         var stranded = Strands($"failed ({why})");
         (_failed, _failure) = (true, why);
+        Komet.Core.VulkanRecord.Failed(); // OpenGL from now on for players who never chose
         Unpushed();
         (State, Status, _taking) = (Phase.Failed, _failure, false);
         if (!stranded && _renderer is { } only) HandBack(only);

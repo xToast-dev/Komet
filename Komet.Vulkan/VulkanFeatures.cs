@@ -46,7 +46,7 @@ internal static class VulkanFeatures
                 new EngineBodies(VulkanRenderer.BirthSeams, VulkanRenderer.BirthFingerprint)
             ],
             Knobs = [Switch("VulkanOnly", null, null, () => VulkanRenderer.Only,
-                    on => VulkanRenderer.Only = on),
+                    on => VulkanRenderer.Only = on) with { Suggest = VulkanRenderer.Suggested },
                 Switch("VulkanPacing", "vulkan", "vulkan-advanced", () => VulkanRenderer.Pacing,
                     on => VulkanRenderer.Pacing = on) with { Needs = "VulkanOnly" },
                 Switch("VulkanOnlyLean", "vulkan", "vulkan-advanced", () => VulkanRenderer.Lean, on =>

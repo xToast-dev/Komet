@@ -44,6 +44,7 @@ internal static class VulkanCore
             out var why);
         if (device is null)
         {
+            Komet.Core.VulkanRecord.Failed(); // no device meeting Vulkan-only's needs on this GPU
             Report(why);
             return;
         }

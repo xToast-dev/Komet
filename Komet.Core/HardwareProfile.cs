@@ -10,7 +10,11 @@ internal static class HardwareProfile
 {
     private const GetPName DedicatedNvx = (GetPName)0x9047, TextureFreeAti = (GetPName)0x87FC;
 
-    public readonly record struct Facts(int Cores, int RamGb, int VramGb, int RefreshHz);
+    // Vulkan: how Vulkan-only went on this GPU before (VulkanRecord)
+    public readonly record struct Facts(int Cores, int RamGb, int VramGb, int RefreshHz)
+    {
+        public VulkanRecord.Run Vulkan { get; init; }
+    }
 
     public static Facts Found { get; private set; }
 
@@ -22,9 +26,10 @@ internal static class HardwareProfile
 
     public static void Detect(ILogger? logger)
     {
-        var f = Suggest(new Facts(Environment.ProcessorCount, ReadRam(), ReadVram(), ReadRefresh()));
-        logger?.Notification("Komet: this computer: {0} cores, {1} GB RAM, {2} GB video memory, {3} Hz; suggested {4}",
-            f.Cores, f.RamGb, f.VramGb, f.RefreshHz, string.Join(", ", Suggested.Select(static s => $"{s.Key} {s.Value}")));
+        var f = Suggest(new Facts(Environment.ProcessorCount, ReadRam(), ReadVram(), ReadRefresh()) { Vulkan = ReadVulkan() });
+        logger?.Notification("Komet: this computer: {0} cores, {1} GB RAM, {2} GB video memory, {3} Hz, Vulkan-only on " +
+                             "this GPU before: {4}; suggested {5}", f.Cores, f.RamGb, f.VramGb, f.RefreshHz, Told(f.Vulkan),
+            string.Join(", ", Suggested.Select(static s => $"{s.Key} {s.Value}")));
     }
 
     // The facts taken as this computer's, and the knob values they suggest
@@ -42,6 +47,27 @@ internal static class HardwareProfile
     // The value for this computer, or null: Komet's default
     public static int? Suggestion(string key) =>
         NotNull(key) && Suggested.TryGetValue(key, out var value) ? value : null;
+
+    // Why the renderer is suggested as it is
+    private static string Told(VulkanRecord.Run run) => run switch
+    {
+        VulkanRecord.Run.Ran => "ran cleanly",
+        VulkanRecord.Run.Pending => "the game ended during it (not proven)",
+        VulkanRecord.Run.Failed => "failed (OpenGL for good)",
+        _ => "never ran"
+    };
+
+    private static VulkanRecord.Run ReadVulkan()
+    {
+        try
+        {
+            return VulkanRecord.Read(GL.GetString(StringName.Vendor), GL.GetString(StringName.Renderer));
+        }
+        catch (Exception e) when (e is InvalidOperationException or AccessViolationException or EntryPointNotFoundException)
+        {
+            return VulkanRecord.Run.Unknown; // no current context
+        }
+    }
 
     private static int ReadRam()
     {

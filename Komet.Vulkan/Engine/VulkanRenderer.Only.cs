@@ -44,6 +44,17 @@ internal static partial class VulkanRenderer
         }
     }
 
+    // The renderer for a player who never chose one: Vulkan-only only where it ran cleanly on this GPU before with room in
+    // video memory (unknown memory counts as too little), OpenGL for good where it failed, else Komet's default
+    internal const int SuggestedVramGb = 6;
+
+    internal static int? Suggested(Komet.Core.HardwareProfile.Facts hw) => hw.Vulkan switch
+    {
+        Komet.Core.VulkanRecord.Run.Failed => 0,
+        Komet.Core.VulkanRecord.Run.Ran when hw.VramGb >= SuggestedVramGb => 1,
+        _ => null
+    };
+
     // VulkanOnlyLean: GL gets no copy of the world's large textures and buffers (GlTap.Lean), saving that second copy and
     // its uploads, given back from Vulkan's when Vulkan-only lets go (Strands). On by default: only a device fault, which
     // leaves nothing to give back, needs the world joined again.

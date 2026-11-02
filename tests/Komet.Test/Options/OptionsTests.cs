@@ -125,8 +125,8 @@ public sealed class OptionsTests
         Assert.That(missing, Is.Empty);
     }
 
-    // What a preset or this computer sets is a trade-off with a row of its own, never one of the Overview's preferences; a preset
-    // value lies in the knob's range
+    // What a preset or this computer sets is a trade-off with a row of its own, never one of the Overview's preferences (the
+    // renderer's row is the settings page's choice, VulkanMode); a preset value lies in the knob's range
     [Test]
     public void ThePresetsAndTheComputerSetOnlyWeighedKnobs()
     {
@@ -135,7 +135,7 @@ public sealed class OptionsTests
         Assert.Multiple(() =>
         {
             Assert.That(set, Is.Not.Empty);
-            Assert.That(set.Where(k => !k.Weighed || k.Page is null).Select(k => k.Key), Is.Empty);
+            Assert.That(set.Where(k => (!k.Weighed || k.Page is null) && k.Key != VulkanMode.Knob).Select(k => k.Key), Is.Empty);
             Assert.That(knobs.Where(k => k.General && k.Weighed).Select(k => k.Key), Is.Empty);
             Assert.That(knobs.Where(k => k.Presets is { } p && !new[] { p.Quality, p.Balanced, p.Speed }.All(v => v >= k.Min && v <= k.Max))
                 .Select(k => k.Key), Is.Empty);

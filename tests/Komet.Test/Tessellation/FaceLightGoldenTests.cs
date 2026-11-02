@@ -231,7 +231,7 @@ public sealed class FaceLightGoldenTests
         {
             Assert.That((FaceLight.Installed, FaceLight.FusedInstalled), Is.EqualTo((true, false)),
                 "the faces without the fused block");
-            Assert.That(Harmony.GetPatchInfo(FaceLight.FusedTarget()), Is.Null);
+            Assert.That(Harmony.GetPatchInfo(FaceLight.FusedTarget())?.Owners ?? [], Is.Empty, "unpatched, or an empty record a test before left");
             Assert.That(logger.Lines, Has.Count.EqualTo(2).And.All.Contains("1.22.7"));
         });
     }

@@ -5,7 +5,7 @@ using Vintagestory.Common;
 
 namespace Komet.Chunks;
 
-// Single block and light reads (WorldChunk.UnpackAndReadBlock, Unpack_AndReadLight: every block accessor, the map,
+// Single block and light reads (WorldChunk.UnpackAndReadBlock, both Unpack_AndReadLight: every block accessor, the map,
 // rooms, an arriving chunk's block entities, the server's block ticks) unpack a packed chunk for one cell, and the chunk
 // then holds its planes for its time. A packed chunk is read through the thread's ChunkViews instead and stays packed.
 // A thread decoding more than MaxDecodes views within WindowMs reads across more chunks than its views hold (worldgen
@@ -22,15 +22,22 @@ internal static class PackedReads
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ReadLight")]
     private static extern ushort ReadLight(ChunkData data, int index);
 
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "ReadLight")]
+    private static extern ushort ReadLight(ChunkData data, int index, out int lightSat);
+
     public static void Install(Harmony harmony)
     {
         Installed = false;
         var block = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.UnpackAndReadBlock), [typeof(int), typeof(int)]);
         var light = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight), [typeof(int)]);
-        if (!NotNull(harmony) || block is null || light is null ||
-            AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [typeof(int)])?.ReturnType != typeof(ushort)) return;
+        var (i, sat) = (typeof(int), typeof(int).MakeByRefType());
+        var saturated = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight), [i, sat]);
+        if (!NotNull(harmony) || block is null || light is null || saturated is null ||
+            AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [i])?.ReturnType != typeof(ushort) ||
+            AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [i, sat])?.ReturnType != typeof(ushort)) return;
         _ = harmony.Patch(block, new HarmonyMethod(typeof(PackedReads), nameof(Block)));
         _ = harmony.Patch(light, new HarmonyMethod(typeof(PackedReads), nameof(Light)));
+        _ = harmony.Patch(saturated, new HarmonyMethod(typeof(PackedReads), nameof(SaturatedLight)));
         Installed = true;
     }
 
@@ -47,6 +54,14 @@ internal static class PackedReads
     {
         if (View(__instance) is not { } view || !Index(index, Cells)) return true;
         __result = ReadLight(view, index);
+        return false;
+    }
+
+    // Unpack_AndReadLight(index, out lightSat) prefix (WorldMap's light colours of entities and particles)
+    private static bool SaturatedLight(WorldChunk __instance, int index, ref int lightSat, ref ushort __result)
+    {
+        if (View(__instance) is not { } view || !Index(index, Cells)) return true;
+        __result = ReadLight(view, index, out lightSat);
         return false;
     }
 

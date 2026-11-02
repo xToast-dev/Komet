@@ -602,6 +602,8 @@
   "settings-decompressscratch-hint": "Unpacks arriving chunks without a throwaway copy: about 8 MB per second less memory garbage while chunks load. That means fewer stutters.",
   "settings-directchunks": "Hand chunks over directly",
   "settings-directchunks-hint": "In singleplayer the built-in server hands chunks, map columns and single block changes (leaves, grass, snow) to the game as they are instead of serializing, copying and reading them back. Loading makes far less garbage, and each chunk's packed data is held once.",
+  "settings-packedticks": "Leave quiet chunks packed",
+  "settings-packedticks-hint": "The server ticks random blocks in every chunk around a player and keeps all of them unpacked for it. Chunks without blocks that can grow, melt or spread (rock deep down, air above) are skipped and stay packed: less memory, same ticks. Also on a dedicated server.",
   "settings-columnnoisescratch": "Leaner terrain generation",
   "settings-columnnoisescratch-hint": "Generates new terrain with less memory garbage. Singleplayer only.",
   "settings-neighbourreads": "Read neighbour chunks only",

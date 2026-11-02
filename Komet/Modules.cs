@@ -40,7 +40,7 @@ internal static class Modules
         "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling", "MapTileUpload", "IdleAnimators", "PoolScale", "WindowSize", "ChunkLookup", "MeshRecycle", "FacePacking", "FaceSorting", "ClimateCache",
         "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch", "AnimationFrames", "ShapeInitMemo", "HeldItemsLast", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "JoinPacer", "ChunkPacking",
         "EventBusSweep", "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure",
-        "CloudTileScratch", "CloudUploads", "DecompressScratch", "DirectChunks", "BushShapes", "MapPixels",
+        "CloudTileScratch", "CloudUploads", "DecompressScratch", "DirectChunks", "PackedTicks", "BushShapes", "MapPixels",
         "TreeKeys", "MapPieceBudget", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
         "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation", "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm",
         "OccludedChunks", "DeepCulling", "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes",

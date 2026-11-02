@@ -8,7 +8,7 @@ using static Komet.Core.FeatureKit;
 namespace Komet.Chunks;
 
 // Chunk arrival: ChunkLookup, ChunkBudget, ChunkLoadBudget, JoinPacer, ChunkPacking, ChunkThreadClosure,
-// DecompressScratch and DirectChunks.
+// DecompressScratch, DirectChunks and PackedTicks.
 // In install order; Core's Features places them among the other modules'.
 internal static class ChunkFeatures
 {
@@ -99,6 +99,16 @@ internal static class ChunkFeatures
             },
             Knobs = [Switch("DirectChunks", "chunks", "arrival", () => DirectChunks.Enabled, on => DirectChunks.Enabled = on)],
             Probe = () => DirectChunks.Installed && PackedReads.Installed ? Active : EngineChanged
+        },
+        // random block ticks leave chunks without tickable blocks packed
+        new("PackedTicks")
+        {
+            Replaces = PackedTicks.Seams,
+            ServerOnly = true,
+            Install = c => PackedTicks.Install(c.Harmony),
+            Knobs = [Switch("PackedTicks", "chunks", "memory", () => PackedTicks.Enabled, on => PackedTicks.Enabled = on)],
+            Stop = _ => PackedTicks.Stop(),
+            Probe = () => PackedTicks.Installed && PackedTicks.Rewritten ? Active : EngineChanged
         }
     ];
 }

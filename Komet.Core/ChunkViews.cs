@@ -114,6 +114,22 @@ internal static class ChunkViews
         return cache.View(chunk, packed);
     }
 
+    // A packed chunk's block and fluid bytes in the current format (what Open would decode), read under its lock
+    public static bool Packed(WorldChunk chunk, out byte[]? blocks, out byte[]? fluids)
+    {
+        var found = Snapshot(chunk, out var packed);
+        (blocks, fluids) = (packed.Blocks, packed.Fluids);
+        return found;
+    }
+
+    // An unpacked chunk's data as it is (no unpack, no lock), or null while packed or disposed
+    public static ChunkData? Live(WorldChunk chunk)
+    {
+        if (!Usable || chunk is null || chunk.Disposed) return null;
+        var data = Unpacked(chunk);
+        return chunk.Disposed ? null : data;
+    }
+
     // The packed arrays, read under the chunk's lock (Unpack and the pack commit change them under it)
     private static bool Snapshot(WorldChunk chunk, out Packing packed)
     {

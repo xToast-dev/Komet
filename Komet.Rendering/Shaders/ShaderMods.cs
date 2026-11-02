@@ -590,8 +590,13 @@ internal static class ShaderMods
         }
     }
 
+    // The install has the file: under its path, or as an include of that name (see Restore)
+    private static bool Vanilla(string file) => GamePaths.AssetsPath is not { Length: > 0 } assets ||
+        File.Exists(Path.Join(assets, "game", file)) || File.Exists(Path.Join(assets, "game", "shaderincludes", Path.GetFileName(file)));
+
     private static Found? Made(Mod mod, string[] replaced, string[] own, bool declared, string[] variants, string[] foreign)
     {
+        replaced = [.. replaced.Where(Vanilla)]; // a new file in the game domain (Primitive Survival's poison.fsh) replaces nothing
         if (replaced.Length + own.Length + variants.Length + foreign.Length == 0 && !declared || !NotNull(mod.Info)) return null;
         var name = mod.Info.Name is { Length: > 0 } named ? named : mod.Info.ModID;
         return new Found(mod.Info.ModID, name, mod.SourcePath, replaced, own, declared) { Variants = variants, Elsewhere = foreign };

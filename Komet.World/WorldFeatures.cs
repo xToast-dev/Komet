@@ -10,7 +10,7 @@ using static Komet.Core.FeatureKit;
 namespace Komet.World;
 
 // World-side garbage and lookups: MapTileCulling, MapTileUpload (the map tiles the GL side draws), ClimateCache,
-// PartitionReuse, CookingMatch, AlloyMatch, EventBusSweep, ListenerSlots, BlockEntityCaches, CloudTileScratch,
+// PartitionReuse, CookingMatch, AlloyMatch, JsonValues, EventBusSweep, ListenerSlots, BlockEntityCaches, CloudTileScratch,
 // TreeKeys, MapPieceBudget, MapSaveScratch, LightScratch, LightRepair, ParticleLight, RelightRedraws,
 // ColumnNoiseScratch, WorldGenScratch, SnowPeek, TickScratch, SoundScratch, SoundsOnDemand, TickerCommit and
 // WeatherLock.
@@ -88,6 +88,14 @@ internal static class WorldFeatures
             Recheck = AlloyMatch.Recheck,
             Probe = () => Found(AlloyMatch.Matched && AlloyMatch.Ready, AlloyMatch.Blocked),
             Shapes = [new EngineBodies(AlloyMatch.Seams, AlloyMatch.Fingerprint)]
+        },
+        // equal attribute values of every block, item and entity type are one object once the level is final
+        new("JsonValues")
+        {
+            Install = c => JsonValues.Install(c.Api, c.Logger),
+            Knobs = [Switch("JsonValues", "misc", "garbage", () => JsonValues.Enabled, on => JsonValues.Enabled = on)],
+            Stop = _ => JsonValues.Stop(),
+            Probe = () => JsonValues.Installed ? Active : EngineChanged
         },
         new("EventBusSweep")
         {

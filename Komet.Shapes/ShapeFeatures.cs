@@ -5,7 +5,7 @@ using static Komet.Core.FeatureKit;
 
 namespace Komet.Shapes;
 
-// Shapes and entities: AnimationFrames, ShapeInitMemo, HeldItemsLast, BushShapes, InventoryShapes
+// Shapes and entities: AnimationFrames, ShapeInitMemo, KeyframeShare, HeldItemsLast, BushShapes, InventoryShapes
 // and IconBudget.
 // In install order; Core's Features places them among the other modules'.
 internal static class ShapeFeatures
@@ -34,6 +34,15 @@ internal static class ShapeFeatures
             Recheck = ShapeInitMemo.Recheck,
             Probe = () => Found(ShapeInitMemo.Matched, ShapeInitMemo.Blocked),
             Shapes = [new EngineBodies(ShapeInitMemo.Shaped, ShapeInitMemo.Fingerprint)]
+        },
+        // equal keyframe elements of every shape loaded from now on are one object
+        new("KeyframeShare")
+        {
+            Install = c => KeyframeShare.Install(c.Harmony),
+            Knobs = [Switch("KeyframeShare", "misc", "entities", () => KeyframeShare.Enabled,
+                on => KeyframeShare.Enabled = on)],
+            Stop = _ => KeyframeShare.Stop(),
+            Probe = () => KeyframeShare.Installed ? Active : EngineChanged
         },
         new("HeldItemsLast")
         {

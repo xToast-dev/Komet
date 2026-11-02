@@ -421,7 +421,8 @@ internal static class ShapeInitMemo
     }
 
     // The resolved entries, kept only where the engine's table holds exactly them in order and the init left the memo's
-    // ForElement and Frame on each (not with shared entries or a later resolve patch)
+    // ForElement and Frame on each (not with shared entries or a later resolve patch). An entry KeyframeShare hands out
+    // sits under several names: its ForElement is the last name's, as Restore writes them in the engine's order.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool KeepKey(Memo memo, AnimationKeyFrame? key, Dictionary<string, ShapeElement> names,
         HashSet<string> unresolved)
@@ -438,7 +439,8 @@ internal static class ShapeInitMemo
             var (name, entry) = entries.Current;
             if (name is null || entry is null || AnimationFrames.At(entry) != key.Frame) return false;
             var element = names.GetValueOrDefault(name);
-            if (element is not null && !ReferenceEquals(entry.ForElement, element)) return false;
+            if (element is not null && !ReferenceEquals(entry.ForElement, element) && !KeyframeShare.Holds(entry))
+                return false;
             memo.Entries.Add(new Entry(name, entry, element));
             if (element is null)
             {

@@ -23,6 +23,7 @@ internal static partial class AnimationFrames
     private static readonly Lock Gate = new();
     private static readonly Dictionary<ulong, List<Entry>> Cache = [];
     private static readonly HashSet<object> Seen = new(ReferenceEqualityComparer.Instance);
+    private static readonly HashSet<object> InKey = new(ReferenceEqualityComparer.Instance); // the current keyframe's
     private static readonly SeamGuard Guard = new(nameof(AnimationFrames), PatchKinds.All, [typeof(AnimationFrames)],
         unblocked: true);
 
@@ -64,6 +65,7 @@ internal static partial class AnimationFrames
         {
             Cache.Clear();
             Seen.Clear();
+            InKey.Clear();
             (_at, _entries, _names, _buffer) = (0, 0, new string[64], new byte[4096]);
         }
     }
@@ -188,6 +190,7 @@ internal static partial class AnimationFrames
     private static bool Frame(AnimationKeyFrame? key)
     {
         if (!NotNull(key) || !Int(key.Frame)) return false;
+        InKey.Clear();
         var elements = key.Elements;
         if (elements is null) return Int(-1);
         var count = elements.Count;
@@ -201,10 +204,13 @@ internal static partial class AnimationFrames
         return true;
     }
 
-    // Over-keying only costs a miss. The object is read too: left == right, and t from its Resolve-stamped Frame.
+    // Over-keying only costs a miss. The object is read too: left == right, and t from its Resolve-stamped Frame. One
+    // element under several names of a keyframe (KeyframeShare) is never compared with itself; across keyframes it is.
     private static bool Element(AnimationKeyFrameElement? element, int frame)
     {
-        if (!NotNull(element) || !Seen.Add(element) || At(element) != frame) return false;
+        if (!NotNull(element) || At(element) != frame) return false;
+        if (!Seen.Add(element) && !InKey.Contains(element)) return false;
+        _ = InKey.Add(element);
         if (!Num(element.OffsetX) || !Num(element.OffsetY) || !Num(element.OffsetZ)) return false;
         if (!Num(element.RotationX) || !Num(element.RotationY) || !Num(element.RotationZ)) return false;
         if (!Num(element.StretchX) || !Num(element.StretchY) || !Num(element.StretchZ)) return false;

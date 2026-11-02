@@ -74,7 +74,9 @@ internal sealed class StyleSheet
     public bool On(string key) => Size(key) > 0;
 
     // A family name, or null for the game's
-    public string? Font(string key) => _fonts.TryGetValue(key, out var f) && f.Length > 0 ? f : null;
+    // null for the game's font: also when the style's family cannot draw the player's language (Chinese in Saira)
+    public string? Font(string key) =>
+        _fonts.TryGetValue(key, out var f) && f.Length > 0 && StyleFonts.Reads(f, Lang.CurrentLocale) ? f : null;
 
     // Pragmatic's colours and sizes without its files (no shader, no logo, the game's font): the world blurred under it
     public static StyleSheet Fallback() => new(Pragmatic, "Pragmatic", new(ColorDefaults), new(SizeDefaults), []);

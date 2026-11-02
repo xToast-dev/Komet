@@ -32,4 +32,20 @@ public sealed class StyleTests
         Assert.That((sheet["accent"].R, sheet["accent"].A, sheet["faint"].A, sheet.Size("logo")),
             Is.EqualTo((0xE2 / 255.0, 0x80 / 255.0, 0x5C / 255.0, 96)));
     }
+
+    // A player in Chinese (pre.3 report) or Thai gets the game's font, chosen for the language; others test their letters
+    [TestCase("zh-cn", true)]
+    [TestCase("zh-tw", true)]
+    [TestCase("ja", true)]
+    [TestCase("ko", true)]
+    [TestCase("th", true)]
+    [TestCase("de", false)]
+    [TestCase("ru", false)]
+    public void ScriptsNoStyleFontShipsTakeTheGamesFont(string lang, bool own)
+    {
+        Assert.That(StyleFonts.OwnScript(lang), Is.EqualTo(own));
+        if (own) Assert.That(StyleFonts.Reads("Saira Semi Condensed", lang), Is.False);
+        else Assert.That(StyleFonts.Sample(lang), Is.Not.Empty, "its letters are tested");
+        Assert.That(StyleFonts.Reads("Saira Semi Condensed", "en"), Is.True, "English needs no test");
+    }
 }

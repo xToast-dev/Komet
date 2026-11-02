@@ -51,24 +51,17 @@ internal static class ShaderMods
     // The mod's declaration for Komet, read from its files before the assets load
     public const string Manifest = "config/komet.json";
 
-    // Whether the player wants the mod to run: a declared mod or one with content runs unless switched off (Rivers'
-    // chunkliquid shaders are its river current), an undeclared shader pack that replaces game shaders only once switched on
-    public static bool Wanted(ICoreAPI api, Found mod)
-    {
-        var state = ShaderState.Of(api);
-        return Opted(mod) ? !state.Stopped.Contains(mod.Id) : !mod.Replaces || state.On.Contains(mod.Id);
-    }
-
-    private static bool Opted(Found mod) => mod.Declared || mod.Content;
+    // Whether the player wants the mod to run: every mod runs until the player switches it off. Players asked that no mod
+    // need an update or a declaration to work beside Komet (Immersive Foliage, unmaintained mods); the switch is theirs.
+    public static bool Wanted(ICoreAPI api, Found mod) => !ShaderState.Of(api).Stopped.Contains(mod.Id);
 
     public static void Want(ICoreAPI api, Found mod, bool on)
     {
         var state = ShaderState.Of(api);
         if (!NotNull(mod)) return;
-        _ = state.On.Remove(mod.Id);
+        _ = state.On.Remove(mod.Id); // the old opt-in list: a mod the player switched on is no longer held anyway
         _ = state.Stopped.Remove(mod.Id);
-        if (Opted(mod) && !on) state.Stopped.Add(mod.Id);
-        if (!Opted(mod) && on) state.On.Add(mod.Id);
+        if (!on) state.Stopped.Add(mod.Id);
         ShaderState.Store(api);
     }
 
@@ -130,7 +123,8 @@ internal static class ShaderMods
         Ported.Clear();
     }
 
-    // Komet's StartPre, before any other mod's Start: shader mods not switched on are held back for this session
+    // Komet's StartPre, before any other mod's Start: shader mods switched off, or missing a mod they need, are held back
+    // for this session
     public static void HoldBack(ICoreAPI api, ILogger logger)
     {
         Release();
@@ -146,7 +140,7 @@ internal static class ShaderMods
         if (Off.Count == 0) return;
         var run = AccessTools.DeclaredMethod(typeof(Vintagestory.Common.ModLoader), "TryRunModPhase");
         if (!NotNull(run) || new Harmony(HoldId).Patch(run, new HarmonyMethod(typeof(ShaderMods), nameof(Skip))) is null) return;
-        logger?.Notification("Komet: shader mods held back until switched on under Shaders › Active shaders: {0}", string.Join(", ", Off));
+        logger?.Notification("Komet: shader mods held back (switched off under Shaders › Active shaders, or a mod they need is missing): {0}", string.Join(", ", Off));
     }
 
     // Held-back mods with content: their systems run, only their files give way

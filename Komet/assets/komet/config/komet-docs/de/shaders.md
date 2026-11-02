@@ -208,7 +208,7 @@ Eine eigene Einstellungsseite baust du mit `KometOptions` (Seite „API für Mod
 Shader-Mods, die Komet nicht kennen, musst du nicht anpassen. Komet findet sie beim Betreten einer Welt an ihren Shader-Dateien und zeigt sie unter Shader › Aktive Shader in der Gruppe „Weitere Shader-Mods“.
 
 - Komet zeigt, ob jeder ihrer Shader unter OpenGL kompiliert. Unter Vulkan übersetzt Komet sie selbst, auch die, die noch nicht gezeichnet wurden, und zeigt, ob das geklappt hat. Ein rotes Ausrufezeichen hinter dem Namen heißt, dass einer nicht durchkam. Das Feld rechts nennt ihn und den Grund.
-- Eine Mod, die Shader des Spiels oder einer anderen Mod ersetzt, ist erst einmal **aus**: Komet startet sie nicht, und das Spiel nutzt seine eigenen Dateien. Ein Hinweis im Chat sagt das beim Betreten der Welt. Mit ihrem Schalter startest du sie sofort.
+- Jede Shader-Mod läuft, auch eine, die Shader des Spiels oder einer anderen Mod ersetzt. Sie muss dafür nichts von Komet wissen. Mit ihrem Schalter kannst du sie ausschalten.
 - Schaltest du so eine Mod aus, pausiert sie sofort: Ihre Effekte verschwinden, das Spiel zeichnet wieder mit seinen eigenen Shadern. Schaltest du sie wieder ein, läuft sie weiter, wo sie war. Ab dem nächsten Betreten einer Welt bleibt sie ganz aus. Das gilt auch für Mods, die nur aus Shader-Dateien bestehen.
 - Fehlt eine Mod, von der sie abhängt, oder ist diese in einer anderen Hauptversion geladen, startet Komet sie nicht, und ihr Steckbrief sagt, warum.
 

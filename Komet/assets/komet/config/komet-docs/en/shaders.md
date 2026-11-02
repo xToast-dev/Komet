@@ -208,7 +208,7 @@ Build a settings page of your own with `KometOptions` (page "API for mods").
 Shader mods that do not know Komet need no changes. Komet finds them by their shader files when you enter a world and lists them under Shaders › Active shaders in the group "Other shader mods".
 
 - Komet shows whether each of their shaders compiles under OpenGL. Under Vulkan, Komet translates them itself, including the ones not drawn yet, and shows whether that worked. A red exclamation mark after the name means that one did not make it. The panel on the right names it and the reason.
-- A mod that replaces shaders of the game or of another mod is **off** at first: Komet does not start it, and the game uses its own files. A note in the chat says so when you enter the world. Its switch starts it at once.
+- Every shader mod runs, also one that replaces shaders of the game or of another mod. It needs to know nothing about Komet. Its switch turns it off.
 - Switching such a mod off pauses it at once: its effects go and the game draws with its own shaders again. Switch it on and it carries on where it was. From the next time you enter a world it stays off entirely. This holds for mods made only of shader files too.
 - If a mod it depends on is missing or loaded in another major version, Komet does not start it, and its card says why.
 

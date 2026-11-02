@@ -350,10 +350,10 @@ internal static class ShaderState
     {
         [JsonProperty("off")] public List<string> Off { get; set; } = [];
         [JsonProperty("values")] public Dictionary<string, Dictionary<string, double>> Values { get; set; } = [];
-        // Shader mods replacing game shaders the player switched on; the others are held back (ShaderMods.HoldBack)
+        // Pre-3.0 opt-in list (shader mods used to start held back); read so old files load, emptied by ShaderMods.Want
         [JsonProperty("on")] public List<string> On { get; set; } = [];
 
-        // Mods declared for Komet (config/komet.json) that the player switched off; the others run
+        // Shader mods the player switched off; the others run
         [JsonProperty("stopped")] public List<string> Stopped { get; set; } = [];
 
         // Per mod adapter (ModAdapters): the level ("komet" follows Komet's preset, "own" leaves the mod's file alone) and

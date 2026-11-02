@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
+using Komet.Api;
 using Komet.Core;
 
 namespace Komet.World;
@@ -11,7 +12,8 @@ namespace Komet.World;
 // - Matches uses the thread's two lists and counter array, never lets them out and reads only the counters it zeroed. A
 //   nested Matches (none exists) allocates as the engine; a prefix and finalizer count depth.
 // - GetMatchingStack compares against one shared copy, rebuilt when the source changes; Equals only reads it
-//   (EngineShape pins the body).
+//   (EngineShape pins the body). Another mod's prefix there (A Culinary Artillery replaces it whole) leaves the rewrite
+//   dead: it gives way until that prefix is gone, Matches stays rewritten.
 internal static class CookingMatch
 {
     // EngineShape of Seams() in Vintage Story 1.22.7
@@ -27,16 +29,21 @@ internal static class CookingMatch
     [ThreadStatic] private static object? _items; // the List<CookingRecipeIngredient> of this thread
     [ThreadStatic] private static int[]? _counts;
     private static Shared? _ignored;
+    private static Harmony? _harmony;
+    private static ILogger? _logger;
     private static int _rewritten;
     private static bool _shaped;
 
     public static bool Enabled { get; set; } = true;
-    public static bool Rewritten => _rewritten == AllBits;
+    public static bool Rewritten => (_rewritten | (Bypassed ? StackBit : 0)) == AllBits;
+
+    // Another mod's prefix replaces GetMatchingStack: Komet's rewrite of it is unpatched
+    public static bool Bypassed { get; private set; }
     internal static bool Matched => _shaped;
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
-        (_rewritten, _shaped) = (0, false);
+        (_rewritten, _shaped, Bypassed, _harmony, _logger) = (0, false, false, null, logger);
         var seams = Seams();
         if (!NotNull(harmony) || seams[0] is not MethodInfo matches ||
             seams[1] is not MethodInfo matching) return;
@@ -45,6 +52,30 @@ internal static class CookingMatch
         _ = harmony.Patch(matches, new HarmonyMethod(Enter), transpiler: new HarmonyMethod(RewriteMatches),
             finalizer: new HarmonyMethod(Leave));
         _ = harmony.Patch(matching, transpiler: new HarmonyMethod(RewriteMatching));
+        _harmony = harmony;
+        Recheck();
+    }
+
+    // At install and when the level is final (mods patch at their own start): the GetMatchingStack rewrite gives way to
+    // another mod's prefix and comes back once it is gone
+    internal static void Recheck()
+    {
+        if (!_shaped || _harmony is not { } harmony || Seams()[1] is not MethodInfo matching) return;
+        var foreign = EngineShape.Foreign([matching], PatchKinds.Prefix, harmony.Id);
+        if (foreign == Bypassed) return;
+        Bypassed = foreign;
+        var rewrite = AccessTools.Method(typeof(CookingMatch), nameof(RewriteMatching));
+        if (foreign)
+        {
+            harmony.Unpatch(matching, rewrite);
+            _rewritten &= ~StackBit;
+            _logger?.Notification("Komet CookingMatch: another mod replaces GetMatchingStack, only Matches is rewritten");
+        }
+        else
+        {
+            _ = harmony.Patch(matching, transpiler: new HarmonyMethod(rewrite));
+            _logger?.Notification("Komet CookingMatch: GetMatchingStack is no longer replaced, rewritten again");
+        }
     }
 
     internal static MethodBase?[] Seams()

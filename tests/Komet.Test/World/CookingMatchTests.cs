@@ -30,6 +30,35 @@ public sealed class CookingMatchTests
         });
     }
 
+    // A Culinary Artillery's prefix replaces GetMatchingStack: the rewrite there gives way and returns once it is gone
+    [Test]
+    public void GivesWayToAReplacingPrefix()
+    {
+        using var harmony = new TestHarmony("komet-test-cookingmatch");
+        CookingMatch.Install(harmony, new QuietLogger());
+        var matching = (MethodInfo)CookingMatch.Seams()[1]!;
+        using (var other = new TestHarmony("komet-test-aca"))
+        {
+            _ = other.Patch(matching, new HarmonyMethod(typeof(CookingMatchTests), nameof(Replace)));
+            CookingMatch.Recheck();
+            Assert.Multiple(() =>
+            {
+                Assert.That(CookingMatch.Bypassed, Is.True);
+                Assert.That(CookingMatch.Rewritten, Is.True, "Matches stays rewritten");
+                Assert.That(Harmony.GetPatchInfo(matching)!.Transpilers, Is.Empty);
+            });
+        }
+
+        CookingMatch.Recheck();
+        Assert.Multiple(() =>
+        {
+            Assert.That(CookingMatch.Bypassed, Is.False);
+            Assert.That(Harmony.GetPatchInfo(matching)!.Transpilers, Has.Count.EqualTo(1));
+        });
+    }
+
+    private static bool Replace() => true;
+
     [TestCase(true)]
     [TestCase(false)]
     public void EveryAnswerIsTheEnginesOwn(bool enabled)

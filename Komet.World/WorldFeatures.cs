@@ -75,6 +75,7 @@ internal static class WorldFeatures
             Replaces = CookingMatch.Seams,
             Rivals = PatchKinds.Body,
             Install = c => CookingMatch.Install(c.Harmony, c.Logger),
+            Recheck = CookingMatch.Recheck,
             Knobs = [Switch("CookingMatch", "misc", "garbage", () => CookingMatch.Enabled,
                 on => CookingMatch.Enabled = on)],
             Probe = () => CookingMatch.Matched && CookingMatch.Rewritten ? Active : EngineChanged,

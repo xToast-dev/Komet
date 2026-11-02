@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.0.0 (unreleased)
+
+### Changed
+
+- **Shader mods run without asking**: every mod with shaders runs as it would without Komet, also one that replaces the
+  game's shaders (Immersive Foliage). It needs no update and no `komet.json`; its switch under Shaders › Active shaders
+  turns it off. Only a mod whose required mod is missing stays off.
+- The renderer is suggested per graphics card: Vulkan-only once it ran cleanly on that card with 6 GB video memory or
+  more, OpenGL for good after a Vulkan failure. Your own choice always wins.
+
+### Fixed
+
+- Primitive Survival (and other mods with blocks, items or world generation that also ship shaders) crashed the join
+  ("Don't know how to instantiate … inTreeHollowTransform"): Komet took it for a shader mod and held its code back.
+- Rivers' client half no longer held back; no error on leaving a world after a mod was held back.
+- Chinese, Japanese, Korean and other scripts show again in Komet's menu, overlay and windows: where the menu style's
+  font lacks the letters, the game's font (the one set for your language) is used.
+- A Culinary Artillery: Komet's cooking rewrite stands back where ACA replaces the ingredient match.
+
+### Performance
+
+- Less memory: sounds are decoded when first played instead of all at the join (~200 MB), equal animation keyframes
+  are shared (~70 MB), equal attribute values are shared (30–60 MB), stone and air chunks near you stay packed in
+  singleplayer, and the GPU culling's row buffer grows only as needed (up to 75 MB less video memory).
+
 ## 3.0.0-pre.3
 
 ### New

@@ -41,7 +41,7 @@ public sealed class FeaturesTests
     [
         "Visible:Boolean", "Corner:String", "Opacity:Float", "Interval:Float", "BenchSeconds:Float", "ShowFps:Boolean",
         "ShowLows:Boolean", "ShowFrametime:Boolean", "ShowGraph:Boolean", "ShowMods:Boolean",
-        "ToastMs:Float", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String",
+        "ToastMs:Float", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String", "OptionsPage:String",
         "WindowX:String", "WindowY:String", "DebugLanguage:String",
         "DebugOnJoin:Boolean", "UpdateCheck:Boolean",
         "UpdateAsked:Boolean", "FontScale:Float", "ShowAdvanced:Boolean", "MenuStyle:String",

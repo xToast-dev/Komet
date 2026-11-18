@@ -113,7 +113,7 @@ internal sealed partial class OptionsScreen : GuiDialog
 
         _developer = false;
         Restyle();
-        Rebuild(page ?? KometPages.Overview);
+        Rebuild(page ?? LastPage(KometPages.Overview));
         if (chosen is not null && Array.Find(_pages, p => p.Id == _page) is { } shown)
         {
             for (var i = 0; i < Math.Min(shown.Count, OptionPage.MaxRows); i++)
@@ -135,7 +135,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         // settings pages before embedding the game's settings.
         _developer = false;
         Restyle();
-        Rebuild("vs-general");
+        Rebuild(LastPage("vs-general"));
         _dirty = true;
         _ = IsOpened() || TryOpen();
     }
@@ -189,8 +189,20 @@ internal sealed partial class OptionsScreen : GuiDialog
         (_decodeAt, _titleKey) = (0, ""); // the title decodes as the screen opens
     }
 
+    // The page open last, else the given one; the developer screen's tools are not remembered
+    private string LastPage(string otherwise) =>
+        _settings.OptionsPage is { Length: > 0 } last && !last.StartsWith("dev-", StringComparison.Ordinal)
+            ? last
+            : otherwise;
+
     public override void OnGuiClosed()
     {
+        if (!_developer && _page.Length > 0 && _settings.OptionsPage != _page)
+        {
+            _settings.OptionsPage = _page;
+            _settings.Save(capi);
+        }
+
         _shownTool?.Shown(false);
         _shownTool = null;
         Unbound();

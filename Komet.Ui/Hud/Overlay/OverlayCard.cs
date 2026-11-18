@@ -16,7 +16,8 @@ internal sealed class OverlayCard(
     DebugCapture capture) : IDisposable
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
-    private const int MaxDetailRows = 64;
+    private const int MaxDetailRows = 64, MaxDialogs = 256;
+    private double _detailRight = double.NaN; // the left edge of the game's HUD at the top right (minimap, coordinates)
     private const double DetailWidth = 236;
     private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
     private bool _overlayDirty = true;
@@ -113,8 +114,32 @@ internal sealed class OverlayCard(
         ];
     }
 
+    // The game's HUD dialogs at the top right (the minimap, the coordinates): the details card goes left of them, and
+    // to the edge when they are closed. Per interval, as the card is composed; Komet's own dialogs do not count.
+    private double FreeRight(double width, double height)
+    {
+        var free = width;
+        if (capi.Gui?.OpenedGuis is not { } gui) return free;
+
+        for (var i = 0; i < Math.Min(gui.Count, MaxDialogs); i++)
+        {
+            if (gui[i] is not { DialogType: EnumDialogType.HUD } dialog || dialog is HudDialog) continue;
+
+            foreach (var (_, composer) in dialog.Composers.Bounded(MaxDialogs))
+            {
+                if (composer?.Bounds is not { } b || !double.IsFinite(b.renderX) || b.OuterWidth <= 0) continue;
+
+                // in the right half, starting in the top third: a card at the top right would cover it
+                if (b.renderX > width / 2 && b.renderY < height / 3) free = Math.Min(free, b.renderX);
+            }
+        }
+
+        return free;
+    }
+
     private void ComposeDetails()
     {
+        _detailRight = FreeRight(capi.Render.FrameWidth, capi.Render.FrameHeight);
         _detailCanvas ??= new HudCanvas(capi, true);
         var (f, px) = (fonts, scaled(fonts.Scale));
         var rows = Details();
@@ -287,10 +312,11 @@ internal sealed class OverlayCard(
             oh = overlay.Height + scaled(8);
         }
 
-        // the details at the side the overlay leaves free, centred in height (the minimap keeps the top right)
+        // the details at the top of the side the overlay leaves free: on the right, left of the game's HUD there
         if (details && _detailCanvas is { Ready: true } detail)
         {
-            detail.Draw(right ? m : w - m - detail.Width, Math.Max(m, (h - detail.Height) / 2));
+            var edge = double.IsFinite(_detailRight) ? Math.Min(_detailRight, w) : w;
+            detail.Draw(right ? m : Math.Max(m, edge - m - detail.Width), m);
         }
 
         if (!card) return; // the toast belongs to the overlay

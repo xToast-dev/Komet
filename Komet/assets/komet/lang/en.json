@@ -624,6 +624,8 @@
   "settings-section-docs": "Help",
   "settings-section-modding": "Modding",
   "settings-section-mods": "Mods",
+  "settings-configlib-client": "Client (this computer)",
+  "settings-configlib-server": "Server (needs the controlserver privilege in multiplayer)",
   "settings-section-favorites": "Favorites",
   "settings-section-developer": "Developer",
   "settings-connected-open-settings": "Its settings",

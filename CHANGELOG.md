@@ -6,6 +6,14 @@
 
 - The Shader Studio (Ctrl+F8, `.komet dev`) is part of Komet again: the separate mod Komet SDK (`kometsdk`) is gone,
   remove `kometsdk_*.zip` from your Mods folder. The Modding pages and templates come with Komet too.
+- **Menu reordered**: Help and Modding are one tab. Every mod's page is in a new **Mods** tab, which opens on its folders
+  (ModConfig, Mods). With the game's developer mode on, a **Developer** tab holds Compatibility, Connected mods (now
+  with a way to each mod's settings) and Render debug. Right-click a page to pin it to a **Favorites** tab. The menu
+  opens on the page you had open last.
+- **ConfigLib mods in Komet's menu**: mods whose settings ConfigLib manages get a page in the Mods tab, client and server
+  settings apart; server settings in multiplayer need the controlserver privilege, as in ConfigLib. Switches, sliders
+  and choices are shown; free text, colours and mods that draw their own window stay in ConfigLib's.
+- KAPI: `Options.Page(title)` puts the page in the Mods tab instead of a tab of its own.
 - **Help and Modding read anew**: the page list on the left is a tree with the open page's sections; the text takes
   the room the contents column had. Blue words are clickable: a page opens, a term explains itself in a small window
   and its entry lights up on the Glossary page. Keys show as caps with your own binding. The Help pages are rewritten

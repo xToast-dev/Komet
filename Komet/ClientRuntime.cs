@@ -57,6 +57,7 @@ internal sealed class ClientRuntime
             : "Komet: remote server, Komet patches the client only");
         Features.Start(_context);
         ModAdapters.Start(api);
+        Options.ConfigLibPages.Start(api);
         api.Event.LevelFinalize += Features.Recheck;
         _poll = api.Event.RegisterGameTickListener(Poll, PollMs);
         logger.Notification("Komet HUD ready – F7 toggles it, .komet or Escape → Settings opens the options");
@@ -89,6 +90,7 @@ internal sealed class ClientRuntime
 
         Features.Cleanup(Owner, "release shader mods", ShaderMods.Release);
         Features.Cleanup(Owner, "release mod adapters", ModAdapters.Stop);
+        Features.Cleanup(Owner, "release ConfigLib pages", Options.ConfigLibPages.Stop);
         Features.Cleanup(Owner, "release services", Modules.Release);
     }
 }

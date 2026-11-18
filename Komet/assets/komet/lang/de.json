@@ -624,6 +624,8 @@
   "settings-section-docs": "Hilfe",
   "settings-section-modding": "Modding",
   "settings-section-mods": "Mods",
+  "settings-configlib-client": "Client (dieser Rechner)",
+  "settings-configlib-server": "Server (im Mehrspieler nur mit dem Recht controlserver)",
   "settings-section-favorites": "Favoriten",
   "settings-section-developer": "Entwickler",
   "settings-connected-open-settings": "Ihre Einstellungen",

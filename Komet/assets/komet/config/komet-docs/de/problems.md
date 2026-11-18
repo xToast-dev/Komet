@@ -6,7 +6,7 @@
 |---|---|
 | Welt unsichtbar oder Bild schwarz | Renderer auf [[OpenGL]] stellen und der Welt neu beitreten |
 | Einzelne Ruckler | Mit {key:komet-hud-window} eine [[Spike-Aufnahme]] machen |
-| Eine Einstellung ist gesperrt | **Komet › Kompatibilität** öffnen |
+| Eine Einstellung ist gesperrt | Mit [[Entwicklermodus]] **Entwickler › Kompatibilität** öffnen |
 | Shader fehlen oder sind schwarz | Im [[Log]] nach dem Namen des Shaders suchen |
 
 ## Einen Fehler melden

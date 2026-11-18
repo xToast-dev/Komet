@@ -43,7 +43,7 @@ render API, as an `IRenderer` of the same stage would.
 
 ## Connected mods page
 
-*Komet › Overview › Connected mods* lists every mod connected through KAPI: a switch for its render steps, and a card
+*Developer › Connected mods* (with the game's developer mode on) lists every mod connected through KAPI: a switch for its render steps, and a card
 with the KAPI version it asked for, what it registered (steps, passes, shader registrations, pages, features, holds,
 styles) and each render step with its stage and milliseconds per frame, or its error. Mods Komet refused, for example
 for a newer KAPI version, are listed below with the reason.

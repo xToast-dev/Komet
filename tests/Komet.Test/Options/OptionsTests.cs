@@ -106,13 +106,13 @@ public sealed class OptionsTests
         var knobPages = Knobs.BuiltIn.ToArray().Select(k => k.Page).OfType<string>().Distinct()
             .Select(p => "komet-" + p);
         var rows = pages.SelectMany(p => Enumerable.Range(0, p.Count).Select(i => p[i].Label)).ToArray();
-        string[] ids = [KometPages.Overview, CompatibilityPage.Id, ConnectedModsPage.Id, .. Areas, KometPages.Hud, KometPages.Tools];
+        string[] ids = [KometPages.Overview, .. Areas, KometPages.Hud, KometPages.Tools];
         Assert.Multiple(() =>
         {
             Assert.That(basic.Select(p => p.Id), Is.EqualTo(ids));
             Assert.That(pages.Select(p => p.Id),
                 Is.EqualTo([
-                    KometPages.Overview, CompatibilityPage.Id, ConnectedModsPage.Id, .. Areas, KometPages.ExactId, KometPages.Hud,
+                    KometPages.Overview, .. Areas, KometPages.ExactId, KometPages.Hud,
                     KometPages.Tools
                 ]));
             Assert.That(knobPages, Is.SubsetOf(Areas));

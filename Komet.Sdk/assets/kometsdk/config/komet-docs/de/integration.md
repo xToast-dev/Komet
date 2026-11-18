@@ -78,7 +78,7 @@ Ein eigener Renderer kann als Render-Schritt in Komets Frame sitzen, statt sich 
 `komet.Rendering.AddStep(new KapiRenderStep("outline", KapiRenderStage.AfterTransparent, Draw))`. Komet misst ihn,
 verbucht ihn in `.komet debug`, schaltet ihn für die Welt aus, wenn er eine Ausnahme wirft, und der Spieler kann deine
 Schritte ausschalten. Jede verbundene Mod steht mit ihren Schritten und deren Kosten auf der Seite Verbundene Mods
-(*Übersicht › Verbundene Mods*); eine Mod, die Komet abgelehnt hat, steht dort auch, mit dem Grund.
+(*Entwickler › Verbundene Mods*, mit Entwicklermodus); eine Mod, die Komet abgelehnt hat, steht dort auch, mit dem Grund.
 
 ## Fallback prüfen
 

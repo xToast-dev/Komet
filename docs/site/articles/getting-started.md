@@ -100,4 +100,4 @@ was written against in `Kapi.Connect` and nowhere else.
 | `Logs/komet-shader-<file>.txt` | the full source of a shader stage that failed to compile |
 | *Shaders › Active shaders*, the mod's row | binding, renderer, shader count, problems |
 | `.komet debug` | a protocol, with your [timings](debug.md) and render steps |
-| *Overview › Connected mods* | whether your mod connected or was refused, what it registered, each step's cost or error |
+| *Developer › Connected mods* (developer mode) | whether your mod connected or was refused, what it registered, each step's cost or error |

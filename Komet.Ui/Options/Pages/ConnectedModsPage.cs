@@ -29,6 +29,11 @@ internal static class ConnectedModsPage
                 .Default(1).Live()
                 .Tagged(() => Tags(mod))
                 .Card(() => Facts(mod));
+            if (SettingsOf(id) is { } settings)
+            {
+                _ = page.Button("   " + T("connected-open-settings"), T("do-open"), () => navigate(settings),
+                    T("connected-open-settings-hint"));
+            }
         }
 
         if (refused.Count == 0) return page;
@@ -42,6 +47,18 @@ internal static class ConnectedModsPage
         }
 
         return page;
+    }
+
+    // The first options page the mod registered, its id
+    private static string? SettingsOf(string modId)
+    {
+        for (var i = 0; i < Math.Min(OptionPages.Count, OptionPages.MaxPages); i++)
+        {
+            var id = OptionPages.At(i).Id;
+            if (id == modId || id.StartsWith(modId + ":", StringComparison.Ordinal)) return id;
+        }
+
+        return null;
     }
 
     private static string Name(ICoreClientAPI? api, string modId) =>

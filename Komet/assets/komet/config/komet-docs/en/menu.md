@@ -21,7 +21,8 @@ Click **Search options** at the top left and type a word. Komet finds settings a
 
 ## For advanced players
 
-Switch on [[developer mode]]. Then **Render · Live** shows every [[pass]] with its own switch.
-**Overview › Connected mods** shows the mods that talk to Komet through [[KAPI]].
+Switch on [[developer mode]] for the **Developer** tab: **Compatibility** says why a setting is locked,
+**Connected mods** shows the mods that talk to Komet through [[KAPI]], **Render debug** switches every [[pass]] on its own.
+Every mod's settings are in the **Mods** tab.
 
 Your settings are in `ModConfig/komet.json`.

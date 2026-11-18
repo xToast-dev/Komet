@@ -6,7 +6,7 @@
 |---|---|
 | World invisible or picture black | Set the renderer to [[OpenGL]] and join the world again |
 | Single stutters | Take a [[spike capture]] with {key:komet-hud-window} |
-| A setting is locked | Open **Komet › Compatibility** |
+| A setting is locked | With [[developer mode]] on, open **Developer › Compatibility** |
 | Shaders missing or black | Search the [[log]] for the shader's name |
 
 ## Reporting a bug

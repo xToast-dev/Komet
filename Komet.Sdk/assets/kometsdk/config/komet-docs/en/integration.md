@@ -77,7 +77,7 @@ internal static class KometBridge
 A renderer of your own can sit in Komet's frame as a render step instead of registering with the game itself:
 `komet.Rendering.AddStep(new KapiRenderStep("outline", KapiRenderStage.AfterTransparent, Draw))`. Komet times it,
 books it in `.komet debug`, switches it off for the world when it throws, and the player can switch your steps off.
-Every connected mod, with its steps and their cost, shows on the Connected mods page (*Overview › Connected mods*);
+Every connected mod, with its steps and their cost, shows on the Connected mods page (*Developer › Connected mods*, with developer mode on);
 a mod Komet refused shows there too, with the reason.
 
 ## Verify fallback

@@ -21,7 +21,8 @@ Klick oben links auf **Optionen durchsuchen** und tipp ein Wort. Komet findet Ei
 
 ## Für Fortgeschrittene
 
-Schalte den [[Entwicklermodus]] ein. Dann zeigt **Render · Live** jeden [[Pass]] einzeln zum An- und Ausschalten.
-**Übersicht › Verbundene Mods** zeigt Mods, die über [[KAPI]] mit Komet reden.
+Mit dem [[Entwicklermodus]] erscheint der Reiter **Entwickler**: **Kompatibilität** sagt, warum eine Einstellung
+gesperrt ist, **Verbundene Mods** zeigt Mods, die über [[KAPI]] mit Komet reden, **Render debug** schaltet jeden [[Pass]]
+einzeln. Die Einstellungen aller Mods findest du im Reiter **Mods**.
 
 Deine Einstellungen liegen in `ModConfig/komet.json`.

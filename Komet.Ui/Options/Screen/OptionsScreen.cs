@@ -259,6 +259,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         pages.Insert(firstMod >= 0 ? firstMod : pages.Count, KometPages.ModsPage(mods));
         // the in-game docs, last: the Help section, then Modding with its Templates page
         pages.AddRange(KometDocs.With(KometDocs.Pages(capi), _komet.TemplatesPage(KometDocs.Section)));
+        pages.AddRange(_komet.DeveloperPages()); // its own tab, last
         return Assert(pages.Count is > 0 and <= MaxPages) ? [.. pages] : [.. pages.Take(MaxPages)];
     }
 

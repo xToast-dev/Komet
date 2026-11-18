@@ -46,18 +46,26 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     public ICoreClientAPI? Api { get; init; }
     internal Action<string> Navigate { get; init; } = static _ => { };
 
+    // The Developer tab: what a mod or shader author looks at, shown with the game's developer mode on
+    public static string DeveloperSection => T("section-developer");
+
     internal OptionPage Compatibility() =>
-        CompatibilityPage.Build(Api, T("section-komet"), Navigate, actions,
+        CompatibilityPage.Build(Api, DeveloperSection, Navigate, actions,
             out _compatibilityNotices);
 
-    internal OptionPage Connected() => ConnectedModsPage.Build(Api, T("section-komet"), Navigate);
+    internal OptionPage Connected() => ConnectedModsPage.Build(Api, DeveloperSection, Navigate);
+
+    // Compatibility, connected mods and render debug; none without developer mode
+    public OptionPage[] DeveloperPages() =>
+        ClientSettings.DeveloperMode
+            ? [Compatibility(), Connected(), RenderDebugPage.Build(DeveloperSection, Navigate)]
+            : [];
 
     public OptionPage[] Build()
     {
         var section = T("section-komet");
         _armed = null;
-        List<OptionPage> pages = [OverviewPage(section), Compatibility(), Connected()];
-        if (ClientSettings.DeveloperMode) pages.Add(RenderDebugPage.Build(section, Navigate));
+        List<OptionPage> pages = [OverviewPage(section)];
 
         foreach (var area in Areas.Bounded(Areas.Length))
         {
@@ -81,13 +89,17 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     {
         var s = settings.Knobs;
         var page = new OptionPage(Overview, T("page-overview"), section);
-        _ = page.Group(T("compat-title"))
-            .Button(T("compat-check"),
-                () => _compatibilityNotices > 0 ? T("compat-notices", _compatibilityNotices) : T("do-open"),
-                () => Navigate(CompatibilityPage.Id), T("compat-overview-hint"))
-            .Tagged(CompatibilityTags)
-            .Button(T("connected-title"), () => T("connected-count", global::Komet.Api.Kapi.Mods.Count),
-                () => Navigate(ConnectedModsPage.Id), T("connected-hint"));
+        if (ClientSettings.DeveloperMode) // the pages they open are in the Developer tab
+        {
+            _ = page.Group(T("compat-title"))
+                .Button(T("compat-check"),
+                    () => _compatibilityNotices > 0 ? T("compat-notices", _compatibilityNotices) : T("do-open"),
+                    () => Navigate(CompatibilityPage.Id), T("compat-overview-hint"))
+                .Tagged(CompatibilityTags)
+                .Button(T("connected-title"), () => T("connected-count", global::Komet.Api.Kapi.Mods.Count),
+                    () => Navigate(ConnectedModsPage.Id), T("connected-hint"));
+        }
+
         var hw = HardwareProfile.Found;
         var names = Array.ConvertAll(Presets.Names, name => T("preset-" + name));
         _ = page.Group(T("preset-group"))

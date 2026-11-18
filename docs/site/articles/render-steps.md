@@ -29,7 +29,7 @@ would. <xref:Komet.Api.KapiRenderStage> names the places in frame order: `Before
 
 ## The Connected mods page
 
-*Overview › Connected mods* in Komet's options lists every mod connected through KAPI:
+*Developer › Connected mods* in Komet's options (the game's developer mode on) lists every mod connected through KAPI:
 
 - a switch per mod: off stops the mod's render steps for the session, its other registrations stay;
 - a card with the KAPI version the mod asked for, the counts of what it registered (render steps, passes, shader

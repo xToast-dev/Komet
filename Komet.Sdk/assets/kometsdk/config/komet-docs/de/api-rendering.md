@@ -45,7 +45,7 @@ Zeichne mit der Render-API des Spiels, wie ein `IRenderer` derselben Stage es t�
 
 ## Seite Verbundene Mods
 
-*Komet › Übersicht › Verbundene Mods* listet jede über KAPI verbundene Mod: einen Schalter für ihre Render-Schritte und
+*Entwickler › Verbundene Mods* (mit dem Entwicklermodus des Spiels) listet jede über KAPI verbundene Mod: einen Schalter für ihre Render-Schritte und
 eine Karte mit der verlangten KAPI-Version, dem, was sie angemeldet hat (Schritte, Passes, Shader-Registrierungen,
 Seiten, Features, Holds, Styles), und jedem Render-Schritt mit Stage und Millisekunden pro Frame oder seinem Fehler.
 Mods, die Komet abgelehnt hat, etwa wegen einer neueren KAPI-Version, stehen darunter mit dem Grund.

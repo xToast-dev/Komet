@@ -329,8 +329,11 @@ public sealed class RenderDebugTests
     {
         var actions = new KometActions(() => { }, _ => { }, () => { }, () => { }, () => { });
         var pages = new KometPages(new HudSettings(), actions);
-        Assert.That(pages.Build().Select(p => p.Id), Does.Contain(RenderDebugPage.Id));
+        string[] developer = [CompatibilityPage.Id, ConnectedModsPage.Id, RenderDebugPage.Id];
+        Assert.That(pages.DeveloperPages().Select(p => p.Id), Is.EqualTo(developer));
+        Assert.That(pages.DeveloperPages(), Has.All.Matches<OptionPage>(p => p.Section == KometPages.DeveloperSection));
+        Assert.That(pages.Build().Select(p => p.Id), Does.Not.Contain(RenderDebugPage.Id), "not among Komet's own");
         ClientSettings.DeveloperMode = false;
-        Assert.That(pages.Build().Select(p => p.Id), Does.Not.Contain(RenderDebugPage.Id));
+        Assert.That(pages.DeveloperPages(), Is.Empty);
     }
 }

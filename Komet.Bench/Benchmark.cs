@@ -4,26 +4,29 @@ using System.Reflection;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Komet.Core;
 using Komet.Diagnostics;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
-using Komet.Core;
 
 namespace Komet.Bench;
 
 // The developer benchmark's mod ("kometbench", scripts/bench.sh puts it beside the build under test): inert unless KOMET_BENCH
 // names a bench.json. After Komet's StartClientSide, so every Komet patch and the HUD are in place when the driver registers.
+// ReSharper disable once UnusedType.Global - a ModSystem: the game's mod loader finds and makes it
 public sealed class KometBenchSystem : ModSystem
 {
     private const double AfterKomet = 1;
 
-    public override double ExecuteOrder() => Assert(AfterKomet > base.ExecuteOrder()) ? AfterKomet : base.ExecuteOrder();
+    public override double ExecuteOrder() =>
+        Assert(AfterKomet > base.ExecuteOrder()) ? AfterKomet : base.ExecuteOrder();
 
     public override bool ShouldLoad(EnumAppSide forSide) => forSide == EnumAppSide.Client;
 
     public override void StartClientSide(ICoreClientAPI api)
     {
         if (!NotNull(api)) return;
+
         Benchmark.Install(api);
     }
 }
@@ -44,6 +47,7 @@ internal static class Benchmark
     {
         var path = Environment.GetEnvironmentVariable(Variable);
         if (string.IsNullOrEmpty(path) || _ran || !NotNull(capi)) return;
+
         _ran = true;
         capi.Logger.Notification("Komet bench: {0} is set, reading {1}", Variable, path);
         BenchConfig config;
@@ -80,7 +84,12 @@ internal static class Benchmark
     {
         var seconds = ClimbAllowance;
         if (!Assert(segments.Length is > 0 and <= BenchScenario.MaxSegments) || !Finite(seconds)) return 1;
-        for (var i = 0; i < Math.Min(segments.Length, BenchScenario.MaxSegments); i++) seconds += segments[i].Seconds;
+
+        for (var i = 0; i < Math.Min(segments.Length, BenchScenario.MaxSegments); i++)
+        {
+            seconds += segments[i].Seconds;
+        }
+
         return (int)Math.Clamp(seconds * FramesPerSecond, 1, BenchRecorder.MaxFrames);
     }
 
@@ -88,38 +97,59 @@ internal static class Benchmark
     private static string? Refusal(ICoreClientAPI capi, BenchConfig config)
     {
         if (!NotNull(capi) || !NotNull(config)) return "no client api";
+
         if (!capi.IsSinglePlayer) return "a benchmark runs only in singleplayer";
+
         var (assembly, bench) = (typeof(KometModSystem).Assembly, typeof(Benchmark).Assembly);
         if (!Under(assembly.Location, config.ModDir))
+        {
             return $"Komet was loaded from {assembly.Location}, not from {config.ModDir}";
+        }
+
         if (!Under(bench.Location, config.ModDir))
+        {
             return $"the benchmark mod was loaded from {bench.Location}, not from {config.ModDir}";
+        }
+
         var mods = capi.ModLoader.Mods.Bounded(HarmonyAudit.MaxLoadedMods).Where(mod => mod.Info?.ModID == KometMod.Id)
             .ToList();
         if (mods.Count != 1)
+        {
             return $"{mods.Count} enabled mods have the id komet, the build under test must be the only one";
+        }
+
         if (!Under(mods[0].SourcePath, config.ModDir))
+        {
             return $"the komet mod comes from {mods[0].SourcePath}, not from {config.ModDir}";
-        if (JitOptimizerDisabled(bench)) return "a Debug build of the benchmark mod is loaded; build Release (scripts/bench.sh --build)";
+        }
+
+        if (JitOptimizerDisabled(bench))
+        {
+            return "a Debug build of the benchmark mod is loaded; build Release (scripts/bench.sh --build)";
+        }
+
         return JitOptimizerDisabled(assembly) ? "a Debug build of Komet is loaded; build Release (./build.sh)" : null;
     }
 
     private static bool Under(string? path, string directory)
     {
         if (!Assert(directory.Length > 0) || string.IsNullOrEmpty(path)) return false;
+
         var full = Path.GetFullPath(path);
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
         return Assert(root.Length > 1) && full.StartsWith(root, StringComparison.Ordinal);
     }
 
-    private static bool JitOptimizerDisabled(Assembly assembly) => NotNull(assembly) &&
-        Assert(assembly.GetName().Name is "Komet" or "Komet.Bench") &&
-        assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
+    private static bool JitOptimizerDisabled(Assembly assembly) =>
+        NotNull(assembly) &&
+               Assert(assembly.GetName().Name is "Komet" or "Komet.Bench") &&
+               assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
 
     public static void Collect(ICoreClientAPI capi, BenchRun run)
     {
         var (assembly, mod) = (typeof(KometModSystem).Assembly, capi.ModLoader.GetMod(KometMod.Id));
         if (!NotNull(mod) || !NotNull(run) || !NotNull(capi.Render)) return;
+
         run.AddInfo("komet.version", mod.Info.Version);
         run.AddInfo("komet.configuration",
             assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()?.Configuration);
@@ -154,6 +184,7 @@ internal static class Benchmark
     private static void Client(BenchRun run, string key, double value)
     {
         if (!Assert(key.Length > 0) || !Finite(value)) return;
+
         run.AddInfo("client." + key, value.ToString(CultureInfo.InvariantCulture));
     }
 
@@ -161,6 +192,7 @@ internal static class Benchmark
     private static void Refuse(ICoreClientAPI capi, string output, string reason, bool exit)
     {
         if (!NotNull(capi) || !Assert(reason.Length > 0)) return;
+
         capi.Logger.Error("Komet bench refused: {0}", reason);
         try
         {
@@ -178,6 +210,7 @@ internal static class Benchmark
         }
 
         if (!exit || !capi.IsSinglePlayer || capi.World is not ClientMain game || !NotNull(capi.Event)) return;
+
         capi.Event.LevelFinalize += () => Exit(game, "komet bench refused");
     }
 
@@ -186,6 +219,7 @@ internal static class Benchmark
     public static void Exit(ClientMain game, string reason)
     {
         if (!NotNull(game) || !Assert(reason.Length > 0)) return;
+
         ScreenManager.EnqueueMainThreadTask(() => Leave(game, reason));
         _ = Task.Run(() => CloseWhenServerStopped(reason));
     }
@@ -193,6 +227,7 @@ internal static class Benchmark
     private static void Leave(ClientMain game, string reason)
     {
         if (!NotNull(game) || !Assert(reason.Length > 0) || game.disposed) return;
+
         game.SendLeave(0);
         game.exitReason = reason;
         game.DestroyGameSession(false, EnumExitMode.SoftExit);
@@ -201,6 +236,7 @@ internal static class Benchmark
     private static async Task CloseWhenServerStopped(string reason)
     {
         if (!Assert(reason.Length > 0) || !NotNull(ScreenManager.Platform)) return;
+
         for (var i = 0; i < MaxPolls; i++)
         {
             await Task.Delay(PollMs).ConfigureAwait(false);

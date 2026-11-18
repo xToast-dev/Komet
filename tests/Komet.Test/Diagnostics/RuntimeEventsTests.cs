@@ -13,15 +13,22 @@ public sealed class RuntimeEventsTests
     public void AllocationsArriveWithTheirType()
     {
         var events = RuntimeEvents.Start();
-        var waited = System.Diagnostics.Stopwatch.StartNew();
-        while (events.Sampled < 4 << 20 && waited.Elapsed < TimeSpan.FromSeconds(10))
-            for (var i = 0; i < 64; i++) _kept = new byte[64 << 10];
+        var waited = Stopwatch.StartNew();
+        while (waited.Elapsed < TimeSpan.FromSeconds(2)) // the runtime's dispatch lags: allocate long enough
+        {
+            for (var i = 0; i < 64; i++)
+            {
+                _kept = new byte[64 << 10];
+            }
+        }
+
         var snapshot = events.Stop();
         Assert.Multiple(() =>
         {
             Assert.That(snapshot.Sampled, Is.GreaterThan(1 << 20));
             Assert.That(snapshot.Types.Select(t => t.Type), Does.Contain("System.Byte[]"));
-            Assert.That(snapshot.Threads.Select(t => t.Thread), Does.Contain("main"), "the test's own thread counts as main");
+            Assert.That(snapshot.Threads.Select(t => t.Thread), Does.Contain("main"),
+                "the test's own thread counts as main");
         });
         Assert.That(_kept, Is.Not.Null);
     }

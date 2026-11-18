@@ -35,14 +35,14 @@ god rays, SSAO and FXAA only when the player turned them on.
 | Way | Where it runs |
 |---|---|
 | `IRenderer` at a stage | the stage of the table, in render order |
-| `KometShaders.Define`, `Edit` | inside the game's programs, at their next load |
-| `KometShaders.Uniform` | every program that declares it, at each `Use`, and every pass |
+| `komet.Shaders.Define`, `Edit` | inside the game's programs, at their next load |
+| `komet.Shaders.Uniform` | every program that declares it, at each `Use`, and every pass |
 | a pass (`komet.json` or `AddPass`) | step 11, after the final picture, before the window copy and the GUI |
 | a file under `config/komet/shaders/` | replaces the mod's own shader file while Komet runs |
 
 ## Program names
 
-`KometShaders.Define(..., programs)`, `Edit(program, ...)` and `komet.json` `programs` name programs by their pass
+`komet.Shaders.Define(..., programs)`, `Edit(program, ...)` and `komet.json` `programs` name programs by their pass
 name, the file name without extension in `assets/game/shaders/`.
 
 | Group | Programs |

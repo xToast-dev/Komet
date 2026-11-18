@@ -16,15 +16,15 @@ internal sealed partial class OptionsScreen
     private const int MaxStagger = 14;
     private const float TitleDepth = ScreenDepth + 0.2f, PressDepth = GlowDepth + 0.5f;
     private const string Glyphs = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789/<>#";
+    private double _decodeAt = -1; // _clock when the title began to decode; negative: it stands
+    private uint _noise = 7; // the decoding glyphs' sequence: looks, not chance
+    private (double X, double Y, double W, double H, double At) _press = (0, 0, 0, 0, -1);
+    private double _slide = -1; // _clock when the list began to come in; negative: it stands
+    private int _slideDir = 1, _minute = -1;
 
     private HudCanvas? _titleCanvas;
     private string _titleKey = "", _slideFor = ""; // _titleKey: the text the title texture shows
     private (int Epoch, double W, double H) _titleSize; // and the font size and box it was painted for
-    private double _decodeAt = -1; // _clock when the title began to decode; negative: it stands
-    private double _slide = -1; // _clock when the list began to come in; negative: it stands
-    private int _slideDir = 1, _minute = -1;
-    private uint _noise = 7; // the decoding glyphs' sequence: looks, not chance
-    private (double X, double Y, double W, double H, double At) _press = (0, 0, 0, 0, -1);
 
     // Per frame: a list coming in asks for pictures until it stands; the footer's clock each minute; a code block's
     // "Copied" back to "Copy" once it has shown (nothing else recomposes a doc page that is left alone)
@@ -32,15 +32,26 @@ internal sealed partial class OptionsScreen
     {
         var minute = DateTime.Now.Minute;
         if (minute != _minute) (_minute, _dirty) = (minute, true);
-        if (_copied.Block >= 0 && Environment.TickCount64 - _copied.At >= CopiedSeconds * 1000) (_copied, _dirty) = ((-1, 0), true);
+
+        if (_copied.Block >= 0 && Environment.TickCount64 - _copied.At >= CopiedSeconds * 1000)
+        {
+            (_copied, _dirty) = ((-1, 0), true);
+        }
+
         if (_slide < 0) return;
-        if (_slide > _clock || _clock - _slide > (SlideSeconds + MaxStagger * SlideStagger) * Math.Max(1, Pace) + 0.1) _slide = -1;
+
+        if (_slide > _clock ||
+            _clock - _slide > (SlideSeconds + MaxStagger * SlideStagger) * Math.Max(1, Pace) + 0.1)
+        {
+            _slide = -1;
+        }
     }
 
     // How far row i of the list has come in, 0 to 1
     private double In(int i)
     {
         if (_slide < 0 || _slide > _clock || !Moves("slide")) return 1;
+
         var t = (_clock - _slide - Math.Min(i, MaxStagger) * SlideStagger * Pace) / (SlideSeconds * Pace);
         return 1 - Math.Pow(1 - Math.Clamp(t, 0, 1), 3);
     }
@@ -49,11 +60,13 @@ internal sealed partial class OptionsScreen
     private string Decode(string text, double progress)
     {
         if (progress >= 1 || !Moves("decode")) return text;
+
         var shown = (int)(Math.Max(0, progress) * text.Length);
         var chars = text.ToCharArray();
         for (var i = shown; i < Math.Min(chars.Length, 4096); i++)
         {
             if (char.IsWhiteSpace(chars[i])) continue;
+
             _noise = _noise * 1664525 + 1013904223;
             chars[i] = Glyphs[(int)(_noise >> 8) % Glyphs.Length];
         }
@@ -65,12 +78,15 @@ internal sealed partial class OptionsScreen
     {
         var (tx, ty, tw, th, text, tracking) = OnScreen.Title;
         if (text.Length == 0 || tw <= 0 || th <= 0 || !Finite(x + y)) return;
+
         var progress = _decodeAt < 0 || !Moves("decode") ? 1 : (_clock - _decodeAt) / (DecodeSeconds * Pace);
         if (progress >= 1) _decodeAt = -1;
+
         var shown = Decode(text, progress);
         var size = (_fonts.Epoch, Math.Round(tw), Math.Round(th)); // compared in parts: no key string built every frame
         _titleCanvas ??= new HudCanvas(capi);
-        if ((!string.Equals(shown, _titleKey, StringComparison.Ordinal) || size != _titleSize) && _titleCanvas.Blank(tw, th))
+        if ((!string.Equals(shown, _titleKey, StringComparison.Ordinal) || size != _titleSize) &&
+            _titleCanvas.Blank(tw, th))
         {
             var at = 0.0;
             foreach (var c in shown.ToCharArray().Bounded(256))
@@ -97,7 +113,7 @@ internal sealed partial class OptionsScreen
             return;
         }
 
-        _canvas.Draw(x, y, ScreenDepth, placeOnly: true); // sets where clicks land; drawn below in four parts
+        _canvas.Draw(x, y, ScreenDepth, true); // sets where clicks land; drawn below in four parts
         Scissored(x, y, w, vy, 0, 1);
         Scissored(x, y + vy + vh, w, h - vy - vh, 0, 1);
         Scissored(x, y + vy, vx, vh, 0, 1);
@@ -116,8 +132,10 @@ internal sealed partial class OptionsScreen
     private void Scissored(double x, double y, double w, double h, double dx, double alpha)
     {
         if (w <= 0 || h <= 0 || alpha <= 0.01 || !Finite(x + y + dx)) return;
+
         var frame = capi.Render.FrameHeight;
-        capi.Render.GlScissor((int)Math.Round(x), (int)Math.Round(frame - y - h), (int)Math.Round(w), (int)Math.Round(h));
+        capi.Render.GlScissor((int)Math.Round(x), (int)Math.Round(frame - y - h), (int)Math.Round(w),
+            (int)Math.Round(h));
         capi.Render.GlScissorFlag(true);
         _canvas.Shifted(_canvas.X + dx, _canvas.Y, ScreenDepth, alpha);
     }
@@ -126,6 +144,7 @@ internal sealed partial class OptionsScreen
     private void Press(double x, double y, double w, double h)
     {
         if (!Finite(x + y) || w <= 0 || h <= 0) return;
+
         _press = (x, y, w, h, _clock);
     }
 
@@ -133,6 +152,7 @@ internal sealed partial class OptionsScreen
     private void PressKey(string key)
     {
         if (!OnScreen.Caps.TryGetValue(key, out var cap)) return;
+
         Press(cap.X, cap.Y, cap.W, cap.H);
     }
 
@@ -142,6 +162,7 @@ internal sealed partial class OptionsScreen
         var (vx, vy, vw, vh) = OnScreen.View;
         var hit = _cursor is null ? null : OnScreen.Rows.Find(r => r.Row && ReferenceEquals(r.Option, _cursor));
         if (hit is null || hit.Y + hit.H <= vy || hit.Y >= vy + vh) return;
+
         var (top, bottom) = (Math.Max(hit.Y, vy), Math.Min(hit.Y + hit.H, vy + vh));
         Press(vx + S(Spacer), top, vw - 2 * S(Spacer), bottom - top);
     }
@@ -150,6 +171,7 @@ internal sealed partial class OptionsScreen
     {
         var (px, py, pw, ph, at) = _press;
         if (at < 0 || !Finite(x + y)) return;
+
         var t = (_clock - at) / (PressSeconds * Math.Max(1, Pace));
         if (t >= 1 || Pace <= 0)
         {
@@ -159,6 +181,7 @@ internal sealed partial class OptionsScreen
 
         var (grow, fade) = (S(PressSpread) * (1 - Math.Pow(1 - t, 3)), 1 - t);
         Rect(x + px, y + py, pw, ph, Accent with { A = PressFlash * fade * fade }, PressDepth);
-        Ticks(x + px - grow, y + py - grow, pw + 2 * grow, ph + 2 * grow, S(8), _style["changed"] with { A = fade }, PressDepth);
+        Ticks(x + px - grow, y + py - grow, pw + 2 * grow, ph + 2 * grow, S(8), _style["changed"] with { A = fade },
+            PressDepth);
     }
 }

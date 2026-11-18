@@ -33,7 +33,8 @@ internal static partial class Vk
 
     public unsafe struct AppInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public byte* ApplicationName;
         public uint ApplicationVersion;
         public byte* EngineName;
@@ -42,7 +43,8 @@ internal static partial class Vk
 
     public unsafe struct InstanceInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public AppInfo* Application;
         public uint LayerCount;
@@ -53,33 +55,42 @@ internal static partial class Vk
 
     public unsafe struct IdProperties
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public fixed byte DeviceUuid[16];
+        // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceIDProperties' layout: the driver fills it
         public fixed byte DriverUuid[16];
+        // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceIDProperties' layout: the driver fills it
         public fixed byte DeviceLuid[8];
         public uint DeviceNodeMask, DeviceLuidValid;
     }
 
-    public struct QueueFamily { public uint Flags, Count, TimestampBits, GranularityWidth, GranularityHeight, GranularityDepth; }
+    public struct QueueFamily
+    {
+        public uint Flags, Count, TimestampBits, GranularityWidth, GranularityHeight, GranularityDepth;
+    }
 
     public unsafe struct MemoryProperties
     {
         public uint TypeCount;
         public fixed uint Types[64]; // 32 of { propertyFlags, heapIndex }
         public uint HeapCount;
+        // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceMemoryProperties' layout: the driver fills it
         public fixed ulong Heaps[32]; // 16 of { size, flags }
     }
 
     public unsafe struct QueueInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Family, Count;
         public float* Priorities;
     }
 
     public unsafe struct DeviceInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, QueueInfoCount;
         public QueueInfo* QueueInfos;
         public uint LayerCount;
@@ -91,13 +102,15 @@ internal static partial class Vk
 
     public unsafe struct PoolInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Family;
     }
 
     public unsafe struct CommandBufferInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public ulong Pool;
         public int Level;
         public uint Count;
@@ -105,14 +118,16 @@ internal static partial class Vk
 
     public unsafe struct BeginInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public void* Inheritance;
     }
 
     public unsafe struct ImageInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, ImageType, Format, Width, Height, Depth, MipLevels, ArrayLayers, Samples, Tiling, Usage;
         public uint SharingMode, FamilyCount;
         public uint* Families;
@@ -127,20 +142,23 @@ internal static partial class Vk
 
     public unsafe struct AllocateInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public ulong Size;
         public uint TypeIndex;
     }
 
     public unsafe struct FlagsInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags; // VkSemaphoreCreateInfo, VkFenceCreateInfo
     }
 
     public unsafe struct ImageBarrier
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint SrcAccess, DstAccess;
         public int OldLayout, NewLayout;
         public uint SrcFamily, DstFamily;
@@ -148,20 +166,26 @@ internal static partial class Vk
         public ColorRange Range;
 
         // Between two layouts, all memory access on both sides, no queue hand-over
-        public static ImageBarrier Full(ulong image, (int From, int To) layouts, uint aspect, int levels = 1, int layers = 1) => new()
-        {
-            SType = ImageMemoryBarrier, SrcAccess = AccessMemoryRead | AccessMemoryWrite,
-            DstAccess = AccessMemoryRead | AccessMemoryWrite, OldLayout = layouts.From, NewLayout = layouts.To,
-            SrcFamily = QueueFamilyIgnored, DstFamily = QueueFamilyIgnored, Image = image,
-            Range = new ColorRange { Aspect = aspect, Levels = (uint)levels, Layers = (uint)layers }
-        };
+        public static ImageBarrier Full(ulong image, (int From, int To) layouts, uint aspect, int levels = 1,
+            int layers = 1) =>
+            new()
+            {
+                SType = ImageMemoryBarrier, SrcAccess = AccessMemoryRead | AccessMemoryWrite,
+                DstAccess = AccessMemoryRead | AccessMemoryWrite, OldLayout = layouts.From, NewLayout = layouts.To,
+                SrcFamily = QueueFamilyIgnored, DstFamily = QueueFamilyIgnored, Image = image,
+                Range = new ColorRange { Aspect = aspect, Levels = (uint)levels, Layers = (uint)layers }
+            };
     }
 
-    public struct ColorRange { public uint Aspect, BaseLevel, Levels, BaseLayer, Layers; }
+    public struct ColorRange
+    {
+        public uint Aspect, BaseLevel, Levels, BaseLayer, Layers;
+    }
 
     public unsafe struct Submit
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint WaitCount;
         public ulong* Waits;
         public uint* WaitStages;
@@ -189,33 +213,51 @@ internal static partial class Vk
     public const uint LoadOpLoad = 0, StoreOpStore = 0;
     public const int LayoutColorAttachment = 2, LayoutDepthAttachment = 3, LayoutShaderRead = 5;
     public const uint CombinedSampler = 1;
-    public const int FeatureCount = 55, IndependentBlend = 3, MultiDrawIndirect = 9, SamplerAnisotropy = 19;
-    public const int FeatureDepthClamp = 11, LayoutDepthReadOnly = 4, FillModeNonSolid = 13, WideLines = 15, FeatureLogicOp = 8;
+    public const int IndependentBlend = 3, MultiDrawIndirect = 9, SamplerAnisotropy = 19;
+    // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
+    public const int FeatureCount = 55;
+
+    public const int FeatureDepthClamp = 11,
+        LayoutDepthReadOnly = 4,
+        FillModeNonSolid = 13,
+        WideLines = 15,
+        FeatureLogicOp = 8;
+
     public const int DrawIndirectFirstInstance = 10, PipelineCacheCreateInfo = 17;
-    public const int DynamicRendering = 12, Vulkan13Count = 15, ExtensionNameBytes = 256;
-    public const int DrawIndirectCount = 1, Vulkan12Count = 47;
+    public const int DynamicRendering = 12, ExtensionNameBytes = 256;
+    // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
+    public const int Vulkan13Count = 15;
+    public const int DrawIndirectCount = 1;
+    // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
+    public const int Vulkan12Count = 47;
 
     public unsafe struct Features2
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public fixed uint Features[FeatureCount];
     }
 
     public unsafe struct Features12
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public fixed uint Features[Vulkan12Count];
     }
 
     public unsafe struct Features13
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public fixed uint Features[Vulkan13Count];
     }
 
     public unsafe struct OneFeature
     {
-        public int SType; public void* Next;
+        public int SType;
+
+        public void* Next;
+
         // VkPhysicalDeviceDepthClipControlFeaturesEXT, VkPipelineViewportDepthClipControlCreateInfoEXT
         public uint Enabled;
     }
@@ -226,13 +268,20 @@ internal static partial class Vk
         public uint SpecVersion;
     }
 
-    public struct VertexBinding { public uint Binding, Stride, InputRate; }
+    public struct VertexBinding
+    {
+        public uint Binding, Stride, InputRate;
+    }
 
-    public struct VertexAttribute { public uint Location, Binding, Format, Offset; }
+    public struct VertexAttribute
+    {
+        public uint Location, Binding, Format, Offset;
+    }
 
     public unsafe struct VertexInputState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, BindingCount;
         public VertexBinding* Bindings;
         public uint AttributeCount;
@@ -241,13 +290,15 @@ internal static partial class Vk
 
     public unsafe struct InputAssemblyState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Topology, PrimitiveRestart;
     }
 
     public unsafe struct ViewportState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, ViewportCount;
         public void* Viewports;
         public uint ScissorCount;
@@ -256,50 +307,63 @@ internal static partial class Vk
 
     public unsafe struct RasterizationState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, DepthClamp, Discard, PolygonMode, CullMode, FrontFace, DepthBias;
         public float BiasConstant, BiasClamp, BiasSlope, LineWidth;
     }
 
     public unsafe struct MultisampleState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Samples, SampleShading;
         public float MinSampleShading;
         public void* SampleMask;
         public uint AlphaToCoverage, AlphaToOne;
     }
 
-    public struct StencilState { public uint Fail, Pass, DepthFail, Compare, CompareMask, WriteMask, Reference; }
+    public struct StencilState
+    {
+        public uint Fail, Pass, DepthFail, Compare, CompareMask, WriteMask, Reference;
+    }
 
     public unsafe struct DepthStencilState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, DepthTest, DepthWrite, DepthCompare, DepthBounds, Stencil;
         public StencilState Front, Back;
         public float MinDepthBounds, MaxDepthBounds;
     }
 
-    public struct BlendAttachment { public uint Enable, SourceColor, TargetColor, ColorOp, SourceAlpha, TargetAlpha, AlphaOp, WriteMask; }
+    public struct BlendAttachment
+    {
+        public uint Enable, SourceColor, TargetColor, ColorOp, SourceAlpha, TargetAlpha, AlphaOp, WriteMask;
+    }
 
     public unsafe struct ColorBlendState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, LogicOpEnable, LogicOp, AttachmentCount;
         public BlendAttachment* Attachments;
+        // ReSharper disable once UnusedMember.Global - VkPipelineColorBlendStateCreateInfo's layout
         public fixed float Constants[4];
     }
 
     public unsafe struct DynamicState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Count;
         public uint* States;
     }
 
     public unsafe struct PipelineRendering
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint ViewMask, ColorCount;
         public uint* ColorFormats;
         public uint DepthFormat, StencilFormat;
@@ -307,7 +371,8 @@ internal static partial class Vk
 
     public unsafe struct GraphicsInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, StageCount;
         public StageInfo* Stages;
         public VertexInputState* VertexInput;
@@ -325,7 +390,10 @@ internal static partial class Vk
         public int BaseIndex;
     }
 
-    public struct Viewport { public float X, Y, Width, Height, MinDepth, MaxDepth; }
+    public struct ViewportBox
+    {
+        public float X, Y, Width, Height, MinDepth, MaxDepth;
+    }
 
     public struct Rect
     {
@@ -333,27 +401,30 @@ internal static partial class Vk
         public uint Width, Height;
     }
 
-    public unsafe struct Attachment
+    public unsafe struct RenderingAttachment
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public ulong View;
         public int Layout;
         public uint ResolveMode;
         public ulong ResolveView;
         public int ResolveLayout;
         public uint Load, Store;
+        // ReSharper disable once UnusedMember.Global - VkRenderingAttachmentInfo's layout
         public fixed float Clear[4];
     }
 
     public unsafe struct RenderingInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public Rect Area;
         public uint Layers, ViewMask, ColorCount;
-        public Attachment* Colors;
-        public Attachment* Depth;
-        public Attachment* Stencil;
+        public RenderingAttachment* Colors;
+        public RenderingAttachment* Depth;
+        public RenderingAttachment* Stencil;
     }
 
     public struct DrawIndexed
@@ -365,7 +436,8 @@ internal static partial class Vk
 
     public unsafe struct PipelineCacheInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public nuint InitialDataSize;
         public void* InitialData;
@@ -389,7 +461,8 @@ internal static partial class Vk
     // VkXlibSurfaceCreateInfoKHR: the X11 display and window (an XID, unsigned long)
     public unsafe struct XlibSurfaceInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public IntPtr Display;
         public nuint Window;
@@ -398,7 +471,8 @@ internal static partial class Vk
     // VkWaylandSurfaceCreateInfoKHR: the Wayland display and surface (wl_display*, wl_surface*)
     public unsafe struct WaylandSurfaceInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public IntPtr Display;
         public IntPtr Surface;
@@ -407,7 +481,8 @@ internal static partial class Vk
     // VkWin32SurfaceCreateInfoKHR: the module (HINSTANCE) and window (HWND)
     public unsafe struct Win32SurfaceInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public IntPtr Instance;
         public IntPtr Window;
@@ -420,11 +495,15 @@ internal static partial class Vk
         public uint MaxArrayLayers, SupportedTransforms, CurrentTransform, SupportedCompositeAlpha, SupportedUsage;
     }
 
-    public struct SurfaceFormat { public uint Format, ColorSpace; }
+    public struct SurfaceFormat
+    {
+        public uint Format, ColorSpace;
+    }
 
     public unsafe struct SwapchainInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public ulong Surface;
         public uint MinImageCount, Format, ColorSpace, Width, Height, ArrayLayers, Usage, Sharing, FamilyCount;
@@ -435,7 +514,8 @@ internal static partial class Vk
 
     public unsafe struct PresentInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint WaitCount;
         public ulong* Waits;
         public uint SwapchainCount;
@@ -472,52 +552,65 @@ internal static partial class Vk
     public const uint StencilFront = 0x1, StencilBack = 0x2;
 
     // VkFormatFeatureFlags of optimal tiling
-    public const uint FeatureSampled = 0x1, FeatureDepthStencilAttachment = 0x200, FeatureBlitSource = 0x400,
+    public const uint FeatureSampled = 0x1,
+        FeatureDepthStencilAttachment = 0x200,
+        FeatureBlitSource = 0x400,
         FeatureBlitTarget = 0x800;
 
     public const int IndexTypeUint8Features = 1000265000; // VkPhysicalDeviceIndexTypeUint8FeaturesEXT
     public const int DivisorFeatures = 1000190002, DivisorStateInfo = 1000190001; // VK_EXT_vertex_attribute_divisor
-    public const string IndexUint8Extension = "VK_EXT_index_type_uint8", DivisorExtension = "VK_EXT_vertex_attribute_divisor";
 
-    public struct PushRange { public uint Stages, Offset, Size; }
+    public const string IndexUint8Extension = "VK_EXT_index_type_uint8",
+        DivisorExtension = "VK_EXT_vertex_attribute_divisor";
+
+    public struct PushRange
+    {
+        public uint Stages, Offset, Size;
+    }
 
     public unsafe struct QueryPoolInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, QueryType, QueryCount, PipelineStatistics;
     }
 
     // VkPhysicalDeviceLineRasterizationFeaturesKHR
     public unsafe struct LineFeaturesInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Rectangular, Bresenham, Smooth, StippledRectangular, StippledBresenham, StippledSmooth;
     }
 
     // VkPipelineRasterizationLineStateCreateInfoKHR
     public unsafe struct LineState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Mode, Stippled, Factor;
         public ushort Pattern;
     }
 
-    public struct Layers { public uint Aspect, Level, BaseLayer, Count; }
+    public struct SubresourceLayers
+    {
+        public uint Aspect, Level, BaseLayer, Count;
+    }
 
     public struct ImageBlit
     {
-        public Layers Source;
+        public SubresourceLayers Source;
         public int SourceX0, SourceY0, SourceZ0, SourceX1, SourceY1, SourceZ1;
-        public Layers Target;
+        public SubresourceLayers Target;
         public int TargetX0, TargetY0, TargetZ0, TargetX1, TargetY1, TargetZ1;
     }
 
     // VkImageCopy: same-sized regions between two images of compatible formats, texel for texel
     public struct ImageCopy
     {
-        public Layers Source;
+        public SubresourceLayers Source;
         public int SourceX, SourceY, SourceZ;
-        public Layers Target;
+        public SubresourceLayers Target;
         public int TargetX, TargetY, TargetZ;
         public uint Width, Height, Depth;
     }
@@ -535,21 +628,29 @@ internal static partial class Vk
         public uint BaseLayer, Layers;
     }
 
-    public struct FormatProperties { public uint Linear, Optimal, Buffer; }
+    public struct FormatProperties
+    {
+        public uint Linear, Optimal, Buffer;
+    }
 
     // VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT
     public unsafe struct TwoFeatures
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint First, Second;
     }
 
-    public struct BindingDivisor { public uint Binding, Divisor; }
+    public struct BindingDivisor
+    {
+        public uint Binding, Divisor;
+    }
 
     // VkPipelineVertexInputDivisorStateCreateInfoEXT
     public unsafe struct DivisorState
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Count;
         public BindingDivisor* Divisors;
     }
@@ -575,11 +676,15 @@ internal static partial class Vk
     public const uint AccessShaderWrite = 0x40, AccessTransferRead = 0x800;
     public const int BindCompute = 1, ViewType2D = 1, FormatR32F = 100;
 
-    public struct BufferCopy { public ulong SourceOffset, TargetOffset, Size; }
+    public struct BufferCopy
+    {
+        public ulong SourceOffset, TargetOffset, Size;
+    }
 
     public unsafe struct BufferInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public ulong Size;
         public uint Usage, SharingMode, FamilyCount;
@@ -588,7 +693,8 @@ internal static partial class Vk
 
     public unsafe struct ViewInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public ulong Image;
         public int ViewType;
@@ -598,7 +704,8 @@ internal static partial class Vk
 
     public unsafe struct SamplerInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, MagFilter, MinFilter, MipmapMode, AddressU, AddressV, AddressW;
         public float LodBias;
         public uint Anisotropy;
@@ -610,7 +717,8 @@ internal static partial class Vk
 
     public unsafe struct ModuleInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public nuint CodeSize;
         public uint* Code;
@@ -626,14 +734,16 @@ internal static partial class Vk
 
     public unsafe struct SetLayoutInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, BindingCount;
         public LayoutBinding* Bindings;
     }
 
     public unsafe struct PipelineLayoutInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, SetLayoutCount;
         public ulong* SetLayouts;
         public uint PushRangeCount;
@@ -642,7 +752,8 @@ internal static partial class Vk
 
     public unsafe struct StageInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags, Stage;
         public ulong Module;
         public byte* Name;
@@ -651,7 +762,8 @@ internal static partial class Vk
 
     public unsafe struct ComputeInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint Flags;
         public StageInfo Stage;
         public ulong Layout, Base;
@@ -660,7 +772,8 @@ internal static partial class Vk
 
     public unsafe struct WriteInfo
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public ulong Set;
         public uint Binding, ArrayElement, Count;
         public int Type;
@@ -669,7 +782,10 @@ internal static partial class Vk
         public void* TexelViews;
     }
 
-    public struct BufferDescriptor { public ulong Buffer, Offset, Range; }
+    public struct BufferDescriptor
+    {
+        public ulong Buffer, Offset, Range;
+    }
 
     public struct ImageDescriptor
     {
@@ -679,7 +795,8 @@ internal static partial class Vk
 
     public unsafe struct GlobalBarrier
     {
-        public int SType; public void* Next;
+        public int SType;
+        public void* Next;
         public uint SrcAccess, DstAccess;
     }
 

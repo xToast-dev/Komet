@@ -8,7 +8,13 @@ namespace Komet.Bench;
 
 // Lows come from FrameStats over the same FrameClock dt, so they match the HUD's
 internal readonly record struct BenchSummary(
-    int N, double TotalMs, float P99Ms, float MaxMs, float Low1Fps, float Low01Fps, int Over25)
+    int N,
+    double TotalMs,
+    float P99Ms,
+    float MaxMs,
+    float Low1Fps,
+    float Low01Fps,
+    int Over25)
 {
     public double AvgMs => N > 0 ? TotalMs / N : double.NaN;
     public double Over25PerMin => TotalMs > 0 ? Over25 * 60_000.0 / TotalMs : double.NaN;
@@ -16,9 +22,27 @@ internal readonly record struct BenchSummary(
 
 // A segment's frames summed in one pass: all frames for queues and tessellation, the counted ones for GC
 internal record struct BenchSums(
-    int Frames, int Paused, int Discarded, int Focused, double Ms, double GcMs, float MaxGcMs, int Gen0, int Gen1,
-    int Gen2, long AllocKb, long MainAllocKb, long TessQ, int TessQMax, long TessNear, int TessNearMax, long UploadQ,
-    int UploadQMax, long Received, long TessPasses, double TessMs);
+    int Frames,
+    int Paused,
+    int Discarded,
+    int Focused,
+    double Ms,
+    double GcMs,
+    float MaxGcMs,
+    int Gen0,
+    int Gen1,
+    int Gen2,
+    long AllocKb,
+    long MainAllocKb,
+    long TessQ,
+    int TessQMax,
+    long TessNear,
+    int TessNearMax,
+    long UploadQ,
+    int UploadQMax,
+    long Received,
+    long TessPasses,
+    double TessMs);
 
 // result.json and frames.csv; deltas pair each arm with arm 0 within one mirrored block, so pairs share drift
 internal static class BenchReport
@@ -37,21 +61,29 @@ internal static class BenchReport
     public static void Write(BenchRun run, BenchRecorder recorder)
     {
         if (!NotNull(run) || !NotNull(recorder)) return;
+
         if (recorder.Count > 0) Atomic(run.Config.Frames, stream => WriteCsv(stream, recorder, run));
+
         Atomic(run.Config.Output, stream => WriteJson(stream, run, recorder));
     }
 
     private static void Atomic(string path, Action<Stream> write)
     {
         if (!Assert(path.Length > 0) || !NotNull(write)) return;
+
         var temporary = path + ".tmp";
-        using (var stream = File.Create(temporary)) write(stream);
+        using (var stream = File.Create(temporary))
+        {
+            write(stream);
+        }
+
         File.Move(temporary, path, true);
     }
 
     public static void WriteCsv(Stream stream, BenchRecorder recorder, BenchRun run)
     {
         if (!NotNull(stream) || !NotNull(recorder) || !Assert(run.Segments.Length > 0)) return;
+
         using var writer = new StreamWriter(stream, new UTF8Encoding(false), 1 << 16, true);
         writer.Write(
             "frame,segment,kind,lap,arm,t,dtMs,gcMs,allocKB,mainAllocKB,gc0,gc1,gc2,jitMs,runQueueMs,tessQ,tessNear,uploadQ," +
@@ -71,7 +103,8 @@ internal static class BenchReport
                 $"{f.DtMs:F3},{f.GcMs:F3},{f.AllocKb},{f.MainAllocKb},{f.Gen0},{f.Gen1},{f.Gen2},{f.JitMs:F3},{f.RunQueueMs:F3},");
             _ = line.Append(CultureInfo.InvariantCulture,
                 $"{f.TessQ},{f.TessNear},{f.UploadQ},{f.Received},{f.TessPasses},{f.TessMs:F3},");
-            _ = line.Append(CultureInfo.InvariantCulture, $"{f.X:F2},{f.Z:F2},{f.Yaw:F4},{(int)f.Flags},{f.GpuMs:F3},{f.OpaqueGpuMs:F3}\n");
+            _ = line.Append(CultureInfo.InvariantCulture,
+                $"{f.X:F2},{f.Z:F2},{f.Yaw:F4},{(int)f.Flags},{f.GpuMs:F3},{f.OpaqueGpuMs:F3}\n");
             writer.Write(line);
         }
     }
@@ -79,6 +112,7 @@ internal static class BenchReport
     public static void WriteJson(Stream stream, BenchRun run, BenchRecorder recorder)
     {
         if (!NotNull(stream) || !NotNull(run) || !NotNull(recorder)) return;
+
         using var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
         var ranges = Ranges(recorder.Frames, run.Segments.Length);
         var scratch = new float[Math.Max(1, recorder.Count)];
@@ -86,12 +120,18 @@ internal static class BenchReport
         Header(json, run, recorder);
         json.WriteStartArray("segments");
         for (var s = 0; s < Math.Min(run.Segments.Length, MaxSegments); s++)
+        {
             Segment(json, run, recorder, s, ranges[s], scratch);
+        }
+
         json.WriteEndArray();
         var laps = LapMetrics(run, recorder.Frames, ranges, scratch);
         json.WriteStartArray("arms");
         for (var a = 0; a < Math.Min(run.Config.Arms.Count, BenchConfig.MaxArms); a++)
+        {
             Arm(json, run, recorder.Frames, a, ranges, laps, scratch);
+        }
+
         json.WriteEndArray();
         Deltas(json, run, laps);
         json.WriteEndObject();
@@ -101,14 +141,19 @@ internal static class BenchReport
     private static void Header(Utf8JsonWriter json, BenchRun run, BenchRecorder recorder)
     {
         if (!NotNull(json) || !Assert(run.Segments.Length == run.Logs.Length)) return;
+
         json.WriteString("schema", Schema);
-        json.WriteBoolean("complete", run.Complete && run.Error is null);
+        json.WriteBoolean("complete", run is { Complete: true, Error: null });
         json.WriteString("error", run.Error); // null when the run had none
         json.WriteString("name", run.Config.Name);
         json.WriteString("startedUtc", run.Started.ToString("O", CultureInfo.InvariantCulture));
         json.WriteString("finishedUtc", run.Finished.ToString("O", CultureInfo.InvariantCulture));
         json.WriteStartObject("info");
-        foreach (var (key, value) in run.Info.Bounded(BenchRun.MaxInfo)) json.WriteString(key, value);
+        foreach (var (key, value) in run.Info.Bounded(BenchRun.MaxInfo))
+        {
+            json.WriteString(key, value);
+        }
+
         json.WriteEndObject();
         KnobValues(json, "baseline", run.Baseline);
         json.WriteStartObject("recorder");
@@ -134,8 +179,13 @@ internal static class BenchReport
     private static void KnobValues(Utf8JsonWriter json, string name, int[] values)
     {
         if (!Assert(name.Length > 0) || !Assert(values.Length <= Knobs.MaxKnobs)) return;
+
         json.WriteStartObject(name);
-        for (var k = 0; k < Math.Min(values.Length, Knobs.MaxKnobs); k++) json.WriteNumber(Knobs.Name(k), values[k]);
+        for (var k = 0; k < Math.Min(values.Length, Knobs.MaxKnobs); k++)
+        {
+            json.WriteNumber(Knobs.Name(k), values[k]);
+        }
+
         json.WriteEndObject();
     }
 
@@ -144,6 +194,7 @@ internal static class BenchReport
     {
         var ranges = new (int From, int To)[Math.Max(segments, 1)];
         if (!Assert(segments <= MaxSegments) || !Assert(frames.Length <= MaxFrames)) return ranges;
+
         Array.Fill(ranges, (-1, -1));
         for (var i = 0; i < Math.Min(frames.Length, MaxFrames); i++)
         {
@@ -157,9 +208,15 @@ internal static class BenchReport
     private static int Gather(ReadOnlySpan<BenchFrame> frames, (int From, int To) range, float[] scratch, int length)
     {
         if (range.From < 0 || !Assert(range.To <= frames.Length) || !Assert(length >= 0)) return length;
+
         for (var i = range.From; i < Math.Min(range.To, MaxFrames); i++)
+        {
             if ((frames[i].Flags & BenchRecorder.Excluded) == 0 && Index(length, scratch.Length))
+            {
                 scratch[length++] = frames[i].DtMs;
+            }
+        }
+
         return length;
     }
 
@@ -167,6 +224,7 @@ internal static class BenchReport
     {
         var sums = new BenchSums();
         if (!Assert(range.To <= frames.Length) || !Assert(range.From <= range.To)) return sums;
+
         for (var i = Math.Max(range.From, 0); i < Math.Min(range.To, MaxFrames); i++)
         {
             var f = frames[i];
@@ -177,9 +235,13 @@ internal static class BenchReport
             (sums.Received, sums.TessPasses, sums.TessMs) =
                 (sums.Received + f.Received, sums.TessPasses + f.TessPasses, sums.TessMs + f.TessMs);
             if ((f.Flags & BenchFrameTags.Paused) != 0) sums.Paused++;
+
             if ((f.Flags & (BenchFrameTags.Discard | BenchFrameTags.NoStamp)) != 0) sums.Discarded++;
+
             if ((f.Flags & BenchFrameTags.Unfocused) == 0) sums.Focused++;
+
             if ((f.Flags & BenchRecorder.Excluded) != 0) continue;
+
             (sums.Ms, sums.GcMs, sums.MaxGcMs) = (sums.Ms + f.DtMs, sums.GcMs + f.GcMs, Math.Max(sums.MaxGcMs, f.GcMs));
             (sums.Gen0, sums.Gen1, sums.Gen2) = (sums.Gen0 + f.Gen0, sums.Gen1 + f.Gen1, sums.Gen2 + f.Gen2);
             (sums.AllocKb, sums.MainAllocKb) = (sums.AllocKb + f.AllocKb, sums.MainAllocKb + f.MainAllocKb);
@@ -192,6 +254,7 @@ internal static class BenchReport
         (int From, int To) range, float[] scratch)
     {
         if (!Index(s, run.Segments.Length) || !NotNull(json)) return;
+
         var (segment, log) = (run.Segments[s], run.Logs[s]);
         var sums = Sum(recorder.Frames, range);
         json.WriteStartObject();
@@ -213,8 +276,13 @@ internal static class BenchReport
         json.WriteStartArray("spikes");
         var spikes = recorder.Spikes(s);
         for (var rank = 0; rank < Math.Min(spikes.Length, BenchRecorder.MaxSpikes); rank++)
+        {
             if (spikes[rank].Frame >= 0)
+            {
                 Spike(json, recorder.Frames, spikes[rank], recorder.Marks(s, rank)); // -1: an empty slot
+            }
+        }
+
         json.WriteEndArray();
         json.WriteEndObject();
     }
@@ -222,6 +290,7 @@ internal static class BenchReport
     private static void Details(Utf8JsonWriter json, BenchSums sums, in BenchSegmentLog log)
     {
         if (!NotNull(json) || !Assert(sums.Focused <= sums.Frames)) return;
+
         var seconds = sums.Ms / 1000;
         json.WriteStartObject("gc");
         Number(json, "pauseMs", sums.GcMs);
@@ -258,13 +327,20 @@ internal static class BenchReport
     public static BenchSummary Summarize(Span<float> ms)
     {
         if (!Assert(ms.Length <= MaxFrames) || ms.IsEmpty)
+        {
             return new BenchSummary(0, 0, float.NaN, float.NaN, float.NaN, float.NaN, 0);
+        }
+
         double total = 0;
         var over = 0;
         for (var i = 0; i < Math.Min(ms.Length, MaxFrames); i++)
+        {
             (total, over) = (total + ms[i], ms[i] > OverMs ? over + 1 : over);
+        }
+
         ms.Sort();
         if (!Finite(total) || !Assert(ms[0] <= ms[^1])) total = double.NaN;
+
         return new BenchSummary(ms.Length, total, FrameStats.Percentile(ms, 990), ms[^1], FrameStats.LowFps(ms, 100),
             FrameStats.LowFps(ms, 1000), over);
     }
@@ -272,6 +348,7 @@ internal static class BenchReport
     private static void Frametime(Utf8JsonWriter json, string name, BenchSummary summary)
     {
         if (!Assert(name.Length > 0) || !Assert(summary.N >= 0)) return;
+
         json.WriteStartObject(name);
         json.WriteNumber("n", summary.N);
         Number(json, "avgMs", summary.AvgMs);
@@ -287,6 +364,7 @@ internal static class BenchReport
         ReadOnlySpan<BenchSpikeMark> marks)
     {
         if (!Index(spike.Frame, frames.Length) || !Assert(marks.Length <= BenchRecorder.MarksPerSpike)) return;
+
         var f = frames[spike.Frame];
         json.WriteStartObject();
         json.WriteNumber("frame", spike.Frame);
@@ -306,9 +384,12 @@ internal static class BenchReport
         for (var m = 0; m < Math.Min(marks.Length, BenchRecorder.MarksPerSpike); m++)
         {
             if (marks[m].Empty) continue;
+
             json.WriteStartObject();
             if (marks[m].Range is { } range) json.WriteString("range", range);
+
             if (marks[m].Name is { } mark) json.WriteString("mark", mark);
+
             Number(json, "ms", marks[m].Ms);
             json.WriteNumber("calls", marks[m].Calls);
             json.WriteEndObject();
@@ -321,6 +402,7 @@ internal static class BenchReport
     private static void LastGc(Utf8JsonWriter json, BenchGc gc)
     {
         if (!NotNull(json) || !Finite(gc.PauseMs)) return;
+
         if (!gc.Valid)
         {
             json.WriteNull("gc");
@@ -343,12 +425,14 @@ internal static class BenchReport
     {
         var laps = new double[run.Config.Laps][];
         if (!Assert(laps.Length <= BenchConfig.MaxLaps) || !Assert(ranges.Length >= run.Segments.Length)) return laps;
+
         for (var lap = 0; lap < Math.Min(laps.Length, BenchConfig.MaxLaps); lap++)
         {
             var (n, passes, ms) = (0, 0L, 0.0);
             for (var s = 0; s < Math.Min(run.Segments.Length, MaxSegments); s++)
             {
                 if (run.Segments[s] is not { Measured: true, Warmup: false } segment || segment.Lap != lap) continue;
+
                 n = Gather(frames, ranges[s], scratch, n);
                 var sums = Sum(frames, ranges[s]);
                 (passes, ms) = (passes + sums.TessPasses, ms + sums.TessMs);
@@ -367,19 +451,28 @@ internal static class BenchReport
         (int From, int To)[] ranges, double[][] laps, float[] scratch)
     {
         if (!Index(arm, run.Config.Arms.Count) || !Assert(ranges.Length >= run.Segments.Length)) return;
+
         json.WriteStartObject();
         json.WriteString("name", run.Config.Arms[arm].Name);
         json.WriteBoolean("engine", run.Config.Arms[arm].Engine);
         if (arm < run.ArmValues.Length)
+        {
             KnobValues(json, "values", run.ArmValues[arm]); // none when the run never booted
+        }
+
         json.WriteStartObject("pooled");
         for (var k = 0; k <= PooledKinds.Length; k++) // the last pass pools every measured kind together
         {
             var n = 0;
             for (var s = 0; s < Math.Min(run.Segments.Length, MaxSegments); s++)
+            {
                 if (run.Segments[s] is { Measured: true, Warmup: false, Lap: >= 0 } segment && segment.Arm == arm &&
                     (k == PooledKinds.Length || segment.Kind == PooledKinds[k]))
+                {
                     n = Gather(frames, ranges[s], scratch, n);
+                }
+            }
+
             Frametime(json, k < PooledKinds.Length ? BenchSegment.KindName(PooledKinds[k]) : "all",
                 Summarize(scratch.AsSpan(0, n)));
         }
@@ -389,9 +482,14 @@ internal static class BenchReport
         for (var lap = 0; lap < Math.Min(laps.Length, BenchConfig.MaxLaps); lap++)
         {
             if (BenchScenario.ArmOf(lap, run.Config.Arms.Count) != arm) continue;
+
             json.WriteStartObject();
             json.WriteNumber("lap", lap);
-            for (var m = 0; m < Math.Min(laps[lap].Length, Metrics.Length); m++) Number(json, Metrics[m], laps[lap][m]);
+            for (var m = 0; m < Math.Min(laps[lap].Length, Metrics.Length); m++)
+            {
+                Number(json, Metrics[m], laps[lap][m]);
+            }
+
             json.WriteEndObject();
         }
 
@@ -404,6 +502,7 @@ internal static class BenchReport
     {
         var arms = run.Config.Arms.Count;
         if (!NotNull(json) || !Assert(arms is > 0 and <= BenchConfig.MaxArms)) return;
+
         var blocks = laps.Length / arms;
         Span<double> deltas = stackalloc double[BenchConfig.MaxLaps];
         json.WriteStartArray("deltas");
@@ -416,7 +515,11 @@ internal static class BenchReport
             json.WriteStartObject("metrics");
             for (var m = 0; m < Metrics.Length; m++)
             {
-                for (var b = 0; b < Math.Min(blocks, BenchConfig.MaxLaps); b++) deltas[b] = Delta(run, laps, b, arm, m);
+                for (var b = 0; b < Math.Min(blocks, BenchConfig.MaxLaps); b++)
+                {
+                    deltas[b] = Delta(run, laps, b, arm, m);
+                }
+
                 var (mean, sd, n) = Spread(deltas[..Math.Min(blocks, BenchConfig.MaxLaps)]);
                 json.WriteStartObject(Metrics[m]);
                 Number(json, "mean", mean);
@@ -436,12 +539,16 @@ internal static class BenchReport
     {
         var arms = run.Config.Arms.Count;
         if (!Index(metric, Metrics.Length) || !Index(arm, arms) || !Assert(arms <= BenchConfig.MaxArms))
+        {
             return double.NaN;
+        }
+
         double mine = double.NaN, theirs = double.NaN;
         for (var step = 0; step < Math.Min(Math.Min(arms, laps.Length - block * arms), BenchConfig.MaxArms); step++)
         {
             var lap = block * arms + step;
             if (BenchScenario.ArmOf(lap, arms) == arm) mine = laps[lap][metric];
+
             if (BenchScenario.ArmOf(lap, arms) == 0) theirs = laps[lap][metric];
         }
 
@@ -452,13 +559,21 @@ internal static class BenchReport
     public static (double Mean, double Sd, int N) Spread(ReadOnlySpan<double> values)
     {
         if (!Assert(values.Length <= MaxFrames)) return (double.NaN, double.NaN, 0);
+
         var (sum, n) = (0.0, 0);
         for (var i = 0; i < Math.Min(values.Length, MaxFrames); i++)
+        {
             if (double.IsFinite(values[i])) (sum, n) = (sum + values[i], n + 1);
+        }
+
         if (n == 0 || !Finite(sum)) return (double.NaN, double.NaN, n);
+
         var (mean, squares) = (sum / n, 0.0);
         for (var i = 0; i < Math.Min(values.Length, MaxFrames); i++)
+        {
             if (double.IsFinite(values[i])) squares += (values[i] - mean) * (values[i] - mean);
+        }
+
         return (mean, n > 1 ? Math.Sqrt(squares / (n - 1)) : double.NaN, n);
     }
 
@@ -469,7 +584,14 @@ internal static class BenchReport
     private static void Number(Utf8JsonWriter json, string name, double value)
     {
         if (!Assert(name.Length > 0) || !NotNull(json)) return;
-        if (double.IsFinite(value)) json.WriteNumber(name, Math.Round(value, 4));
-        else json.WriteNull(name);
+
+        if (double.IsFinite(value))
+        {
+            json.WriteNumber(name, Math.Round(value, 4));
+        }
+        else
+        {
+            json.WriteNull(name);
+        }
     }
 }

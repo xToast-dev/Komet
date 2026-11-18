@@ -4,17 +4,13 @@ using OpenTK.Windowing.Desktop;
 namespace Komet.Core;
 
 // What this computer has, read once as the client starts (main thread, OpenGL current), and the knob values that suit
-// it (each knob's Suggest). Knobs a player never set follow these (KometSettings.Chosen): a new GPU or more RAM moves them along on the next start.
+// it (each knob's Suggest). Knobs a player never set follow these (KnobSettings.Chosen): a new GPU or more RAM moves them along on the next start.
 // Unknown facts (0) suggest nothing; a knob without a suggestion keeps Komet's own default.
 internal static class HardwareProfile
 {
     private const GetPName DedicatedNvx = (GetPName)0x9047, TextureFreeAti = (GetPName)0x87FC;
 
-    // Vulkan: how Vulkan-only went on this GPU before (VulkanRecord)
-    public readonly record struct Facts(int Cores, int RamGb, int VramGb, int RefreshHz)
-    {
-        public VulkanRecord.Run Vulkan { get; init; }
-    }
+    private static readonly Dictionary<string, int> Suggested = new(StringComparer.Ordinal);
 
     public static Facts Found { get; private set; }
 
@@ -22,25 +18,27 @@ internal static class HardwareProfile
     public static bool Weak => Found is var f &&
                                (f.VramGb is > 0 and <= 4 || f.Cores is > 0 and <= 4 || f.RamGb is > 0 and <= 8);
 
-    private static readonly Dictionary<string, int> Suggested = new(StringComparer.Ordinal);
-
     public static void Detect(ILogger? logger)
     {
-        var f = Suggest(new Facts(Environment.ProcessorCount, ReadRam(), ReadVram(), ReadRefresh()) { Vulkan = ReadVulkan() });
-        logger?.Notification("Komet: this computer: {0} cores, {1} GB RAM, {2} GB video memory, {3} Hz, Vulkan-only on " +
-                             "this GPU before: {4}; suggested {5}", f.Cores, f.RamGb, f.VramGb, f.RefreshHz, Told(f.Vulkan),
+        var f = Suggest(new Facts(Environment.ProcessorCount, ReadRam(), ReadVram(), ReadRefresh())
+            { Vulkan = ReadVulkan() });
+        logger?.Notification(
+            "Komet: this computer: {0} cores, {1} GB RAM, {2} GB video memory, {3} Hz, Vulkan-only on " +
+            "this GPU before: {4}; suggested {5}", f.Cores, f.RamGb, f.VramGb, f.RefreshHz, Told(f.Vulkan),
             string.Join(", ", Suggested.Select(static s => $"{s.Key} {s.Value}")));
     }
 
     // The facts taken as this computer's, and the knob values they suggest
-    internal static Facts Suggest(Facts f)
+    private static Facts Suggest(Facts f)
     {
         Found = f;
         Suggested.Clear();
         var knobs = Knobs.BuiltIn;
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
-            if (knobs[i].Suggest?.Invoke(f) is { } value)
-                Suggested[knobs[i].Key] = value;
+        {
+            if (knobs[i].Suggest?.Invoke(f) is { } value) Suggested[knobs[i].Key] = value;
+        }
+
         return f;
     }
 
@@ -49,13 +47,14 @@ internal static class HardwareProfile
         NotNull(key) && Suggested.TryGetValue(key, out var value) ? value : null;
 
     // Why the renderer is suggested as it is
-    private static string Told(VulkanRecord.Run run) => run switch
-    {
-        VulkanRecord.Run.Ran => "ran cleanly",
-        VulkanRecord.Run.Pending => "the game ended during it (not proven)",
-        VulkanRecord.Run.Failed => "failed (OpenGL for good)",
-        _ => "never ran"
-    };
+    private static string Told(VulkanRecord.Run run) =>
+        run switch
+        {
+            VulkanRecord.Run.Ran => "ran cleanly",
+            VulkanRecord.Run.Pending => "the game ended during it (not proven)",
+            VulkanRecord.Run.Failed => "failed (OpenGL for good)",
+            _ => "never ran"
+        };
 
     private static VulkanRecord.Run ReadVulkan()
     {
@@ -63,7 +62,8 @@ internal static class HardwareProfile
         {
             return VulkanRecord.Read(GL.GetString(StringName.Vendor), GL.GetString(StringName.Renderer));
         }
-        catch (Exception e) when (e is InvalidOperationException or AccessViolationException or EntryPointNotFoundException)
+        catch (Exception e) when (e is InvalidOperationException or AccessViolationException
+                                      or EntryPointNotFoundException)
         {
             return VulkanRecord.Run.Unknown; // no current context
         }
@@ -81,7 +81,10 @@ internal static class HardwareProfile
         try
         {
             var kb = 0;
-            if (GlExtensions.Offered("GL_NVX_gpu_memory_info")) GL.GetInteger(DedicatedNvx, out kb);
+            if (GlExtensions.Offered("GL_NVX_gpu_memory_info"))
+            {
+                GL.GetInteger(DedicatedNvx, out kb);
+            }
             else if (GlExtensions.Offered("GL_ATI_meminfo"))
             {
                 var free = new int[4];
@@ -91,7 +94,8 @@ internal static class HardwareProfile
 
             return Assert(kb >= 0) && kb > 0 ? (int)Math.Round(kb / (1024.0 * 1024.0)) : 0;
         }
-        catch (Exception e) when (e is InvalidOperationException or AccessViolationException or EntryPointNotFoundException)
+        catch (Exception e) when (e is InvalidOperationException or AccessViolationException
+                                      or EntryPointNotFoundException)
         {
             return 0; // no current context or no such query
         }
@@ -104,12 +108,21 @@ internal static class HardwareProfile
         {
             var best = 0;
             foreach (var monitor in Monitors.GetMonitors().Bounded(16))
+            {
                 best = Math.Max(best, monitor.CurrentVideoMode.RefreshRate);
+            }
+
             return best;
         }
         catch (Exception e) when (e is InvalidOperationException or DllNotFoundException)
         {
             return 0;
         }
+    }
+
+    // Vulkan: how Vulkan-only went on this GPU before (VulkanRecord)
+    public readonly record struct Facts(int Cores, int RamGb, int VramGb, int RefreshHz)
+    {
+        public VulkanRecord.Run Vulkan { get; init; }
     }
 }

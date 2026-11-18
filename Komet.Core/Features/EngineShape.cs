@@ -15,8 +15,13 @@ internal static class EngineShape
 {
     public const int MaxMethods = 64, MaxSeams = 64;
 
-    private const int MaxIl = 1 << 16, MaxLocals = 256, MaxClauses = 64, MaxCases = 4096, MaxParameters = 64,
+    private const int MaxIl = 1 << 16,
+        MaxLocals = 256,
+        MaxClauses = 64,
+        MaxCases = 4096,
+        MaxParameters = 64,
         MaxOpCodes = 512;
+
     private const int TwoByte = 0xFE, MaxPatches = 64, MaxOwn = 8, MaxNameSteps = 4096;
     private const ulong Basis = 14695981039346656037UL, Prime = 1099511628211UL;
 
@@ -28,8 +33,15 @@ internal static class EngineShape
         foreach (var field in typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static).Bounded(MaxOpCodes))
         {
             if (field.GetValue(null) is not OpCode code) continue;
-            if (code.Size == 1) one[code.Value & 0xFF] = code;
-            else two[code.Value & 0xFF] = code;
+
+            if (code.Size == 1)
+            {
+                one[code.Value & 0xFF] = code;
+            }
+            else
+            {
+                two[code.Value & 0xFF] = code;
+            }
         }
 
         return (one, two);
@@ -39,42 +51,64 @@ internal static class EngineShape
         string? pinnedBy = null)
     {
         if (!NotNull(feature) || !Assert(methods.Length > 0)) return false;
+
         var found = Of(methods);
-        if (found == expected) return true;
+        if (found == expected)
+        {
+            CompatibilityLog.Remove(feature, "engine");
+            return true;
+        }
+
+        CompatibilityLog.Fingerprint(feature, expected, found, methods);
         if (pinnedBy is null)
+        {
             logger?.Warning(
                 "Komet {0}: the engine methods it replaces are not the Vintage Story 1.22.7 bodies it was tested " +
                 "against (fingerprint {1:X16}, expected {2:X16}); the engine keeps running them", feature, found,
                 expected);
+        }
         else
+        {
             logger?.Warning(
                 "Komet: {0} is not installed, the engine methods it replaces are not the bodies {1} pinned " +
                 "(fingerprint {2:X16}, expected {3:X16}); the engine keeps running them", feature, pinnedBy, found,
                 expected);
+        }
+
         return false;
     }
 
     // Harmony keeps an empty record of a method unpatched since (a world left), which is not a patch
-    public static bool Patched(MethodBase method) => NotNull(method) && Harmony.GetPatchInfo(method) is { Owners.Count: > 0 };
+    public static bool Patched(MethodBase method) =>
+        NotNull(method) && Harmony.GetPatchInfo(method) is { Owners.Count: > 0 };
 
     // Whether a non-Komet patch (own: Harmony id `owner` or an `own` class) of the kinds sits on a seam; missing seams
     // and over MaxPatches of a kind count as foreign.
-    public static bool Foreign(ReadOnlySpan<MethodBase?> seams, PatchKinds kinds, string? owner,
+    public static bool Foreign(ReadOnlySpan<MethodBase?> seams, KapiPatchKinds kinds, string? owner,
         params ReadOnlySpan<Type> own)
     {
-        if (!Assert(seams.Length <= MaxSeams) || !Assert(kinds != PatchKinds.None) ||
-            !Assert(own.Length <= MaxOwn)) return true;
+        if (!Assert(seams.Length <= MaxSeams) || !Assert(kinds != KapiPatchKinds.None) ||
+            !Assert(own.Length <= MaxOwn))
+        {
+            return true;
+        }
+
         for (var i = 0; i < Math.Min(seams.Length, MaxSeams); i++)
         {
             if (seams[i] is not { } seam) return true;
+
             var info = Harmony.GetPatchInfo(seam);
             if (info is null) continue;
-            if (Others(info.Prefixes, kinds & PatchKinds.Prefix, owner, own) ||
-                Others(info.Postfixes, kinds & PatchKinds.Postfix, owner, own) ||
-                Others(info.Transpilers, kinds & PatchKinds.Transpiler, owner, own) ||
-                Others(info.Finalizers, kinds & PatchKinds.Finalizer, owner, own) ||
-                Others(info.InnerPrefixes, kinds & PatchKinds.InnerPrefix, owner, own) ||
-                Others(info.InnerPostfixes, kinds & PatchKinds.InnerPostfix, owner, own)) return true;
+
+            if (Others(info.Prefixes, kinds & KapiPatchKinds.Prefix, owner, own) ||
+                Others(info.Postfixes, kinds & KapiPatchKinds.Postfix, owner, own) ||
+                Others(info.Transpilers, kinds & KapiPatchKinds.Transpiler, owner, own) ||
+                Others(info.Finalizers, kinds & KapiPatchKinds.Finalizer, owner, own) ||
+                Others(info.InnerPrefixes, kinds & KapiPatchKinds.InnerPrefix, owner, own) ||
+                Others(info.InnerPostfixes, kinds & KapiPatchKinds.InnerPostfix, owner, own))
+            {
+                return true;
+            }
         }
 
         return false;
@@ -84,40 +118,63 @@ internal static class EngineShape
     public static int FirstForeign(ReadOnlySpan<MethodBase?> seams, string owner)
     {
         if (!NotNull(owner) || !Assert(seams.Length <= MaxSeams)) return seams.Length;
+
         for (var i = 0; i < Math.Min(seams.Length, MaxSeams); i++)
-            if (Foreign(seams.Slice(i, 1), PatchKinds.All, owner))
-                return i;
+        {
+            if (Foreign(seams.Slice(i, 1), KapiPatchKinds.All, owner)) return i;
+        }
+
         return -1;
     }
 
-    public static bool Report(ILogger? logger, string feature, bool was, bool foreign)
+    public static bool Report(ILogger? logger, string feature, bool was, bool foreign,
+        ReadOnlySpan<MethodBase?> methods = default, KapiPatchKinds kinds = KapiPatchKinds.All, string? owner = null,
+        ReadOnlySpan<Type> own = default)
     {
-        if (!NotNull(feature) || was == foreign) return foreign;
         if (foreign)
-            logger?.Notification(
-                "Komet {0}: another mod patches a method it would skip or bypass, the engine's version runs", feature);
-        else logger?.Notification("Komet {0}: no other mod patches its methods any more, back on", feature);
+        {
+            CompatibilityLog.Patches(feature, methods, kinds, owner, own);
+        }
+        else
+        {
+            CompatibilityLog.Remove(feature, "patches");
+        }
+
+        if (!NotNull(feature) || was == foreign) return foreign;
+
+        logger?.Notification(foreign
+            ? "Komet {0}: another mod patches a method it would skip or bypass, the engine's version runs"
+            : "Komet {0}: no other mod patches its methods any more, back on", feature);
+
         return foreign;
     }
 
-    private static bool Others(ReadOnlyCollection<Patch>? patches, PatchKinds kind, string? owner, ReadOnlySpan<Type> own)
+    private static bool Others(ReadOnlyCollection<Patch>? patches, KapiPatchKinds kind, string? owner,
+        ReadOnlySpan<Type> own)
     {
-        if (kind == PatchKinds.None || patches is null) return false;
+        if (kind == KapiPatchKinds.None || patches is null) return false;
+
         for (var k = 0; k < Math.Min(patches.Count, MaxPatches); k++)
-            if (!Own(patches[k], owner, own))
-                return true;
+        {
+            if (!Own(patches[k], owner, own)) return true;
+        }
+
         return !Assert(patches.Count <= MaxPatches);
     }
 
     // Komet's own patches never count: each gives the engine's result (a new seam patch once kept OccludedChunks off).
-    private static bool Own(Patch patch, string? owner, ReadOnlySpan<Type> own)
+    internal static bool Own(Patch patch, string? owner, ReadOnlySpan<Type> own)
     {
         if (patch.owner == KometMod.Id || (owner is not null && patch.owner == owner)) return true;
+
         var type = patch.PatchMethod?.DeclaringType;
         if (type is null) return false;
+
         for (var i = 0; i < Math.Min(own.Length, MaxOwn); i++)
-            if (type == own[i])
-                return true;
+        {
+            if (type == own[i]) return true;
+        }
+
         return false;
     }
 
@@ -125,10 +182,12 @@ internal static class EngineShape
     {
         var hash = Basis;
         if (!Assert(methods.Length <= MaxMethods)) return 0;
+
         for (var i = 0; i < Math.Min(methods.Length, MaxMethods); i++)
         {
             var one = Of(methods[i]);
             if (one == 0) return 0;
+
             hash = Mix(hash, one.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -138,16 +197,27 @@ internal static class EngineShape
     public static ulong Of(MethodBase? method)
     {
         if (method is null) return 0;
+
         try
         {
             var body = method.GetMethodBody(); // throws for locals of a type whose assembly does not load
             var il = body?.GetILAsByteArray();
             if (body is null || il is null || !Assert(il.Length <= MaxIl)) return 0;
+
             var (locals, clauses) = (body.LocalVariables, body.ExceptionHandlingClauses);
             if (!Assert(locals.Count <= MaxLocals) || !Assert(clauses.Count <= MaxClauses)) return 0;
+
             var hash = Mix(Mix(Basis, Describe(method)), il.Length.ToString(CultureInfo.InvariantCulture));
-            for (var i = 0; i < Math.Min(locals.Count, MaxLocals); i++) hash = Mix(hash, Name(locals[i].LocalType));
-            for (var i = 0; i < Math.Min(clauses.Count, MaxClauses); i++) hash = Clause(hash, clauses[i]);
+            for (var i = 0; i < Math.Min(locals.Count, MaxLocals); i++)
+            {
+                hash = Mix(hash, Name(locals[i].LocalType));
+            }
+
+            for (var i = 0; i < Math.Min(clauses.Count, MaxClauses); i++)
+            {
+                hash = Clause(hash, clauses[i]);
+            }
+
             hash = Code(method, il, hash);
             return hash == 0 ? 1 : hash;
         }
@@ -166,10 +236,13 @@ internal static class EngineShape
         {
             int value = il[at++];
             if (value == TwoByte && at < il.Length) value = (TwoByte << 8) | il[at++];
+
             var code = value > 0xFF ? Codes.Two[value & 0xFF] : Codes.One[value];
             if (code is not { } op) return 0;
+
             var size = Size(op.OperandType, il, at);
             if (size < 0 || at + size > il.Length) return 0;
+
             var name = size == 4 ? Resolve(method, BitConverter.ToInt32(il, at), op.OperandType) : null;
             hash = Mix(Mix(hash, value.ToString(CultureInfo.InvariantCulture)),
                 name ?? Convert.ToHexString(il, at, size));
@@ -183,16 +256,19 @@ internal static class EngineShape
     {
         foreach (var number in (ReadOnlySpan<int>)
                  [(int)clause.Flags, clause.TryOffset, clause.TryLength, clause.HandlerOffset, clause.HandlerLength])
+        {
             hash = Mix(hash, number.ToString(CultureInfo.InvariantCulture));
+        }
+
         if (clause.Flags == ExceptionHandlingClauseOptions.Clause) return Mix(hash, Name(clause.CatchType));
+
         return clause.Flags == ExceptionHandlingClauseOptions.Filter
             ? Mix(hash, clause.FilterOffset.ToString(CultureInfo.InvariantCulture))
             : hash;
     }
 
-    private static int Size(OperandType type, byte[] il, int at)
-    {
-        return type switch
+    private static int Size(OperandType type, byte[] il, int at) =>
+        type switch
         {
             OperandType.InlineNone => 0,
             OperandType.ShortInlineBrTarget or OperandType.ShortInlineI or OperandType.ShortInlineVar => 1,
@@ -204,7 +280,6 @@ internal static class EngineShape
                 : -1,
             _ => 4
         };
-    }
 
     private static string? Resolve(MethodBase method, int token, OperandType type)
     {
@@ -220,24 +295,28 @@ internal static class EngineShape
         };
     }
 
-    private static string Describe(MemberInfo? member)
+    internal static string Describe(MemberInfo? member)
     {
         if (!NotNull(member)) return "";
+
         if (member is MethodBase method)
         {
             var parameters = method.GetParameters();
             if (!Assert(parameters.Length <= MaxParameters)) return "";
+
             return
                 $"{Name(method.DeclaringType)}::{method.Name}({string.Join(",", parameters.Select(p => Name(p.ParameterType)))})";
         }
 
         if (member is FieldInfo field) return $"{Name(field.DeclaringType)}::{field.Name}:{Name(field.FieldType)}";
+
         return member is Type type ? Name(type) : member.Name;
     }
 
     private static string Name(Type? type)
     {
         if (type is null) return "";
+
         var text = new StringBuilder();
         var work = new Stack<(Type? Type, string Separator)>();
         work.Push((type, ""));
@@ -250,11 +329,13 @@ internal static class EngineShape
                 continue;
             }
 
-            var constructed = next.IsGenericType && !next.IsGenericTypeDefinition;
+            var constructed = next is { IsGenericType: true, IsGenericTypeDefinition: false };
             var arguments = constructed ? next.GetGenericArguments() : [];
             if (!Assert(arguments.Length <= MaxParameters)) continue;
+
             _ = text.Append(next.Namespace).Append('.').Append(next.Name).Append(constructed ? "<" : "");
             if (constructed) work.Push((null, ">"));
+
             for (var k = 0; k < Math.Min(arguments.Length, MaxParameters); k++)
             {
                 work.Push((arguments[arguments.Length - 1 - k], ""));
@@ -269,7 +350,12 @@ internal static class EngineShape
     private static ulong Mix(ulong hash, string text)
     {
         if (!NotNull(text) || !Assert(text.Length <= MaxIl)) return hash;
-        for (var i = 0; i < Math.Min(text.Length, MaxIl); i++) hash = (hash ^ text[i]) * Prime;
+
+        for (var i = 0; i < Math.Min(text.Length, MaxIl); i++)
+        {
+            hash = (hash ^ text[i]) * Prime;
+        }
+
         return (hash ^ 0x1F) * Prime;
     }
 }
@@ -278,11 +364,15 @@ internal static class EngineShape
 // matched, ready (say a rewrite took) and patched by no other mod. Recheck runs at install and on LevelFinalize, when every
 // mod has patched; patches of Kinds on the first Watched seams count as another mod's unless they are Own's. Unblocked:
 // Blocked's value before the first install.
-internal sealed class SeamGuard(string feature, PatchKinds kinds, Type[] own, int watched = EngineShape.MaxSeams,
+internal sealed class SeamGuard(
+    string feature,
+    KapiPatchKinds kinds,
+    Type[] own,
+    int watched = EngineShape.MaxSeams,
     bool unblocked = false)
 {
-    private ILogger? _logger;
     private bool _foreign;
+    private ILogger? _logger;
 
     public MethodBase?[] Seams { get; private set; } = [];
     public bool Matched { get; private set; }
@@ -315,15 +405,15 @@ internal sealed class SeamGuard(string feature, PatchKinds kinds, Type[] own, in
     public void RecheckCallees(bool ready)
     {
         var seamed = Matched && ready && Assert(Seams.Length > 0);
-        var foreign = seamed && (EngineShape.Foreign(Seams.AsSpan(0, 1), PatchKinds.Replacing, null, own) ||
-                                 EngineShape.Foreign(Seams.AsSpan(1), PatchKinds.All, null, own));
+        var foreign = seamed && (EngineShape.Foreign(Seams.AsSpan(0, 1), KapiPatchKinds.Replacing, null, own) ||
+                                 EngineShape.Foreign(Seams.AsSpan(1), KapiPatchKinds.All, null, own));
         Report(seamed, foreign);
     }
 
     // For a feature that asks its own question of which patches are foreign
     public void Report(bool seamed, bool foreign)
     {
-        _foreign = EngineShape.Report(_logger, feature, _foreign, seamed && foreign);
+        _foreign = EngineShape.Report(_logger, feature, _foreign, seamed && foreign, Seams, KapiPatchKinds.All, null, own);
         Blocked = !seamed || _foreign;
     }
 }

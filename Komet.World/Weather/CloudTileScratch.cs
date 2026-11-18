@@ -23,26 +23,28 @@ internal static class CloudTileScratch
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => _found != 0 && _rewritten == _found;
 
+    // Both renderers' tile updates, which the transpiler rewrites
+    internal static MethodBase?[] Replaced => [Target(), Target(Classic)];
+
     public static void Install(Harmony harmony)
     {
         (_found, _rewritten) = (0, 0);
-        if (!NotNull(harmony)) return;
+
         foreach (var (type, bit) in Renderers.Bounded(2))
         {
             if (Target(type) is not { } method) continue;
+
             _found |= bit;
             _ = harmony.Patch(method, transpiler: new HarmonyMethod(Substitute));
         }
     }
-
-    // Both renderers' tile updates, which the transpiler rewrites
-    internal static MethodBase?[] Replaced => [Target(Renderer), Target(Classic)];
 
     // VSEssentials is not referenced: found by name once loaded
     internal static MethodInfo? Target(string type = Renderer)
     {
         var renderer = AccessTools.TypeByName(type);
         if (!NotNull(renderer)) return null;
+
         var method = AccessTools.Method(renderer, Method, [typeof(int)]);
         return NotNull(method) && Assert(method.ReturnType == typeof(void)) ? method : null;
     }
@@ -55,6 +57,7 @@ internal static class CloudTileScratch
     {
         var (reader, preload) = (AccessTools.TypeByName(Reader), AccessTools.TypeByName(PreLoad));
         if (!NotNull(reader) || !NotNull(preload)) return [];
+
         return
         [
             AccessTools.Method(reader, "LoadAdjacentSims", [typeof(Vec3d)]),
@@ -64,21 +67,30 @@ internal static class CloudTileScratch
         ];
     }
 
-    internal static List<CodeInstruction> Substitute(IEnumerable<CodeInstruction> instructions, MethodBase original)
+    internal static List<CodeInstruction> Substitute(IEnumerable<CodeInstruction> instructions, MethodBase? original)
     {
         var bit = original?.DeclaringType?.FullName == Classic ? ClassicBit : FluffyBit;
         _rewritten &= ~bit; // Harmony reruns a transpiler whenever another mod patches the method
         var (ctor, mine, readers) =
             (Constructor(), AccessTools.Method(typeof(CloudTileScratch), nameof(At)), Readers());
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor) ||
-            !NotNull(mine)) return code;
+            !NotNull(mine))
+        {
+            return code;
+        }
+
         var at = Il.Single(code, c => c.opcode == OpCodes.Newobj && Equals(c.operand, ctor));
         if (!Assert(at >= 0) || !Index(at + 1, code.Count) || !Assert(code[at + 1].IsStloc())) return code;
+
         if (!Assert(Il.Confined(code, at + 1, (c, operand) => operand == 0
                 ? c.opcode == OpCodes.Ldfld && c.operand is FieldInfo field && field.DeclaringType == typeof(Vec3d)
                 : operand == 1 && c.operand is MethodInfo method && Array.IndexOf(readers, method) >= 0)))
+        {
             return code;
+        }
+
         if (Assert(Il.Substitute(code, at, mine))) _rewritten |= bit;
+
         return code;
     }
 
@@ -86,6 +98,7 @@ internal static class CloudTileScratch
     internal static Vec3d At(double x, double y, double z)
     {
         if (!Enabled) return new Vec3d(x, y, z);
+
         return (_scratch ??= new Vec3d()).Set(x, y, z);
     }
 }

@@ -1,11 +1,12 @@
+using System.Diagnostics;
+using System.Reflection;
 using HarmonyLib;
 using Komet.Core;
 using Komet.Diagnostics;
-using System.Diagnostics;
-using System.Reflection;
+using Komet.Rendering;
 using Vintagestory.API.MathTools;
-using Vintagestory.Client.NoObf;
 using Vintagestory.Client;
+using Vintagestory.Client.NoObf;
 using static Komet.Rendering.Fields;
 
 namespace Komet.Vulkan;
@@ -16,14 +17,6 @@ namespace Komet.Vulkan;
 // Vulkan lets go of the renderer and its memory, and OpenGL draws from what it holds.
 internal static partial class VulkanRenderer
 {
-    public enum Phase
-    {
-        Off,
-        Waiting,
-        Running,
-        Failed
-    }
-
     public enum Pass
     {
         None = -1,
@@ -32,6 +25,14 @@ internal static partial class VulkanRenderer
         Opaque,
         Transparent,
         WaterPlants
+    }
+
+    public enum Phase
+    {
+        Off,
+        Waiting,
+        Running,
+        Failed
     }
 
     // Also: the pass the program draws after the transparent terrain too (chunkopaque the water plants)
@@ -63,6 +64,7 @@ internal static partial class VulkanRenderer
     public static bool Bridging { get; set; }
 
     public static Phase State { get; private set; }
+    internal static bool NonSolidFill => !GlIdle || (_renderer?.Device.NonSolidFill ?? false);
     public static string Status { get; private set; } = "";
 
     public static bool Unavailable => VulkanCore.Failed;
@@ -71,19 +73,33 @@ internal static partial class VulkanRenderer
     public static void Paced()
     {
         if (!Pacing || State != Phase.Running || _renderer is not { } renderer) return;
+
         renderer.Frame.Pace();
     }
 
     public static void Install(Harmony harmony, ICoreClientAPI api, ILogger logger)
     {
         Stop();
-        if (!NotNull(harmony) || !NotNull(api) || !NotNull(logger) || !NotNull(api.Event)) return;
+        if (!NotNull(api.Event)) return;
+
         (_logger, _api) = (logger, api);
-        ShadercFetch.Joined(logger);
+        if (Requested) CheckSafety();
+
+        ShadercFetch.Joined(logger, api.ModLoader?.GetMod(KometMod.Id)?.SourcePath ?? "");
         Register(api.Event);
-        if (GlTap.Tapped) GlTap.Linking = EarlyLinked; // ports begin as the world loads, before the first frame
+        if (GlTap.Tapped)
+        {
+            GlTap.Linking = EarlyLinked; // ports begin as the world loads, before the first frame
+        }
+
         if (Only && GlTap.Tapped) // and those the game linked before Komet installed
-            foreach (var (id, _) in ProgramPorts.Linked().Bounded(1 << 10)) EarlyLinked((uint)id);
+        {
+            foreach (var (id, _) in ProgramPorts.Linked().Bounded(1 << 10))
+            {
+                EarlyLinked((uint)id);
+            }
+        }
+
         Patch(harmony);
         VulkanWatch.Watching = () => State == Phase.Running;
         VulkanWatch.Start();
@@ -92,22 +108,32 @@ internal static partial class VulkanRenderer
 
     public static void Stop()
     {
-        Unhook();
-        Unpushed();
-        VulkanWatch.Stop();
-        Unleaned();
-        Release();
-        GlTap.Untap();
+        ShadercFetch.Leave();
+        Features.Cleanup("Vulkan", "detach render hooks", Unhook);
+        Features.Cleanup("Vulkan", "release pushed state", Unpushed);
+        Features.Cleanup("Vulkan", "stop watch", VulkanWatch.Stop);
+        Features.Cleanup("Vulkan", "restore OpenGL resources", Unleaned);
+        Features.Cleanup("Vulkan", "release renderer", Release);
+        Features.Cleanup("Vulkan", "detach OpenGL interception", GlTap.Untap);
         if (_ran && !_failed) VulkanRecord.Ended();
+
         (_failed, _failure, State, Status, _ran) = (false, "", Phase.Off, "", false);
-        if (_held) (_only, _held) = (false, false); // switched off while lean could not give back: off with the world
+        if (_held)
+        {
+            (Requested, _held) = (false, false); // switched off while lean could not give back: off with the world
+        }
+
         GlTap.GuiStage = false;
-        foreach (var porting in Porting.Bounded(Programs.Length)) porting?.Drop();
+        foreach (var porting in Porting.Bounded(Programs.Length))
+        {
+            porting?.Drop();
+        }
+
         Array.Clear(Porting);
         Array.Clear(Ports);
         Array.Clear(Built);
         Array.Clear(EngineNow); // the world's programs go with it
-        (_taking, _api) = (false, null);
+        (_taking, _api, SafetyReason) = (false, null, "");
     }
 
     // Lean's stand-ins would outlive the world: the engine makes its framebuffer textures once per game run, so the next
@@ -116,10 +142,13 @@ internal static partial class VulkanRenderer
     private static void Unleaned()
     {
         if (GlTap.Leaned == 0 || !GlTap.Tapped || GlTap.Stranded) return;
+
         GlTap.Lean = false;
         if (Restored("ended with the world")) return;
-        _logger?.Error("Komet: Vulkan-only ended with the world, but OpenGL could not be given back the {0} large textures and " +
-                       "buffers lean kept from it: restart the game before joining another world", GlTap.Leaned);
+
+        _logger?.Error(
+            "Komet: Vulkan-only ended with the world, but OpenGL could not be given back the {0} large textures and " +
+            "buffers lean kept from it: restart the game before joining another world", GlTap.Leaned);
     }
 
     // Every GL name stays the engine's; nothing static keeps the renderer, its scene or their frame reachable, even when
@@ -127,16 +156,20 @@ internal static partial class VulkanRenderer
     private static void Release()
     {
         if (_renderer is not { } renderer) return;
+
         try
         {
             // OpenGL hears nothing more of the scene or the renderer
-            (GlTap.Drawing, GlTap.Clearing, GlTap.Writes, GlTap.Querying, GlTap.Answering) = (null, null, null, null, null);
+            (GlTap.Drawing, GlTap.Clearing, GlTap.Writes, GlTap.Querying, GlTap.Answering) =
+                (null, null, null, null, null);
             (GlTap.Blitting, GlTap.Reading, GlTap.TextureClearing, GlTap.Touching) = (null, null, null, null);
-            Rendering.FacePacking.Through = null;
-            (Rendering.FacePacking.Reserve, Rendering.FacePacking.Commit) = (null, null);
+            FacePacking.Through = null;
+            (FacePacking.Reserve, FacePacking.Commit) = (null, null);
             Culling(renderer, false); // before the backend the passes use goes with the renderer
-            SceneGone(); // before the renderer whose frame and programs it uses
-            renderer.Dispose();
+            using (renderer)
+            {
+                SceneGone(); // before the renderer whose frame and programs it uses
+            }
         }
         finally
         {
@@ -170,11 +203,19 @@ internal static partial class VulkanRenderer
     internal static void Update(ShaderProgramBase?[] programs, TerrainRenderer? renderer)
     {
         if (!NotNull(programs) || !Assert(programs.Length == Programs.Length)) return;
+
         for (var i = 0; i < Math.Min(programs.Length, Programs.Length); i++)
         {
             if (programs[i] is { ProgramId: > 0 } program && program.ProgramId != Built[i])
+            {
                 Port(i, program.ProgramId, renderer);
-            if (Porting[i] is { Done: false } waited) _ = waited.Awaited(Hitches.Kind.Port); // else missing
+            }
+
+            if (Porting[i] is { Done: false } waited)
+            {
+                _ = waited.Awaited(Hitches.Kind.Port); // else missing
+            }
+
             if (Porting[i] is { Done: true } done) Ported(i, done, renderer);
         }
     }
@@ -195,9 +236,11 @@ internal static partial class VulkanRenderer
         var ported = Ports[at] = done.Take(out var error);
         if (ported is not null && renderer?.Watch(Programs[at].Name, Built[at], ported) is { } watched)
         {
-            watched.Sources = PipelineRecipes.SourcesOf(Built[at]); // the pipelines it drew with at earlier starts begin now
+            watched.Sources =
+                PipelineRecipes.SourcesOf(Built[at]); // the pipelines it drew with at earlier starts begin now
             renderer.Warm(watched);
         }
+
         _logger?.Notification("Komet: Vulkan port of {0}: {1}", Programs[at].Name,
             ported is null ? error : $"{FrameClock.ToMs(done.Ticks):0} ms {done.Where}");
     }
@@ -220,7 +263,9 @@ internal static partial class VulkanRenderer
     internal static void Rebuilding()
     {
         if (_renderer is not { } renderer) return;
+
         if (renderer.Frame.Open) renderer.Frame.Close("the terrain rebuilt");
+
         renderer.PoolWritesDropped();
         _ = renderer.Device.WaitIdle();
     }
@@ -229,8 +274,10 @@ internal static partial class VulkanRenderer
     internal static Pass PassOf(int program, EnumRenderStage stage)
     {
         if (program <= 0) return Pass.None;
+
         var at = Array.IndexOf(Built, program);
         if (at < 0 || Ports[at] is null) return Pass.None;
+
         var pass = Programs[at].Pass;
         return (pass, stage) switch
         {
@@ -280,7 +327,11 @@ internal static partial class VulkanRenderer
         var add = AccessTools.DeclaredMethod(typeof(MeshDataPoolManager), nameof(MeshDataPoolManager.AddModel),
             [typeof(MeshData), typeof(Vec3i), typeof(int), typeof(Sphere)]);
         if (!NotNull(add) || !Assert(!Array.Exists(seams, s => s is null)) ||
-            !EngineShape.Matches(seams, BirthFingerprint, "Vulkan pool births", _logger)) return;
+            !EngineShape.Matches(seams, BirthFingerprint, "Vulkan pool births", _logger))
+        {
+            return;
+        }
+
         _ = harmony.Patch(add, Of(nameof(Adding)), finalizer: Of(nameof(Added)));
         _ = harmony.Patch(seams[0], Of(nameof(Birthing)), Of(nameof(Birth)), finalizer: Of(nameof(Birthed)));
         _births = true;
@@ -296,33 +347,41 @@ internal static partial class VulkanRenderer
 
     private static void Birthed() => GlTap.PoolBirth = false;
 
-    private static void Birth(MeshDataPool __result)
+    private static void Birth(MeshDataPool? __result)
     {
         GlTap.PoolBirth = false;
         if (!_births || _adding is not { } manager || (State != Phase.Running && !(Only && GlTap.Tapped)) ||
             _renderer is not { } renderer ||
             __result is null || ModelRef(__result) is not VAO vao || _api?.World is not ClientMain game ||
-            TerrainOf(game) is not { } chunks) return;
+            TerrainOf(game) is not { } chunks)
+        {
+            return;
+        }
+
         var pass = PassOf(PassPools(chunks), manager);
         if (pass < 0 || !_taking || !Assert(vao.VaoId > 0)) return;
+
         var (classic, start) = (Classic(pass), Stopwatch.GetTimestamp());
         Guarded(() =>
         {
             if (!renderer.Born(vao, classic)) return;
+
             (Born, BirthTicks) = (Born + 1, BirthTicks + Stopwatch.GetTimestamp() - start);
         });
     }
 
     // The chunk renderer's pass the manager draws, -1 for a manager of someone else's
-    internal static int PassOf(MeshDataPoolManager[][]? passes, MeshDataPoolManager manager)
+    internal static int PassOf(MeshDataPoolManager?[]?[]? passes, MeshDataPoolManager manager)
     {
         if (passes is null) return -1;
+
         for (var pass = 0; pass < Math.Min(passes.Length, ChunkPasses); pass++)
         {
             var managers = passes[pass];
             for (var m = 0; m < Math.Min(managers?.Length ?? 0, MaxManagers); m++)
-                if (ReferenceEquals(managers![m], manager))
-                    return pass;
+            {
+                if (ReferenceEquals(managers![m], manager)) return pass;
+            }
         }
 
         return -1;
@@ -348,7 +407,9 @@ internal static partial class VulkanRenderer
     }
 
     private const int Whats = 7, MaxStages = 32;
-    private static readonly int[] SectionIds = new int[MaxStages * Whats]; // 0: not made yet (0 is the frame's transfers)
+
+    private static readonly int[]
+        SectionIds = new int[MaxStages * Whats]; // 0: not made yet (0 is the frame's transfers)
 
     // RenderCost's groups by terrain stage: shadow maps; opaque; transparent with the liquid depth pre-pass and the pass
     // after it
@@ -360,23 +421,7 @@ internal static partial class VulkanRenderer
 
     private static readonly int[] TerrainGroups = [0, 0, 1, 2, 2, 2], TerrainSections = [-1, -1, -1, -1, -1, -1];
 
-    internal static void Mark(Drawn what)
-    {
-        if (_renderer is not { Frame.Timing: true } renderer || _api?.World is not ClientMain game) return;
-        var stage = (int)Stage(game);
-        if (!Index(stage, MaxStages)) return;
-        var at = stage * Whats + (int)what;
-        if (SectionIds[at] == 0) SectionIds[at] = VulkanFrame.SectionOf(Group(Stage(game)) + " " + Named(what));
-        renderer.Frame.Section(SectionIds[at]);
-    }
-
-    // Vulkan drawing opaque terrain: HUD terrain GPU rows of the last timed frame, in RenderCost groups; false under GL
-    public static bool TerrainGpuMs(Span<double> groups) => TimesTerrain && TerrainMs(_renderer!.Frame, groups);
-
     public static bool TimesTerrain => State == Phase.Running && _taking && _renderer is not null;
-
-    // Opaque terrain pipeline statistics (Occlusion's order) and area of the last counted frame; NaN under GL
-    public static double TerrainStatistic(int at) => TimesTerrain ? _renderer!.Frame.LastStatistic(at) : double.NaN;
 
     public static double TerrainPixels => TimesTerrain ? _renderer!.Frame.CountedPixels : double.NaN;
 
@@ -385,41 +430,66 @@ internal static partial class VulkanRenderer
         ? renderer.Frame.LastBusyMs
         : double.NaN;
 
+    internal static void Mark(Drawn what)
+    {
+        if (_renderer is not { Frame.Timing: true } renderer || _api?.World is not ClientMain game) return;
+
+        var stage = (int)Stage(game);
+        if (!Index(stage, MaxStages)) return;
+
+        var at = stage * Whats + (int)what;
+        if (SectionIds[at] == 0) SectionIds[at] = VulkanFrame.SectionOf(Group(Stage(game)) + " " + Named(what));
+
+        renderer.Frame.Section(SectionIds[at]);
+    }
+
+    // Vulkan drawing opaque terrain: HUD terrain GPU rows of the last timed frame, in RenderCost groups; false under GL
+    public static bool TerrainGpuMs(Span<double> groups) => TimesTerrain && TerrainMs(_renderer!.Frame, groups);
+
+    // Opaque terrain pipeline statistics (Occlusion's order) and area of the last counted frame; NaN under GL
+    public static double TerrainStatistic(int at) => TimesTerrain ? _renderer!.Frame.LastStatistic(at) : double.NaN;
+
     internal static bool TerrainMs(VulkanFrame frame, Span<double> groups)
     {
         if (!NotNull(frame) || !Assert(groups.Length >= 3)) return false;
+
         groups.Clear();
         for (var i = 0; i < TerrainStages.Length; i++)
         {
             if (TerrainSections[i] < 0)
+            {
                 TerrainSections[i] = VulkanFrame.SectionOf(Group(TerrainStages[i]) + " " + Named(Drawn.Terrain));
+            }
+
             groups[TerrainGroups[i]] += frame.LastMs(TerrainSections[i]);
         }
 
         return true; // NaN before the first timed frame, as OpenGL's rows
     }
 
-    private static string Group(EnumRenderStage stage) => stage switch
-    {
-        EnumRenderStage.Before => "before",
-        EnumRenderStage.ShadowFar => "shadow far",
-        EnumRenderStage.ShadowNear => "shadow near",
-        EnumRenderStage.Opaque => "opaque",
-        EnumRenderStage.OIT => "transparent",
-        EnumRenderStage.AfterOIT => "after transparent",
-        EnumRenderStage.AfterPostProcessing or EnumRenderStage.AfterBlit => "post",
-        EnumRenderStage.AfterFinalComposition or EnumRenderStage.Ortho or EnumRenderStage.Done => "window",
-        _ => stage.ToString().ToLowerInvariant()
-    };
+    private static string Group(EnumRenderStage stage) =>
+        stage switch
+        {
+            EnumRenderStage.Before => "before",
+            EnumRenderStage.ShadowFar => "shadow far",
+            EnumRenderStage.ShadowNear => "shadow near",
+            EnumRenderStage.Opaque => "opaque",
+            EnumRenderStage.OIT => "transparent",
+            EnumRenderStage.AfterOIT => "after transparent",
+            EnumRenderStage.AfterPostProcessing or EnumRenderStage.AfterBlit => "post",
+            EnumRenderStage.AfterFinalComposition or EnumRenderStage.Ortho or EnumRenderStage.Done => "window",
+            _ => stage.ToString().ToLowerInvariant()
+        };
 
-    private static string Named(Drawn what) => what switch
-    {
-        Drawn.Terrain => "terrain",
-        Drawn.Sky => "sky",
-        Drawn.Entities => "entities",
-        Drawn.Particles => "particles",
-        Drawn.Post => "post-processing",
-        Drawn.Compute => "compute",
-        _ => "other"
-    };
+    private static string Named(Drawn what) =>
+        what switch
+        {
+            Drawn.Terrain => "terrain",
+            Drawn.Sky => "sky",
+            Drawn.Entities => "entities",
+            Drawn.Particles => "particles",
+            Drawn.Post => "post-processing",
+            Drawn.Compute => "compute",
+            _ => "other"
+        };
 }

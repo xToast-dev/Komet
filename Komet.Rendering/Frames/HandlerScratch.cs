@@ -25,22 +25,26 @@ internal static class HandlerScratch
 
     public static int Rewritten => Done.Count; // of the three
 
-    internal static MethodBase?[] Seams() =>
-    [
-        AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetClimate)),
-        AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetWindSpeed)),
-        AccessTools.DeclaredMethod(typeof(ParticlePhysics), nameof(ParticlePhysics.UpdateMotion))
-    ];
+    private static MethodBase?[] Seams() =>
+        [
+            AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetClimate)),
+            AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetWindSpeed)),
+            AccessTools.DeclaredMethod(typeof(ParticlePhysics), nameof(ParticlePhysics.UpdateMotion))
+        ];
 
     public static void Install(Harmony harmony)
     {
         Done.Clear();
         var seams = Seams();
-        if (!NotNull(harmony)) return;
+
         for (var i = 0; i < Math.Min(seams.Length, 3); i++)
+        {
             if (seams[i] is MethodInfo seam)
+            {
                 _ = harmony.Patch(seam, transpiler: new HarmonyMethod(AccessTools.Method(typeof(HandlerScratch),
                     i < 2 ? nameof(RewriteList) : nameof(RewriteWalk))));
+            }
+        }
     }
 
     // The trigger's GetInvocationList becomes Invocations
@@ -48,6 +52,7 @@ internal static class HandlerScratch
     {
         var list = AccessTools.Method(typeof(Delegate), nameof(Delegate.GetInvocationList));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(list)) return code;
+
         Done.Mark(original, Il.SubstituteSingle(code, c => c.operand is MethodInfo m && m == list,
             AccessTools.Method(typeof(HandlerScratch), nameof(Invocations))));
         return code;
@@ -57,10 +62,17 @@ internal static class HandlerScratch
     internal static List<CodeInstruction> RewriteWalk(IEnumerable<CodeInstruction> instructions, MethodBase original)
     {
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code))) return code;
-        var at = Il.Single(code, c => c.opcode == OpCodes.Newobj && c.operand is ConstructorInfo { DeclaringType: var t } &&
+
+        var at = Il.Single(code, c => c.opcode == OpCodes.Newobj &&
+                                      c.operand is ConstructorInfo { DeclaringType: var t } &&
                                       t == typeof(Action<Block, int, int, int>));
-        if (at < 1 || code[at - 1].opcode != OpCodes.Ldftn || code[at - 1].operand is not MethodInfo { IsStatic: false } lambda ||
-            lambda.DeclaringType != typeof(ParticlePhysics)) return code;
+        if (at < 1 || code[at - 1].opcode != OpCodes.Ldftn ||
+            code[at - 1].operand is not MethodInfo { IsStatic: false } lambda ||
+            lambda.DeclaringType != typeof(ParticlePhysics))
+        {
+            return code;
+        }
+
         _walk = lambda;
         Done.Mark(original, Il.Substitute(code, at, AccessTools.Method(typeof(HandlerScratch), nameof(Walk))));
         return code;
@@ -70,7 +82,9 @@ internal static class HandlerScratch
     internal static Delegate[] Invocations(Delegate handlers)
     {
         if (!FrameScratch.Enabled || !NotNull(handlers)) return handlers.GetInvocationList();
+
         if (Lists.TryGetValue(handlers, out var list)) return list;
+
         list = handlers.GetInvocationList();
         Lists.AddOrUpdate(handlers, list);
         return list;
@@ -83,6 +97,7 @@ internal static class HandlerScratch
         var walk = _walk!;
         _ = Assert(method != IntPtr.Zero);
         if (Walks.TryGetValue(target, out var made)) return made;
+
         made = walk.CreateDelegate<Action<Block, int, int, int>>(target);
         Walks.AddOrUpdate(target, made);
         return made;

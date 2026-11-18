@@ -13,16 +13,10 @@ public sealed class KometSettingsFileTests
     private int[] _defaults = [];
 
     [SetUp]
-    public void Save()
-    {
-        _defaults = Knobs.Snapshot();
-    }
+    public void Save() => _defaults = Knobs.Snapshot();
 
     [TearDown]
-    public void Restore()
-    {
-        _ = Knobs.Apply(_defaults);
-    }
+    public void Restore() => _ = Knobs.Apply(_defaults);
 
     // NearFirst is the name a knob had before a rename; the file keeps it
     [Test]
@@ -60,7 +54,8 @@ public sealed class KometSettingsFileTests
         settings.Knobs.Apply(logger, HudSettings.FileName);
         Assert.Multiple(() =>
         {
-            Assert.That(knobs.Select(settings.Knobs.Knob), Is.EqualTo(knobs.Select(fresh.Knobs.Knob)), "the defaults apply");
+            Assert.That(knobs.Select(settings.Knobs.Knob), Is.EqualTo(knobs.Select(fresh.Knobs.Knob)),
+                "the defaults apply");
             Assert.That(logger.Lines, Has.Count.EqualTo(1).And.Some.Contains("UploadCap").And.Some
                 .Contains("NearFirst")
                 .And.Some.Contains("ChunkLoadBudget"));

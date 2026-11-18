@@ -28,7 +28,7 @@ public sealed class LightScratchTests
         return harmony;
     }
 
-    private static Lit Result(LightWorld world) => new Lit(world.Touched, world.Hashes, world.Errors, world.Light());
+    private static Lit Result(LightWorld world) => new(world.Touched, world.Hashes, world.Errors, world.Light());
 
     // One world lit up and scripted; a full hash every 40 steps on top of the per-step ones
     private static Lit Light(int seed, int steps = Steps)
@@ -36,8 +36,10 @@ public sealed class LightScratchTests
         var world = new LightWorld(LightWorld.MakeBlocks(), seed);
         world.LightUp();
         foreach (var step in world.Script(seed * 7 + 1, steps))
-            if (step % 40 == 0)
-                world.Hashes.Add(world.Hash());
+        {
+            if (step % 40 == 0) world.Hashes.Add(world.Hash());
+        }
+
         return Result(world);
     }
 
@@ -59,8 +61,10 @@ public sealed class LightScratchTests
     private static int FirstDifference<T>(IReadOnlyList<T> a, IReadOnlyList<T> b, System.Func<T, T, bool> equal)
     {
         for (var i = 0; i < Math.Min(a.Count, b.Count); i++)
-            if (!equal(a[i], b[i]))
-                return i;
+        {
+            if (!equal(a[i], b[i])) return i;
+        }
+
         return a.Count == b.Count ? -1 : Math.Min(a.Count, b.Count);
     }
 
@@ -91,7 +95,11 @@ public sealed class LightScratchTests
         b.LightUp();
         using var first = a.Script(seed * 7 + 1, Steps).GetEnumerator();
         using var second = b.Script((seed + 10) * 7 + 1, Steps).GetEnumerator();
-        for (var step = 0; step < Steps; step++) _ = first.MoveNext() && second.MoveNext();
+        for (var step = 0; step < Steps; step++)
+        {
+            _ = first.MoveNext() && second.MoveNext();
+        }
+
         return (Result(a), Result(b));
     }
 
@@ -135,12 +143,13 @@ public sealed class LightScratchTests
     {
         var (absorbing, lighting) = (new Hook(29, 40), new Hook(3, 40));
         var world = new LightWorld(LightWorld.MakeBlocks(new NestingBlock(absorbing), new NestingLightBlock(lighting)),
-            seed)
-        { Catching = true };
+                seed)
+            { Catching = true };
         var other = new LightWorld(LightWorld.MakeBlocks(), seed + 20) { Catching = true };
         other.LightUp();
         var nested = 0;
         using var inner = (same ? world : other).Script(seed * 11 + 3, 1000).GetEnumerator();
+        // ReSharper disable once AccessToDisposedClosure - the hooks run only in LightUp and Script below
         absorbing.Step = lighting.Step = () => nested += inner.MoveNext() ? 1 : 0;
         world.LightUp();
         _ = world.Script(seed * 7 + 1, Steps).Count();
@@ -206,9 +215,17 @@ public sealed class LightScratchTests
 
     private static long Allocated(Action operation)
     {
-        for (var i = 0; i < 3; i++) operation();
+        for (var i = 0; i < 3; i++)
+        {
+            operation();
+        }
+
         var start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < Calls; i++) operation();
+        for (var i = 0; i < Calls; i++)
+        {
+            operation();
+        }
+
         return (GC.GetAllocatedBytesForCurrentThread() - start) / Calls;
     }
 
@@ -219,7 +236,11 @@ public sealed class LightScratchTests
     private static long[] Measure()
     {
         long[] least = [];
-        for (var pass = 0; pass < Passes; pass++) least = Least(least, [.. Operations(Measured()).Select(Allocated)]);
+        for (var pass = 0; pass < Passes; pass++)
+        {
+            least = Least(least, [.. Operations(Measured()).Select(Allocated)]);
+        }
+
         return least;
     }
 
@@ -232,7 +253,10 @@ public sealed class LightScratchTests
         string[] methods = ["CollectLightValuesForLightSource", "UpdateLightAt", "SpreadDarkness"];
         var identity = new Harmony("komet-test-lightscratch-identity");
         foreach (var method in methods)
+        {
             _ = identity.Patch(LightScratch.Method(method), transpiler: Foreign.Transpiler);
+        }
+
         var engine = Measure();
         identity.UnpatchAll(identity.Id);
         using var harmony = Patched();
@@ -246,7 +270,9 @@ public sealed class LightScratchTests
             Assert.That(off, Is.EqualTo(engine).Within(1024),
                 "switched off, the rewrite has to allocate what the engine does");
             for (var i = 0; i < on.Length; i++)
+            {
                 Assert.That(on[i], Is.LessThan(engine[i] / 10), $"operation {i} kept most of its garbage");
+            }
         });
     }
 
@@ -333,16 +359,19 @@ public sealed class LightScratchTests
         var logger = new CapturingLogger();
         _ = other.Patch(LightScratch.Method(seam), postfix: Foreign.Postfix);
         LightScratch.Install(harmony, logger);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(LightScratch.Rewritten, Is.False);
             foreach (var name in (string[])["UpdateLightAt", "CollectLightValuesForLightSource", "SpreadDarkness"])
+            {
                 Assert.That(Harmony.GetPatchInfo(LightScratch.Method(name)!)?.Owners ?? [],
                     Does.Not.Contain(harmony.Id), name);
+            }
+
             Assert.That(logger.Lines, Has.Count.EqualTo(1));
             Assert.That(logger.Lines,
                 Has.All.StartsWith("Notification").And.All.Contains("ChunkIlluminator." + seam + ";"));
-        });
+        }
     }
 
     private static List<CodeInstruction> After(List<CodeInstruction> code, string name, Type type,
@@ -395,7 +424,10 @@ public sealed class LightScratchTests
         {
             Assert.That(LightScratch.OnlyRead(recalc), Is.True, "the engine's RecalcBlockLightAtPos");
             foreach (var body in recalcs)
+            {
                 Assert.That(LightScratch.OnlyRead(body), Is.False, "RecalcBlockLightAtPos keeping an argument");
+            }
+
             for (var i = 0; i < updates.Length; i++)
             {
                 _ = LightScratch.CheckUpdate(updates[i]);
@@ -421,6 +453,7 @@ public sealed class LightScratchTests
         public void Fire()
         {
             if (Step == null || _inside || _left == 0 || ++_calls % every != 0) return;
+
             (_inside, _left) = (true, _left - 1);
             try
             {
@@ -447,9 +480,10 @@ public sealed class LightScratchTests
     // own calls pass no position and are left alone
     private sealed class NestingLightBlock(Hook hook) : Block
     {
-        public override byte[] GetLightHsv(IBlockAccessor blockAccessor, BlockPos pos, ItemStack? stack = null)
+        public override byte[] GetLightHsv(IBlockAccessor blockAccessor, BlockPos? pos, ItemStack? stack = null)
         {
             if (pos != null) hook.Fire();
+
             return LightHsv;
         }
     }
@@ -462,6 +496,7 @@ public sealed class LightScratchTests
         public override int GetLightAbsorption(IWorldChunk chunk, BlockPos pos)
         {
             if (++_calls % every == 0) throw new InvalidOperationException("absorption failed");
+
             return LightAbsorption;
         }
     }

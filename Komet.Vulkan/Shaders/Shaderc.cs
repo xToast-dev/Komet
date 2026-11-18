@@ -9,13 +9,9 @@ internal static unsafe class Shaderc
 {
     public const int Vertex = 0, Fragment = 1, Compute = 2; // shaderc_shader_kind
     private const int TargetVulkan = 0, Vulkan13 = (1 << 22) | (3 << 12), Success = 0, MaxName = 256;
-    private static readonly string[] Libraries =
-        ["libshaderc_shared.so.1", "libshaderc_shared.so", "shaderc_shared.dll", "libshaderc_shared.dylib"];
+    private static readonly string[] Libraries = Names();
 
     private static readonly Lock Loading = new();
-
-    // Where ShadercFetch keeps the shaderc it fetched for a system without one
-    public static string Folder { get; set; } = "";
     private static IntPtr _library, _compiler;
     private static delegate* unmanaged<IntPtr> _options;
     private static delegate* unmanaged<IntPtr, void> _releaseOptions;
@@ -28,17 +24,52 @@ internal static unsafe class Shaderc
     private static delegate* unmanaged<IntPtr, byte*> _error;
     private static delegate* unmanaged<IntPtr, void> _release;
 
+    // Where ShadercFetch keeps the shaderc it fetched for a system without one
+    public static string Folder { get; set; } = "";
+    internal static string SourceFolder { get; set; } = "";
+
+    public static string Failure { get; private set; } = "";
+    internal static string Location { get; private set; } = "";
+
+    private static string[] Names()
+    {
+        if (OperatingSystem.IsWindows()) return ["shaderc_shared.dll"];
+
+        return OperatingSystem.IsLinux()
+            ? ["libshaderc_shared.so.1", "libshaderc_shared.so"]
+            : ["libshaderc_shared.dylib"];
+    }
+
     public static bool Load()
     {
-        lock (Loading) return Loaded();
+        lock (Loading)
+        {
+            return Loaded();
+        }
     }
 
     private static bool Loaded()
     {
         if (_compiler != IntPtr.Zero) return true;
-        // Windows has none of its own; elsewhere the system's comes first, as the distribution built it
-        var shipped = OperatingSystem.IsWindows();
-        if (!(shipped ? Shipped() || System() : System() || Shipped())) return false;
+
+        var failures = new List<string>();
+        if (OperatingSystem.IsWindows() && (From(Bundled(), failures) || From(Folder, failures))) return true;
+
+        foreach (var name in Libraries.Bounded(Libraries.Length))
+        {
+            if (Candidate(name)) return true;
+
+            failures.Add(Failure);
+        }
+
+        if (!OperatingSystem.IsWindows() && (From(Bundled(), failures) || From(Folder, failures))) return true;
+
+        Failure = string.Join("; ", failures);
+        return false;
+    }
+
+    private static bool Bind()
+    {
         var initialize = (delegate* unmanaged<IntPtr>)Export("shaderc_compiler_initialize");
         _options = (delegate* unmanaged<IntPtr>)Export("shaderc_compile_options_initialize");
         _releaseOptions = (delegate* unmanaged<IntPtr, void>)Export("shaderc_compile_options_release");
@@ -57,7 +88,11 @@ internal static unsafe class Shaderc
         _release = (delegate* unmanaged<IntPtr, void>)Export("shaderc_result_release");
         if (initialize == null || _options == null || _compile == null || _status == null || _length == null ||
             _bytes == null || _error == null || _release == null || _releaseOptions == null || _targetEnv == null ||
-            _relaxed == null || _autoBind == null || _autoMap == null || _preprocess == null) return Unloaded();
+            _relaxed == null || _autoBind == null || _autoMap == null || _preprocess == null)
+        {
+            return Unloaded();
+        }
+
         _compiler = initialize();
         return Assert(_compiler != IntPtr.Zero) || Unloaded();
     }
@@ -70,29 +105,54 @@ internal static unsafe class Shaderc
         return false;
     }
 
-    private static bool System()
+    private static string Bundled()
     {
+        if (SourceFolder.Length > 0) return SourceFolder;
+
+        var mod = Path.GetDirectoryName(typeof(Shaderc).Assembly.Location);
+        return string.IsNullOrEmpty(mod) || ShadercFetch.Library() is not { } library
+            ? ""
+            : Path.Join(mod, "native", library.Rid);
+    }
+
+    private static bool From(string folder, List<string> failures)
+    {
+        if (folder.Length == 0) return false;
+
         foreach (var name in Libraries.Bounded(Libraries.Length))
-            if (NativeLibrary.TryLoad(name, out _library)) return true;
+        {
+            var path = Path.GetFullPath(Path.Join(folder, name));
+            if (!File.Exists(path)) continue;
+
+            if (Candidate(path)) return true;
+
+            failures.Add(Failure);
+        }
+
         return false;
     }
 
-    // The mod's own copy (native/<rid> beside its assemblies, Windows x64 only) before the one fetched into the cache
-    private static bool Shipped() => From(Bundled()) || From(Folder);
-
-    private static string Bundled()
+    private static bool Candidate(string path)
     {
-        var mod = Path.GetDirectoryName(typeof(Shaderc).Assembly.Location);
-        return string.IsNullOrEmpty(mod) || ShadercFetch.Library() is not { } library ? "" : Path.Join(mod, "native", library.Rid);
-    }
-
-    private static bool From(string folder)
-    {
-        if (folder.Length == 0) return false;
-        foreach (var name in Libraries.Bounded(Libraries.Length))
+        Failure = "";
+        try
         {
-            var path = Path.Join(folder, name);
-            if (File.Exists(path) && NativeLibrary.TryLoad(path, out _library)) return true;
+            var search = DllImportSearchPath.SafeDirectories | DllImportSearchPath.AssemblyDirectory;
+            if (Path.IsPathRooted(path)) search |= DllImportSearchPath.UseDllDirectoryForDependencies;
+
+            _library = NativeLibrary.Load(path, typeof(Shaderc).Assembly, search);
+            if (Bind())
+            {
+                (Location, Failure) = (path, "");
+                return true;
+            }
+
+            Failure = path + ": " + (Failure.Length > 0 ? Failure : "compiler initialization failed");
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
+        {
+            Failure = path + ": " + e.GetType().Name + ": " + e.Message;
+            if (_library != IntPtr.Zero) _ = Unloaded();
         }
 
         return false;
@@ -102,6 +162,7 @@ internal static unsafe class Shaderc
     {
         var result = Run(source, kind, name, relaxed, false, out error);
         if (result == IntPtr.Zero) return null;
+
         try
         {
             if (_status(result) != Success)
@@ -112,6 +173,7 @@ internal static unsafe class Shaderc
 
             var length = (int)_length(result);
             if (!Assert(length % 4 == 0 && length > 20)) return null;
+
             var words = new uint[length / 4];
             new ReadOnlySpan<byte>(_bytes(result), length).CopyTo(MemoryMarshal.AsBytes(words.AsSpan()));
             return Assert(words[0] == Spirv.Magic) ? words : null;
@@ -127,10 +189,14 @@ internal static unsafe class Shaderc
     {
         var result = Run(source, kind, name, false, true, out error);
         if (result == IntPtr.Zero) return null;
+
         try
         {
             if (_status(result) == Success)
+            {
                 return Encoding.UTF8.GetString(new ReadOnlySpan<byte>(_bytes(result), (int)_length(result)));
+            }
+
             error = Marshal.PtrToStringUTF8((IntPtr)_error(result)) ?? "preprocessing failed";
             return null;
         }
@@ -145,7 +211,7 @@ internal static unsafe class Shaderc
         error = "";
         if (!NotNull(source) || !Assert(kind is Vertex or Fragment or Compute) || !Load())
         {
-            error = "no shaderc";
+            error = Failure.Length > 0 ? "no shaderc: " + Failure : "no shaderc";
             return IntPtr.Zero;
         }
 
@@ -156,21 +222,36 @@ internal static unsafe class Shaderc
             return IntPtr.Zero;
         }
 
-        _targetEnv(options, TargetVulkan, Vulkan13);
-        var loose = (byte)(relaxed ? 1 : 0);
-        _relaxed(options, loose);
-        _autoBind(options, loose);
-        _autoMap(options, loose);
-        var text = Encoding.UTF8.GetBytes(source);
-        var clipped = NotNull(name) && Assert(name.Length > 0) && name.Length < MaxName ? name : "shader";
-        var (file, entry) = (Encoding.UTF8.GetBytes(clipped + "\0"), "main\0"u8.ToArray());
-        IntPtr result;
-        fixed (byte* s = text, f = file, e = entry)
-            result = (preprocess ? _preprocess : _compile)(_compiler, s, (nuint)text.Length, kind, f, e, options);
-        _releaseOptions(options);
-        return result;
+        try
+        {
+            _targetEnv(options, TargetVulkan, Vulkan13);
+            var loose = (byte)(relaxed ? 1 : 0);
+            _relaxed(options, loose);
+            _autoBind(options, loose);
+            _autoMap(options, loose);
+            var text = Encoding.UTF8.GetBytes(source);
+            var clipped = NotNull(name) && Assert(name.Length > 0) && name.Length < MaxName ? name : "shader";
+            var (file, entry) = (Encoding.UTF8.GetBytes(clipped + "\0"), "main\0"u8.ToArray());
+            IntPtr result;
+            fixed (byte* s = text, f = file, e = entry)
+            {
+                result = (preprocess ? _preprocess : _compile)(_compiler, s, (nuint)text.Length, kind, f, e, options);
+            }
+
+            return result;
+        }
+        finally
+        {
+            _releaseOptions(options);
+        }
     }
 
-    private static IntPtr Export(string name) =>
-        NativeLibrary.TryGetExport(_library, name, out var address) ? address : IntPtr.Zero;
+    private static IntPtr Export(string name)
+    {
+        if (NativeLibrary.TryGetExport(_library, name, out var address)) return address;
+
+        if (Failure.Length == 0) Failure = "missing required export " + name;
+
+        return IntPtr.Zero;
+    }
 }

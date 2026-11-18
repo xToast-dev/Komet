@@ -52,9 +52,12 @@ public sealed class EngineShadersTests
         foreach (var name in names)
         {
             if (!File.Exists(Path.Combine(EngineShaders.Folder, name + ".fsh"))) continue;
+
             var (vertex, fragment) = EngineShaders.Program(name!, true);
             if (GlslPort.Build(name!, vertex, fragment, null, out var error) is null)
+            {
                 failed.Add($"{name}: {error.Split('\n')[0]}");
+            }
         }
 
         TestContext.Out.WriteLine(string.Join('\n', failed));
@@ -88,6 +91,7 @@ internal static class EngineShaders
     {
         var code = Include(File.ReadAllText(Path.Combine(Folder, file)), []);
         if (ssbo) code = Regex.Replace(code, @"#version \d+", "#version 430");
+
         var at = code.IndexOf('\n', Math.Max(0, code.IndexOf("#version", StringComparison.Ordinal))) + 1;
         return code.Insert(at, prefix);
     }

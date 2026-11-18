@@ -11,23 +11,30 @@ public sealed class SampleTests
     public void TheSystemSampleReadsWhatTheProcessAndProcSay()
     {
         if (!OperatingSystem.IsLinux()) Assert.Ignore("/proc");
+
         var stats = new ResourceStats();
         stats.Sample();
         var start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < Samples; i++) stats.Sample();
+        for (var i = 0; i < Samples; i++)
+        {
+            stats.Sample();
+        }
+
         var perSample = (GC.GetAllocatedBytesForCurrentThread() - start) / Samples;
         var line = File.ReadLines("/proc/meminfo").First(l => l.StartsWith("MemTotal:", StringComparison.Ordinal));
-        var totalKb = long.Parse(line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1], CultureInfo.InvariantCulture);
+        var totalKb = long.Parse(line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1],
+            CultureInfo.InvariantCulture);
         using var process = Process.GetCurrentProcess();
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
-            Assert.That(perSample, Is.LessThan(2048), "was ~44 KB: Process.Refresh, a StreamReader and a Split per line");
+            Assert.That(perSample, Is.LessThan(2048),
+                "was ~44 KB: Process.Refresh, a StreamReader and a Split per line");
             Assert.That(stats.TotalRamMb, Is.EqualTo(totalKb / 1024));
             Assert.That(stats.AvailableRamMb, Is.InRange(1, stats.TotalRamMb));
             Assert.That(stats.WorkingSetMb, Is.EqualTo(process.WorkingSet64 / (1024 * 1024)).Within(16));
             Assert.That(stats.SystemCpuPercent, Is.InRange(0.0, 100.0));
             Assert.That(stats.CpuPercent, Is.GreaterThanOrEqualTo(0.0));
-        });
+        }
     }
 
     // A log shorter than the tail keeps its first line

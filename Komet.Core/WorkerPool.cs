@@ -20,8 +20,14 @@ internal static class WorkerPool
 
     public const int MaxThreads = 8, MaxItems = 1 << 16, MaxFrameFailures = 2;
 
-    private const int IdleMs = 50, Spins = 32, SignalSpins = 8, JoinMs = 2000, FrameCounter = 0, BackgroundCounter = 1,
-        MaxRetired = 64, MaxWaits = 1 << 24;
+    private const int IdleMs = 50,
+        Spins = 32,
+        SignalSpins = 8,
+        JoinMs = 2000,
+        FrameCounter = 0,
+        BackgroundCounter = 1,
+        MaxRetired = 64,
+        MaxWaits = 1 << 24;
 
     private const long MaxRounds = long.MaxValue; // runs until its world or generation ends
     private const long Low = 0xFFFFFFFFL;
@@ -36,7 +42,7 @@ internal static class WorkerPool
     private static Worker[] _workers = [];
     private static int _relay; // resting workers still to be woken by those already woken
     private static object? _world; // ClientMain the threads belong to; null without a world (tests)
-    private static int _generation, _done, _frameFailures, _backgroundLimit, _inBackground;
+    private static int _generation, _done, _frameFailures, _inBackground;
     private static long _cursor; // count << 32 | next index; count 0 while no batch is open
     private static Action<int>? _job;
     private static Exception? _error;
@@ -62,8 +68,8 @@ internal static class WorkerPool
     // Set by the job's owner (TessWorkers)
     public static int BackgroundLimit
     {
-        get => Volatile.Read(ref _backgroundLimit);
-        set => Volatile.Write(ref _backgroundLimit, Assert(value is >= 0 and <= MaxThreads) ? value : 0);
+        get => Volatile.Read(ref field);
+        set => Volatile.Write(ref field, Assert(value is >= 0 and <= MaxThreads) ? value : 0);
     }
 
     // FrustumSweep's stage batch stays open across a stage's calls
@@ -75,8 +81,10 @@ internal static class WorkerPool
         {
             var n = 0;
             foreach (var worker in Volatile.Read(ref _workers).Bounded(MaxThreads))
-                if (!worker.Parked)
-                    n++;
+            {
+                if (!worker.Parked) n++;
+            }
+
             return n;
         }
     }
@@ -85,7 +93,11 @@ internal static class WorkerPool
     public static void Steer(ClientMain? game)
     {
         if (game is null || game.threadsShouldExit ||
-            !Assert(Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId)) return;
+            !Assert(Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId))
+        {
+            return;
+        }
+
         Resize(game, Math.Clamp(Wanted, 0, MaxThreads));
     }
 
@@ -93,12 +105,18 @@ internal static class WorkerPool
     internal static void Resize(object? world, int wanted)
     {
         if (!Assert(wanted is >= 0 and <= MaxThreads) || (world is not null && !Assert(Accessible))) return;
+
         lock (Gate)
         {
             if (!ReferenceEquals(world, _world)) Retire();
+
             _world = world;
             var workers = _workers;
-            for (var i = 0; i < Math.Min(workers.Length, MaxThreads); i++) workers[i].Parked = i >= wanted;
+            for (var i = 0; i < Math.Min(workers.Length, MaxThreads); i++)
+            {
+                workers[i].Parked = i >= wanted;
+            }
+
             if (wanted <= workers.Length) return;
 
             var grown = new Worker[wanted];
@@ -107,7 +125,10 @@ internal static class WorkerPool
             {
                 var worker = grown[i] = new Worker(world as ClientMain, i, Volatile.Read(ref _generation));
                 if (world is ClientMain game)
+                {
                     Threads(game).Add(worker.Thread); // on the main thread, which DestroyGameSession iterates on
+                }
+
                 worker.Thread.Start();
             }
 
@@ -135,6 +156,7 @@ internal static class WorkerPool
         {
             var ended = worker.Thread.Join((int)Math.Max(0, deadline - Environment.TickCount64));
             if (ended) worker.Dispose();
+
             joined &= ended;
         }
 
@@ -146,8 +168,17 @@ internal static class WorkerPool
         _ = Interlocked.Increment(ref _generation);
         var alive = 0;
         for (var i = 0; i < Math.Min(Retired.Count, MaxRetired); i++)
-            if (Retired[i].Thread.IsAlive) Retired[alive++] = Retired[i];
-            else Retired[i].Dispose();
+        {
+            if (Retired[i].Thread.IsAlive)
+            {
+                Retired[alive++] = Retired[i];
+            }
+            else
+            {
+                Retired[i].Dispose();
+            }
+        }
+
         Retired.RemoveRange(alive, Retired.Count - alive);
         foreach (var worker in _workers.Bounded(MaxThreads))
         {
@@ -163,11 +194,19 @@ internal static class WorkerPool
     public static FrameResult RunFrame(Action<int> job, int count, int helpers)
     {
         if (!NotNull(job) || count < 2 || !OpenFrame(job, count, Math.Min(helpers, count - 1)))
+        {
             return FrameResult.Declined;
+        }
+
         _ = Claim();
         var spin = new SpinWait();
-        for (var i = 0; i < Spins && Volatile.Read(ref _done) < count; i++) spin.SpinOnce(-1);
+        for (var i = 0; i < Spins && Volatile.Read(ref _done) < count; i++)
+        {
+            spin.SpinOnce(-1);
+        }
+
         if (Volatile.Read(ref _done) < count) Finished.Wait();
+
         _ = Assert(Volatile.Read(ref _done) == count); // every item ran exactly once
         _ = Interlocked.Exchange(ref _cursor, 0);
         _ = Assert(ReferenceEquals(_job, job)); // no second batch ran meanwhile
@@ -179,7 +218,10 @@ internal static class WorkerPool
     {
         if (!NotNull(job) || !Assert(count <= MaxItems) || count < 1 || Running == 0 || FrameOff ||
             !Assert(_number == 0) || !Assert(_job is null))
+        {
             return false;
+        }
+
         (_job, _done, _error) = (job, 0, null);
         Finished.Reset();
         _ = Interlocked.Exchange(ref _cursor, (long)count << 32); // publishes the batch
@@ -196,7 +238,9 @@ internal static class WorkerPool
             var seen = Volatile.Read(ref _cursor);
             var (count, at) = ((int)(seen >>> 32), (int)(seen & Low));
             if (at >= Math.Min(count, below)) break;
+
             if (Interlocked.CompareExchange(ref _cursor, seen + 1, seen) != seen) continue;
+
             Item(at, count);
             ran++;
         }
@@ -208,10 +252,15 @@ internal static class WorkerPool
     public static FrameResult CloseFrame()
     {
         if (_job is null || !Assert(_number == 0)) return FrameResult.Declined;
+
         var seen = Interlocked.Exchange(ref _cursor, 0);
         var claimed = (int)Math.Min(seen >>> 32, seen & Low); // an increment past the count claimed nothing
         var spin = new SpinWait();
-        for (var i = 0; i < MaxWaits && Volatile.Read(ref _done) < claimed; i++) spin.SpinOnce(-1);
+        for (var i = 0; i < MaxWaits && Volatile.Read(ref _done) < claimed; i++)
+        {
+            spin.SpinOnce(-1);
+        }
+
         _ = Assert(Volatile.Read(ref _done) == claimed); // every claimed item ended, no other ran
         return Ended();
     }
@@ -220,6 +269,7 @@ internal static class WorkerPool
     {
         _job = null;
         if (Volatile.Read(ref _error) is not { } error) return FrameResult.Done;
+
         LastError = error;
         _ = Interlocked.Increment(ref _frameFailures);
         return FrameResult.Failed;
@@ -229,6 +279,7 @@ internal static class WorkerPool
     private static void Wake(int n)
     {
         if (n <= 0) return;
+
         Volatile.Write(ref _relay, Math.Min(n, MaxThreads) - 1);
         _ = WakeOne();
     }
@@ -238,6 +289,7 @@ internal static class WorkerPool
         foreach (var worker in Volatile.Read(ref _workers).Bounded(MaxThreads))
         {
             if (worker.Parked || Interlocked.CompareExchange(ref worker.Idle, 0, 1) != 1) continue;
+
             worker.Signal.Set();
             return true;
         }
@@ -259,6 +311,7 @@ internal static class WorkerPool
             var claim = Interlocked.Increment(ref _cursor) - 1;
             var (count, at) = ((int)(claim >>> 32), (int)(claim & Low));
             if (at >= count) break;
+
             Item(at, count);
             ran++;
         }
@@ -296,8 +349,8 @@ internal static class WorkerPool
     {
         public readonly ManualResetEventSlim Signal = new(false, SignalSpins);
         private readonly ClientMain? _game;
-        private readonly CancellationToken _token;
         private readonly int _slot, _era;
+        private readonly CancellationToken _token;
         public int Idle; // 1 while resting on Signal
         public volatile bool Parked;
 
@@ -326,7 +379,11 @@ internal static class WorkerPool
             for (long round = 0; round < MaxRounds; round++)
             {
                 if (Volatile.Read(ref _generation) != _era || _token.IsCancellationRequested ||
-                    _game?.threadsShouldExit == true) break;
+                    _game?.threadsShouldExit == true)
+                {
+                    break;
+                }
+
                 if (Parked || (!Help() && !Admit())) Rest();
             }
 
@@ -338,7 +395,12 @@ internal static class WorkerPool
         private void Rest()
         {
             _ = Interlocked.Exchange(ref Idle, 1);
-            if (Parked || !Open()) _ = Signal.Wait(IdleMs, CancellationToken.None); // S8949: the worker ends through its loop check, never by a throwing wait
+            if (Parked || !Open())
+            {
+                _ = Signal.Wait(IdleMs,
+                    CancellationToken.None); // S8949: the worker ends through its loop check, never by a throwing wait
+            }
+
             var woken = Interlocked.Exchange(ref Idle, 0) == 0;
             Signal.Reset(); // a late wake is not lost: the loop checks the cursor before resting again
             if (woken && !Parked) Relay();
@@ -350,8 +412,14 @@ internal static class WorkerPool
             {
                 var left = Volatile.Read(ref _relay);
                 if (left <= 0) return;
+
                 if (Interlocked.CompareExchange(ref _relay, left - 1, left) != left) continue;
-                if (WakeOne()) return; // the one woken relays on
+
+                if (WakeOne())
+                {
+                    return; // the one woken relays on
+                }
+
                 Volatile.Write(ref _relay, 0); // nobody rests any more
                 return;
             }
@@ -365,15 +433,18 @@ internal static class WorkerPool
         private static bool Help()
         {
             if (!Open()) return false;
+
             var start = Counting.On || Timed ? Stopwatch.GetTimestamp() : 0;
             var ran = Claim();
             if (start != 0) Busy.Add(FrameCounter, Stopwatch.GetTimestamp() - start);
+
             return ran > 0;
         }
 
         private static bool Admit()
         {
             if (BackgroundOff || Background is not { } job) return false;
+
             if (Interlocked.Increment(ref _inBackground) > BackgroundLimit)
             {
                 _ = Interlocked.Decrement(ref _inBackground);
@@ -392,6 +463,7 @@ internal static class WorkerPool
             finally
             {
                 if (start != 0 && ran) Busy.Add(BackgroundCounter, Stopwatch.GetTimestamp() - start);
+
                 _ = Interlocked.Decrement(ref _inBackground);
             }
 

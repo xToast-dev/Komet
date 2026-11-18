@@ -20,6 +20,8 @@ internal static class TessSchedule
     private const double TurnCos = 0.866; // turning further than 30° scores again
 
     private static readonly TessQueue Waiting = new();
+
+    //noinspection InconsistentlySynchronizedField -- tick state, touched only on the tessellation thread
     private static readonly List<long> Batch = [];
 
     // Priority marks of chunks a worker is on: back into the engine's queue after the loop
@@ -44,7 +46,8 @@ internal static class TessSchedule
         var tick = AccessTools.DeclaredMethod(manager, nameof(ChunkTesselatorManager.OnSeperateThreadGameTick),
             [typeof(float)]);
         var frame = AccessTools.DeclaredMethod(manager, nameof(ChunkTesselatorManager.OnBeforeFrame), [typeof(float)]);
-        if (!NotNull(harmony) || !NotNull(tick) || !NotNull(frame) || !Seams()) return;
+        if (!NotNull(tick) || !NotNull(frame) || !Seams()) return;
+
         _ = harmony.Patch(tick, new HarmonyMethod(Tick));
         _ = harmony.Patch(frame, postfix: new HarmonyMethod(Counted));
         Installed = true;
@@ -75,17 +78,27 @@ internal static class TessSchedule
     {
         var game = Game(__instance);
         if (!NotNull(game) || !NotNull(game.WorldMap)) return true;
+
         if (!Active)
         {
             TessWorkers.Steer(game, __instance, false); // here and below: no pass of this thread runs
-            if (TessWorkers.Passing) return false; // the engine's tick could take the chunk a worker still tessellates
+            if (TessWorkers.Passing)
+            {
+                return false; // the engine's tick could take the chunk a worker still tessellates
+            }
+
             if (ReferenceEquals(game, _game) && Waiting.Count > 0) GiveBack(game);
+
             Measure(game, true);
             return true;
         }
 
         if (game.TerrainChunkTesselator is not { } tesselator || !TessSeams.Started(tesselator) ||
-            !NotNull(game.frustumCuller)) return false;
+            !NotNull(game.frustumCuller))
+        {
+            return false;
+        }
+
         TessWorkers.Steer(game, __instance, true);
         Bind(game); // after started: ChunkTesselator.Start reads the map size, so the index multipliers are set
         if (Priority(__instance, game) && Home(__instance, game))
@@ -113,9 +126,18 @@ internal static class TessSchedule
     {
         var gate = PriorityLock(game);
         if (!NotNull(gate) || !NotNull(PriorityQueue(game))) return false;
+
         var go = PriorityMarks(manager, game, gate);
         if (Busy.Count == 0) return go;
-        lock (gate) foreach (var mark in Busy.Bounded(MaxPriority)) PriorityQueue(game).Enqueue(mark);
+
+        lock (gate)
+        {
+            foreach (var mark in Busy.Bounded(MaxPriority))
+            {
+                PriorityQueue(game).Enqueue(mark);
+            }
+        }
+
         Busy.Clear();
         return go;
     }
@@ -126,11 +148,13 @@ internal static class TessSchedule
         for (var i = 0; i < MaxPriority && left-- > 0; i++)
         {
             if (!game.ShouldTesselateTerrain) return false;
+
             long mark;
             lock (gate)
             {
                 var queue = PriorityQueue(game);
                 if (queue.Count == 0) break;
+
                 mark = queue.Dequeue();
                 var full = mark & long.MaxValue;
                 if (mark < 0 && queue.Contains(full))
@@ -147,7 +171,12 @@ internal static class TessSchedule
             }
 
             if (Owned(manager, game, mark, true, out _))
-                lock (gate) PriorityQueue(game).Enqueue(mark);
+            {
+                lock (gate)
+                {
+                    PriorityQueue(game).Enqueue(mark);
+                }
+            }
         }
 
         return game.ShouldTesselateTerrain;
@@ -157,7 +186,10 @@ internal static class TessSchedule
     private static bool Home(ChunkTesselatorManager manager, ClientMain game)
     {
         for (var i = 0; i < MaxPriority && game.ShouldTesselateTerrain && Waiting.TryTakeHome(out var mark); i++)
+        {
             if (Owned(manager, game, mark, false, out _)) Waiting.Defer(mark);
+        }
+
         return game.ShouldTesselateTerrain;
     }
 
@@ -169,8 +201,11 @@ internal static class TessSchedule
         for (var i = 0; i < MaxPerTick && vertices < budget; i++)
         {
             if (PriorityQueue(game).Count > 0) return false;
+
             if (!game.ShouldTesselateTerrain || !Waiting.TryTake(out var mark)) break;
+
             if (Owned(manager, game, mark, false, out var added)) Waiting.Defer(mark);
+
             vertices += added;
         }
 
@@ -181,7 +216,11 @@ internal static class TessSchedule
     internal static bool Work(ChunkTesselatorManager manager, ClientMain game)
     {
         if (!Active || !ReferenceEquals(game, _game) || !game.ShouldTesselateTerrain ||
-            !Waiting.TryTake(out var mark)) return false;
+            !Waiting.TryTake(out var mark))
+        {
+            return false;
+        }
+
         bool requeue = false, finished = false;
         try
         {
@@ -191,8 +230,14 @@ internal static class TessSchedule
         finally
         {
             // a pass that threw leaves its chunk queued
-            if (!finished || requeue) Waiting.Home(mark);
-            else Waiting.Done(mark & long.MaxValue);
+            if (!finished || requeue)
+            {
+                Waiting.Home(mark);
+            }
+            else
+            {
+                Waiting.Done(mark & long.MaxValue);
+            }
         }
 
         return true;
@@ -222,6 +267,7 @@ internal static class TessSchedule
             (long)game.WorldMap.index3dMulZ);
         requeue = false;
         if (!Assert(mulX > 0 && mulZ > 0)) return 0;
+
         int x = (int)(index % mulX), y = (int)(index / (mulX * mulZ)), z = (int)(index / mulX % mulZ);
         var vertices = manager.TesselateChunk(x, y, z, priority, mark < 0, out requeue);
         return Assert(vertices >= 0) ? vertices : 0;
@@ -229,23 +275,31 @@ internal static class TessSchedule
 
     private static void Collect(ClientMain game)
     {
-        if (!Assert(Batch.Count == 0)) Batch.Clear(); // emptied at the end of every Collect
-        Take(DirtyLock(game), ref Dirty(game));
-        Take(LastLock(game), ref Last(game));
+        if (!Assert(Batch.Count == 0))
+        {
+            Batch.Clear(); // emptied at the end of every Collect
+        }
+
+        Take(DirtyLock(game), ref Dirty(game), Batch);
+        Take(LastLock(game), ref Last(game), Batch);
         Waiting.AddRange(CollectionsMarshal.AsSpan(Batch));
         Batch.Clear();
         Waiting.Undefer();
     }
 
     // RedrawAllBlocks assigns game.dirtyChunks a new queue without the lock: the field is reread through the ref
-    private static void Take(object gate, ref UniqueQueue<long> field)
+    private static void Take(object gate, ref UniqueQueue<long> field, List<long> into)
     {
         if (!NotNull(gate)) return;
+
         lock (gate)
         {
             var queue = field;
             var count = NotNull(queue) ? queue.Count : 0; // shrinks as the loop takes
-            for (var i = 0; i < Math.Min(count, MaxCollect); i++) Batch.Add(queue.Dequeue());
+            for (var i = 0; i < Math.Min(count, MaxCollect); i++)
+            {
+                into.Add(queue.Dequeue());
+            }
         }
     }
 
@@ -253,6 +307,7 @@ internal static class TessSchedule
     private static void Bind(ClientMain game)
     {
         if (ReferenceEquals(game, _game)) return;
+
         Waiting.Clear();
         Waiting.Map(game.WorldMap.index3dMulX, game.WorldMap.index3dMulZ);
         _aimedAt = 0;
@@ -263,9 +318,11 @@ internal static class TessSchedule
     private static void Aim(ClientMain game, bool force)
     {
         if (View(game) is not { } v) return;
+
         var now = Environment.TickCount64;
         var moved = v.X != _aim.X || v.Y != _aim.Y || v.Z != _aim.Z || v.Fx * _aim.Fx + v.Fz * _aim.Fz < TurnCos;
         if (!force && (!moved || now - _aimedAt < AimMs)) return;
+
         (_aim, _aimedAt) = (v, now);
         Waiting.Aim(v);
     }
@@ -274,6 +331,7 @@ internal static class TessSchedule
     {
         var pos = game.EntityPlayer?.Pos;
         if (pos is null || !Finite(pos.X) || !Finite(pos.Z) || !Finite(game.mouseYaw)) return null;
+
         var (fx, fz) = TessQueue.Facing(game.mouseYaw);
         return new TessView((int)Math.Floor(pos.X / 32), (int)Math.Floor(pos.Y / 32) + pos.Dimension * 1024,
             (int)Math.Floor(pos.Z / 32), fx, fz);
@@ -283,7 +341,11 @@ internal static class TessSchedule
     {
         var gate = DirtyLock(game);
         if (!NotNull(gate)) return;
-        lock (gate) Waiting.Drain(Dirty(game));
+
+        lock (gate)
+        {
+            Waiting.Drain(Dirty(game));
+        }
     }
 
     // Waiting marks within NearRadius columns, every AimMs while someone looks: in the queue while the schedule runs
@@ -292,6 +354,7 @@ internal static class TessSchedule
     {
         var now = Environment.TickCount64;
         if (!Counting.On || now - _nearAt < AimMs || View(game) is not { } v) return;
+
         _nearAt = now;
         long mulX = game.WorldMap.index3dMulX, mulZ = game.WorldMap.index3dMulZ;
         var near = engine
@@ -304,13 +367,17 @@ internal static class TessSchedule
     private static int Near(object gate, ref UniqueQueue<long> field, TessView v, long mulX, long mulZ)
     {
         if (!NotNull(gate)) return 0;
+
         var n = 0;
         lock (gate)
         {
             if (!NotNull(field)) return 0;
+
             using var marks = field.GetEnumerator(); // a boxed enumerator per AimMs, only while someone looks
             for (var i = 0; i < TessQueue.MaxPending && marks.MoveNext(); i++)
+            {
                 n += TessQueue.Within(marks.Current & long.MaxValue, v, NearRadius, mulX, mulZ) ? 1 : 0;
+            }
         }
 
         return n;

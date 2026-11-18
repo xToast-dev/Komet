@@ -23,13 +23,15 @@ internal static class SoundScratch
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
 
-    internal static MethodBase? Target() =>
-        AccessTools.DeclaredMethod(typeof(OggDecoder), nameof(OggDecoder.OggToWav), [typeof(Stream), typeof(IAsset)]);
+    private static MethodInfo? Target() =>
+        AccessTools.DeclaredMethod(typeof(OggDecoder), nameof(OggDecoder.OggToWav),
+            [typeof(Stream), typeof(IAsset)]);
 
     public static void Install(Harmony harmony)
     {
         Rewritten = false;
-        if (!NotNull(harmony) || Target() is not MethodInfo decode) return;
+        if (Target() is not { } decode) return;
+
         _ = harmony.Patch(decode, new HarmonyMethod(AccessTools.Method(typeof(SoundScratch), nameof(Decoding))),
             transpiler: new HarmonyMethod(AccessTools.Method(typeof(SoundScratch), nameof(Rewrite))));
     }
@@ -39,13 +41,15 @@ internal static class SoundScratch
     {
         var made = AccessTools.Constructor(typeof(MemoryStream), []);
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(made)) return code;
-        Rewritten = Il.SubstituteSingle(code, c => c.opcode == OpCodes.Newobj && c.operand is ConstructorInfo m && m == made,
+
+        Rewritten = Il.SubstituteSingle(code,
+            c => c.opcode == OpCodes.Newobj && c.operand is ConstructorInfo m && m == made,
             AccessTools.Method(typeof(SoundScratch), nameof(Sized)));
         return code;
     }
 
     // OggToWav's prefix: the size this sound will decode to, for Sized on this thread
-    private static void Decoding(IAsset asset) => _expected = Enabled && asset?.Data is { } data ? Expected(data) : 0;
+    private static void Decoding(IAsset? asset) => _expected = Enabled && asset?.Data is { } data ? Expected(data) : 0;
 
     internal static MemoryStream Sized()
     {
@@ -53,6 +57,38 @@ internal static class SoundScratch
         _expected = 0;
         return expected > 0 ? new Pcm(expected) : new MemoryStream();
     }
+
+    // Channels from the Vorbis identification header (first packet of the first page), samples from the last page's
+    // granule position; 0 when the file is not one plain Vorbis stream this reads
+    private static int Expected(ReadOnlySpan<byte> ogg)
+    {
+        if (ogg.Length < 64 || !Page(ogg, 0)) return 0;
+
+        var packet = 27 + ogg[26];
+        if (packet + 16 > ogg.Length || ogg[packet] != 1 ||
+            !ogg.Slice(packet + 1, 6).SequenceEqual("vorbis"u8))
+        {
+            return 0;
+        }
+
+        int channels = ogg[packet + 11];
+        if (channels is < 1 or > MaxChannels) return 0;
+
+        for (var i = 0; i < Math.Min(ogg.Length - 27, MaxScan); i++)
+        {
+            var at = ogg.Length - 27 - i;
+            if (!Page(ogg, at)) continue;
+
+            var samples = BitConverter.ToInt64(ogg.Slice(at + 6, 8));
+            var bytes = samples * channels * 2;
+            return samples > 0 && bytes <= MaxPcm ? (int)bytes : 0;
+        }
+
+        return 0;
+    }
+
+    private static bool Page(ReadOnlySpan<byte> ogg, int at) =>
+        at >= 0 && at + 27 <= ogg.Length && ogg.Slice(at, 4).SequenceEqual("OggS"u8);
 
     // Written into the thread's scratch (or an array of its own past MaxScratch), copied out once
     private sealed class Pcm(int expected) : MemoryStream(0)
@@ -67,6 +103,7 @@ internal static class SoundScratch
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             if (_length + buffer.Length > _buffer.Length) _buffer = Grown(_buffer, _length, _length + buffer.Length);
+
             buffer.CopyTo(_buffer.AsSpan(_length));
             _length += buffer.Length;
         }
@@ -81,38 +118,20 @@ internal static class SoundScratch
             var size = (int)Math.Min(Math.Max(needed, (long)old.Length * 2), int.MaxValue);
             var grown = size <= MaxScratch ? Scratch(size) : new byte[size];
             if (!ReferenceEquals(grown, old)) old.AsSpan(0, kept).CopyTo(grown);
+
             return grown;
         }
 
         private static byte[] Scratch(int size)
         {
             if (size > MaxScratch) return new byte[size];
-            if (_scratch is not { } scratch || scratch.Length < size) _scratch = scratch = new byte[Math.Max(size, 1 << 16)];
+
+            if (_scratch is not { } scratch || scratch.Length < size)
+            {
+                _scratch = scratch = new byte[Math.Max(size, 1 << 16)];
+            }
+
             return scratch;
         }
     }
-
-
-    // Channels from the Vorbis identification header (first packet of the first page), samples from the last page's
-    // granule position; 0 when the file is not one plain Vorbis stream this reads
-    internal static int Expected(ReadOnlySpan<byte> ogg)
-    {
-        if (ogg.Length < 64 || !Page(ogg, 0)) return 0;
-        var packet = 27 + ogg[26];
-        if (packet + 16 > ogg.Length || ogg[packet] != 1 || !ogg.Slice(packet + 1, 6).SequenceEqual("vorbis"u8)) return 0;
-        int channels = ogg[packet + 11];
-        if (channels is < 1 or > MaxChannels) return 0;
-        for (var i = 0; i < Math.Min(ogg.Length - 27, MaxScan); i++)
-        {
-            var at = ogg.Length - 27 - i;
-            if (!Page(ogg, at)) continue;
-            var samples = BitConverter.ToInt64(ogg.Slice(at + 6, 8));
-            var bytes = samples * channels * 2;
-            return samples > 0 && bytes <= MaxPcm ? (int)bytes : 0;
-        }
-
-        return 0;
-    }
-
-    private static bool Page(ReadOnlySpan<byte> ogg, int at) => at >= 0 && at + 27 <= ogg.Length && ogg.Slice(at, 4).SequenceEqual("OggS"u8);
 }

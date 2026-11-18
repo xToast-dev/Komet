@@ -18,7 +18,7 @@ internal static class Fields
     internal static extern ref ChunkRenderer? TerrainOf(ClientMain game);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "poolsByRenderPass")]
-    internal static extern ref MeshDataPoolManager[][] PassPools(ChunkRenderer renderer);
+    internal static extern ref MeshDataPoolManager?[]?[]? PassPools(ChunkRenderer renderer);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "pools")]
     internal static extern ref List<MeshDataPool> Pools(MeshDataPoolManager manager);
@@ -54,5 +54,5 @@ internal static class Fields
     internal static extern ref Plane[] Planes(FrustumCulling culler);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "playerPos")]
-    internal static extern ref BlockPos PlayerPos(FrustumCulling culler);
+    internal static extern ref BlockPos? PlayerPos(FrustumCulling culler);
 }

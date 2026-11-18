@@ -1,3 +1,4 @@
+using Komet.Diagnostics;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
@@ -20,7 +21,8 @@ internal static class VulkanCore
     public static void Install(ICoreClientAPI api, ILogger logger)
     {
         Stop();
-        if (!NotNull(api) || !NotNull(logger) || !NotNull(api.Event)) return;
+        if (!NotNull(api.Event)) return;
+
         _logger = logger;
         api.Event.RegisterRenderer(new Hook(), EnumRenderStage.Before, "komet-vulkan");
     }
@@ -37,6 +39,7 @@ internal static class VulkanCore
     internal static void Start()
     {
         if (_tried || !Assert(_logger is not null)) return;
+
         _tried = true;
         Span<byte> uuid = stackalloc byte[VulkanDevice.UuidBytes];
         ReadOnlySpan<byte> named = GlInterop.Uuid(uuid) ? uuid : default; // names its GPU exactly
@@ -44,8 +47,8 @@ internal static class VulkanCore
             out var why);
         if (device is null)
         {
-            Komet.Core.VulkanRecord.Failed(); // no device meeting Vulkan-only's needs on this GPU
             Report(why);
+            VulkanRenderer.DeviceUnavailable(why);
             return;
         }
 
@@ -69,7 +72,9 @@ internal static class VulkanCore
             if (Enabled && !_tried) Start();
         }
 
-        public void Dispose() { }
+        public void Dispose()
+        {
+        }
     }
 }
 
@@ -87,10 +92,20 @@ internal static unsafe class GlInterop
     public static bool Uuid(Span<byte> uuid)
     {
         if (!Assert(uuid.Length == VulkanDevice.UuidBytes)) return false;
-        if (_getUnsignedBytei == null && Array.Exists(Defining, Diagnostics.GpuStats.Offered))
-            _getUnsignedBytei = (delegate* unmanaged<uint, uint, byte*, void>)GLFW.GetProcAddress("glGetUnsignedBytei_vEXT");
+
+        if (_getUnsignedBytei == null && Array.Exists(Defining, GpuStats.Offered))
+        {
+            _getUnsignedBytei =
+                (delegate* unmanaged<uint, uint, byte*, void>)GLFW.GetProcAddress("glGetUnsignedBytei_vEXT");
+        }
+
         if (_getUnsignedBytei == null) return false;
-        fixed (byte* bytes = uuid) _getUnsignedBytei(DeviceUuid, 0, bytes);
+
+        fixed (byte* bytes = uuid)
+        {
+            _getUnsignedBytei(DeviceUuid, 0, bytes);
+        }
+
         return uuid.IndexOfAnyExcept((byte)0) >= 0;
     }
 }

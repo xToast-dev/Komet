@@ -19,7 +19,9 @@ public sealed class MeshRecycleTests
         }
 
         var q = vertices / 4 + 1;
+
         byte[] Bytes(int below) => [.. Enumerable.Range(0, q).Select(_ => (byte)r.Next(below))];
+
         (mesh.XyzFaces, mesh.XyzFacesCount, mesh.TextureIndices, mesh.TextureIndicesCount) = (Bytes(6), q, Bytes(4), q);
         mesh.TextureIds = [.. Enumerable.Range(0, r.Next(1, 5)).Select(_ => r.Next())];
         (mesh.ClimateColorMapIds, mesh.SeasonColorMapIds, mesh.ColorMapIdsCount) = (Bytes(8), Bytes(8), q);
@@ -29,21 +31,30 @@ public sealed class MeshRecycleTests
         {
             // the tesselator's buffer is grown far past what this mesh uses, which is what the engine's SetFrom copies in full
             mesh.CustomInts = new CustomMeshDataPartInt(4 * vertices)
-            { Count = 2 * vertices, InterleaveStride = 8, InterleaveSizes = [2], InterleaveOffsets = [0] };
-            for (var i = 0; i < mesh.CustomInts.Values.Length; i++) mesh.CustomInts.Values[i] = r.Next();
+                { Count = 2 * vertices, InterleaveStride = 8, InterleaveSizes = [2], InterleaveOffsets = [0] };
+            for (var i = 0; i < mesh.CustomInts.Values.Length; i++)
+            {
+                mesh.CustomInts.Values[i] = r.Next();
+            }
         }
 
         mesh.CustomFloats = new CustomMeshDataPartFloat(2 * vertices)
-        { Count = vertices, InterleaveStride = 4, InterleaveSizes = [1], InterleaveOffsets = [0] };
-        for (var i = 0; i < mesh.CustomFloats.Values.Length; i++) mesh.CustomFloats.Values[i] = r.NextSingle();
+            { Count = vertices, InterleaveStride = 4, InterleaveSizes = [1], InterleaveOffsets = [0] };
+        for (var i = 0; i < mesh.CustomFloats.Values.Length; i++)
+        {
+            mesh.CustomFloats.Values[i] = r.NextSingle();
+        }
+
         return mesh;
     }
 
     private static void AssertMatchesEngineClone(MeshData source, MeshData mine)
     {
         var engine = source.Clone();
+
         static void Same<T>(T[]? mine, T[]? engine, int count, string what) =>
             Assert.That(mine?.Take(count), Is.EqualTo(engine?.Take(count)), what);
+
         Assert.Multiple(() =>
         {
             Same(mine.Normals, engine.Normals, source.NormalsCount, "normals");
@@ -141,24 +152,34 @@ public sealed class MeshRecycleTests
                 Conversion = DataConversion.Integer
             };
             r.NextBytes(source.CustomBytes.Values);
-            for (var i = 0; i < source.CustomShorts.Values.Length; i++) source.CustomShorts.Values[i] = (short)r.Next();
+            for (var i = 0; i < source.CustomShorts.Values.Length; i++)
+            {
+                source.CustomShorts.Values[i] = (short)r.Next();
+            }
+
             if (round == 1) source.CustomShorts.SetAllocationSize(90);
+
             if (round == 2) source.CustomShorts.SetAllocationSize(source.CustomShorts.Count);
+
             if (round == 3) (source.TextureIndices, source.TextureIndicesCount) = (null, 0);
+
             if (round == 4)
+            {
                 source.CustomBytes = new CustomMeshDataPartByte { Count = 8, Conversion = DataConversion.Float };
+            }
+
             _ = MeshRecycle.CloneExtraData(source, dest);
             var engine = source.Clone();
             (dest.CustomShorts!.Count, engine.CustomShorts.Count) =
                 (dest.CustomShorts.Count + 4, engine.CustomShorts.Count + 4);
-            Assert.Multiple(() =>
+            using (Assert.EnterMultipleScope())
             {
                 AssertPart(dest.CustomBytes, engine.CustomBytes, source.CustomBytes.Count);
                 AssertPart(dest.CustomShorts, engine.CustomShorts, source.CustomShorts.Count);
                 Assert.That(dest.CustomBytes!.Conversion, Is.EqualTo(engine.CustomBytes.Conversion), $"round {round}");
                 Assert.That(dest.CustomShorts.Conversion, Is.EqualTo(engine.CustomShorts.Conversion), $"round {round}");
                 Assert.That(dest.TextureIds, Is.EqualTo(engine.TextureIds), $"round {round}");
-            });
+            }
             _ = MeshRecycle.DisposeExtraData(dest);
         }
     }
@@ -238,15 +259,27 @@ public sealed class ShaderUseCacheTests
     private static ShaderProgram Program(int pass, int ubos = 0)
     {
         var program = new ShaderProgram { PassId = pass, ProgramId = 7 };
-        foreach (var file in Includes) _ = program.includes.Add(file);
-        for (var i = 0; i < ubos; i++) _ = program.ubos.Add("ubo" + i, new CountingUbo());
+        foreach (var file in Includes)
+        {
+            _ = program.includes.Add(file);
+        }
+
+        for (var i = 0; i < ubos; i++)
+        {
+            _ = program.ubos.Add("ubo" + i, new CountingUbo());
+        }
+
         return program;
     }
 
     private static long Allocated(Action action, int calls = Calls)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < calls; i++) action();
+        for (var i = 0; i < calls; i++)
+        {
+            action();
+        }
+
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
@@ -254,7 +287,11 @@ public sealed class ShaderUseCacheTests
     private static long Steady(Action action)
     {
         long bytes = 0;
-        for (var pass = 0; pass < Passes; pass++) bytes = Allocated(action);
+        for (var pass = 0; pass < Passes; pass++)
+        {
+            bytes = Allocated(action);
+        }
+
         return bytes;
     }
 
@@ -279,7 +316,11 @@ public sealed class ShaderUseCacheTests
             "glitchWaviness", "windWaveIntensity"
         ];
         var program = Program(105);
-        for (var i = 0; i < external.Length; i++) program.uniformLocations[external[i]] = 100 + i;
+        for (var i = 0; i < external.Length; i++)
+        {
+            program.uniformLocations[external[i]] = 100 + i;
+        }
+
         (program.uniformLocations["zNear"], program.uniformLocations["lightPosition"],
             program.uniformLocations["windWaveCounter"]) = (99, 90, 91);
         ShaderUseCache.NextFrame();
@@ -344,8 +385,7 @@ public sealed class ShaderUseCacheTests
         Assert.That(FrameSettings().ViewDistance, Is.EqualTo(384f));
     }
 
-    private static (float ViewDistance, float Lod0) FrameSettings() =>
-        (ViewDistance(null), ViewDistanceLod0(null));
+    private static (float ViewDistance, float Lod0) FrameSettings() => (ViewDistance(null), ViewDistanceLod0(null));
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_viewDistance")]
     private static extern ref float ViewDistance([UnsafeAccessorType(UseCache)] object? cache);

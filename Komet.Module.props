@@ -50,6 +50,7 @@
         <InternalsVisibleTo Include="Komet.Vulkan" Condition="'$(MSBuildProjectName)' != 'Komet.Vulkan'"/>
         <InternalsVisibleTo Include="Komet.Ui" Condition="'$(MSBuildProjectName)' != 'Komet.Ui'"/>
         <InternalsVisibleTo Include="Komet.Bench" Condition="'$(MSBuildProjectName)' != 'Komet.Bench'"/>
+        <InternalsVisibleTo Include="Komet.Sdk" Condition="'$(MSBuildProjectName)' != 'Komet.Sdk'"/>
         <InternalsVisibleTo Include="Komet.Test" Condition="'$(MSBuildProjectName)' != 'Komet.Test'"/>
         <InternalsVisibleTo Include="Komet.Portable" Condition="'$(MSBuildProjectName)' != 'Komet.Portable'"/>
     </ItemGroup>
@@ -57,7 +58,7 @@
     <!-- The Power-of-Ten and lang rules (Komet.Rules) run in every build; the lang files are their input -->
     <ItemGroup>
         <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>
-        <AdditionalFiles Include="$(KometRepo)Komet/assets/**/lang/*.json" Exclude="$(KometRepo)Komet/assets/komet/config/komet-templates/**"/>
+        <AdditionalFiles Include="$(KometRepo)Komet/assets/**/lang/*.json"/>
     </ItemGroup>
 
 </Project>

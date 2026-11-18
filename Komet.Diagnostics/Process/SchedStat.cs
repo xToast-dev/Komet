@@ -6,7 +6,8 @@ namespace Komet.Diagnostics;
 // /proc/<pid>/task/<tid>/schedstat: "<ns on a core> <ns runnable, waiting> <timeslices>\n". Linux only.
 internal static class SchedStat
 {
-    public const int Run = 0, Wait = 1, Fields = 3;
+    public const int Run = 0, Wait = 1;
+    private const int Fields = 3;
     private const int MaxBytes = 128;
 
     private static SafeFileHandle? _main;
@@ -17,9 +18,12 @@ internal static class SchedStat
     public static long MainWaitNs()
     {
         if (!_opened) OpenSelf();
+
         if (_main is null) return -1;
+
         var delay = Read(_main, Wait);
         if (_main.IsClosed) _main = null;
+
         return delay;
     }
 
@@ -27,6 +31,7 @@ internal static class SchedStat
     {
         _opened = true;
         if (!OperatingSystem.IsLinux()) return;
+
         try
         {
             _main = File.OpenHandle("/proc/thread-self/schedstat");
@@ -43,6 +48,7 @@ internal static class SchedStat
     public static long Read(SafeFileHandle file, int field)
     {
         if (!NotNull(file) || !Index(field, Fields)) return -1;
+
         Span<byte> text = stackalloc byte[MaxBytes];
         int read;
         try
@@ -61,13 +67,23 @@ internal static class SchedStat
     internal static long Field(ReadOnlySpan<byte> text, int field)
     {
         if (!Index(field, Fields)) return -1;
+
         long value = 0;
         int at = 0, digits = 0;
         foreach (var c in text.Bounded(MaxBytes))
         {
-            if (c is >= (byte)'0' and <= (byte)'9') (value, digits) = (value * 10 + (c - '0'), digits + 1);
-            else if (at++ == field) return digits > 0 ? value : -1;
-            else (value, digits) = (0, 0);
+            if (c is >= (byte)'0' and <= (byte)'9')
+            {
+                (value, digits) = (value * 10 + (c - '0'), digits + 1);
+            }
+            else if (at++ == field)
+            {
+                return digits > 0 ? value : -1;
+            }
+            else
+            {
+                (value, digits) = (0, 0);
+            }
         }
 
         return -1;

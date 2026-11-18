@@ -1,8 +1,8 @@
-using HarmonyLib;
-using Komet.Api;
-using Komet.Core;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using HarmonyLib;
+using Komet.Core;
+using Komet.Api;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 using Vintagestory.Common;
@@ -24,7 +24,6 @@ internal static partial class LightRepair
     private const int Size = 32, MaxChunks = 64, Neighbourhood = 1, MaxSources = 1 << 16;
 
     private static ILogger? _logger;
-    private static bool _shaped, _failed;
 
     private static ChunkColumnLoadRequest? _lit;
     private static int[] _broken = [];
@@ -32,11 +31,12 @@ internal static partial class LightRepair
     private static long _columns, _chunks; // repaired, for the log at each power of ten
 
     public static bool Enabled { get; set; } = true;
-    internal static bool Matched => _shaped;
-    internal static bool Failed => _failed;
+    internal static bool Matched { get; private set; }
+
+    internal static bool Failed { get; private set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "server")]
-    private static extern ref ServerMain Server(ServerSystem system);
+    private static extern ref ServerMain? Server(ServerSystem system);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "Chunks")]
     private static extern ref ServerChunk[] Column(ChunkColumnLoadRequest request);
@@ -55,14 +55,19 @@ internal static partial class LightRepair
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
-        (_shaped, _failed, _foreign, _logger, _lit, _columns, _chunks) = (false, false, false, logger, null, 0, 0);
+        (Matched, Failed, _foreign, _logger, _lit, _columns, _chunks) = (false, false, false, logger, null, 0, 0);
         (_sweep, _cursor, _scratch) = ([], 0, []);
         Waiting.Clear();
         var seams = Seams();
-        if (!NotNull(harmony) || seams[0] is not MethodInfo load ||
-            seams[1] is not MethodInfo relight || seams[6] is not MethodInfo tick) return;
-        _shaped = EngineShape.Matches(seams, fingerprint, nameof(LightRepair), logger);
-        if (!_shaped) return;
+        if (seams[0] is not MethodInfo load ||
+            seams[1] is not MethodInfo relight || seams[6] is not MethodInfo tick)
+        {
+            return;
+        }
+
+        Matched = EngineShape.Matches(seams, fingerprint, nameof(LightRepair), logger);
+        if (!Matched) return;
+
         _ = harmony.Patch(load, new HarmonyMethod(Before), new HarmonyMethod(After));
         _ = harmony.Patch(relight, new HarmonyMethod(Relight));
         _ = harmony.Patch(tick, postfix: new HarmonyMethod(Tick));
@@ -91,18 +96,23 @@ internal static partial class LightRepair
         return seams;
     }
 
-    internal static void Before(ServerSystem __instance, ChunkColumnLoadRequest chunkRequest)
+    private static void Before(ServerSystem __instance, ChunkColumnLoadRequest chunkRequest)
     {
         _lit = null;
-        if (!Enabled || _failed || !NotNull(chunkRequest) || Dimension(chunkRequest) != 0)
-            return;
+        if (!Enabled || Failed || !NotNull(chunkRequest) || Dimension(chunkRequest) != 0) return;
+
         try
         {
-            var (server, chunks) = (Server(__instance), Column(chunkRequest));
+            var server = Server(__instance);
+            IWorldChunk[] chunks = [.. Column(chunkRequest)];
             if (server?.WorldMap?.chunkIlluminatorMainThread is not { } illuminator || chunks is not { Length: > 0 })
+            {
                 return;
+            }
+
             var broken = Broken(chunks, ((IMapChunk?)MapChunk(chunkRequest))?.RainHeightMap);
             if (broken.Length == 0) return;
+
             _flooded = Sunlight(illuminator, chunks, chunkRequest.ChunkX, chunkRequest.ChunkZ, 0);
             (_lit, _broken) = (chunkRequest, broken);
         }
@@ -112,13 +122,15 @@ internal static partial class LightRepair
         }
     }
 
-    internal static void After(ServerSystem __instance, ChunkColumnLoadRequest chunkRequest)
+    private static void After(ServerSystem __instance, ChunkColumnLoadRequest chunkRequest)
     {
         if (_lit is null || !ReferenceEquals(_lit, chunkRequest)) return;
+
         _lit = null;
         try
         {
             if (Server(__instance)?.WorldMap is not { chunkIlluminatorMainThread: { } illuminator } map) return;
+
             var (x, z) = (chunkRequest.ChunkX, chunkRequest.ChunkZ);
             var touched = BlockLight(illuminator, map, x, z, _broken, 0);
             Report(map, x, z, 0, map.ChunkMapSizeY, _flooded, touched, (cx, cy, cz) => Changed(map, cx, cy, cz));
@@ -132,7 +144,7 @@ internal static partial class LightRepair
 
     private static void Fail(Exception e)
     {
-        _failed = true;
+        Failed = true;
         _logger?.Error(
             "Komet: lighting chunk columns loaded without light failed, they stay as loaded from now on: {0}", e);
     }
@@ -141,15 +153,22 @@ internal static partial class LightRepair
     {
         (_columns, _chunks) = (_columns + 1, _chunks + chunks);
         var power = 1L;
-        for (var i = 0; i < 18 && power < _columns; i++) power *= 10;
+        for (var i = 0; i < 18 && power < _columns; i++)
+        {
+            power *= 10;
+        }
+
         if (power == _columns)
+        {
             _logger?.Notification("Komet: lit {0} chunk columns that had lost their light ({1} chunks)", _columns,
                 _chunks);
+        }
     }
 
     private static void Changed(ServerWorldMap map, int x, int y, int z)
     {
         if (map.GetChunk(x, y, z) is not { } chunk) return;
+
         chunk.MarkModified();
         map.MarkChunkDirty(x, y, z);
     }
@@ -159,11 +178,13 @@ internal static partial class LightRepair
     internal static int[] Broken(IWorldChunk[] chunks, ushort[]? rain)
     {
         if (chunks.Length > MaxChunks) return [];
+
         Span<int> missing = stackalloc int[MaxChunks];
         var count = 0;
         for (var y = 0; y < Math.Min(chunks.Length, MaxChunks); y++)
         {
             if (chunks[y] is not { } chunk) return [];
+
             if (Missing(chunk)) missing[count++] = y;
         }
 
@@ -172,14 +193,18 @@ internal static partial class LightRepair
         var lowest = rain is { Length: Size * Size } ? rain.Min() : 0;
         var kept = 0;
         for (var i = 0; i < Math.Min(count, MaxChunks); i++)
+        {
             if (lowest + 1 < (missing[i] + 1) * Size) missing[kept++] = missing[i];
+        }
+
         return missing[..kept].ToArray();
     }
 
     // No light layer, or, packed, the arrays DecompressFrom turns into none
     internal static bool Missing(IWorldChunk chunk)
     {
-        if (chunk is not WorldChunk { } stored || !stored.IsPacked()) return chunk.Lighting?.IsNull ?? true;
+        if (chunk is not WorldChunk stored || !stored.IsPacked()) return chunk.Lighting?.IsNull ?? true;
+
         return stored.lightCompressed is not { Length: > 0 } || stored.lightSatCompressed is not { Length: > 0 };
     }
 
@@ -187,9 +212,14 @@ internal static partial class LightRepair
     internal static byte Sunlight(ChunkIlluminator illuminator, IWorldChunk[] chunks, int x, int z, int dimension)
     {
         if (!Assert(chunks.Length is > 0 and <= MaxChunks)) return 0;
+
         IWorldChunk[] column = [.. chunks];
         var top = column.Length - 1;
-        foreach (var chunk in column.Bounded(MaxChunks)) chunk.Unpack();
+        foreach (var chunk in column.Bounded(MaxChunks))
+        {
+            chunk.Unpack();
+        }
+
         illuminator.Sunlight(column, x, top, z, dimension);
         illuminator.SunlightFlood(column, x, top, z);
         return illuminator.SunLightFloodNeighbourChunks(column, x, top, z, dimension);
@@ -210,6 +240,7 @@ internal static partial class LightRepair
                     (x + i % 3 - Neighbourhood, y + i / 3 % 3 - Neighbourhood, z + i / 9 - Neighbourhood);
                 var sourceY = sy + dimension * 1024;
                 if (sy < 0 || chunks.GetChunk(sx, sourceY, sz) is not { LightPositions.Count: > 0 } source) continue;
+
                 source.Unpack();
                 foreach (var at in source.LightPositions.ToArray().Bounded(MaxSources))
                 {
@@ -217,7 +248,11 @@ internal static partial class LightRepair
                     var hsv = blocks[source.Data[at]].GetLightHsv(access, pos);
                     // once per source that reaches this chunk
                     if (hsv is not { Length: 3 } || Reach(pos, x, y, z) >= hsv[2] ||
-                        !placed.Add(chunks.ChunkIndex3D(sx, sourceY, sz) * Size * Size * Size + at)) continue;
+                        !placed.Add(chunks.ChunkIndex3D(sx, sourceY, sz) * Size * Size * Size + at))
+                    {
+                        continue;
+                    }
+
                     touched.UnionWith(illuminator.PlaceBlockLight(hsv, pos.X, pos.InternalY, pos.Z));
                 }
             }
@@ -266,13 +301,18 @@ internal static partial class LightRepair
     {
         var relight = Seams() is { Length: > 1 } seams ? seams[1] : null;
         _foreign = EngineShape.Report(_logger, nameof(LightRepair), _foreign,
-            _shaped && EngineShape.Foreign([relight], PatchKinds.Replacing, null, typeof(LightRepair)));
+            Matched && EngineShape.Foreign([relight], KapiPatchKinds.Replacing, null, typeof(LightRepair)), [relight],
+            KapiPatchKinds.Replacing, null, [typeof(LightRepair)]);
     }
 
-    internal static bool Relight(ChunkIlluminator __instance, BlockPos minPos, BlockPos maxPos)
+    private static bool Relight(ChunkIlluminator __instance, BlockPos minPos, BlockPos maxPos)
     {
-        if (!Enabled || _failed || _foreign || !NotNull(minPos) || !NotNull(maxPos) ||
-            Provider(__instance) is not ServerWorldMap) return true;
+        if (!Enabled || Failed || _foreign || !NotNull(minPos) || !NotNull(maxPos) ||
+            Provider(__instance) is not ServerWorldMap)
+        {
+            return true;
+        }
+
         try
         {
             return !FullRelight(__instance, minPos, maxPos);
@@ -289,8 +329,10 @@ internal static partial class LightRepair
     {
         var (size, provider) = (ChunkSize(illuminator), Provider(illuminator));
         if (!Assert(size == Size) || !NotNull(provider)) return false;
+
         var (dimension, height) = (minPos.dimension, MapY(illuminator) / Size);
         if (!Assert(height is > 0 and <= MaxChunks)) return false;
+
         var (mapX, mapY, mapZ) = (MapX(illuminator), MapY(illuminator), MapZ(illuminator));
         var from = (X: Edge(minPos.X, maxPos.X, mapX, false), Y: Edge(minPos.Y, maxPos.Y, mapY, false),
             Z: Edge(minPos.Z, maxPos.Z, mapZ, false));
@@ -305,6 +347,7 @@ internal static partial class LightRepair
                 {
                     var at = new Vec3i(from.X + i, from.Y + j, from.Z + k);
                     if (provider.GetChunk(at.X, at.Y + dimension * 1024, at.Z) is not { } chunk) continue;
+
                     chunk.Unpack();
                     loaded[at] = chunk;
                 }
@@ -313,8 +356,10 @@ internal static partial class LightRepair
 
         var whole = Whole(provider, from, to, dimension, height, loaded);
         foreach (var (key, chunk) in loaded.Bounded(MaxSources))
-            if (whole.ContainsKey((key.X, key.Z)))
-                chunk.Lighting.ClearLight();
+        {
+            if (whole.ContainsKey((key.X, key.Z))) chunk.Lighting.ClearLight();
+        }
+
         foreach (var ((x, z), column) in whole.Bounded(MaxSources))
         {
             illuminator.Sunlight(column, x, height - 1, z, dimension);
@@ -337,10 +382,15 @@ internal static partial class LightRepair
             {
                 var (x, z) = (from.X + i, from.Z + k);
                 var column = new IWorldChunk[height];
-                if (Column(provider, x, z, dimension, column) == height) whole[(x, z)] = column;
+                if (Column(provider, x, z, dimension, column) == height)
+                {
+                    whole[(x, z)] = column;
+                }
                 else if (loaded.Keys.Any(key => key.X == x && key.Z == z) && Waiting.Count < MaxWaiting &&
-                         !Waiting.Contains((dimension, x, z)))
+                     !Waiting.Contains((dimension, x, z)))
+                {
                     Waiting.Enqueue((dimension, x, z));
+                }
             }
         }
 
@@ -352,26 +402,32 @@ internal static partial class LightRepair
     {
         var (blocks, access) = (BlockTypes(illuminator), ReadAccess(illuminator));
         if (!NotNull(blocks)) return;
+
         var sources = new Dictionary<BlockPos, Block>();
         foreach (var (key, chunk) in loaded.Bounded(MaxSources))
         {
             foreach (var at in chunk.LightPositions.Bounded(MaxSources))
+            {
                 sources[At(key.X, key.Y, key.Z, at, dimension)] = blocks[chunk.Data[at]];
+            }
         }
 
         foreach (var (pos, block) in sources.Bounded(MaxSources))
+        {
             _ = illuminator.PlaceBlockLight(block.GetLightHsv(access, pos), pos.X, pos.InternalY, pos.Z);
+        }
     }
 
     // A chunk index at the area's low or high end, as the engine clamps it: one chunk around, within the map
     private static int Edge(int a, int b, int map, bool high)
     {
         if (!Assert(map > 0)) return 0;
+
         return GameMath.Clamp(high ? Math.Max(a, b) + Size : Math.Min(a, b) - Size, 0, map - 1) / Size;
     }
 
     // The block of a chunk's light source: the chunk's offset and the position within it, once
-    internal static BlockPos At(int x, int y, int z, int at, int dimension)
+    private static BlockPos At(int x, int y, int z, int at, int dimension)
     {
         _ = Index(at, Size * Size * Size); // a light position lies within its chunk
         return new BlockPos(x * Size + at % Size, y * Size + at / (Size * Size), z * Size + at / Size % Size,
@@ -392,9 +448,10 @@ internal static partial class LightRepair
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "RunPhase")]
     private static extern ref EnumServerRunPhase RunPhase(ServerMain server);
 
-    internal static void Tick(ServerSystem __instance)
+    private static void Tick(ServerSystem __instance)
     {
-        if (!Enabled || _failed) return;
+        if (!Enabled || Failed) return;
+
         try
         {
             var server = Server(__instance);
@@ -410,11 +467,13 @@ internal static partial class LightRepair
     {
         var illuminator = map.chunkIlluminatorMainThread;
         if (!NotNull(illuminator)) return;
+
         Action<int, int, int> changed = (x, y, z) => Changed(map, x, y, z);
         try
         {
             var repairs = RelightWaiting(illuminator, map, MaxRepairs, changed);
             if (_cursor >= _sweep.Length) (_sweep, _cursor) = (server.LoadedMapChunkIndices, 0);
+
             for (var i = 0; i < Math.Min(_sweep.Length - _cursor, ColumnsPerTick) && repairs < MaxRepairs; i++)
             {
                 var index = _sweep[_cursor++];
@@ -439,7 +498,9 @@ internal static partial class LightRepair
             var column = Scratch(illuminator);
             var loaded = Column(chunks, x, z, dimension, column);
             if (loaded > 0 && loaded < column.Length) Waiting.Enqueue((dimension, x, z));
+
             if (loaded < column.Length) continue;
+
             foreach (var chunk in column.Bounded(MaxChunks))
             {
                 chunk.Unpack();
@@ -459,8 +520,10 @@ internal static partial class LightRepair
     {
         var column = Scratch(illuminator);
         if (Column(chunks, x, z, 0, column) < column.Length) return 0;
+
         var broken = Broken(column, rain);
         if (broken.Length == 0) return 0;
+
         Relit(illuminator, chunks, x, z, 0, column, broken, changed);
         return broken.Length;
     }
@@ -469,17 +532,20 @@ internal static partial class LightRepair
     {
         var height = Math.Min(MapY(illuminator) / Size, MaxChunks);
         if (_scratch.Length != height) _scratch = new IWorldChunk[height];
+
         return _scratch;
     }
 
     private static int Column(IChunkProvider chunks, int x, int z, int dimension, IWorldChunk[] column)
     {
         if (column.Length == 0) return -1;
+
         var loaded = 0;
         for (var y = 0; y < Math.Min(column.Length, MaxChunks); y++)
         {
-            column[y] = chunks.GetChunk(x, y + dimension * 1024, z);
-            if (column[y] is not null) loaded++;
+            var chunk = chunks.GetChunk(x, y + dimension * 1024, z);
+            column[y] = chunk;
+            if (chunk is not null) loaded++;
         }
 
         return loaded;
@@ -498,17 +564,25 @@ internal static partial class LightRepair
         HashSet<long> touched, Action<int, int, int> changed)
     {
         var offset = dimension * 1024;
-        for (var y = 0; y < Math.Min(height, MaxChunks); y++) changed(x, y + offset, z);
+        for (var y = 0; y < Math.Min(height, MaxChunks); y++)
+        {
+            changed(x, y + offset, z);
+        }
+
         foreach (var face in BlockFacing.HORIZONTALS.Bounded(4))
         {
             if ((flooded & face.Flag) == 0) continue;
+
             for (var y = 0; y < Math.Min(height, MaxChunks); y++)
+            {
                 changed(x + face.Normali.X, y + offset, z + face.Normali.Z);
+            }
         }
 
         foreach (var index in touched.Bounded(MaxSources))
         {
             if (chunks is not WorldMap map) break;
+
             var pos = map.ChunkPosFromChunkIndex3D(index);
             changed(pos.X, pos.InternalY, pos.Z);
         }

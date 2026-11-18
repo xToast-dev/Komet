@@ -20,7 +20,11 @@ internal sealed class OwnCube(IBlockTesselator engine, float height, bool bleedi
         OwnQuads.Chosen chosen = default;
         var faces = vars.drawFaceFlags & OwnQuads.AllFaces;
         if (faces == 0 || !OwnQuads.Ready(vars, faces, out var rgbs) ||
-            !Choose(vars, block, faces, ref chosen)) return false;
+            !Choose(vars, block, faces, ref chosen))
+        {
+            return false;
+        }
+
         Draw(vars, block, faces, rgbs, ref chosen);
         return true;
     }
@@ -31,20 +35,30 @@ internal sealed class OwnCube(IBlockTesselator engine, float height, bool bleedi
     {
         var (tct, fast) = (vars.tct, vars.fastBlockTextureSubidsByFace);
         if (block.HasTiles || (bleeding && block.CanReceiveBleed) || fast is not { Length: >= Faces }) return false;
+
         var pools = OwnQuads.Pools(tct, vars.RenderPass);
         var positions = bleeding
             ? Game(tct)?.BlockAtlasManager?.TextureAtlasPositionsByTextureSubId
             : vars.textureAtlasPositionsByTextureSubId;
-        if (!NotNull(pools) || !NotNull(positions) || (block.HasAlternates && block.FastTextureVariants is null && !bleeding)) return false;
+        if (!NotNull(pools) || !NotNull(positions) ||
+            (block is { HasAlternates: true, FastTextureVariants: null } && !bleeding))
+        {
+            return false;
+        }
+
         var variants = block.HasAlternates ? block.FastTextureVariants : null;
         var hash = variants is null ? 0 : GameMath.MurmurHash3(vars.posX, vars.posY, vars.posZ);
         for (var i = 0; i < Faces; i++)
         {
             if ((faces & (1 << i)) == 0) continue;
+
             var id = OwnQuads.Texture(variants, fast, i, hash, bleeding);
             if (id == OwnQuads.Unknown) return false;
+
             if (bleeding && id <= 0) id = fast[i];
+
             if (!OwnQuads.Take(positions, pools, id, out var position, out var mesh)) return false;
+
             (chosen.Positions[i], chosen.Meshes[i]) = (position, mesh);
         }
 
@@ -60,10 +74,16 @@ internal sealed class OwnCube(IBlockTesselator engine, float height, bool bleedi
         for (var i = 0; i < Faces; i++)
         {
             if ((faces & (1 << i)) == 0) continue;
+
             OwnQuads.Light(vars, block, i, e + Moves[i], rgbs, corners);
             var (position, mesh) = (chosen.Positions[i], chosen.Meshes[i]);
-            if (!NotNull(position) || !NotNull(mesh)) continue; // Choose took every drawn face
-            OwnQuads.Face(vars, i, quads[i], position, mesh, flags | BlockFacing.ALLFACES[i].NormalPackedFlags, colorMap,
+            if (!NotNull(position) || !NotNull(mesh))
+            {
+                continue; // Choose took every drawn face
+            }
+
+            OwnQuads.Face(vars, i, quads[i], position, mesh, flags | BlockFacing.ALLFACES[i].NormalPackedFlags,
+                colorMap,
                 height, vars.finalX, vars.finalY, vars.finalZ);
         }
     }

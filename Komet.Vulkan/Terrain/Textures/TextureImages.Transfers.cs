@@ -7,37 +7,32 @@ internal sealed unsafe partial class TextureImages
 {
     private const int MaxQueued = 1 << 14;
     private const ulong EarlyBytes = 64UL << 20;
-
-    private enum OpKind
-    {
-        Init, // undefined to the resting layout
-        Fill, // from host memory (Buffer, Region)
-        Mipmaps, // Levels made from the base
-        Grow, // every level From has, into the larger Image
-        Write // before the first frame, an upload into a buffer (Into at Region.Offset, Levels bytes from Buffer)
-    }
-
-    private readonly record struct Op(OpKind Kind, SharedImage? Image, ulong Buffer, Vk.BufferImageCopy Region, int Levels)
-    {
-        public SharedImage? From { get; init; }
-        public (ulong Buffer, ulong At) Into { get; init; }
-    }
+    private readonly Action<IntPtr> _flush;
 
     private readonly List<Op> _queued = [];
     private readonly FrameStaging _staging;
-    private readonly Action<IntPtr> _flush;
     private HostBuffer? _early;
+
+    private (HostBuffer Ring, long Frame)? _earlyGoes;
+
+    // Before the first frame: Vulkan buffer uploads (pools, mirrors) go with the texture ones (Write, Copy), in order
+    public bool Before => _frame.Staging is null && Assert(!_frame.Open);
 
     private bool Fill(Op op)
     {
         if (_frame.Open && op.Kind is OpKind.Fill or OpKind.Mipmaps && _frame.Holds(op.Image!)) return InStream(op);
+
         if (_frame.Open)
         {
             Record(_frame.Setup, op);
             return true;
         }
 
-        if (_queued.Count >= MaxQueued) return false; // Taken settled before its memory was taken
+        if (_queued.Count >= MaxQueued)
+        {
+            return false; // Taken settled before its memory was taken
+        }
+
         _queued.Add(op);
         return true;
     }
@@ -51,15 +46,23 @@ internal sealed unsafe partial class TextureImages
     private static void Transferred(IntPtr commands, Op op)
     {
         if (!Assert(commands != IntPtr.Zero) || !NotNull(op.Image)) return;
+
         var region = op.Region;
-        if (op.Kind == OpKind.Fill) VkApi.CmdCopyBufferToImage(commands, op.Buffer, op.Image.Image, Vk.LayoutTransferDst, 1, &region);
-        else Vulkan.Mipmaps.Record(commands, op.Image, op.Levels);
+        if (op.Kind == OpKind.Fill)
+        {
+            VkApi.CmdCopyBufferToImage(commands, op.Buffer, op.Image.Image, Vk.LayoutTransferDst, 1, &region);
+        }
+        else
+        {
+            Mipmaps.Record(commands, op.Image, op.Levels);
+        }
     }
 
     private static void Record(IntPtr commands, Op op)
     {
         var image = op.Image;
         if (!Assert(commands != IntPtr.Zero)) return;
+
         if (op.Kind == OpKind.Write)
         {
             Written(commands, op);
@@ -67,6 +70,7 @@ internal sealed unsafe partial class TextureImages
         }
 
         if (!NotNull(image)) return;
+
         if (op.Kind == OpKind.Init)
         {
             image.Moved(commands, (Vk.LayoutUndefined, Vk.LayoutShaderRead));
@@ -76,6 +80,7 @@ internal sealed unsafe partial class TextureImages
         if (op.Kind == OpKind.Grow)
         {
             if (op.From is { } from) Grow(commands, from, image);
+
             return;
         }
 
@@ -91,7 +96,7 @@ internal sealed unsafe partial class TextureImages
         from.Moved(commands, (Vk.LayoutShaderRead, Vk.LayoutTransferSrc));
         for (var level = 0; level < Math.Min(Math.Min(from.Levels, to.Levels), MaxLevels); level++)
         {
-            var layers = new Vk.Layers { Aspect = from.Format.Aspect, Level = (uint)level, Count = (uint)from.Layers };
+            var layers = new Vk.SubresourceLayers { Aspect = from.Format.Aspect, Level = (uint)level, Count = (uint)from.Layers };
             var (width, height) = from.LevelSize(level);
             var blit = new Vk.ImageBlit
             {
@@ -115,17 +120,17 @@ internal sealed unsafe partial class TextureImages
             DstAccess = Vk.AccessTransferRead | Vk.AccessTransferWrite
         };
         VkApi.CmdPipelineBarrier(commands, Vk.StageTransfer, Vk.StageTransfer, 0, 1, &memory, 0, null, 0, null);
-        var region = new Vk.BufferCopy { SourceOffset = op.Region.Offset, TargetOffset = op.Into.At, Size = (ulong)op.Levels };
+        var region = new Vk.BufferCopy
+            { SourceOffset = op.Region.Offset, TargetOffset = op.Into.At, Size = (ulong)op.Levels };
         VkApi.CmdCopyBuffer(commands, op.Buffer, op.Into.Buffer, 1, &region);
     }
-
-    // Before the first frame: Vulkan buffer uploads (pools, mirrors) go with the texture ones (Write, Copy), in order
-    public bool Before => _frame.Staging is null && Assert(!_frame.Open);
 
     public bool Write((ulong Buffer, ulong At) into, ReadOnlySpan<byte> data)
     {
         if (!Before || data.IsEmpty || !Assert(into.Buffer != 0)) return false;
+
         if (Taken(data.Length) is not var (buffer, at)) return false;
+
         data.CopyTo(new Span<byte>(buffer.Pointer(at), data.Length));
         return Copy((buffer.Buffer, (ulong)at), into, (ulong)data.Length);
     }
@@ -133,8 +138,11 @@ internal sealed unsafe partial class TextureImages
     public bool Copy((ulong Buffer, ulong At) from, (ulong Buffer, ulong At) into, ulong size)
     {
         if (!Before || !Assert(from.Buffer != 0 && into.Buffer != 0) || size is 0 or > int.MaxValue) return false;
+
         if (_queued.Count >= MaxQueued) Settle();
+
         if (_queued.Count >= MaxQueued) return false;
+
         _queued.Add(new Op(OpKind.Write, null, from.Buffer, new Vk.BufferImageCopy { Offset = from.At }, (int)size)
         {
             Into = into
@@ -144,7 +152,11 @@ internal sealed unsafe partial class TextureImages
 
     private void Flush(IntPtr commands)
     {
-        foreach (var op in _queued.Bounded(MaxQueued)) Record(commands, op);
+        foreach (var op in _queued.Bounded(MaxQueued))
+        {
+            Record(commands, op);
+        }
+
         _queued.Clear();
     }
 
@@ -156,7 +168,11 @@ internal sealed unsafe partial class TextureImages
     // Frame ends with no segment open: pending work runs alone, before the frame's fence
     public void Ending()
     {
-        if (_queued.Count > 0 && Assert(!_frame.Open)) _ = _frame.Alone(_flush); // else the next segment's setup
+        if (_queued.Count > 0 && Assert(!_frame.Open))
+        {
+            _ = _frame.Alone(_flush); // else the next segment's setup
+        }
+
         Collect(_frame.Done);
     }
 
@@ -165,6 +181,7 @@ internal sealed unsafe partial class TextureImages
     public void Started()
     {
         if (_early is not { } early) return;
+
         if (!_frame.Open)
         {
             Settle();
@@ -173,14 +190,18 @@ internal sealed unsafe partial class TextureImages
 
         Filled(_frame.Setup);
         if (_frame.Staging is null || !Assert(_queued.Count == 0)) return;
+
         (_earlyGoes, _early) = ((early, _frame.Number), null);
     }
 
-    private (HostBuffer Ring, long Frame)? _earlyGoes;
-
     private void EarlyGone(long done)
     {
-        if (_earlyGoes is not var (ring, frame) || frame > done || !Assert(_early is null) || !Assert(frame > 0)) return;
+        if (_earlyGoes is not var (ring, frame) || frame > done || !Assert(_early is null) ||
+            !Assert(frame > 0))
+        {
+            return;
+        }
+
         ring.Dispose();
         _earlyGoes = null;
     }
@@ -189,6 +210,7 @@ internal sealed unsafe partial class TextureImages
     private void Settle()
     {
         if (!Assert(!_frame.Open) || (_early is null && _queued.Count == 0)) return;
+
         if (_queued.Count > 0 && !_device.Run(_flush, []))
         {
             Refused += _queued.Count;
@@ -196,8 +218,10 @@ internal sealed unsafe partial class TextureImages
         }
 
         if (_early is not { } early) return;
+
         early.Reset();
         if (_frame.Staging is null) return;
+
         early.Dispose();
         _early = null;
     }
@@ -207,12 +231,17 @@ internal sealed unsafe partial class TextureImages
     private (HostBuffer Buffer, long At)? Taken(int bytes)
     {
         if (!Assert(bytes > 0)) return null;
+
         if (_frame.Staging is not null) return _staging.Take(bytes, out var at) is { } buffer ? (buffer, at) : null;
-        _early ??= HostBuffer.Create(_device, EarlyBytes, bulk: true);
+
+        _early ??= HostBuffer.Create(_device, EarlyBytes, true);
         if (_queued.Count >= MaxQueued - MaxLevels) Settle();
+
         if (_early is not { } early || (ulong)bytes > EarlyBytes) return null;
+
         var taken = early.Take(bytes, out _, 16);
         if (taken >= 0) return (early, taken);
+
         Settle();
         taken = early.Take(bytes, out _, 16);
         return taken >= 0 ? (early, taken) : null;
@@ -224,16 +253,22 @@ internal sealed unsafe partial class TextureImages
     {
         var (source, target) = TextureUploads.Bytes(format, from.Data);
         if (source == 0 || from.Pixels == 0) return null;
+
         var unpack = GlTap.Unpack;
         var row = (unpack.RowLength > 0 ? unpack.RowLength : box.Width) * source;
         var alignment = unpack.Alignment is 1 or 2 or 4 or 8 ? unpack.Alignment : 4;
         var stride = (row + alignment - 1) / alignment * alignment;
         var layer = (long)box.Width * box.Height * target;
         if (layer * box.Depth > int.MaxValue || Taken((int)(layer * box.Depth)) is not var (buffer, at)) return null;
+
         var first = (byte*)from.Pixels + (long)unpack.SkipRows * stride + (long)unpack.SkipPixels * source;
         for (var z = 0; z < Math.Min(box.Depth, MaxLayers); z++)
-            TextureUploads.Convert(format, from.Data, first + (long)z * stride * box.Height, (box.Width, box.Height, stride),
+        {
+            TextureUploads.Convert(format, from.Data, first + (long)z * stride * box.Height,
+                (box.Width, box.Height, stride),
                 new Span<byte>(buffer.Pointer(at + z * layer), (int)layer));
+        }
+
         return (buffer.Buffer, at);
     }
 
@@ -243,9 +278,14 @@ internal sealed unsafe partial class TextureImages
         var old = entry.Image;
         var levels = Math.Clamp(GlTexture.Levels(texture), 1, MaxLevels);
         if (levels <= old.Levels) return true;
+
         if (_frame.Open && _frame.Holds(old)) return false;
+
         if (Image(texture, (old.Width, old.Height, levels, old.Layers), old.Format, entry.Kind) is not { } grown)
+        {
             return false;
+        }
+
         grown.OpaqueAlpha = old.OpaqueAlpha;
         if (!Fill(new Op(OpKind.Grow, grown, 0, default, old.Levels) { From = old }))
         {
@@ -258,6 +298,26 @@ internal sealed unsafe partial class TextureImages
         Version++;
         return Assert(entry.Image.Levels == levels);
     }
+
+    private enum OpKind
+    {
+        Init, // undefined to the resting layout
+        Fill, // from host memory (Buffer, Region)
+        Mipmaps, // Levels made from the base
+        Grow, // every level From has, into the larger Image
+        Write // before the first frame, an upload into a buffer (Into at Region.Offset, Levels bytes from Buffer)
+    }
+
+    private readonly record struct Op(
+        OpKind Kind,
+        SharedImage? Image,
+        ulong Buffer,
+        Vk.BufferImageCopy Region,
+        int Levels)
+    {
+        public SharedImage? From { get; init; }
+        public (ulong Buffer, ulong At) Into { get; init; }
+    }
 }
 
 // glGenerateMipmap in a copy: each level linearly blitted from the one above, as Mesa does (same texels on the same
@@ -269,18 +329,21 @@ internal static unsafe class Mipmaps
     public static void Record(IntPtr commands, SharedImage image, int levels)
     {
         if (!Assert(commands != IntPtr.Zero) || !NotNull(image) || !Assert(levels is > 1 and <= MaxLevels)) return;
+
         var handle = image.Image;
         for (var level = 1; level < Math.Min(levels, MaxLevels); level++)
         {
             Moved(commands, (handle, image.Layers), (level - 1, 1), (Vk.LayoutTransferDst, Vk.LayoutTransferSrc));
-            var layer = new Vk.Layers { Aspect = Vk.AspectColor, Level = (uint)(level - 1), Count = (uint)image.Layers };
+            var layer = new Vk.SubresourceLayers
+                { Aspect = Vk.AspectColor, Level = (uint)(level - 1), Count = (uint)image.Layers };
             var blit = new Vk.ImageBlit
             {
                 Source = layer, SourceX1 = Side(image.Width, level - 1), SourceY1 = Side(image.Height, level - 1),
                 SourceZ1 = 1, Target = layer with { Level = (uint)level }, TargetX1 = Side(image.Width, level),
                 TargetY1 = Side(image.Height, level), TargetZ1 = 1
             };
-            VkApi.CmdBlitImage(commands, handle, Vk.LayoutTransferSrc, handle, Vk.LayoutTransferDst, 1, &blit, Vk.FilterLinear);
+            VkApi.CmdBlitImage(commands, handle, Vk.LayoutTransferSrc, handle, Vk.LayoutTransferDst, 1, &blit,
+                Vk.FilterLinear);
         }
 
         Moved(commands, (handle, image.Layers), (0, levels - 1), (Vk.LayoutTransferSrc, Vk.LayoutTransferDst));
@@ -295,7 +358,8 @@ internal static unsafe class Mipmaps
         var barrier = new Vk.ImageBarrier
         {
             SType = Vk.ImageMemoryBarrier, SrcAccess = Vk.AccessTransferWrite | Vk.AccessTransferRead,
-            DstAccess = Vk.AccessTransferRead | Vk.AccessTransferWrite, OldLayout = layouts.From, NewLayout = layouts.To,
+            DstAccess = Vk.AccessTransferRead | Vk.AccessTransferWrite, OldLayout = layouts.From,
+            NewLayout = layouts.To,
             SrcFamily = Vk.QueueFamilyIgnored, DstFamily = Vk.QueueFamilyIgnored, Image = image.Handle,
             Range = new Vk.ColorRange
             {

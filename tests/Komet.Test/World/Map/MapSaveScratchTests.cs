@@ -19,6 +19,7 @@ public sealed class MapSaveScratchTests
         MapSaveScratch.Enabled = true;
         SqliteConnection.ClearAllPools();
         if (_folder is not null) Directory.Delete(_folder, true);
+
         _folder = null;
     }
 
@@ -27,7 +28,7 @@ public sealed class MapSaveScratchTests
     {
         using var harmony = new TestHarmony("komet-test-mapsavescratch");
         MapSaveScratch.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(MapSaveScratch.Seams()[0], Is.Not.Null, "the essentials mod's map database");
             Assert.That(MapSaveScratch.Matched, Is.True,
@@ -35,7 +36,7 @@ public sealed class MapSaveScratchTests
             Assert.That(MapSaveScratch.Blocked, Is.False);
             Assert.That(Harmony.GetPatchInfo(MapSaveScratch.Seams()[0])?.Prefixes.Select(p => p.owner),
                 Is.EqualTo([harmony.Id]));
-        });
+        }
     }
 
     private static IEnumerable<int[]?> Pieces()
@@ -69,12 +70,16 @@ public sealed class MapSaveScratchTests
         {
             Assert.That(komet.Rows, Is.EqualTo(engine.Rows));
             foreach (var (key, piece) in pieces)
-                Assert.That(komet.Read[key], Is.EqualTo(piece.Pixels), $"piece {key.X}/{key.Y} read back by the engine");
+            {
+                Assert.That(komet.Read[key], Is.EqualTo(piece.Pixels),
+                    $"piece {key.X}/{key.Y} read back by the engine");
+            }
         });
     }
 
     // The table after SetMapPieces, the patch on or off, and each piece as the engine's GetMapPiece reads it
-    private (List<(long, byte[])> Rows, Dictionary<FastVec2i, int[]> Read) Rows(Dictionary<FastVec2i, MapPieceDB> pieces,
+    private (List<(long, byte[])> Rows, Dictionary<FastVec2i, int[]> Read) Rows(
+        Dictionary<FastVec2i, MapPieceDB> pieces,
         bool patched)
     {
         _folder ??= Directory.CreateTempSubdirectory("komet-mapdb").FullName;
@@ -89,12 +94,17 @@ public sealed class MapSaveScratchTests
         {
             db.SetMapPieces(pieces);
             var read = pieces.Keys.ToDictionary(k => k, k => db.GetMapPiece(k).Pixels);
-            var connection = (SqliteConnection)AccessTools.Field(typeof(SQLiteDBConnection), "sqliteConn").GetValue(db)!;
+            var connection =
+                (SqliteConnection)AccessTools.Field(typeof(SQLiteDBConnection), "sqliteConn").GetValue(db)!;
             using var select = connection.CreateCommand();
             select.CommandText = "SELECT position, data FROM mappiece ORDER BY position";
             using var reader = select.ExecuteReader();
             var rows = new List<(long, byte[])>();
-            while (reader.Read()) rows.Add((reader.GetInt64(0), (byte[])reader["data"]));
+            while (reader.Read())
+            {
+                rows.Add((reader.GetInt64(0), (byte[])reader["data"]));
+            }
+
             return (rows, read);
         }
         finally

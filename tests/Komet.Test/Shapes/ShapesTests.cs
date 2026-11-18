@@ -7,10 +7,8 @@ public sealed class ElementWalkTests
     private static readonly string[] Visited = ["a@0<-1", "b@1<0", "null@1<0", "c@1<0", "d@2<3", "e@0<-1"];
     private static readonly string[] Skipped = ["a@0<-1", "b@1<0", "d@0<-1", "e@1<2"];
 
-    private static ShapeElement E(string name, params ShapeElement[] children)
-    {
-        return new ShapeElement { Name = name, Children = children.Length == 0 ? null : children };
-    }
+    private static ShapeElement E(string name, params ShapeElement[] children) =>
+        new() { Name = name, Children = children.Length == 0 ? null : children };
 
     private static List<string> Walk(ShapeElement[] roots, string? skip = null)
     {
@@ -19,11 +17,13 @@ public sealed class ElementWalkTests
         for (var n = 0; n <= ElementWalk.MaxElements; n++)
         {
             if (!walk.Next(out var element)) break;
+
             visits.Add($"{element?.Name ?? "null"}@{walk.Depth}<{walk.Parent}");
             if (element?.Name == skip) walk.Skip();
         }
 
         if (walk.Failed) visits.Add("failed");
+
         return visits;
     }
 
@@ -89,9 +89,8 @@ public sealed class ElementWalkTests
 // shape, step-parented the way the game builds it.
 public sealed class AnimationFramesGoldenTests
 {
-    private static ShapeElement Element(string name, params ShapeElement[] children)
-    {
-        return new ShapeElement
+    private static ShapeElement Element(string name, params ShapeElement[] children) =>
+        new()
         {
             Name = name,
             From = [0, 0, 0],
@@ -99,20 +98,14 @@ public sealed class AnimationFramesGoldenTests
             RotationOrigin = [0, 0, 0],
             Children = children.Length == 0 ? null : children
         };
-    }
 
     // A humanoid arm with a gear piece step-parented onto it, which is the shape the cache exists for
-    private static ShapeElement[] Arm()
-    {
-        return [Element("upperarm", Element("lowerarm"), Element("sleeve"))];
-    }
+    private static ShapeElement[] Arm() => [Element("upperarm", Element("lowerarm"), Element("sleeve"))];
 
     // A group has to be set whole: IsSet reports PositionSet when any one of OffsetX/Y/Z has a value, but
     // lerpKeyFrameElement then reads all three through .Value. A shape's own json always writes complete triples.
-    private static AnimationKeyFrameElement Rotated(double x, double y, double z)
-    {
-        return new AnimationKeyFrameElement { RotationX = x, RotationY = y, RotationZ = z };
-    }
+    private static AnimationKeyFrameElement Rotated(double x, double y, double z) =>
+        new() { RotationX = x, RotationY = y, RotationZ = z };
 
     private static Animation Walk(double upper, double lower)
     {
@@ -147,7 +140,11 @@ public sealed class AnimationFramesGoldenTests
     private static AnimationFrame[][] Compile(Animation animation, ShapeElement[] roots)
     {
         var byName = AnimationShapes.Elements(roots).ToDictionary(e => e.Name!);
-        foreach (var key in animation.KeyFrames) key.Resolve(byName);
+        foreach (var key in animation.KeyFrames)
+        {
+            key.Resolve(byName);
+        }
+
         animation.GenerateAllFrames(roots, []);
         return animation.PrevNextKeyFrameByFrame;
     }
@@ -199,16 +196,26 @@ public sealed class AnimationFramesGoldenTests
             {
                 rejected++;
                 if (compiled)
+                {
                     failures.Add($"{name}/{animation.Code}: the engine threw {thrown.GetType().Name}, Komet compiled");
+                }
+
                 continue;
             }
 
-            if (!compiled) failures.Add($"{name}/{animation.Code}: declined");
+            if (!compiled)
+            {
+                failures.Add($"{name}/{animation.Code}: declined");
+            }
             else if (AnimationShapes.Diff(engine, animation.PrevNextKeyFrameByFrame) is { } diff)
+            {
                 failures.Add($"{name}/{animation.Code}: {diff}");
+            }
             // what the game ships holds no object twice, so the cache answers it
             if (AnimationFramesTests.Descriptor(animation, shape.Elements) is null)
+            {
                 failures.Add($"{name}/{animation.Code}: not described");
+            }
         }
 
         return rejected;
@@ -234,6 +241,7 @@ public sealed class AnimationFramesGoldenTests
             }
 
             if (shape.Animations is not { Length: > 0 } || shape.Elements is null) continue;
+
             rejected += Check(shape, $"{domain}:{path}", failures);
             shapes++;
             animations += shape.Animations.Length;
@@ -280,7 +288,11 @@ public sealed class AnimationFramesGoldenTests
     {
         GameInstall.RequireAssets();
         var shape = AnimationShapes.Resolve(AnimationShapes.Load("survival", "entity/lore/shiver/surface"), "shiver");
-        foreach (var element in AnimationShapes.Elements(shape.Elements)) element.inverseModelTransform = null;
+        foreach (var element in AnimationShapes.Elements(shape.Elements))
+        {
+            element.inverseModelTransform = null;
+        }
+
         var animation = shape.Animations.First(a => a.KeyFrames is { Length: > 0 });
         Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.True);
         Assert.That(

@@ -28,15 +28,15 @@ public sealed class IdleAnimatorsTests
 
     // Every combination of what the util's OnRenderFrame reads: an idle one does nothing there, any other one does something
     [Test]
-    public void AnIdleUtilIsOneTheEngineWouldHaveReturnedFrom()
-    {
+    public void AnIdleUtilIsOneTheEngineWouldHaveReturnedFrom() =>
         Assert.Multiple(() =>
         {
             for (var bits = 0; bits < 64; bits++)
+            {
                 Compared((bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0, (bits & 8) != 0, (bits & 16) != 0,
                     (bits & 32) != 0);
+            }
         });
-    }
 
     private static void Compared(bool animator, bool renderer, bool active, bool running, bool shouldRender,
         bool stopped)
@@ -46,6 +46,7 @@ public sealed class IdleAnimatorsTests
         AccessTools.Field(typeof(AnimatorBase), "activeAnimCount").SetValue(recorder, running ? 1 : 0);
         (util.animator, util.renderer) = (animator ? recorder : null, renderer ? Renderer(shouldRender) : null);
         if (active) util.activeAnimationsByAnimCode["walk"] = new AnimationMetaData { Code = "walk" };
+
         AccessTools.Field(typeof(AnimationUtil), "stopRenderTriggered").SetValue(util, stopped);
         var idle = IdleAnimators.Idle(util);
         util.OnRenderFrame(0.016f, EnumRenderStage.Opaque); // the engine's body, unpatched
@@ -66,7 +67,8 @@ public sealed class IdleAnimatorsTests
         var (platform, saved) = (ScreenManager.Platform, ScreenManager.FrameProfiler);
         var profiler = new FrameProfilerUtil(_ => { }) { Enabled = true };
         var calls = 0;
-        var busy = Answers.Of<IRenderer>(new() { [nameof(IRenderer.OnRenderFrame)] = _ => calls++ });
+        var busy = Answers.Of<IRenderer>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { [nameof(IRenderer.OnRenderFrame)] = _ => calls++ });
         (ScreenManager.Platform, ScreenManager.FrameProfiler) = (Platform(), profiler);
         try
         {
@@ -95,13 +97,20 @@ public sealed class IdleAnimatorsTests
         game.extendedDebugInfo = true;
         var events = (ClientEventManager)RuntimeHelpers.GetUninitializedObject(typeof(ClientEventManager));
         var stages = new List<RenderHandler>[Enum.GetValues<EnumRenderStage>().Length];
-        for (var i = 0; i < stages.Length; i++) stages[i] = [];
-        for (var i = 0; i < renderers.Length; i++)
+        for (var i = 0; i < stages.Length; i++)
+        {
+            stages[i] = [];
+        }
+
+        foreach (var renderer in renderers)
+        {
             stages[(int)EnumRenderStage.ShadowFar].Add(new RenderHandler
             {
-                Renderer = renderers[i],
-                ProfilingName = "ShadowFar-" + (renderers[i] is AnimatableRenderer ? "animatable" : "busy")
+                Renderer = renderer,
+                ProfilingName = "ShadowFar-" + (renderer is AnimatableRenderer ? "animatable" : "busy")
             });
+        }
+
         AccessTools.Field(typeof(ClientEventManager), "game").SetValue(events, game);
         AccessTools.Field(typeof(ClientEventManager), "renderersByStage").SetValue(events, stages);
         return events;
@@ -109,22 +118,18 @@ public sealed class IdleAnimatorsTests
 
     [TestCase(false, true)]
     [TestCase(true, false)]
-    public void AnAnimatableRendererIsIdleWhileItDoesNotRender(bool shouldRender, bool idle)
-    {
+    public void AnAnimatableRendererIsIdleWhileItDoesNotRender(bool shouldRender, bool idle) =>
         Assert.That(IdleAnimators.Idle(Renderer(shouldRender)), Is.EqualTo(idle));
-    }
 
     // A renderer of any other kind, or one implementing IRenderer again, is always called
     [Test]
-    public void OtherRenderersAreNeverIdle()
-    {
+    public void OtherRenderersAreNeverIdle() =>
         Assert.Multiple(() =>
         {
             Assert.That(IdleAnimators.Idle(new Reimplemented()), Is.False);
             Assert.That(IdleAnimators.Idle(Answers.Of<IRenderer>([])), Is.False);
             Assert.That(IdleAnimators.Idle(null), Is.False);
         });
-    }
 
     private static AnimatableRenderer Renderer(bool shouldRender)
     {

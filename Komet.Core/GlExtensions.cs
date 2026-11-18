@@ -12,13 +12,18 @@ internal static class GlExtensions
     public static bool Offered(string extension)
     {
         if (!NotNull(extension)) return false;
+
         if (_extensions is { } known) return known.Contains(extension);
+
         var count = GL.GetInteger(GetPName.NumExtensions);
         if (!Assert(count > 0)) return false;
+
         var made = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < Math.Min(count, MaxExtensions); i++)
-            if (GL.GetString(StringNameIndexed.Extensions, i) is { } name)
-                _ = made.Add(name);
+        {
+            if (GL.GetString(StringNameIndexed.Extensions, i) is { } name) _ = made.Add(name);
+        }
+
         _extensions = made;
         return made.Contains(extension);
     }

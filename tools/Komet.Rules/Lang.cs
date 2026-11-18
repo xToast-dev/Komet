@@ -31,7 +31,8 @@ internal static class Lang
     {
         var langs = LangFile.ReadAll(start.Options.AdditionalFiles, start.CancellationToken);
         var prefixes = Prefixes(langs);
-        start.RegisterSyntaxNodeAction(sources.Node(c => Literal(c, langs, prefixes)), SyntaxKind.StringLiteralExpression,
+        start.RegisterSyntaxNodeAction(sources.Node(c => Literal(c, langs, prefixes)),
+            SyntaxKind.StringLiteralExpression,
             SyntaxKind.InterpolatedStringExpression);
         start.RegisterSyntaxNodeAction(sources.Node(c => Panel(c, langs)), SyntaxKind.InvocationExpression);
         start.RegisterOperationAction(sources.Operation(c => Knob(c, langs)), OperationKind.ObjectCreation,
@@ -46,8 +47,9 @@ internal static class Lang
         foreach (var lang in langs)
         {
             foreach (var key in lang.Keys)
-                if (key.IndexOf('-') is var dash and > 0)
-                    _ = prefixes.Add(key.Substring(0, dash));
+            {
+                if (key.IndexOf('-') is var dash and > 0) _ = prefixes.Add(key.Substring(0, dash));
+            }
         }
 
         return prefixes;
@@ -58,6 +60,7 @@ internal static class Lang
         var text = context.Node switch
         {
             LiteralExpressionSyntax literal => literal.Token.ValueText,
+            // ReSharper disable once MergeIntoPattern - a list pattern needs System.Index, netstandard2.0 has none
             InterpolatedStringExpressionSyntax { Contents: { Count: 1 } contents } when
                 contents[0] is InterpolatedStringTextSyntax only =>
                 only.TextToken.ValueText,
@@ -65,7 +68,9 @@ internal static class Lang
         };
         if (KeyLiteral.Match(text) is { Success: true } key && prefixes.Contains(key.Groups[1].Value) &&
             Missing(langs, text) is { } missing)
+        {
             context.ReportDiagnostic(Diagnostic.Create(Rules.MissingKey, context.Node.GetLocation(), text, missing));
+        }
     }
 
     // panel.Value("fps", ...) renders "hud-fps"
@@ -79,17 +84,33 @@ internal static class Lang
             _ => null
         };
         if (name is not IdentifierNameSyntax { Identifier.ValueText: var renderer } ||
-            Array.IndexOf(Renderers, renderer) < 0) return;
+            Array.IndexOf(Renderers, renderer) < 0)
+        {
+            return;
+        }
+
         if (call.ArgumentList.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax literal ||
-            !literal.IsKind(SyntaxKind.StringLiteralExpression) || !PanelKey.IsMatch(literal.Token.ValueText)) return;
+            !literal.IsKind(SyntaxKind.StringLiteralExpression) || !PanelKey.IsMatch(literal.Token.ValueText))
+        {
+            return;
+        }
+
         var key = "hud-" + literal.Token.ValueText;
         if (Missing(langs, key) is { } missing)
+        {
             context.ReportDiagnostic(Diagnostic.Create(Rules.MissingKey, literal.GetLocation(), key, missing));
+        }
+
         if (renderer == "Section") return;
+
         foreach (var lang in langs)
+        {
             if (lang.TryGet(key, out var text) && text.IndexOf('{') >= 0)
+            {
                 context.ReportDiagnostic(Diagnostic.Create(Rules.Placeholder, literal.GetLocation(), key, renderer,
                     lang.Name, text));
+            }
+        }
     }
 
     // Knob rows: new("Key", "page", "group", ...) or a factory returning a Knob, Switch("Key", "page", "group", ...); a null page is not shown
@@ -102,38 +123,53 @@ internal static class Lang
             _ => (null, [])
         };
         if (type is not { Name: "Knob" }) return;
+
         var key = Argument(arguments, "key");
         if (key?.ConstantValue is not { HasValue: true, Value: string knob } ||
             Argument(arguments, "page")?.ConstantValue is not { HasValue: true, Value: string page })
+        {
             return;
+        }
+
         var group = Argument(arguments, "group")?.ConstantValue is { HasValue: true, Value: string name }
             ? "settings-" + name
             : null;
         var label = "settings-" + knob.ToLowerInvariant();
         foreach (var needed in (string?[])[label, label + "-hint", "settings-page-" + page, group])
+        {
             if (needed is not null && Missing(langs, needed) is { } missing)
+            {
                 context.ReportDiagnostic(Diagnostic.Create(Rules.KnobKey, key.Syntax.GetLocation(), knob, page, needed,
                     missing));
+            }
+        }
     }
 
     private static IOperation? Argument(ImmutableArray<IArgumentOperation> arguments, string parameter) =>
-        arguments.FirstOrDefault(a => string.Equals(a.Parameter?.Name, parameter, StringComparison.OrdinalIgnoreCase))
+        arguments.FirstOrDefault(a =>
+                string.Equals(a.Parameter?.Name, parameter, StringComparison.OrdinalIgnoreCase))
             ?.Value;
 
     private static void Mismatch(AdditionalFileAnalysisContext context, LangFile[] langs)
     {
         var file = Array.Find(langs, l => l.Path == context.AdditionalFile.Path);
         if (file is null) return;
+
         foreach (var key in file.Keys)
+        {
             if (Missing(langs, key) is { } missing)
+            {
                 context.ReportDiagnostic(
                     Diagnostic.Create(Rules.LangMismatch, file.Where(key), key, file.Name, missing));
+            }
+        }
     }
 
     // The language files that lack the key, or null when all have it
     private static string? Missing(LangFile[] langs, string key)
     {
         if (langs.Length == 0) return "every language file: no assets/**/lang/*.json is passed as AdditionalFiles";
+
         var missing = langs.Where(l => !l.TryGet(key, out _)).Select(l => l.Name).ToArray();
         return missing.Length == 0 ? null : string.Join(", ", missing);
     }
@@ -150,10 +186,10 @@ internal sealed class LangFile(string path, SourceText text)
     public string Name { get; } = System.IO.Path.GetFileName(path);
     public IEnumerable<string> Keys => _entries.Keys;
 
-    public bool TryGet(string key, out string text)
+    public bool TryGet(string key, out string value)
     {
         var found = _entries.TryGetValue(key, out var entry);
-        text = entry.Text;
+        value = entry.Text;
         return found;
     }
 
@@ -171,7 +207,11 @@ internal sealed class LangFile(string path, SourceText text)
         {
             var path = file.Path.Replace('\\', '/');
             if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || !path.Contains("/lang/") ||
-                file.GetText(token) is not { } text) continue;
+                file.GetText(token) is not { } text)
+            {
+                continue;
+            }
+
             var lang = new LangFile(file.Path, text);
             lang.Read(text.ToString());
             langs.Add(lang);
@@ -185,11 +225,13 @@ internal sealed class LangFile(string path, SourceText text)
     {
         var at = json.IndexOf('{') + 1;
         if (at == 0) return;
+
         var value = new StringBuilder();
         while (at < json.Length)
         {
             at = Skip(json, at);
             if (at >= json.Length || json[at] == '}') return;
+
             if (json[at] is not ('"' or '\''))
             {
                 at = Next(json, at);
@@ -202,6 +244,7 @@ internal sealed class LangFile(string path, SourceText text)
             var span = TextSpan.FromBounds(start, at);
             at = Skip(json, at);
             if (at >= json.Length || json[at] != ':') continue;
+
             at = Skip(json, at + 1);
             if (at >= json.Length || json[at] is not ('"' or '\''))
             {
@@ -218,9 +261,20 @@ internal sealed class LangFile(string path, SourceText text)
     private static int Skip(string json, int at)
     {
         while (at < json.Length)
-            if (char.IsWhiteSpace(json[at]) || json[at] == ',') at++;
-            else if (Comment(json, at) is var end && end > at) at = end;
-            else return at;
+        {
+            if (char.IsWhiteSpace(json[at]) || json[at] == ',')
+            {
+                at++;
+            }
+            else if (Comment(json, at) is var end && end > at)
+            {
+                at = end;
+            }
+            else
+            {
+                return at;
+            }
+        }
 
         return at;
     }
@@ -229,6 +283,7 @@ internal sealed class LangFile(string path, SourceText text)
     private static int Comment(string json, int at)
     {
         if (at + 1 >= json.Length || json[at] != '/') return at;
+
         if (json[at + 1] == '/')
         {
             var line = json.IndexOf('\n', at + 2);
@@ -236,6 +291,7 @@ internal sealed class LangFile(string path, SourceText text)
         }
 
         if (json[at + 1] != '*') return at;
+
         var close = json.IndexOf("*/", at + 2, StringComparison.Ordinal);
         return close < 0 ? json.Length : close + 2;
     }
@@ -255,8 +311,14 @@ internal sealed class LangFile(string path, SourceText text)
             var c = json[at++];
             if (quote != '\0')
             {
-                if (c == '\\') at++;
-                else if (c == quote) quote = '\0';
+                if (c == '\\')
+                {
+                    at++;
+                }
+                else if (c == quote)
+                {
+                    quote = '\0';
+                }
             }
             else if (c is '"' or '\'')
             {

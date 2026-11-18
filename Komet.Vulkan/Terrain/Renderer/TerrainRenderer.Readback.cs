@@ -1,3 +1,8 @@
+using System.Diagnostics;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using OpenTK.Graphics.OpenGL;
+
 namespace Komet.Vulkan;
 
 // glReadPixels (screenshots, atlas dump) and glGetTexImage are answered from Vulkan's images: copied out
@@ -18,9 +23,12 @@ internal sealed unsafe partial class TerrainRenderer
     {
         var images = Images;
         if (Frame.Fault.Length > 0) return default;
+
         if (Frame.Open) Frame.Close("the textures handed back to OpenGL");
+
         var handed = images.WriteBack(MostHandedBack, HandBackBytes, _restored);
-        var targets = images.WriteBack(Targets.Images, Targets.RestingOf, (MostTargetsHandedBack, HandBackBytes - handed.Bytes),
+        var targets = images.WriteBack(Targets.Images, Targets.RestingOf,
+            (MostTargetsHandedBack, HandBackBytes - handed.Bytes),
             _restored);
         return (handed.Count + targets.Count, handed.Bytes + targets.Bytes, handed.Left + targets.Left);
     }
@@ -28,24 +36,48 @@ internal sealed unsafe partial class TerrainRenderer
     public bool Answer(GlTap.ReadCall call)
     {
         if (GlTap.Pack is not { } pack) return false;
-        if (pack.Buffer == 0 && call.Pixels == 0) return false; // no memory to read into: OpenGL's own error
-        if (pack.Buffer != 0 && GlTap.LeanBuffer(pack.Buffer)) return Unanswered("into a pixel pack buffer OpenGL holds none of");
+
+        if (pack.Buffer == 0 && call.Pixels == 0)
+        {
+            return false; // no memory to read into: OpenGL's own error
+        }
+
+        if (pack.Buffer != 0 && GlTap.LeanBuffer(pack.Buffer))
+        {
+            return Unanswered("into a pixel pack buffer OpenGL holds none of");
+        }
+
         var image = Source(call, out var at, out var why);
         if (image is null) return Unanswered(why);
+
         var (bytes, into) = (TexelBytes(image.Format.Vulkan), PixelBytes(call.Data.Format, call.Data.Type));
-        if (bytes == 0 || into == 0 || ((image.Format.Aspect & Vk.AspectDepth) != 0) != (call.Data.Format == GlEnum.DepthComponent))
+        if (bytes == 0 || into == 0 ||
+            (image.Format.Aspect & Vk.AspectDepth) != 0 != (call.Data.Format == GlEnum.DepthComponent))
+        {
             return Unanswered($"of 0x{call.Data.Format:X} 0x{call.Data.Type:X} from a {image.Format.Vulkan} image");
+        }
+
         var level = Math.Clamp(call.Name > 0 ? call.Level : at.Level, 0, image.Levels - 1);
         var (width, height) = image.LevelSize(level);
-        (int X, int Y, int Width, int Height) asked = call.Rect.Width < 0 ? (0, 0, width, height) : call.Rect; // glGetTexImage: all
+        (int X, int Y, int Width, int Height)
+            asked = call.Rect.Width < 0 ? (0, 0, width, height) : call.Rect; // glGetTexImage: all
         var rect = Clipped(asked, width, height);
-        if (rect.Width <= 0 || rect.Height <= 0) return true; // all outside: undefined in OpenGL too
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return true; // all outside: undefined in OpenGL too
+        }
+
         var size = (long)rect.Width * rect.Height * bytes;
         if (size > int.MaxValue) return Unanswered("too large for host memory");
-        using var host = HostBuffer.Create(Device, (ulong)size, bulk: true);
+
+        using var host = HostBuffer.Create(Device, (ulong)size, true);
         if (host is null) return Unanswered("too large for host memory");
+
         if (!CopiedOut(image, (level, Math.Clamp(at.Layer, 0, image.Layers - 1), rect), host, out why))
+        {
             return Unanswered(why);
+        }
+
         Written(host.Pointer(0), (image, rect, asked), (call, pack.Store), pack.Buffer);
 
         Answered++;
@@ -56,6 +88,7 @@ internal sealed unsafe partial class TerrainRenderer
     private void Slow(TimeSpan waited)
     {
         if (_slowRead || waited.TotalSeconds < 1) return;
+
         _slowRead = true;
         _logger?.Warning("Komet: an OpenGL read answered from Vulkan waited {0:0} ms for the GPU (logged once)",
             waited.TotalMilliseconds);
@@ -72,10 +105,14 @@ internal sealed unsafe partial class TerrainRenderer
     {
         (why, at) = ("", default);
         if (!Assert(call.Level >= 0) || !Assert(call.Fbo >= 0 || call.Name > 0)) return null;
+
         if (call.Name > 0) return SampledFind((int)call.Name) ?? Images.Get((int)call.Name, out why);
+
         if (call.Fbo <= 0) return None<SharedImage>(out why, "of the window itself");
+
         var attachment = call.Data.Format == GlEnum.DepthComponent ? GlFramebuffer.Depth : call.Attachment;
         if (attachment is < 0 or > GlFramebuffer.Colors) return None<SharedImage>(out why, "from no known read buffer");
+
         return ReadAt(call.Fbo, attachment, out at, out why);
     }
 
@@ -93,21 +130,26 @@ internal sealed unsafe partial class TerrainRenderer
     {
         why = "";
         if (!Frame.Open && !Frame.Begin(out why)) return false;
+
         Hold(image);
         var region = new Vk.BufferImageCopy
         {
-            Aspect = (image.Format.Aspect & Vk.AspectDepth) != 0 ? Vk.AspectDepth : image.Format.Aspect, // a depth's depth alone
+            Aspect = (image.Format.Aspect & Vk.AspectDepth) != 0
+                ? Vk.AspectDepth
+                : image.Format.Aspect, // a depth's depth alone
             Level = (uint)at.Level, BaseLayer = (uint)at.Layer, Layers = 1, X = at.Rect.X,
             Y = at.Rect.Y,
             Width = (uint)at.Rect.Width, Height = (uint)at.Rect.Height, Depth = 1
         };
         if (!Frame.CopyOut(image, region, host.Buffer)) return Refuse(out why, "found the image not held");
+
         Frame.Close("an OpenGL read answered from Vulkan");
         var start = Hitches.Now;
         var idle = Device.WaitIdle();
         Hitches.Since(Hitches.Kind.GpuWait, start);
-        Slow(System.Diagnostics.Stopwatch.GetElapsedTime(start));
+        Slow(Stopwatch.GetElapsedTime(start));
         if (!idle || Frame.Fault.Length > 0) return Refuse(out why, "found the GPU not done");
+
         return Assert(!Frame.Open);
     }
 
@@ -120,10 +162,11 @@ internal sealed unsafe partial class TerrainRenderer
         var (call, store) = pack;
         var (texel, pixel) = (TexelBytes(image.Format.Vulkan), PixelBytes(call.Data.Format, call.Data.Type));
         var alignment = Math.Max(store.Alignment, 1);
-        var stride = ((long)(store.RowLength > 0 ? store.RowLength : asked.Width) * pixel + alignment - 1) / alignment * alignment;
+        var stride = ((long)(store.RowLength > 0 ? store.RowLength : asked.Width) * pixel + alignment - 1) / alignment *
+                     alignment;
         var first = store.SkipRows * stride + (long)store.SkipPixels * pixel;
         var source = (image.Format.Vulkan, image.OpaqueAlpha);
-        var aside = buffer != 0 ? (byte*)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)((long)rect.Width * pixel)) : null;
+        var aside = buffer != 0 ? (byte*)NativeMemory.Alloc((nuint)((long)rect.Width * pixel)) : null;
         try
         {
             using var quiet = GlTap.Quietly(); // Komet's own write into the engine's pack buffer
@@ -133,55 +176,68 @@ internal sealed unsafe partial class TerrainRenderer
                 var row = buffer != 0 ? aside : (byte*)call.Pixels + offset;
                 var texels = from + (long)y * rect.Width * texel;
                 for (var x = 0; x < Math.Min(rect.Width, MaxSide); x++)
-                    Converted(texels + (long)x * texel, row + (long)x * pixel, source, (call.Data.Format, call.Data.Type));
+                {
+                    Converted(texels + (long)x * texel, row + (long)x * pixel, source,
+                        (call.Data.Format, call.Data.Type));
+                }
+
                 if (buffer != 0)
-                    OpenTK.Graphics.OpenGL.GL.NamedBufferSubData((int)buffer, (nint)(call.Pixels + offset),
+                {
+                    GL.NamedBufferSubData((int)buffer, (nint)(call.Pixels + offset),
                         rect.Width * pixel, (IntPtr)aside);
+                }
             }
         }
         finally
         {
-            if (aside != null) System.Runtime.InteropServices.NativeMemory.Free(aside);
+            if (aside != null) NativeMemory.Free(aside);
         }
     }
 
-    private static int TexelBytes(uint format) => format switch
+    private static int TexelBytes(uint format)
     {
-        Vk.FormatRgba8 or Vk.FormatSrgba8 or Vk.FormatD32F or Vk.FormatRg16F or Vk.FormatR32F or Vk.FormatA2B10G10R10 or
-            Vk.FormatD32S8 or Vk.FormatD24S8 => 4, // a depth and stencil's depth plane: a float, or 24 bits in 32
-        Vk.FormatR8 => 1,
-        Vk.FormatRg8 or Vk.FormatR16F or Vk.FormatR16 => 2,
-        Vk.FormatRgba16F or Vk.FormatRgba16 => 8,
-        Vk.FormatRgba32F => 16,
-        _ => 0
-    };
+        return format switch
+        {
+            Vk.FormatRgba8 or Vk.FormatSrgba8 or Vk.FormatD32F or Vk.FormatRg16F or Vk.FormatR32F
+                or Vk.FormatA2B10G10R10 or
+                Vk.FormatD32S8 or Vk.FormatD24S8 => 4, // a depth and stencil's depth plane: a float, or 24 bits in 32
+            Vk.FormatR8 => 1,
+            Vk.FormatRg8 or Vk.FormatR16F or Vk.FormatR16 => 2,
+            Vk.FormatRgba16F or Vk.FormatRgba16 => 8,
+            Vk.FormatRgba32F => 16,
+            _ => 0
+        };
+    }
 
-    private static int Components(uint format) => format switch
-    {
-        GlEnum.Red => 1,
-        GlEnum.Rg => 2,
-        GlEnum.Rgb or GlEnum.Bgr => 3,
-        GlEnum.Rgba or GlEnum.Bgra => 4,
-        GlEnum.DepthComponent => 1,
-        _ => 0
-    };
+    private static int Components(uint format) =>
+        format switch
+        {
+            GlEnum.Red => 1,
+            GlEnum.Rg => 2,
+            GlEnum.Rgb or GlEnum.Bgr => 3,
+            GlEnum.Rgba or GlEnum.Bgra => 4,
+            GlEnum.DepthComponent => 1,
+            _ => 0
+        };
 
-    private static int TypeBytes(uint type) => type switch
-    {
-        GlEnum.UnsignedByte => 1,
-        GlEnum.UnsignedShort or GlEnum.HalfFloat => 2,
-        GlEnum.Float or GlEnum.UnsignedInt => 4,
-        _ => 0
-    };
+    private static int TypeBytes(uint type) =>
+        type switch
+        {
+            GlEnum.UnsignedByte => 1,
+            GlEnum.UnsignedShort or GlEnum.HalfFloat => 2,
+            GlEnum.Float or GlEnum.UnsignedInt => 4,
+            _ => 0
+        };
 
     // GL_UNSIGNED_INT for depth only; a color read of it needs an integer image
     private static int PixelBytes(uint format, uint type) =>
         (type == GlEnum.UnsignedInt && format != GlEnum.DepthComponent) ||
-        (type == GlEnum.HalfFloat && format == GlEnum.DepthComponent)
+               (type == GlEnum.HalfFloat && format == GlEnum.DepthComponent)
             ? 0
             : Components(format) * TypeBytes(type);
 
-    private static void Converted(byte* from, byte* to, (uint Format, bool Opaque) source, (uint Format, uint Type) into)
+    private static void Converted(byte* from, byte* to, (uint Format, bool Opaque) source,
+        (uint Format, uint Type) into)
     {
         if (source.Format is Vk.FormatD32F or Vk.FormatD32S8)
         {
@@ -197,9 +253,13 @@ internal sealed unsafe partial class TerrainRenderer
 
         var rgba = Texel(from, source.Format);
         if (source.Opaque) rgba.W = 1;
+
         var (count, swapped) = (Components(into.Format), into.Format is GlEnum.Bgra or GlEnum.Bgr);
         Span<float> values = [swapped ? rgba.Z : rgba.X, rgba.Y, swapped ? rgba.X : rgba.Z, rgba.W];
-        for (var i = 0; i < Math.Min(count, 4); i++) Put(to, i, values[i], into.Type);
+        for (var i = 0; i < Math.Min(count, 4); i++)
+        {
+            Put(to, i, values[i], into.Type);
+        }
     }
 
     // Normalized types clamped, as OpenGL does
@@ -216,27 +276,26 @@ internal sealed unsafe partial class TerrainRenderer
         }
     }
 
-    private static System.Numerics.Vector4 Texel(byte* at, uint format)
-    {
-        return format switch
+    private static Vector4 Texel(byte* at, uint format) =>
+        format switch
         {
-            Vk.FormatRgba16F => new System.Numerics.Vector4((float)((Half*)at)[0], (float)((Half*)at)[1],
+            Vk.FormatRgba16F => new Vector4((float)((Half*)at)[0], (float)((Half*)at)[1],
                 (float)((Half*)at)[2], (float)((Half*)at)[3]),
-            Vk.FormatRgba32F => new System.Numerics.Vector4(((float*)at)[0], ((float*)at)[1], ((float*)at)[2], ((float*)at)[3]),
-            Vk.FormatR8 => new System.Numerics.Vector4(at[0] / 255f, 0, 0, 1),
-            Vk.FormatRg8 => new System.Numerics.Vector4(at[0] / 255f, at[1] / 255f, 0, 1),
-            Vk.FormatR16F => new System.Numerics.Vector4((float)((Half*)at)[0], 0, 0, 1),
-            Vk.FormatRg16F => new System.Numerics.Vector4((float)((Half*)at)[0], (float)((Half*)at)[1], 0, 1),
-            Vk.FormatR32F => new System.Numerics.Vector4(((float*)at)[0], 0, 0, 1),
-            Vk.FormatR16 => new System.Numerics.Vector4(((ushort*)at)[0] / 65535f, 0, 0, 1),
-            Vk.FormatRgba16 => new System.Numerics.Vector4(((ushort*)at)[0], ((ushort*)at)[1], ((ushort*)at)[2],
+            Vk.FormatRgba32F => new Vector4(((float*)at)[0], ((float*)at)[1], ((float*)at)[2], ((float*)at)[3]),
+            Vk.FormatR8 => new Vector4(at[0] / 255f, 0, 0, 1),
+            Vk.FormatRg8 => new Vector4(at[0] / 255f, at[1] / 255f, 0, 1),
+            Vk.FormatR16F => new Vector4((float)((Half*)at)[0], 0, 0, 1),
+            Vk.FormatRg16F => new Vector4((float)((Half*)at)[0], (float)((Half*)at)[1], 0, 1),
+            Vk.FormatR32F => new Vector4(((float*)at)[0], 0, 0, 1),
+            Vk.FormatR16 => new Vector4(((ushort*)at)[0] / 65535f, 0, 0, 1),
+            Vk.FormatRgba16 => new Vector4(((ushort*)at)[0], ((ushort*)at)[1], ((ushort*)at)[2],
                 ((ushort*)at)[3]) / 65535f,
             Vk.FormatA2B10G10R10 => Packed1010102(*(uint*)at),
-            _ => new System.Numerics.Vector4(at[0], at[1], at[2], at[3]) / 255f
+            _ => new Vector4(at[0], at[1], at[2], at[3]) / 255f
         };
-    }
 
     // VK_FORMAT_A2B10G10R10_UNORM_PACK32: red in the low ten bits, alpha in the top two
-    private static System.Numerics.Vector4 Packed1010102(uint word) =>
-        new((word & 1023) / 1023f, ((word >> 10) & 1023) / 1023f, ((word >> 20) & 1023) / 1023f, (word >> 30) / 3f);
+    private static Vector4 Packed1010102(uint word) =>
+        new((word & 1023) / 1023f, ((word >> 10) & 1023) / 1023f, ((word >> 20) & 1023) / 1023f,
+            (word >> 30) / 3f);
 }

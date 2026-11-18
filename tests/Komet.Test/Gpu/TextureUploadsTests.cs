@@ -18,7 +18,10 @@ public sealed class TextureUploadsTests
             Assert.That(worst, Is.Zero);
             Assert.That(into[Array.IndexOf(shorts, (short)32767)], Is.EqualTo(65535));
             Assert.That(into[Array.IndexOf(shorts, (short)-5)], Is.Zero);
-            for (var i = 0; i < shorts.Length; i++) Assert.That(into[i], Is.EqualTo(TextureUploads.Unorm(shorts[i])));
+            for (var i = 0; i < shorts.Length; i++)
+            {
+                Assert.That(into[i], Is.EqualTo(TextureUploads.Unorm(shorts[i])));
+            }
         });
     }
 
@@ -33,21 +36,20 @@ public sealed class TextureUploadsTests
             for (var i = 0; i < n; i++)
             {
                 var p = bgra[i];
-                Assert.That(rgba[i], Is.EqualTo((p & 0xFF00FF00) | ((p >> 16) & 0xFF) | ((p & 0xFF) << 16)), $"{n}: {i}");
+                Assert.That(rgba[i], Is.EqualTo((p & 0xFF00FF00) | ((p >> 16) & 0xFF) | ((p & 0xFF) << 16)),
+                    $"{n}: {i}");
             }
         }
     }
 
     [Test]
-    public void OneChannelAndRgbFloatPairsAreTaken()
-    {
+    public void OneChannelAndRgbFloatPairsAreTaken() =>
         Assert.Multiple(() =>
         {
             Assert.That(TextureUploads.Bytes(Vk.FormatR8, (0x1903, 0x1401)), Is.EqualTo((1, 1)));
             Assert.That(TextureUploads.Bytes(Vk.FormatRgba16F, (0x1907, 0x1406)), Is.EqualTo((12, 8)));
             Assert.That(TextureUploads.Bytes(Vk.FormatRgba8, (0x1908, 0x1401)), Is.EqualTo((4, 4)));
         });
-    }
 
     [Test]
     public void DepthsAreNormalizedFloats()
@@ -71,7 +73,10 @@ public sealed class TextureUploadsTests
         float[] rgb = [0.5f, 1.5f, -2f, 3f, 4f, 5f];
         var into = new byte[2 * 4 * 2];
         fixed (float* source = rgb)
+        {
             TextureUploads.Convert(Vk.FormatRgba16F, (0x1907, 0x1406), (byte*)source, (2, 1, 24), into);
+        }
+
         var halves = MemoryMarshal.Cast<byte, Half>(into).ToArray();
         Half[] wanted = [(Half)0.5f, (Half)1.5f, (Half)(-2f), Half.One, (Half)3f, (Half)4f, (Half)5f, Half.One];
         Assert.That(halves, Is.EqualTo(wanted));

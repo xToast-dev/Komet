@@ -6,19 +6,19 @@ namespace Komet.Vulkan;
 internal readonly record struct SharedFormat(uint Vulkan, uint Aspect)
 {
     public static readonly SharedFormat Rgba8 = new(Vk.FormatRgba8, Vk.AspectColor);
-    public static readonly SharedFormat Rgba16F = new(Vk.FormatRgba16F, Vk.AspectColor);
+    private static readonly SharedFormat Rgba16F = new(Vk.FormatRgba16F, Vk.AspectColor);
     public static readonly SharedFormat Depth32F = new(Vk.FormatD32F, Vk.AspectDepth);
-    public static readonly SharedFormat R16F = new(Vk.FormatR16F, Vk.AspectColor);
-    public static readonly SharedFormat Rgba32F = new(Vk.FormatRgba32F, Vk.AspectColor);
-    public static readonly SharedFormat R8 = new(Vk.FormatR8, Vk.AspectColor);
-    public static readonly SharedFormat Rg16F = new(Vk.FormatRg16F, Vk.AspectColor);
-    public static readonly SharedFormat R32F = new(Vk.FormatR32F, Vk.AspectColor);
-    public static readonly SharedFormat Rgba16 = new(Vk.FormatRgba16, Vk.AspectColor);
-    public static readonly SharedFormat Rg8 = new(Vk.FormatRg8, Vk.AspectColor);
-    public static readonly SharedFormat Srgba8 = new(Vk.FormatSrgba8, Vk.AspectColor);
-    public static readonly SharedFormat R16 = new(Vk.FormatR16, Vk.AspectColor);
-    public static readonly SharedFormat Rgb10A2 = new(Vk.FormatA2B10G10R10, Vk.AspectColor);
-    public static readonly SharedFormat R11G11B10F = new(Vk.FormatB10G11R11F, Vk.AspectColor);
+    private static readonly SharedFormat R16F = new(Vk.FormatR16F, Vk.AspectColor);
+    private static readonly SharedFormat Rgba32F = new(Vk.FormatRgba32F, Vk.AspectColor);
+    private static readonly SharedFormat R8 = new(Vk.FormatR8, Vk.AspectColor);
+    private static readonly SharedFormat Rg16F = new(Vk.FormatRg16F, Vk.AspectColor);
+    private static readonly SharedFormat R32F = new(Vk.FormatR32F, Vk.AspectColor);
+    private static readonly SharedFormat Rgba16 = new(Vk.FormatRgba16, Vk.AspectColor);
+    private static readonly SharedFormat Rg8 = new(Vk.FormatRg8, Vk.AspectColor);
+    private static readonly SharedFormat Srgba8 = new(Vk.FormatSrgba8, Vk.AspectColor);
+    private static readonly SharedFormat R16 = new(Vk.FormatR16, Vk.AspectColor);
+    private static readonly SharedFormat Rgb10A2 = new(Vk.FormatA2B10G10R10, Vk.AspectColor);
+    private static readonly SharedFormat R11G11B10F = new(Vk.FormatB10G11R11F, Vk.AspectColor);
 
     // How glGetTextureImage gives each format exactly as the image holds it
     public (PixelFormat Format, PixelType Type, int Bytes)? Pack => Vulkan switch
@@ -47,6 +47,7 @@ internal readonly record struct SharedFormat(uint Vulkan, uint Aspect)
     public static (SharedFormat Format, bool Opaque)? Only(int gl)
     {
         if (gl is 0x88F0 or 0x84F9 or 0x8CAD or 0x8D48) return Stencils is { } stencils ? (stencils, false) : null;
+
         return gl switch
         {
             0x1907 or 0x8051 => (Rgba8, true), // RGB, RGB8
@@ -65,7 +66,7 @@ internal readonly record struct SharedFormat(uint Vulkan, uint Aspect)
         };
     }
 
-    public static SharedFormat? Of(int gl)
+    private static SharedFormat? Of(int gl)
     {
         return gl switch
         {
@@ -92,10 +93,11 @@ internal sealed unsafe class SharedImage : IDisposable
 
     private readonly IntPtr _device;
     private readonly ulong[] _layerViews = new ulong[MaxLayers];
-    private ulong _image, _memory, _view, _sampled;
+    private ulong _memory, _view, _sampled;
 
     // Views made on demand (Vulkan-only's levels, layered and windowed views), one for each range, swizzle and kind
-    private Dictionary<(uint Aspect, uint BaseLevel, uint Levels, uint BaseLayer, uint Layers, uint Alpha, bool Layered), ulong>? _views;
+    private Dictionary<(uint Aspect, uint BaseLevel, uint Levels, uint BaseLayer, uint Layers, uint Alpha, bool Layered)
+        , ulong>? _views;
 
     private SharedImage(IntPtr device, (int Width, int Height, int Levels, int Layers) size, SharedFormat format)
     {
@@ -103,7 +105,8 @@ internal sealed unsafe class SharedImage : IDisposable
         Layers = Math.Clamp(size.Layers, 1, MaxLayers);
     }
 
-    public ulong Image => _image;
+    public ulong Image { get; private set; }
+
     public int Texture { get; private set; }
 
     // Six layers sampled as a cube (a GL cube map's copy); a layer view stays 2D
@@ -122,7 +125,8 @@ internal sealed unsafe class SharedImage : IDisposable
     {
         get
         {
-            if (_view == 0 && Assert(_image != 0)) _view = MadeView(0, Whole);
+            if (_view == 0 && Assert(Image != 0)) _view = MadeView(0, Whole);
+
             return _view;
         }
     }
@@ -139,20 +143,58 @@ internal sealed unsafe class SharedImage : IDisposable
         get
         {
             if (Window is { } window && (window.First > 0 || window.Count < Levels)) return Ranged(window);
+
             if (!OpaqueAlpha && Format.Aspect == SampledAspect) return View;
-            if (_sampled == 0 && Assert(_image != 0))
+
+            if (_sampled == 0 && Assert(Image != 0))
+            {
                 _sampled = MadeView(OpaqueAlpha ? SwizzleOne : 0, Whole with { Aspect = SampledAspect });
+            }
+
             return _sampled;
         }
     }
 
     private uint SampledAspect => (Format.Aspect & Vk.AspectDepth) != 0 ? Vk.AspectDepth : Format.Aspect;
 
+    private Vk.ColorRange Whole => new() { Aspect = Format.Aspect, Levels = (uint)Levels, Layers = (uint)Layers };
+
+    // The GL texture it stands for stays: its owner deletes it
+    public void Dispose()
+    {
+        if (_view != 0) VkApi.DestroyImageView(_device, _view, null);
+
+        if (_sampled != 0) VkApi.DestroyImageView(_device, _sampled, null);
+
+        _sampled = 0;
+        foreach (var view in _layerViews.Bounded(MaxLayers))
+        {
+            if (view != 0) VkApi.DestroyImageView(_device, view, null);
+        }
+
+        Array.Clear(_layerViews);
+        if (_views is { } views)
+        {
+            foreach (var view in views.Values.Bounded(MaxViews))
+            {
+                if (view != 0) VkApi.DestroyImageView(_device, view, null);
+            }
+        }
+
+        _views = null;
+        if (Image != 0) VkApi.DestroyImage(_device, Image, null);
+
+        if (_memory != 0) VkApi.FreeMemory(_device, _memory, null);
+
+        (Texture, Image, _memory, _view) = (0, 0, 0, 0);
+    }
+
     private ulong Ranged((int First, int Count) window)
     {
         var first = Math.Clamp(window.First, 0, Levels - 1);
         var count = Math.Clamp(window.Count, 1, Levels - first);
-        var view = Cached(OpaqueAlpha ? SwizzleOne : 0, Whole with { Aspect = SampledAspect, BaseLevel = (uint)first, Levels = (uint)count });
+        var view = Cached(OpaqueAlpha ? SwizzleOne : 0,
+            Whole with { Aspect = SampledAspect, BaseLevel = (uint)first, Levels = (uint)count });
         return view != 0 ? view : View;
     }
 
@@ -161,20 +203,24 @@ internal sealed unsafe class SharedImage : IDisposable
         _views ??= [];
         var key = (range.Aspect, range.BaseLevel, range.Levels, range.BaseLayer, range.Layers, alpha, layered);
         if (_views.TryGetValue(key, out var view)) return view;
-        if (!Assert(_image != 0) || _views.Count == MaxViews) return 0;
+
+        if (!Assert(Image != 0) || _views.Count == MaxViews) return 0;
+
         _views[key] = view = MadeView(alpha, range, layered);
         return view;
     }
 
-    private Vk.ColorRange Whole => new() { Aspect = Format.Aspect, Levels = (uint)Levels, Layers = (uint)Layers };
-
     // Level 0 of one layer, as a framebuffer attaches it (FramebufferTextureLayer); the whole view for a plain image
-    public ulong LayerView(int layer)
+    private ulong LayerView(int layer)
     {
         if (Layers == 1 || !Index(layer, Layers)) return View;
-        if (_layerViews[layer] == 0 && Assert(_image != 0))
+
+        if (_layerViews[layer] == 0 && Assert(Image != 0))
+        {
             _layerViews[layer] = MadeView(0,
                 new Vk.ColorRange { Aspect = Format.Aspect, Levels = 1, BaseLayer = (uint)layer, Layers = 1 });
+        }
+
         return _layerViews[layer];
     }
 
@@ -182,26 +228,34 @@ internal sealed unsafe class SharedImage : IDisposable
     public ulong LevelView(int level, int layer)
     {
         if (!Index(level, Levels) || !Index(layer, Layers)) return 0;
+
         if (Levels == 1 || (level == 0 && Layers > 1)) return LayerView(layer);
-        return Cached(0, new Vk.ColorRange { Aspect = Format.Aspect, BaseLevel = (uint)level, Levels = 1, BaseLayer = (uint)layer, Layers = 1 });
+
+        return Cached(0,
+            new Vk.ColorRange
+                { Aspect = Format.Aspect, BaseLevel = (uint)level, Levels = 1, BaseLayer = (uint)layer, Layers = 1 });
     }
 
     // Vulkan-only: one level, all layers, for layered framebuffers; gl_Layer picks (default 0)
     public ulong LayeredView(int level)
     {
-        if (!Index(level, Levels) || !Assert(_image != 0)) return 0;
-        return Cached(0, new Vk.ColorRange { Aspect = Format.Aspect, BaseLevel = (uint)level, Levels = 1, Layers = (uint)Layers },
-            layered: true);
+        if (!Index(level, Levels) || !Assert(Image != 0)) return 0;
+
+        return Cached(0,
+            new Vk.ColorRange { Aspect = Format.Aspect, BaseLevel = (uint)level, Levels = 1, Layers = (uint)Layers },
+            true);
     }
 
     private ulong MadeView(uint alpha, Vk.ColorRange range, bool layered = false)
     {
-        if (!Assert(_image != 0)) return 0;
+        if (!Assert(Image != 0)) return 0;
+
         var type = range.Layers > 1 || (Arrayed && range.Layers == (uint)Layers) ? Vk.ViewType2DArray : Vk.ViewType2D;
         var info = new Vk.ViewInfo
         {
-            SType = Vk.ImageViewCreateInfo, Image = _image,
-            ViewType = Cube && range.Layers == 6 && !layered ? Vk.ViewTypeCube : type, Format = Format.Vulkan, A = alpha,
+            SType = Vk.ImageViewCreateInfo, Image = Image,
+            ViewType = Cube && range.Layers == 6 && !layered ? Vk.ViewTypeCube : type, Format = Format.Vulkan,
+            A = alpha,
             Range = range
         };
         ulong view;
@@ -209,23 +263,30 @@ internal sealed unsafe class SharedImage : IDisposable
     }
 
     public Handoff.Image In(int layout) =>
-        Assert(layout >= 0) ? new Handoff.Image(_image, layout, Format.Aspect, Levels) { Layers = Layers } : default;
+        Assert(layout >= 0)
+            ? new Handoff.Image(Image, layout, Format.Aspect, Levels) { Layers = Layers }
+            : default;
 
     // stands: the GL texture whose contents it holds, named by Texture, never deleted with it
     public static SharedImage? Private(VulkanDevice device, (int Width, int Height, int Levels, int Layers) size,
         SharedFormat format, uint usage, out string why, bool cube = false, int stands = 0, bool arrayed = false)
     {
         why = "";
-        if (!NotNull(device) || !Assert(size.Width > 0 && size.Height > 0) || !Assert(size.Levels is > 0 and <= 16) ||
+        if (!NotNull(device) || !Assert(size is { Width: > 0, Height: > 0 }) || !Assert(size.Levels is > 0 and <= 16) ||
             !Assert(size.Layers is > 0 and <= MaxLayers) || !Assert(!cube || size.Layers == 6) || !Assert(stands >= 0))
+        {
             return null;
-        return Owned.Kept(new SharedImage(device.Handle, size, format) { Cube = cube, Texture = stands, Arrayed = arrayed },
+        }
+
+        return Owned.Kept(
+            new SharedImage(device.Handle, size, format) { Cube = cube, Texture = stands, Arrayed = arrayed },
             (device, usage), static (image, s) => image.Allocate(s.device, s.usage), out why);
     }
 
     private string? Allocate(VulkanDevice device, uint usage)
     {
         if (!Assert(usage != 0)) return "no usage";
+
         var info = new Vk.ImageInfo
         {
             SType = Vk.ImageCreateInfo, Flags = Cube ? Vk.CubeCompatible : 0,
@@ -237,13 +298,16 @@ internal sealed unsafe class SharedImage : IDisposable
         };
         ulong image, memory;
         if (VkApi.CreateImage(_device, &info, null, &image) != Vk.Success) return "vkCreateImage failed";
-        _image = image;
+
+        Image = image;
         Vk.MemoryRequirements needs;
         VkApi.GetImageMemoryRequirements(_device, image, &needs);
         var type = device.MemoryType(needs.TypeBits, Vk.DeviceLocal);
         if (type < 0) return "no device-local memory for the image";
+
         var allocate = new Vk.AllocateInfo { SType = Vk.MemoryAllocateInfo, Size = needs.Size, TypeIndex = (uint)type };
         if (VkApi.AllocateMemory(_device, &allocate, null, &memory) != Vk.Success) return "vkAllocateMemory failed";
+
         _memory = memory;
         return VkApi.BindImageMemory(_device, image, memory, 0) == Vk.Success ? null : "vkBindImageMemory failed";
     }
@@ -263,6 +327,7 @@ internal sealed unsafe class SharedImage : IDisposable
     public void Moved(IntPtr commands, (int From, int To) layouts)
     {
         if (!Assert(commands != IntPtr.Zero) || !Assert(layouts.From != layouts.To)) return;
+
         var barrier = Barrier(layouts);
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, 1, &barrier);
     }
@@ -271,34 +336,16 @@ internal sealed unsafe class SharedImage : IDisposable
     public bool Rest(VulkanDevice device, int from, int layout)
     {
         if (!NotNull(device) || !Assert(layout > 0) || from == layout) return from == layout;
+
         var barrier = Barrier((from, layout));
         if (from == Vk.LayoutUndefined) barrier.SrcAccess = 0;
+
         var stage = from == Vk.LayoutUndefined ? Vk.StageTop : Vk.StageAll;
         return device.Run(commands =>
         {
             var b = barrier;
             VkApi.CmdPipelineBarrier(commands, stage, Vk.StageAll, 0, 0, null, 0, null, 1, &b);
         }, []);
-    }
-
-    // The GL texture it stands for stays: its owner deletes it
-    public void Dispose()
-    {
-        if (_view != 0) VkApi.DestroyImageView(_device, _view, null);
-        if (_sampled != 0) VkApi.DestroyImageView(_device, _sampled, null);
-        _sampled = 0;
-        foreach (var view in _layerViews.Bounded(MaxLayers))
-            if (view != 0)
-                VkApi.DestroyImageView(_device, view, null);
-        Array.Clear(_layerViews);
-        if (_views is { } views)
-            foreach (var view in views.Values.Bounded(MaxViews))
-                if (view != 0)
-                    VkApi.DestroyImageView(_device, view, null);
-        _views = null;
-        if (_image != 0) VkApi.DestroyImage(_device, _image, null);
-        if (_memory != 0) VkApi.FreeMemory(_device, _memory, null);
-        (Texture, _image, _memory, _view) = (0, 0, 0, 0);
     }
 }
 
@@ -308,26 +355,34 @@ internal static unsafe class Handoff
 {
     private const int MaxImages = VulkanFrame.MaxHeld;
 
-    public readonly record struct Image(ulong Handle, int Layout, uint Aspect, int Levels)
-    {
-        public int To { get; init; } = -1; // the layout it leaves in, when not Layout
-        public int Layers { get; init; } = 1;
-    }
-
     public static void Release(IntPtr commands, ReadOnlySpan<Image> images)
     {
         if (!Assert(commands != IntPtr.Zero) || !Assert(images.Length <= MaxImages)) return;
+
         var barriers = stackalloc Vk.ImageBarrier[Math.Max(images.Length, 1)]; // not MaxImages: stackalloc zeroes it
         var count = 0u;
         for (var i = 0; i < Math.Min(images.Length, MaxImages); i++)
-            if (images[i].To >= 0 && images[i].To != images[i].Layout)
-                barriers[count++] = Barrier(images[i]);
-        if (count > 0) VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, count, barriers);
+        {
+            if (images[i].To >= 0 && images[i].To != images[i].Layout) barriers[count++] = Barrier(images[i]);
+        }
+
+        if (count > 0)
+        {
+            VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, count, barriers);
+        }
     }
 
     private static Vk.ImageBarrier Barrier(Image image)
     {
         if (!Assert(image.Handle != 0) || !Assert(image.Levels > 0)) return default;
-        return Vk.ImageBarrier.Full(image.Handle, (image.Layout, image.To), image.Aspect, image.Levels, Math.Max(image.Layers, 1));
+
+        return Vk.ImageBarrier.Full(image.Handle, (image.Layout, image.To), image.Aspect, image.Levels,
+            Math.Max(image.Layers, 1));
+    }
+
+    public readonly record struct Image(ulong Handle, int Layout, uint Aspect, int Levels)
+    {
+        public int To { get; init; } = -1; // the layout it leaves in, when not Layout
+        public int Layers { get; init; } = 1;
     }
 }

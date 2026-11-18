@@ -1,8 +1,8 @@
-using Komet.Api;
+using Komet.Core;
 using Komet.Options;
+using Komet.Rendering;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Komet.Rendering;
 
 namespace Komet.Test.Options;
 
@@ -10,13 +10,20 @@ namespace Komet.Test.Options;
 public sealed class SchemaTests
 {
     private static JObject Schema(string name, [CallerFilePath] string here = "") =>
-        JObject.Parse(File.ReadAllText(Path.GetFullPath(Path.Join(Path.GetDirectoryName(here), "../../../docs/schema", name))));
+        JObject.Parse(
+            File.ReadAllText(Path.GetFullPath(Path.Join(Path.GetDirectoryName(here), "../../../docs/schema", name))));
 
     private static string[] Fields(Type type) =>
-        [.. type.GetProperties().Select(p => p.GetCustomAttribute<JsonPropertyAttribute>()?.PropertyName).OfType<string>().Order()];
+        [
+            .. type.GetProperties().Select(p => p.GetCustomAttribute<JsonPropertyAttribute>()?.PropertyName)
+                .OfType<string>().Order()
+        ];
 
     private static string[] Keys(JToken? properties) =>
-        [.. ((JObject)properties!).Properties().Select(p => p.Name).Where(n => n is not ("$schema" or "_comment")).Order()];
+        [
+            .. ((JObject)properties!).Properties().Select(p => p.Name).Where(n => n is not ("$schema" or "_comment"))
+            .Order()
+        ];
 
     [Test]
     public void TheShaderSchemaNamesWhatPacksRead()
@@ -24,9 +31,11 @@ public sealed class SchemaTests
         var schema = Schema("komet-shader.schema.json")["properties"]!;
         Assert.Multiple(() =>
         {
-            Assert.That(Keys(schema), Is.EqualTo(Fields(typeof(ShaderPacks.Pack))));
-            Assert.That(Keys(schema["settings"]!["items"]!["properties"]), Is.EqualTo(Fields(typeof(ShaderPacks.Setting))));
-            Assert.That(Keys(schema["passes"]!["items"]!["properties"]), Is.EqualTo(Fields(typeof(ShaderPacks.PassSpec))));
+            Assert.That(Keys(schema), Is.EqualTo(Fields(typeof(ShaderPacks.Pack)).Order()));
+            Assert.That(Keys(schema["settings"]!["items"]!["properties"]),
+                Is.EqualTo(Fields(typeof(ShaderPacks.Setting))));
+            Assert.That(Keys(schema["passes"]!["items"]!["properties"]),
+                Is.EqualTo(Fields(typeof(ShaderPacks.PassSpec))));
         });
     }
 
@@ -39,7 +48,7 @@ public sealed class SchemaTests
         Assert.Multiple(() =>
         {
             Assert.That(Keys(schema), Is.EqualTo(expected));
-            Assert.That(Keys(schema["config"]!["properties"]), Is.EqualTo(Fields(typeof(ModAdapters.Config))));
+            Assert.That(Keys(schema["config"]!["properties"]), Is.EqualTo(Fields(typeof(ModAdapters.AdapterConfig))));
         });
     }
 
@@ -49,7 +58,7 @@ public sealed class SchemaTests
         var schema = Schema("komet-style.schema.json")["properties"]!;
         Assert.Multiple(() =>
         {
-            Assert.That(Keys(schema), Is.EqualTo(Fields(typeof(KometStyle))));
+            Assert.That(Keys(schema), Is.EqualTo(Fields(typeof(StyleData))));
             Assert.That(Keys(schema["colors"]!["properties"]), Is.EqualTo(StyleSheet.ColorKeys.Order()));
             Assert.That(Keys(schema["sizes"]!["properties"]), Is.EqualTo(StyleSheet.SizeKeys.Order()));
             Assert.That(Keys(schema["fonts"]!["properties"]), Is.EqualTo(StyleSheet.FontKeys.Order()));

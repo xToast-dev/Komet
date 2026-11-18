@@ -7,13 +7,14 @@ using static Komet.Core.FeatureKit;
 namespace Komet.Options;
 
 // The rebuilt settings menu and its backdrop blur.
-// In install order; Core's Features places them among the other modules'.
+// Each declares its place (Order, Requires, After); FeatureOrder sorts them among the other modules'.
 internal static class OptionsFeatures
 {
     internal static readonly Feature[] All =
     [
         new("GraphicsMenu")
         {
+            Order = 40,
             Replaces = () =>
             [
                 GraphicsMenu.Shaped()[0],
@@ -22,19 +23,35 @@ internal static class OptionsFeatures
             ],
             Install = c =>
             {
-                if (c.Overlay is HudOverlay overlay) GraphicsMenu.Install(c.Harmony, c.Api, overlay.Options, c.Logger);
+                if (HudFeatures.Overlay is { } overlay)
+                {
+                    GraphicsMenu.Install(c.Harmony, c.Api, overlay.Options, c.Logger);
+                }
             },
-            Requires = ["Hud"],
-            Knobs = [Switch("GraphicsMenu", "misc", "menu", () => GraphicsMenu.Enabled,
-                on => GraphicsMenu.Enabled = on) with { General = true }],
+            Requires = ["Hud"], // its overlay's options screen
+            Knobs =
+            [
+                Switch("GraphicsMenu", "misc", "menu", () => GraphicsMenu.Enabled,
+                        on => GraphicsMenu.Enabled = on) with
+                    {
+                        General = true
+                    }
+            ],
             Stop = _ => GraphicsMenu.Clear(),
             Probe = () => Found(GraphicsMenu.Installed, GraphicsMenu.StoodDown),
             Shapes = [new EngineBodies(GraphicsMenu.Shaped, GraphicsMenu.Fingerprint)]
         },
         new("MenuBlur")
         {
-            Knobs = [Switch("MenuBlur", "misc", "menu", () => Backdrop.Enabled, on => Backdrop.Enabled = on)
-                with { General = true }]
+            Order = 50,
+            Knobs =
+            [
+                Switch("MenuBlur", "misc", "menu", () => Backdrop.Enabled, on => Backdrop.Enabled = on)
+                    with
+                    {
+                        General = true
+                    }
+            ]
         }
     ];
 }

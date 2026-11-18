@@ -21,12 +21,24 @@ public sealed class DecompressScratchTests
     {
         var r = new Random(seed);
         var length = 1;
-        for (var i = 0; i < 16 && length < count; i++) length <<= 1;
+        for (var i = 0; i < 16 && length < count; i++)
+        {
+            length <<= 1;
+        }
+
         var bits = length <= 1 ? 1 : (int)Math.Log2(length);
         var palette = new int[length];
-        for (var i = 0; i < count; i++) palette[i] = r.Next();
+        for (var i = 0; i < count; i++)
+        {
+            palette[i] = r.Next();
+        }
+
         var planes = new int[bits * 1024];
-        for (var i = 0; i < planes.Length; i++) planes[i] = r.Next();
+        for (var i = 0; i < planes.Length; i++)
+        {
+            planes[i] = r.Next();
+        }
+
         return Compression.CompressAndCombine(planes, palette, count);
     }
 
@@ -42,9 +54,15 @@ public sealed class DecompressScratchTests
     {
         var bits = (int)Math.Log2(engine.Palette!.Length);
         if (!mine.Palette!.SequenceEqual(engine.Palette)) return "palette";
+
         if (mine.Count != engine.Count) return "palette count";
+
         if (mine.Slices!.Length < bits ||
-            !Enumerable.Range(0, bits).All(b => mine.Slices[b].SequenceEqual(engine.Slices![b]))) return "slices";
+            !Enumerable.Range(0, bits).All(b => mine.Slices[b] is { } plane && plane.SequenceEqual(engine.Slices![b] ?? [])))
+        {
+            return "slices";
+        }
+
         return mine.Slices.Skip(bits).All(slice => slice is null) ? null : "slices past the planes";
     }
 
@@ -105,9 +123,17 @@ public sealed class DecompressScratchTests
         {
             var slices = blocks;
             var count = 0;
-            for (var i = 0; i < 50; i++) _ = Unpack(data, ref slices, ref count, null);
+            for (var i = 0; i < 50; i++)
+            {
+                _ = Unpack(data, ref slices, ref count, null);
+            }
+
             var start = GC.GetAllocatedBytesForCurrentThread();
-            for (var i = 0; i < Calls; i++) _ = Unpack(data, ref slices, ref count, null);
+            for (var i = 0; i < Calls; i++)
+            {
+                _ = Unpack(data, ref slices, ref count, null);
+            }
+
             return (GC.GetAllocatedBytesForCurrentThread() - start) / Calls;
         }
 
@@ -115,7 +141,11 @@ public sealed class DecompressScratchTests
         long[] Least(long[] least, long[] pass) => least.Length == 0 ? pass : [.. least.Zip(pass, Math.Min)];
 
         long[] shipped = [];
-        for (var pass = 0; pass < Passes; pass++) shipped = Least(shipped, [.. layers.Select(Allocated)]);
+        for (var pass = 0; pass < Passes; pass++)
+        {
+            shipped = Least(shipped, [.. layers.Select(Allocated)]);
+        }
+
         using var harmony = Patched();
         long[] off = [], on = [];
         for (var pass = 0; pass < Passes; pass++)
@@ -131,7 +161,10 @@ public sealed class DecompressScratchTests
             Assert.That(off, Is.EqualTo(shipped),
                 "switched off, the rewrite has to allocate exactly what the engine does");
             for (var i = 0; i < layers.Length; i++)
+            {
                 Assert.That(shipped[i] - on[i], Is.GreaterThanOrEqualTo(4096L * (i + 1) * 2), "the plane copy is gone");
+            }
+
             Assert.That(on, Is.All.LessThanOrEqualTo(24 + 4 * 64), "only the palette array is left");
         });
     }
@@ -152,7 +185,10 @@ public sealed class DecompressScratchTests
             {
                 var i = (round + t) % layers.Count;
                 if (Difference(engine[i], Run(layers[i])) is { } what)
+                {
                     return $"the {what} of layer {i} unpacked differently in round {round}";
+                }
+
                 if (round % 7 == 0 && !Throws(shortLayer)) return $"the short layer passed in round {round}";
             }
 
@@ -243,7 +279,7 @@ public sealed class DecompressScratchTests
     private static bool IsScratch(CodeInstruction code) =>
         code.operand is MethodInfo { DeclaringType: var t } && t == typeof(DecompressScratch);
 
-    private sealed record Unpacked(int[]? Palette, int Count, int[][]? Slices);
+    private sealed record Unpacked(int[]? Palette, int Count, int[]?[]? Slices);
 
     private delegate int[]? Combined(byte[] data, ref int[][]? blocks, ref int refCount, Func<int[]>? newArray);
 }

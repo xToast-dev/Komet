@@ -12,6 +12,7 @@ internal static class Owned
     {
         why = "";
         if (made is null) return null;
+
         if (!NotNull(setup))
         {
             made.Dispose();
@@ -29,6 +30,7 @@ internal static class Owned
         }
 
         if (why.Length == 0) return made;
+
         made.Dispose();
         return null;
     }
@@ -37,8 +39,10 @@ internal static class Owned
     public static void DropAll(IDisposable?[] items)
     {
         if (!NotNull(items)) return;
+
         List<Exception>? failed = null;
         foreach (var item in items.Bounded(MaxItems))
+        {
             try
             {
                 item?.Dispose();
@@ -47,6 +51,7 @@ internal static class Owned
             {
                 (failed ??= []).Add(e);
             }
+        }
 
         if (failed is not null) throw new AggregateException(failed);
     }

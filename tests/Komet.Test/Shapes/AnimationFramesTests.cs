@@ -7,10 +7,10 @@ namespace Komet.Test.Shapes;
 // fails to separate two shapes silently animates one entity with another's poses.
 public sealed class AnimationFramesTests
 {
+    private const string Frames = "Komet.Shapes.AnimationFrames, Komet.Shapes";
+
     private static readonly FieldInfo JointsDone =
         typeof(Animation).GetField("jointsDone", BindingFlags.NonPublic | BindingFlags.Instance)!;
-
-    private const string Frames = "Komet.Shapes.AnimationFrames, Komet.Shapes";
 
     private static int _foreignCalls;
 
@@ -19,10 +19,7 @@ public sealed class AnimationFramesTests
     private int _mainThread;
 
     [SetUp]
-    public void Remember()
-    {
-        _mainThread = RuntimeEnv.MainThreadId;
-    }
+    public void Remember() => _mainThread = RuntimeEnv.MainThreadId;
 
     [TearDown]
     public void Restore()
@@ -47,7 +44,9 @@ public sealed class AnimationFramesTests
     internal static byte[]? Descriptor(Animation animation, ShapeElement[] roots, bool recursive = true)
     {
         lock (Gate(null))
+        {
             return Describe(null, animation, roots, recursive) ? Buffer(null).AsSpan(0, At(null)).ToArray() : null;
+        }
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Gate")]
@@ -63,18 +62,20 @@ public sealed class AnimationFramesTests
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_at")]
     private static extern ref int At([UnsafeAccessorType(Frames)] object? frames);
 
-    private static ShapeElement Bare(string name, params ShapeElement[] children)
-    {
-        return new ShapeElement { Name = name, Children = children.Length == 0 ? null : children };
-    }
+    private static ShapeElement Bare(string name, params ShapeElement[] children) =>
+        new() { Name = name, Children = children.Length == 0 ? null : children };
 
     private static AnimationKeyFrameElement Turned(double rotationX) =>
-        new AnimationKeyFrameElement { RotationX = rotationX };
+        new() { RotationX = rotationX };
 
     private static Animation Walk(params (string Element, double Rotation)[] elements)
     {
         var byName = new Dictionary<string, AnimationKeyFrameElement>();
-        foreach (var (element, rotation) in elements) byName[element] = Turned(rotation);
+        foreach (var (element, rotation) in elements)
+        {
+            byName[element] = Turned(rotation);
+        }
+
         return new Animation
         {
             Code = "walk",
@@ -91,7 +92,9 @@ public sealed class AnimationFramesTests
 
         var walk = Walk(("upperarm", 30));
         var two = Walk(("upperarm", 30), ("lowerarm", 10));
+
         static ShapeElement[] Arms() => [Bare("upperarm"), Bare("lowerarm")];
+
         yield return Case("TheSameShapeAndAnimationDescribeTheSame", true,
             () => Descriptor(walk, [Bare("upperarm")]),
             () => Descriptor(Walk(("upperarm", 30)), [Bare("upperarm")]));
@@ -124,8 +127,12 @@ public sealed class AnimationFramesTests
             {
                 var added = Walk(("upperarm", 30));
                 var key = new AnimationKeyFrame
-                { Frame = 15, Elements = new() { ["upperarm"] = Turned(60) } };
-                key.Resolve(new Dictionary<string, ShapeElement>()); // stamps its Frame on the element, as every init does
+                {
+                    Frame = 15,
+                    Elements = new Dictionary<string, AnimationKeyFrameElement> { ["upperarm"] = Turned(60) }
+                };
+                key.Resolve(
+                    new Dictionary<string, ShapeElement>()); // stamps its Frame on the element, as every init does
                 added.KeyFrames = [added.KeyFrames[0], key];
                 return Descriptor(added, [Bare("upperarm")]);
             });
@@ -177,29 +184,23 @@ public sealed class AnimationFramesTests
         });
     }
 
-    private static ShapeElement Element(string name, params ShapeElement[] children)
-    {
-        return new ShapeElement
+    private static ShapeElement Element(string name, params ShapeElement[] children) =>
+        new()
         {
             Name = name, From = [1, 2, 3], To = [4, 5, 6], RotationOrigin = [0.5, 0, 0.25], RotationY = 15,
             Children = children.Length == 0 ? null : children
         };
-    }
 
     // Every group set whole, as a shape's json writes them
-    private static AnimationKeyFrameElement Full(double v)
-    {
-        return new AnimationKeyFrameElement
+    private static AnimationKeyFrameElement Full(double v) =>
+        new()
         {
             OffsetX = v / 2, OffsetY = -v, OffsetZ = 1, RotationX = v, RotationY = 2 * v, RotationZ = -v, StretchX = 1,
             StretchY = 1 + v / 100, StretchZ = 1, RotShortestDistanceX = v > 0, RotShortestDistanceZ = true
         };
-    }
 
-    private static AnimationKeyFrameElement Rotated(double degrees)
-    {
-        return new AnimationKeyFrameElement { RotationX = degrees, RotationY = 0, RotationZ = 0 };
-    }
+    private static AnimationKeyFrameElement Rotated(double degrees) =>
+        new() { RotationX = degrees, RotationY = 0, RotationZ = 0 };
 
     private static AnimationKeyFrame Key(int frame, params (string Name, AnimationKeyFrameElement Element)[] elements)
     {
@@ -235,14 +236,11 @@ public sealed class AnimationFramesTests
         return animation.PrevNextKeyFrameByFrame!;
     }
 
-    private static List<ElementPose> PosesOf(AnimationFrame[][] compiled, string name)
-    {
-        return
+    private static List<ElementPose> PosesOf(AnimationFrame[][] compiled, string name) =>
         [
             .. compiled.SelectMany(pair => pair).Distinct().SelectMany(AnimationShapes.Poses)
                 .Where(p => p.ForElement.Name == name)
         ];
-    }
 
     [Test]
     public void KeyframesOutOfFrameOrderCompileAsTheEngineDoes()
@@ -445,8 +443,15 @@ public sealed class AnimationFramesTests
     {
         var shape = Build(8, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
         var lower = shape.Elements[0].Children![0];
-        if (fromMissing) lower.From = null;
-        else lower.RotationOrigin = [1, 2];
+        if (fromMissing)
+        {
+            lower.From = null;
+        }
+        else
+        {
+            lower.RotationOrigin = [1, 2];
+        }
+
         var animation = shape.Animations[0];
         Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
         Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
@@ -497,14 +502,20 @@ public sealed class AnimationFramesTests
         var threads = Enumerable.Range(0, 4).Select((_, _) => new Thread(() =>
         {
             for (var repeat = 0; repeat < 10; repeat++)
+            {
                 foreach (var animation in animations)
                 {
                     _ = Interlocked.Increment(ref compiles);
                     if (!AnimationFrames.Compile(animation, shape.Elements, shape.JointsById))
+                    {
                         _ = Interlocked.Increment(ref declined);
+                    }
                     else if (AnimationShapes.Diff(reference[animation], animation.PrevNextKeyFrameByFrame) != null)
+                    {
                         _ = Interlocked.Increment(ref diffs);
+                    }
                 }
+            }
         })).ToList();
         threads.ForEach(t => t.Start());
         threads.ForEach(t => t.Join());
@@ -556,7 +567,11 @@ public sealed class AnimationFramesTests
         var (hits, misses) = (AnimationFrames.Hits, AnimationFrames.Misses);
         var first = Generated(Fresh());
         var hit = Fresh();
-        foreach (var element in AnimationShapes.Elements(hit.Elements)) element.inverseModelTransform = null;
+        foreach (var element in AnimationShapes.Elements(hit.Elements))
+        {
+            element.inverseModelTransform = null;
+        }
+
         var second = Generated(hit);
         Assert.Multiple(() =>
         {
@@ -592,7 +607,11 @@ public sealed class AnimationFramesTests
         Counting.Hud = true;
         var misses = AnimationFrames.Misses;
         var first = Generated(Fresh("a0"));
-        for (var i = 1; i < AnimationFrames.MaxEntries; i++) _ = Generated(Fresh($"a{i}"));
+        for (var i = 1; i < AnimationFrames.MaxEntries; i++)
+        {
+            _ = Generated(Fresh($"a{i}"));
+        }
+
         Assert.That(Generated(Fresh("a0")), Is.SameAs(first), "still held with the cache full");
         _ = Generated(Fresh("one-more"));
         Assert.Multiple(() =>
@@ -602,10 +621,7 @@ public sealed class AnimationFramesTests
         });
     }
 
-    private static void ForeignRan()
-    {
-        _foreignCalls++;
-    }
+    private static void ForeignRan() => _foreignCalls++;
 
     // A mod that patches the compile expects its patch to run; the cache and the kernel would bypass it, so they step aside
     [Test]

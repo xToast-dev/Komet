@@ -8,6 +8,7 @@ internal static class Listeners
     public static void Unregister(IEventAPI? events, long listener)
     {
         if (events is null || listener == 0 || Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId) return;
+
         events.UnregisterGameTickListener(listener);
     }
 }

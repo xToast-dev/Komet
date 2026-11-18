@@ -13,7 +13,8 @@ internal readonly record struct BenchArm(string Name, bool Engine, BenchSetting[
 // bench.json as bench.sh flattens it; caps, ranges and unknown keys fail at load ("_" keys are comments)
 internal sealed class BenchConfig
 {
-    public const int MaxBytes = 1 << 20, MaxDepth = 16, MaxArms = 8, MaxLaps = 64, MaxKeys = 64, MaxText = 512;
+    public const int MaxArms = 8, MaxLaps = 64;
+    private const int MaxBytes = 1 << 20, MaxDepth = 16, MaxKeys = 64, MaxText = 512;
 
     // One frame of BenchDriver.MaxStep stays under the 128 blocks EntityPos.SetFromPacket accepts
     public const double MaxSpeed = 30;
@@ -21,8 +22,9 @@ internal sealed class BenchConfig
     private static readonly string[] TopKeys =
     [
         "name", "output", "modDir", "revision", "env", "world", "settle", "route", "lap", "laps", "warmupLaps", "arms",
-        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds", "groundDepth", "spawning", "rain", "hour", "menuPage",
-        "lateStart"
+        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds", "groundDepth",
+        "spawning", "rain", "hour", "menuPage",
+        "lateStart", "anyWorld"
     ];
 
     public JsonElement Raw { get; private init; }
@@ -76,16 +78,25 @@ internal sealed class BenchConfig
 
     // Shader mods Komet holds back, started before the first lap as their switch on Active shaders starts them
     public string[] LateStart { get; private set; } = [];
-    public string Gui { get; private set; } = ""; // BenchGui.Creative: the creative inventory scrolled while standing still
+
+    // Any save will do (scripts/shadertest.sh: the world only hosts the workbench), not only the golden one
+    public bool AnyWorld { get; private set; }
+
+    public string Gui { get; private set; } =
+        ""; // BenchGui.Creative: the creative inventory scrolled while standing still
+
     public string Frames => Path.Join(Path.GetDirectoryName(Output) ?? "", "frames.csv");
     public string Status => Output + ".status";
 
     public static BenchConfig Parse(string json)
     {
         if (!NotNull(json) || json.Length > MaxBytes)
+        {
             throw new InvalidDataException($"bench.json: missing or over {MaxBytes} bytes");
+        }
+
         var options = new JsonDocumentOptions
-        { MaxDepth = MaxDepth, CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+            { MaxDepth = MaxDepth, CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
         using var document = Document(json, options);
         var root = document.RootElement;
         Keys(root, "", TopKeys);
@@ -94,17 +105,25 @@ internal sealed class BenchConfig
         config.Arms = ReadArms(root);
         var arms = config.Arms.Count;
         if (config.WarmupLaps < 0) config.WarmupLaps = arms;
+
         if (!Assert(arms is > 0 and <= MaxArms) || config.Laps % arms != 0)
+        {
             throw Bad("laps",
                 string.Create(CultureInfo.InvariantCulture, $"a multiple of the {arms} arms: whole mirrored blocks"));
+        }
+
         if (!config.Back && config.WarmupLaps + config.Laps > 1) // the next lap would start a leg further out
+        {
             throw Bad("route.back", "true for more than one lap, warm-up laps included");
+        }
+
         return config;
     }
 
     private static JsonDocument Document(string json, JsonDocumentOptions options)
     {
         if (!Assert(options.MaxDepth > 0) || !NotNull(json)) throw new InvalidDataException("bench.json: no document");
+
         try
         {
             return JsonDocument.Parse(json, options);
@@ -118,6 +137,7 @@ internal sealed class BenchConfig
     private void Read(JsonElement root)
     {
         if (!Assert(root.ValueKind == JsonValueKind.Object) || !Assert(Raw.ValueKind == JsonValueKind.Object)) return;
+
         Name = Text(root, "name", "", false) is { Length: > 0 } name ? name : Name;
         Output = FullPath(root, "output", true);
         ModDir = FullPath(root, "modDir", true);
@@ -140,42 +160,58 @@ internal sealed class BenchConfig
         Laps = Integer(root, "laps", Laps, 1, MaxLaps);
         WarmupLaps = Integer(root, "warmupLaps", WarmupLaps, 0, MaxArms);
         HudWindow = Choice(root, "hudWindow", ["cycle"]);
-        Gui = Choice(root, "gui", [BenchGui.Creative, BenchGui.Debug, BenchGui.Options, BenchGui.Help]);
+        Gui = Choice(root, "gui", [BenchGui.Creative, BenchGui.Debug, BenchGui.Options, BenchGui.Help, BenchGui.Map]);
         JoinSeconds = Number(root, "joinSeconds", "", JoinSeconds, 0, 300);
         Hour = Number(root, "hour", "", Hour, 0, 23.99);
         MenuPage = Text(root, "menuPage", "", false);
         // GetString throws InvalidOperationException on a non-string, which Benchmark.Install does not catch
         if (Get(root, "lateStart", out var late))
+        {
             LateStart = late.ValueKind == JsonValueKind.Array &&
                         late.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String)
                 ? [.. late.EnumerateArray().Select(e => e.GetString() ?? "").Where(s => s.Length > 0).Take(MaxArms)]
                 : throw Bad("lateStart", "an array of mod ids");
+        }
+
         CaptureSeconds = Number(root, "captureSeconds", "", CaptureSeconds, 0, 300);
         LandSeconds = Number(root, "landSeconds", "", LandSeconds, 0, 300);
         GroundDepth = Number(root, "groundDepth", "", GroundDepth, 0, 16);
         Shots = Flag(root, "shots", "", Shots);
+        AnyWorld = Flag(root, "anyWorld", "", AnyWorld);
     }
 
     private static void Env(JsonElement root)
     {
         if (!Get(root, "env", out var env)) return;
+
         if (env.ValueKind != JsonValueKind.Object) throw Bad("env", "an object of NAME: \"value\" strings");
+
         foreach (var entry in env.EnumerateObject().Bounded(MaxKeys))
+        {
             if (entry.Value.ValueKind != JsonValueKind.String) throw Bad("env." + entry.Name, "a string");
+        }
     }
 
     private static List<BenchArm> ReadArms(JsonElement root)
     {
         if (!Assert(root.ValueKind == JsonValueKind.Object)) return [];
+
         if (!Get(root, "arms", out var arms)) return [new BenchArm("A", false, [])];
+
         if (arms.ValueKind != JsonValueKind.Array || arms.GetArrayLength() is < 1 or > MaxArms)
+        {
             throw Bad("arms", $"a list of 1 to {MaxArms} arms");
+        }
+
         List<BenchArm> list = [];
         foreach (var arm in arms.EnumerateArray().Bounded(MaxArms))
         {
             var parsed = ReadArm(arm, list.Count);
             if (list.Exists(other => other.Name == parsed.Name))
+            {
                 throw Bad("arms", $"unique names, {parsed.Name} twice");
+            }
+
             list.Add(parsed);
         }
 
@@ -185,19 +221,25 @@ internal sealed class BenchConfig
     private static BenchArm ReadArm(JsonElement arm, int index)
     {
         if (!Index(index, MaxArms) || !Assert(Knobs.Count <= Knobs.MaxKnobs)) throw Bad("arms", "fewer arms");
+
         var path = string.Create(CultureInfo.InvariantCulture, $"arms[{index}].");
         if (arm.ValueKind != JsonValueKind.Object) throw Bad(path.TrimEnd('.'), "an object");
+
         Keys(arm, path, ["name", "engine", "set"]);
         var engine = Flag(arm, "engine", path, false);
         List<BenchSetting> settings = [];
         if (Get(arm, "set", out var set))
         {
             if (set.ValueKind != JsonValueKind.Object) throw Bad(path + "set", "an object of knob names");
+
             foreach (var entry in set.EnumerateObject().Bounded(MaxKeys))
             {
                 var setting = Setting(entry, path + "set.");
                 if (settings.Exists(other => other.Key == setting.Key))
+                {
                     throw Bad(path + "set." + entry.Name, "named once");
+                }
+
                 settings.Add(setting);
             }
         }
@@ -210,8 +252,15 @@ internal sealed class BenchConfig
     {
         var (knob, external) = (Knobs.Find(entry.Name), entry.Name.Contains(':', StringComparison.Ordinal));
         if (!Assert(path.Length > 0) || (external && !Features.IsExternalId(entry.Name)))
+        {
             throw Bad(path + entry.Name, "a knob of another mod as modid:name");
-        if (knob < 0 && !external) throw Bad(path + entry.Name, "a knob name from the modules' *Features.cs (Knobs table)");
+        }
+
+        if (knob < 0 && !external)
+        {
+            throw Bad(path + entry.Name, "a knob name from the modules' *Features.cs (Knobs table)");
+        }
+
         var value = entry.Value.ValueKind switch
         {
             JsonValueKind.True => 1,
@@ -220,29 +269,35 @@ internal sealed class BenchConfig
             _ => throw Bad(path + entry.Name, "true, false or a whole number")
         };
         return external || (Knobs.InRange(knob, value) && Index(knob, Knobs.Count))
-            ? new BenchSetting(entry.Name, value) : throw Bad(path + entry.Name, "a value inside the knob's range");
+            ? new BenchSetting(entry.Name, value)
+            : throw Bad(path + entry.Name, "a value inside the knob's range");
     }
 
-    private static InvalidDataException Bad(string key, string expected)
-    {
-        return new InvalidDataException($"bench.json: {key} must be {expected}");
-    }
+    private static InvalidDataException Bad(string key, string expected) =>
+        new($"bench.json: {key} must be {expected}");
 
     private static void Keys(JsonElement obj, string path, string[] allowed)
     {
         if (!Assert(allowed.Length > 0) || !NotNull(path)) return;
+
         if (obj.ValueKind != JsonValueKind.Object)
+        {
             throw Bad(path.Length == 0 ? "the document" : path.TrimEnd('.'), "an object");
+        }
+
         var unknown = obj.EnumerateObject().Bounded(MaxKeys)
             .FirstOrDefault(property => !property.Name.StartsWith('_') && Array.IndexOf(allowed, property.Name) < 0);
         if (unknown.Value.ValueKind != JsonValueKind.Undefined)
+        {
             throw new InvalidDataException($"bench.json: unknown key {path}{unknown.Name}");
+        }
     }
 
     // A missing section reads as empty, so its keys keep their defaults
     private static JsonElement Section(JsonElement obj, string key, string[] allowed)
     {
         if (!Assert(key.Length > 0) || !Get(obj, key, out var section)) return default;
+
         Keys(section, key + ".", allowed);
         return section;
     }
@@ -251,7 +306,11 @@ internal sealed class BenchConfig
     {
         value = default;
         if (!Assert(key.Length > 0) ||
-            !Assert(obj.ValueKind is JsonValueKind.Object or JsonValueKind.Undefined)) return false;
+            !Assert(obj.ValueKind is JsonValueKind.Object or JsonValueKind.Undefined))
+        {
+            return false;
+        }
+
         return obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(key, out value) &&
                value.ValueKind != JsonValueKind.Null;
     }
@@ -259,35 +318,51 @@ internal sealed class BenchConfig
     private static double Number(JsonElement obj, string key, string path, double fallback, double min, double max)
     {
         if (!Assert(min <= max) || !Finite(fallback) || !Get(obj, key, out var value)) return fallback;
+
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number))
+        {
             throw Bad(path + key, "a number");
+        }
+
         return number >= min && number <= max
-            ? number : throw Bad(path + key, string.Create(CultureInfo.InvariantCulture, $"between {min} and {max}"));
+            ? number
+            : throw Bad(path + key, string.Create(CultureInfo.InvariantCulture, $"between {min} and {max}"));
     }
 
     private static bool Flag(JsonElement obj, string key, string path, bool fallback)
     {
         if (!Get(obj, key, out var value)) return fallback;
+
         return value.ValueKind is JsonValueKind.True or JsonValueKind.False
-            ? value.GetBoolean() : throw Bad(path + key, "true or false");
+            ? value.GetBoolean()
+            : throw Bad(path + key, "true or false");
     }
 
     private static int Integer(JsonElement obj, string key, int fallback, int min, int max)
     {
         if (!Assert(min <= max) || !Assert(fallback >= min || fallback < 0)) return fallback;
+
         if (Get(obj, key, out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out _)))
+        {
             throw Bad(key, "a whole number");
+        }
+
         return (int)Number(obj, key, "", fallback, min, max);
     }
 
     private static string Text(JsonElement obj, string key, string path, bool required)
     {
         if (!Assert(key.Length > 0) || !NotNull(path) || !Get(obj, key, out var value))
+        {
             return required ? throw Bad(path + key, "set") : "";
+        }
+
         var text = value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? "" : throw Bad(path + key, "a string");
+            ? value.GetString() ?? ""
+            : throw Bad(path + key, "a string");
         return text.Length is > 0 and <= MaxText
-            ? text : throw Bad(path + key, $"a string of 1 to {MaxText} characters");
+            ? text
+            : throw Bad(path + key, $"a string of 1 to {MaxText} characters");
     }
 
     // Unset, or a value the driver acts on: a typo must not silently run without it
@@ -295,8 +370,10 @@ internal sealed class BenchConfig
     {
         var text = Text(obj, key, "", false);
         if (!Assert(allowed.Length > 0) || !Assert(text.Length <= MaxText)) return "";
+
         return text.Length == 0 || Array.IndexOf(allowed, text) >= 0
-            ? text : throw Bad(key, "one of " + string.Join(", ", allowed));
+            ? text
+            : throw Bad(key, "one of " + string.Join(", ", allowed));
     }
 
     private static string FullPath(JsonElement obj, string key, bool required)
@@ -305,7 +382,10 @@ internal sealed class BenchConfig
         if (!Assert(key.Length > 0) || !Assert(text.Length <= MaxText) || text.Length == 0) return text;
         // GetFullPath throws on a NUL
         if (!Path.IsPathFullyQualified(text) || text.Contains('\0', StringComparison.Ordinal))
+        {
             throw Bad(key, "an absolute path");
+        }
+
         return Path.GetFullPath(text);
     }
 }
@@ -335,7 +415,9 @@ internal readonly record struct BenchSegment(BenchKind Kind, int Lap, int Arm, b
     public string Name => Far ? "turn-far" : KindName(Kind);
 
     public static string KindName(BenchKind kind) =>
-        Index((int)kind, Names.Length) && Assert(Names.Length == (int)BenchKind.Ground + 1) ? Names[(int)kind] : "";
+        Index((int)kind, Names.Length) && Assert(Names.Length == (int)BenchKind.Ground + 1)
+            ? Names[(int)kind]
+            : "";
 }
 
 // Offset from the route's start and yaw; forward at yaw y is (sin y, 0, cos y), as CalcMovementVectors at pitch π
@@ -344,7 +426,8 @@ internal readonly record struct BenchPose(double X, double Z, double Yaw);
 // The run as a flat list; laps fly out and back on one line, arms in mirrored blocks in one process, so drift cancels
 internal static class BenchScenario
 {
-    public const int MaxSegments = 256, SegmentsPerLap = 7, Prelude = 3;
+    public const int MaxSegments = 256;
+    private const int SegmentsPerLap = 7, Prelude = 3;
 
     // At y = Altitude in the player's column, heading +Z, terrain unchecked; each segment's first Discard s are not
     // counted
@@ -353,11 +436,17 @@ internal static class BenchScenario
     public static BenchSegment[] Expand(BenchConfig config)
     {
         if (!NotNull(config) || !Assert(config.Arms.Count is > 0 and <= BenchConfig.MaxArms))
+        {
             throw new InvalidDataException("bench.json: no arms");
+        }
+
         var laps = config.WarmupLaps + config.Laps;
         if (Prelude + (long)laps * SegmentsPerLap > MaxSegments)
+        {
             throw new InvalidDataException(
                 $"bench.json: warmupLaps + laps is {laps}, more than {MaxSegments} segments allow");
+        }
+
         List<BenchSegment> list =
         [
             new(BenchKind.Setup, -1, 0, false, false, ModeTimeout),
@@ -379,13 +468,15 @@ internal static class BenchScenario
         }
 
         return Assert(list.Count <= MaxSegments)
-            ? [.. list] : throw new InvalidDataException("bench.json: too many segments");
+            ? [.. list]
+            : throw new InvalidDataException("bench.json: too many segments");
     }
 
     // Mirrored blocks: lap order A B B A A B B A for two arms, A B C C B A for three
     public static int ArmOf(int lap, int arms)
     {
         if (!Assert(lap >= 0) || !Assert(arms is > 0 and <= BenchConfig.MaxArms)) return 0;
+
         var place = lap % arms;
         return lap / arms % 2 == 0 ? place : arms - 1 - place;
     }
@@ -396,11 +487,15 @@ internal static class BenchScenario
         // Always there, even at zero length: the arm switches on entering it
         list.Add(new BenchSegment(BenchKind.LapSettle, lap, arm, warmup, false, config.LapSettle));
         if (config.Still > 0) list.Add(new BenchSegment(BenchKind.Still, lap, arm, warmup, false, config.Still));
+
         if (config.Rotate > 0) list.Add(new BenchSegment(BenchKind.Rotate, lap, arm, warmup, false, config.Rotate));
+
         if (config.Leg <= 0) return;
+
         list.Add(new BenchSegment(BenchKind.Out, lap, arm, warmup, false, config.Leg));
         list.Add(new BenchSegment(BenchKind.Turn, lap, arm, warmup, true, config.Turn));
         if (!config.Back) return;
+
         list.Add(new BenchSegment(BenchKind.Back, lap, arm, warmup, false, config.Leg));
         list.Add(new BenchSegment(BenchKind.Turn, lap, arm, warmup, false, config.Turn));
     }
@@ -409,6 +504,7 @@ internal static class BenchScenario
     public static BenchPose Pose(BenchSegment segment, double t, double heading, double leg)
     {
         if (!Finite(t) || !Finite(heading) || !Assert(leg >= 0)) return new BenchPose(0, 0, 0);
+
         var s = segment.Seconds > 0 ? Math.Clamp(t / segment.Seconds, 0, 1) : 1;
         var (sin, cos) = Math.SinCos(heading);
         return segment.Kind switch

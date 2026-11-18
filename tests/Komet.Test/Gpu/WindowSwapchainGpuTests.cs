@@ -20,8 +20,8 @@ public sealed class WindowSwapchainGpuTests
             var vsync = frame < Frames / 2 ? 0 : 1; // off, then on: made anew
             var index = chain.Acquire(width, height, vsync, out var why);
             Assert.That(index, Is.GreaterThanOrEqualTo(0), why);
-            var (image, rendered) = chain.Image(index);
-            Assert.That(device.Run(commands => Cleared(commands, image, frame), [rendered]), Is.True);
+            var ((image, rendered), at) = (chain.Image(index), frame);
+            Assert.That(device.Run(commands => Cleared(commands, image, at), [rendered]), Is.True);
             Assert.That(chain.Present(index), Is.True, $"frame {frame} presented");
         }
 
@@ -38,16 +38,19 @@ public sealed class WindowSwapchainGpuTests
         var (device, (width, height)) = (rig.Device!, rig.Window!.ClientSize);
         var held = chain.Acquire(width, height, 0, out var why);
         Assert.That(held, Is.GreaterThanOrEqualTo(0), why);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var watch = Stopwatch.StartNew();
         for (var again = 0; again < 2 * Frames; again++)
+        {
             Assert.That(chain.Acquire(width, height, 0, out why), Is.EqualTo(held), $"acquired again ({again}): {why}");
+        }
+
         Assert.That(watch.ElapsedMilliseconds, Is.LessThan(500), "no acquire waited for an image");
         for (var frame = 0; frame < Frames; frame++)
         {
             var index = chain.Acquire(width, height, 0, out why);
             Assert.That(index, Is.GreaterThanOrEqualTo(0), why);
-            var (image, rendered) = chain.Image(index);
-            Assert.That(device.Run(commands => Cleared(commands, image, frame), [rendered]), Is.True);
+            var ((image, rendered), at) = (chain.Image(index), frame);
+            Assert.That(device.Run(commands => Cleared(commands, image, at), [rendered]), Is.True);
             Assert.That(chain.Present(index), Is.True, $"frame {frame} presented");
         }
     }
@@ -56,11 +59,15 @@ public sealed class WindowSwapchainGpuTests
     {
         var (window, platform) = (rig.Window!, GLFW.GetPlatform());
         if (platform is not (Platform.X11 or Platform.Wayland)) Assert.Ignore($"the test window is on {platform}");
+
         if (!rig.Device!.Swapchains) Assert.Ignore("this Vulkan has no swapchains for windows");
+
         rig.Backend!.Flush(); // the device's own command buffer is the test's from here on
         var native = platform == Platform.Wayland
-            ? new WindowSwapchain.Native(WindowSwapchain.WindowKind.Wayland, GLFW.GetWaylandDisplay(), (nuint)GLFW.GetWaylandWindow(window.WindowPtr))
-            : new WindowSwapchain.Native(WindowSwapchain.WindowKind.X11, GLFW.GetX11Display(), GLFW.GetX11Window(window.WindowPtr));
+            ? new WindowSwapchain.Native(WindowSwapchain.WindowKind.Wayland, GLFW.GetWaylandDisplay(),
+                (nuint)GLFW.GetWaylandWindow(window.WindowPtr))
+            : new WindowSwapchain.Native(WindowSwapchain.WindowKind.X11, GLFW.GetX11Display(),
+                GLFW.GetX11Window(window.WindowPtr));
         var chain = WindowSwapchain.Create(rig.Device, native, out var why);
         TestContext.Out.WriteLine($"a swapchain on a {platform} window");
         Assert.That(chain, Is.Not.Null, why);

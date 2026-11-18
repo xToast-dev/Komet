@@ -15,9 +15,14 @@ internal static class Occlusion
     internal static bool Capture(IRenderAPI render, float[] into)
     {
         if (!NotNull(render) || !Assert(into.Length == 16) ||
-            render.CurrentProjectionMatrix is not { Length: 16 } projection) return false;
+            render.CurrentProjectionMatrix is not { Length: 16 } projection)
+        {
+            return false;
+        }
+
         projection.CopyTo(Projection, 0);
         if (render.CurrentModelviewMatrix is not { Length: 16 } view) return false;
+
         _ = Mat4f.Mul(into, Projection, view);
         return Finite(into[15]) && Finite(into[0]);
     }
@@ -28,6 +33,7 @@ internal static class Occlusion
     {
         unmatched = 0;
         if (!NotNull(starts) || !NotNull(sizes) || !NotNull(locations) || !Assert(groups >= 0)) return 0;
+
         var (written, next) = (0, 0);
         var count = Math.Min(Math.Min(groups, sizes.Length), starts.Length / 2);
         for (var i = 0; i < Math.Min(count, MaxLocations) && written < into.Length; i++)
@@ -50,18 +56,23 @@ internal static class Occlusion
     private static int Seek(List<ModelDataPoolLocation> locations, int from, int start)
     {
         if (!Assert(start >= 0)) return locations.Count;
+
         for (var j = from; j < Math.Min(locations.Count, MaxLocations); j++)
-            if (locations[j].IndicesStart >= start)
-                return j;
+        {
+            if (locations[j].IndicesStart >= start) return j;
+        }
+
         return locations.Count;
     }
 
     // In doubles until the difference
     internal static Range Box(Sphere sphere, int count, int first, (double X, double Y, double Z) camera) =>
-        Box((sphere.x, sphere.y, sphere.z), (sphere.radius / Sqrt3, sphere.radiusY / Sqrt3, sphere.radiusZ / Sqrt3),
+        Box((sphere.x, sphere.y, sphere.z),
+            (sphere.radius / Sqrt3, sphere.radiusY / Sqrt3, sphere.radiusZ / Sqrt3),
             count, first, camera);
 
-    internal static Range Box((float X, float Y, float Z) centre, (float X, float Y, float Z) half, int count, int first,
+    internal static Range Box((float X, float Y, float Z) centre, (float X, float Y, float Z) half, int count,
+        int first,
         (double X, double Y, double Z) camera)
     {
         var (cx, cy, cz) = ((float)(centre.X - camera.X), (float)(centre.Y - camera.Y), (float)(centre.Z - camera.Z));
@@ -71,5 +82,12 @@ internal static class Occlusion
     // std430 as in cull.comp and rows.comp: vec3 + uint fill 16 bytes
     [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct Range(
-        float LowX, float LowY, float LowZ, int Indices, float HighX, float HighY, float HighZ, int First);
+        float LowX,
+        float LowY,
+        float LowZ,
+        int Indices,
+        float HighX,
+        float HighY,
+        float HighZ,
+        int First);
 }

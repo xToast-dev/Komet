@@ -25,24 +25,24 @@ internal static class WeatherLock
     public static void Install(Harmony harmony)
     {
         Patched = false;
-        if (!NotNull(harmony) || Target() is not { } target || !NotNull(target.DeclaringType)) return;
+        if (Target() is not { } target || !NotNull(target.DeclaringType)) return;
+
         _client = target.DeclaringType;
         _ = harmony.Patch(target, new HarmonyMethod(Taking), finalizer: new HarmonyMethod(Leaving));
         Patched = true;
         _regions = null;
         if (Lookup() is { } lookup)
+        {
             _ = harmony.Patch(lookup, new HarmonyMethod(Known), new HarmonyMethod(Kept),
                 finalizer: new HarmonyMethod(Made));
+        }
     }
 
     // The world closes: its weather system, and with it the world, is not kept
-    public static void Forget()
-    {
-        Volatile.Write(ref _regions, null);
-    }
+    public static void Forget() => Volatile.Write(ref _regions, null);
 
     // getOrCreateWeatherSimForRegion(long, IMapRegion), which the (int, int) overload and every reader go through
-    internal static MethodInfo? Lookup()
+    private static MethodInfo? Lookup()
     {
         var method = AccessTools.TypeByName(Base) is { } type
             ? AccessTools.DeclaredMethod(type, "getOrCreateWeatherSimForRegion", [typeof(long), typeof(IMapRegion)])
@@ -51,12 +51,18 @@ internal static class WeatherLock
     }
 
     // A region already handed out: answered without the lock. Else the engine's lookup, one at a time.
+    // ReSharper disable once InconsistentNaming - Harmony binds the engine's parameter name
     private static bool Known(object __instance, long index2d, ref object? __result, out bool __state)
     {
         __state = false;
-        if (__instance.GetType() != _client) return true; // the server's removes regions
+        if (__instance.GetType() != _client)
+        {
+            return true; // the server's removes regions
+        }
+
         var regions = Volatile.Read(ref _regions);
-        if (regions is not null && ReferenceEquals(regions.Owner, __instance) && regions.Map.TryGetValue(index2d, out var known))
+        if (regions is not null && ReferenceEquals(regions.Owner, __instance) &&
+            regions.Map.TryGetValue(index2d, out var known))
         {
             __result = known;
             return false;
@@ -69,9 +75,11 @@ internal static class WeatherLock
     }
 
     // The engine's region, kept for the weather system that made it
+    // ReSharper disable once InconsistentNaming - Harmony binds the engine's parameter name
     private static void Kept(object __instance, long index2d, object? __result, bool __state)
     {
         if (!__state || __result is null) return;
+
         var regions = Volatile.Read(ref _regions);
         if (regions is null || !ReferenceEquals(regions.Owner, __instance))
         {
@@ -87,6 +95,7 @@ internal static class WeatherLock
     private static Exception? Made(Exception? __exception, bool __state)
     {
         if (__state) Making.Exit();
+
         return __exception;
     }
 
@@ -94,12 +103,14 @@ internal static class WeatherLock
     {
         __state = false;
         if (!NotNull(___weatherSimByMapRegionLock)) return;
+
         Monitor.Enter(___weatherSimByMapRegionLock, ref __state);
     }
 
     private static Exception? Leaving(Exception? __exception, object ___weatherSimByMapRegionLock, bool __state)
     {
         if (__state) Monitor.Exit(___weatherSimByMapRegionLock);
+
         return __exception;
     }
 

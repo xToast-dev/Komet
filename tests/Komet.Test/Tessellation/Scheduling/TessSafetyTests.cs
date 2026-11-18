@@ -1,4 +1,5 @@
 using Komet.Tessellation;
+using Vintagestory.GameContent;
 
 namespace Komet.Test.Tessellation;
 
@@ -26,7 +27,8 @@ public sealed class TessSafetyTests
         Assert.Multiple(() =>
         {
             Assert.That(TessSafety.Installed, Is.True, "an engine method no longer looks as TessSafety expects");
-            Assert.That(TessWorkers.Installed, Is.True, "TesselateChunk no longer reads game.TerrainChunkTesselator once");
+            Assert.That(TessWorkers.Installed, Is.True,
+                "TesselateChunk no longer reads game.TerrainChunkTesselator once");
         });
     }
 
@@ -39,12 +41,12 @@ public sealed class TessSafetyTests
             transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreLoad)));
         TessSafety.Install(harmony);
         var decoder = AccessTools.DeclaredMethod(typeof(BlockChunkDataLayer), "getBlockOne");
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(TessSafety.Installed, Is.False);
             Assert.That(Harmony.GetPatchInfo(decoder)?.Owners ?? [], Does.Not.Contain(harmony.Id),
                 "the decoders read the engine's table");
-        });
+        }
     }
 
     // Another mod's transpiler arriving later makes Harmony run TessSafety's again: a count that no longer fits keeps the workers off
@@ -74,19 +76,24 @@ public sealed class TessSafetyTests
         var chunkA = a.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Stone : ChunkRig.Granite);
         var chunkB = b.Put(1, 1, 1, (x, y, z) => ((x + y + z) & 1) == 0 ? ChunkRig.Granite : ChunkRig.Stone);
         var (expectedA, expectedB) = (Extended(a, chunkA), Extended(b, chunkB));
-        string[] decoders = ["getBlockOne", "getBlockTwo", "getBlockThree", "getBlockFour", "getBlockFive", "getBlockGeneralCase"];
+        string[] decoders =
+            ["getBlockOne", "getBlockTwo", "getBlockThree", "getBlockFour", "getBlockFive", "getBlockGeneralCase"];
         MethodInfo[] targets = build
             ? [AccessTools.DeclaredMethod(TessSeams.ClientData, "BuildFastBlockAccessArray")]
             : [.. decoders.Select(name => AccessTools.DeclaredMethod(typeof(BlockChunkDataLayer), name))];
         foreach (var target in targets)
+        {
             _ = blocker.Patch(target,
-                transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMorePaletteLoad)) { priority = Priority.First });
+                transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMorePaletteLoad))
+                    { priority = Priority.First });
+        }
+
         Assert.That(TessSafety.Broken, Is.True);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(Extended(a, chunkA), Is.EqualTo(expectedA));
             Assert.That(Extended(b, chunkB), Is.EqualTo(expectedB));
-        });
+        }
     }
 
     // Another mod's transpiler on TesselateChunk arriving later makes Harmony run TessWorkers' again: a second read of the engine's
@@ -101,9 +108,11 @@ public sealed class TessSafetyTests
         TessWorkers.Install(harmony);
         Assert.That((TessWorkers.Installed, TessWorkers.Broken), Is.EqualTo((true, false)));
         var (i, b) = (typeof(int), typeof(bool));
-        _ = blocker.Patch(AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.TesselateChunk),
+        _ = blocker.Patch(AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager),
+                nameof(ChunkTesselatorManager.TesselateChunk),
                 [i, i, i, b, b, b.MakeByRefType()]),
-            transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreTesselatorLoad)) { priority = Priority.First });
+            transpiler: new HarmonyMethod(typeof(TessSafetyTests), nameof(OneMoreTesselatorLoad))
+                { priority = Priority.First });
         Assert.That(TessWorkers.Broken, Is.True);
     }
 
@@ -114,9 +123,9 @@ public sealed class TessSafetyTests
     {
         using var other = new TestHarmony("komet-test-tesssafety-jsonhook");
         _ = other.Patch(AccessTools.DeclaredMethod(typeof(Block), nameof(Block.OnJsonTesselation), TessSafety.JsonArgs),
-            prefix: new HarmonyMethod(typeof(TessSafetyTests), nameof(Nothing)));
-        var plant = (Block)RuntimeHelpers.GetUninitializedObject(typeof(Vintagestory.GameContent.BlockPlant));
-        var fernTree = (Block)RuntimeHelpers.GetUninitializedObject(typeof(Vintagestory.GameContent.BlockFernTree));
+            new HarmonyMethod(typeof(TessSafetyTests), nameof(Nothing)));
+        var plant = (Block)RuntimeHelpers.GetUninitializedObject(typeof(BlockPlant));
+        var fernTree = (Block)RuntimeHelpers.GetUninitializedObject(typeof(BlockFernTree));
         (plant.BlockId, fernTree.BlockId) = (1, 2);
         Assert.That((TessSafety.WritesFlags(plant), TessSafety.WritesFlags(fernTree)), Is.EqualTo((true, false)));
     }
@@ -138,7 +147,8 @@ public sealed class TessSafetyTests
     private static IEnumerable<CodeInstruction> OneMorePaletteLoad(IEnumerable<CodeInstruction> instructions)
     {
         var table = AccessTools.DeclaredField(typeof(BlockChunkDataLayer), "blocksByPaletteIndex");
-        return new[] { new CodeInstruction(OpCodes.Ldsfld, table), new CodeInstruction(OpCodes.Pop) }.Concat(instructions);
+        return new[] { new CodeInstruction(OpCodes.Ldsfld, table), new CodeInstruction(OpCodes.Pop) }.Concat(
+            instructions);
     }
 
     // Another mod's transpiler that reads game.TerrainChunkTesselator once more
@@ -169,7 +179,9 @@ public sealed class TessSafetyTests
         var (expectedA, expectedB) = (Extended(a, chunkA), Extended(b, chunkB));
         Assert.That(expectedA, Is.Not.EqualTo(expectedB), "the two chunks must differ for the test to mean anything");
         var mismatches = 0;
+        // ReSharper disable once AccessToDisposedClosure - Parallel.Invoke returns after both ran
         Parallel.Invoke(() => Interlocked.Add(ref mismatches, Repeat(a, chunkA, expectedA)),
+            // ReSharper disable once AccessToDisposedClosure - Parallel.Invoke returns after both ran
             () => Interlocked.Add(ref mismatches, Repeat(b, chunkB, expectedB)));
         Assert.That(mismatches, Is.Zero);
     }
@@ -178,8 +190,10 @@ public sealed class TessSafetyTests
     {
         var wrong = 0;
         for (var i = 0; i < Rounds; i++)
-            if (!Extended(rig, chunk).SequenceEqual(expected))
-                wrong++;
+        {
+            if (!Extended(rig, chunk).SequenceEqual(expected)) wrong++;
+        }
+
         return wrong;
     }
 

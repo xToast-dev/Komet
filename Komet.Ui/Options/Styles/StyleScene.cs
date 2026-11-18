@@ -12,84 +12,117 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
     private const int MaxSize = 16384, MaxSource = 64 << 10;
 
     private const string Vertex = """
-        #version 330 core
-        out vec2 uv;
-        void main()
-        {
-            vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-            uv = vec2(corner.x, 1.0 - corner.y); // row 0 is the top: the texture is drawn rows upright
-            gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
-        }
-        """;
+                                  #version 330 core
+                                  out vec2 uv;
+                                  void main()
+                                  {
+                                      vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+                                      uv = vec2(corner.x, 1.0 - corner.y); // row 0 is the top: the texture is drawn rows upright
+                                      gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+                                  }
+                                  """;
 
-    internal const string Prelude = """
-        #version 330 core
-        in vec2 uv;
-        out vec4 color;
-        uniform float time;
-        uniform float fade;
-        uniform float page;
-        uniform vec2 resolution;
-        uniform vec3 camera;
-        uniform vec4 accent;
-        uniform sampler2D scene;
-        uniform vec4 panels[8];
-        uniform int panelCount;
-        uniform float veil;
-        uniform sampler2D worldMap;
-        uniform float worldKnown;
-        uniform vec3 worldTints[5];
-        uniform vec4 worldPlace;
-        uniform vec4 worldWeather;
-        uniform float planet;
-        uniform vec4 worldScale;
-        uniform vec4 worldChunk;
-        uniform float worldYaw;
-        vec3 world(vec2 at) { return texture(scene, vec2(at.x, 1.0 - at.y)).rgb; }
-        vec4 worldAt(vec2 at) { return worldKnown > 0.5 ? texture(worldMap, at) : vec4(0.0); }
-        vec3 worldTint(int kind, vec3 own) { return worldKnown > 0.5 && worldTints[kind].r >= 0.0 ? worldTints[kind] : own; }
-        #define main styleMain
-        #line 1
-        """;
+    private const string Prelude = """
+                                    #version 330 core
+                                    in vec2 uv;
+                                    out vec4 color;
+                                    uniform float time;
+                                    uniform float fade;
+                                    uniform float page;
+                                    uniform vec2 resolution;
+                                    uniform vec3 camera;
+                                    uniform vec4 accent;
+                                    uniform sampler2D scene;
+                                    uniform vec4 panels[8];
+                                    uniform int panelCount;
+                                    uniform float veil;
+                                    uniform sampler2D worldMap;
+                                    uniform float worldKnown;
+                                    uniform vec3 worldTints[5];
+                                    uniform vec4 worldPlace;
+                                    uniform vec4 worldWeather;
+                                    uniform float planet;
+                                    uniform vec4 worldScale;
+                                    uniform vec4 worldChunk;
+                                    uniform float worldYaw;
+                                    vec3 world(vec2 at) { return texture(scene, vec2(at.x, 1.0 - at.y)).rgb; }
+                                    vec4 worldAt(vec2 at) { return worldKnown > 0.5 ? texture(worldMap, at) : vec4(0.0); }
+                                    vec3 worldTint(int kind, vec3 own) { return worldKnown > 0.5 && worldTints[kind].r >= 0.0 ? worldTints[kind] : own; }
+                                    #define main styleMain
+                                    #line 1
+                                    """;
 
     // After the style's main: the scene darkened behind the panels (veil), soft at their edges, so text stays readable
     // over a bright background and the rest keeps its colour
-    internal const string Epilogue = """
+    private const string Epilogue = """
 
-        #undef main
-        void main()
-        {
-            styleMain();
-            vec2 px = vec2(uv.x, 1.0 - uv.y) * resolution;
-            float feather = resolution.y * 0.03, cover = 0.0;
-            for (int i = 0; i < 8; i++)
-            {
-                if (i >= panelCount) break;
-                vec2 d = max(panels[i].xy - px, px - (panels[i].xy + panels[i].zw));
-                cover = max(cover, 1.0 - smoothstep(-feather, feather, max(d.x, d.y)));
-            }
-            vec3 grey = vec3(dot(color.rgb, vec3(0.299, 0.587, 0.114)));
-            color.rgb = mix(color.rgb, grey, 0.45 * veil * cover) * (1.0 - veil * cover); // frosted: greyer and darker
-        }
-        """;
+                                     #undef main
+                                     void main()
+                                     {
+                                         styleMain();
+                                         vec2 px = vec2(uv.x, 1.0 - uv.y) * resolution;
+                                         float feather = resolution.y * 0.03, cover = 0.0;
+                                         for (int i = 0; i < 8; i++)
+                                         {
+                                             if (i >= panelCount) break;
+                                             vec2 d = max(panels[i].xy - px, px - (panels[i].xy + panels[i].zw));
+                                             cover = max(cover, 1.0 - smoothstep(-feather, feather, max(d.x, d.y)));
+                                         }
+                                         vec3 grey = vec3(dot(color.rgb, vec3(0.299, 0.587, 0.114)));
+                                         color.rgb = mix(color.rgb, grey, 0.45 * veil * cover) * (1.0 - veil * cover); // frosted: greyer and darker
+                                     }
+                                     """;
 
     private readonly Vec4f _tint = new(1, 1, 1, 1);
     private readonly int[] _viewport = new int[4];
+
+    private (int Width, int Height)
+        _failed; // a frame size whose target was incomplete: not made and dropped each frame
+
     private int _program, _vao, _texture, _framebuffer;
-    private int _time, _fade, _page, _resolution, _camera, _accent, _scene, _panels, _panelCount, _veil, _worldMap, _worldKnown, _worldTints, _worldPlace, _worldWeather, _planet, _worldScale, _worldChunk, _worldYaw;
-    private string? _source; // the source the program was built from
     private (int Width, int Height) _size;
-    private (int Width, int Height) _failed; // a frame size whose target was incomplete: not made and dropped each frame
+    private string? _source; // the source the program was built from
+
+    private int _time,
+        _fade,
+        _page,
+        _resolution,
+        _camera,
+        _accent,
+        _scene,
+        _panels,
+        _panelCount,
+        _veil,
+        _worldMap,
+        _worldKnown,
+        _worldTints,
+        _worldPlace,
+        _worldWeather,
+        _planet,
+        _worldScale,
+        _worldChunk,
+        _worldYaw;
+
+    public void Dispose()
+    {
+        Release();
+        DropProgram();
+    }
 
     // false when this source does not run; the caller draws the blur instead
     public bool Draw(string source, float z, double fade, int blurred, in SceneState state)
     {
         if (!Finite(fade) || !Assert(source.Length <= MaxSource) || fade <= 0) return false;
+
         if (!ReferenceEquals(source, _source) && !Build(source)) return false;
+
         if (_program == 0) return false;
+
         int width = capi.Render.FrameWidth, height = capi.Render.FrameHeight;
         if (width <= 0 || height <= 0 || !Assert(width <= MaxSize && height <= MaxSize)) return false;
+
         if (_size != (width, height) && (_failed == (width, height) || !Target(width, height))) return false;
+
         Pass(width, height, (float)Math.Min(1, fade), blurred, state);
         capi.Render.Render2DTexture(_texture, 0, 0, width, height, z, _tint);
         return true;
@@ -98,12 +131,12 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
     private void Pass(int width, int height, float fade, int blurred, in SceneState s)
     {
         GL.GetInteger(GetPName.Viewport, _viewport);
-        GL.GetInteger(GetPName.DrawFramebufferBinding, out int drawFb);
-        GL.GetInteger(GetPName.CurrentProgram, out int program);
-        GL.GetInteger(GetPName.VertexArrayBinding, out int vao);
-        GL.GetInteger(GetPName.ActiveTexture, out int unit);
+        GL.GetInteger(GetPName.DrawFramebufferBinding, out var drawFb);
+        GL.GetInteger(GetPName.CurrentProgram, out var program);
+        GL.GetInteger(GetPName.VertexArrayBinding, out var vao);
+        GL.GetInteger(GetPName.ActiveTexture, out var unit);
         GL.ActiveTexture(TextureUnit.Texture0);
-        GL.GetInteger(GetPName.TextureBinding2D, out int texture);
+        GL.GetInteger(GetPName.TextureBinding2D, out var texture);
         var (blend, scissor) = (GL.IsEnabled(EnableCap.Blend), GL.IsEnabled(EnableCap.ScissorTest));
         var world = -1; // unit 1's texture before; -1: World did not run, unit 1 untouched
         try
@@ -144,6 +177,7 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
             GL.BindTexture(TextureTarget.Texture2D, texture);
             GL.ActiveTexture((TextureUnit)unit);
             if (blend) GL.Enable(EnableCap.Blend);
+
             if (scissor) GL.Enable(EnableCap.ScissorTest);
         }
     }
@@ -161,7 +195,7 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
         GL.Uniform1(_worldYaw, s.Scale.Yaw);
         GL.Uniform1(_worldMap, 1);
         GL.ActiveTexture(TextureUnit.Texture1);
-        GL.GetInteger(GetPName.TextureBinding2D, out int world);
+        GL.GetInteger(GetPName.TextureBinding2D, out var world);
         GL.BindTexture(TextureTarget.Texture2D, s.WorldMap);
         GL.ActiveTexture(TextureUnit.Texture0);
         return world;
@@ -172,11 +206,14 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
     {
         DropProgram();
         _source = source;
-        var (vertex, fragment) = (Stage(ShaderType.VertexShader, Vertex), Stage(ShaderType.FragmentShader, Prelude + "\n" + source + Epilogue));
+        var (vertex, fragment) = (Stage(ShaderType.VertexShader, Vertex),
+            Stage(ShaderType.FragmentShader, Prelude + "\n" + source + Epilogue));
         if (vertex == 0 || fragment == 0)
         {
             if (vertex != 0) GL.DeleteShader(vertex);
+
             if (fragment != 0) GL.DeleteShader(fragment);
+
             return false;
         }
 
@@ -186,17 +223,19 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
         GL.LinkProgram(_program);
         GL.DeleteShader(vertex);
         GL.DeleteShader(fragment);
-        GL.GetProgram(_program, GetProgramParameterName.LinkStatus, out int linked);
+        GL.GetProgram(_program, GetProgramParameterName.LinkStatus, out var linked);
         if (linked == 0)
         {
-            capi.Logger?.Warning("Komet styles: the background shader did not link: {0}", GL.GetProgramInfoLog(_program));
+            capi.Logger?.Warning("Komet styles: the background shader did not link: {0}",
+                GL.GetProgramInfoLog(_program));
             DropProgram();
             _source = source;
             return false;
         }
 
         (_time, _fade, _page) = (Uniform("time"), Uniform("fade"), Uniform("page"));
-        (_resolution, _camera, _accent, _scene) = (Uniform("resolution"), Uniform("camera"), Uniform("accent"), Uniform("scene"));
+        (_resolution, _camera, _accent, _scene) =
+            (Uniform("resolution"), Uniform("camera"), Uniform("accent"), Uniform("scene"));
         (_panels, _panelCount, _veil) = (Uniform("panels"), Uniform("panelCount"), Uniform("veil"));
         (_worldMap, _worldKnown, _worldTints) = (Uniform("worldMap"), Uniform("worldKnown"), Uniform("worldTints"));
         (_worldPlace, _worldWeather, _planet) = (Uniform("worldPlace"), Uniform("worldWeather"), Uniform("planet"));
@@ -212,8 +251,9 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
         var shader = GL.CreateShader(type);
         GL.ShaderSource(shader, source);
         GL.CompileShader(shader);
-        GL.GetShader(shader, ShaderParameter.CompileStatus, out int compiled);
+        GL.GetShader(shader, ShaderParameter.CompileStatus, out var compiled);
         if (compiled != 0) return shader;
+
         capi.Logger?.Warning("Komet styles: the background shader did not compile (line numbers are the file's): {0}",
             GL.GetShaderInfoLog(shader));
         GL.DeleteShader(shader);
@@ -223,21 +263,28 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
     private bool Target(int width, int height)
     {
         Release();
-        GL.GetInteger(GetPName.DrawFramebufferBinding, out int drawFb);
-        GL.GetInteger(GetPName.TextureBinding2D, out int bound);
+        GL.GetInteger(GetPName.DrawFramebufferBinding, out var drawFb);
+        GL.GetInteger(GetPName.TextureBinding2D, out var bound);
         try
         {
             _texture = GL.GenTexture();
             GL.BindTexture(TextureTarget.Texture2D, _texture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba8, width, height, 0, PixelFormat.Rgba,
                 PixelType.UnsignedByte, IntPtr.Zero);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
-            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                (int)TextureMinFilter.Linear);
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                (int)TextureMagFilter.Linear);
             _framebuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _framebuffer);
-            GL.FramebufferTexture2D(FramebufferTarget.DrawFramebuffer, FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
+            GL.FramebufferTexture2D(FramebufferTarget.DrawFramebuffer, FramebufferAttachment.ColorAttachment0,
+                TextureTarget.Texture2D,
                 _texture, 0);
-            if (GL.CheckFramebufferStatus(FramebufferTarget.DrawFramebuffer) != FramebufferErrorCode.FramebufferComplete) Release();
+            if (GL.CheckFramebufferStatus(FramebufferTarget.DrawFramebuffer) !=
+                FramebufferErrorCode.FramebufferComplete)
+            {
+                Release();
+            }
         }
         finally
         {
@@ -247,6 +294,7 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
 
         _size = _framebuffer != 0 ? (width, height) : default;
         if (_framebuffer == 0) _failed = (width, height);
+
         return _framebuffer != 0;
     }
 
@@ -254,21 +302,19 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
     public void Release()
     {
         if (_framebuffer != 0) GL.DeleteFramebuffer(_framebuffer);
+
         if (_texture != 0) GL.DeleteTexture(_texture);
+
         (_framebuffer, _texture, _size, _failed) = (0, 0, default, default);
     }
 
     private void DropProgram()
     {
         if (_program != 0) GL.DeleteProgram(_program);
-        if (_vao != 0) GL.DeleteVertexArray(_vao);
-        (_program, _vao, _source) = (0, 0, null);
-    }
 
-    public void Dispose()
-    {
-        Release();
-        DropProgram();
+        if (_vao != 0) GL.DeleteVertexArray(_vao);
+
+        (_program, _vao, _source) = (0, 0, null);
     }
 }
 
@@ -276,9 +322,21 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
 // camera (x, y offsets and zoom, eased toward the page's), the style's accent colour; the panels the epilogue darkens
 // behind by Veil (x, y, width, height in frame pixels from the top left, PanelCount of them); the world around the
 // player (WorldGlobe: its texture, 0 when none, and tints)
-internal readonly record struct SceneState(float Time, float Page, float X, float Y, float Zoom, Vec4f Accent, float[] Panels,
-    int PanelCount, float Veil, int WorldMap, float[] WorldTints, (float Latitude, float Hour, float Declination, float Known) Place,
-    float Planet, (float Clouds, float Rain, float Temperature, float Known) Weather,
+internal readonly record struct SceneState(
+    float Time,
+    float Page,
+    float X,
+    float Y,
+    float Zoom,
+    Vec4f Accent,
+    float[] Panels,
+    int PanelCount,
+    float Veil,
+    int WorldMap,
+    float[] WorldTints,
+    (float Latitude, float Hour, float Declination, float Known) Place,
+    float Planet,
+    (float Clouds, float Rain, float Temperature, float Known) Weather,
     (float Radius, float Reach, float Dx, float Dz, float Cx, float Cz, float Yaw, float ChunkX, float ChunkZ) Scale)
 {
     public const int MaxPanels = 8;

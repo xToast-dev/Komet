@@ -1,8 +1,8 @@
-using Komet.Api;
 using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
 using Komet.Hud;
+using Komet.Api;
 using Komet.Options;
 using Komet.Rendering;
 using Komet.Shapes;
@@ -12,85 +12,55 @@ using Komet.World;
 
 namespace Komet;
 
-// The one place that names Komet's modules: which feature lists make up the mod, in which order their features install,
-// and the few links that run from a lower module up to a higher one. A module project never names a project above it
-// (the compiler refuses the reference); what it needs from above it takes through a hook that Wire sets here.
-//
-// To remove a module: delete its project, its line in All, its feature ids in InstallOrder and its lines in Wire; the
-// compiler then names every other place that still used it.
+/// <summary>
+/// The composition root: the one place that names Komet's modules. All: which feature lists make up the mod (in any order:
+/// each feature declares its place, FeatureOrder sorts them; Order keeps the knobs' order in komet.json and on the
+/// settings pages). Bind: the services a lower module asks of a higher one (its Links), each answered by a bridge
+/// (Bridges.cs). A module project never names a project above it: the compiler refuses the reference.
+/// 
+/// To remove a module: delete its project, its line in All and its bridge registrations in Bind; the compiler then names
+/// every other place that still used it, FeatureOrder every feature that still names one of its features.
+/// </summary>
 internal static class Modules
 {
-    // One list a module, each in its own install order
     private static readonly Feature[][] All =
     [
-        DiagnosticsFeatures.All, HudFeatures.All, OptionsFeatures.All, RenderingFeatures.All, VulkanFeatures.All, ChunkFeatures.All,
-        WorldFeatures.All, ShapeFeatures.All, TessellationFeatures.All, CoreFeatures.All
+        DiagnosticsFeatures.All, HudFeatures.All, OptionsFeatures.All, RenderingFeatures.All, VulkanFeatures.All,
+        ChunkFeatures.All, WorldFeatures.All, ShapeFeatures.All, TessellationFeatures.All, CoreFeatures.All
     ];
 
-    // The install order across the modules, which is also the knobs' order in komet.json and on the settings pages. A feature
-    // installs after those it Requires; ModTimes and RenderCost before the HUD, whose settings switch them on; IndirectDraw
-    // before OcclusionCulling, whose draws its RenderMesh prefix hands over; GlQueryCache before VulkanTerrain, whose GlTap wraps
-    // its entry points; TessSafety before TessSchedule and TessWorkers.
-    private static readonly string[] InstallOrder =
-    [
-        "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows", "LeanVaryings",
-        "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse", "NearShadowReuse", "EntityCasters",
-        "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes",
-        "TerrainRebuild", "PoolTrim", "VulkanTerrain", "AnimatableCulling",
-        "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling", "MapTileUpload", "IdleAnimators", "PoolScale", "WindowSize", "ChunkLookup", "MeshRecycle", "FacePacking", "FaceSorting", "ClimateCache",
-        "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch", "AnimationFrames", "ShapeInitMemo", "KeyframeShare", "HeldItemsLast", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "JoinPacer", "ChunkPacking",
-        "JsonValues", "EventBusSweep", "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure",
-        "CloudTileScratch", "CloudUploads", "DecompressScratch", "DirectChunks", "PackedTicks", "BushShapes", "MapPixels",
-        "TreeKeys", "MapPieceBudget", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
-        "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation", "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm",
-        "OccludedChunks", "DeepCulling", "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes",
-        "WorldGenScratch", "IconBudget", "SnowPeek", "TickScratch", "SoundScratch", "SoundsOnDemand", "TickerCommit", "ProfilerPool", "WeatherLock", "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
-    ];
-
-    private static bool _wired;
-
-    // Before anything reads the feature table: the mod systems' StartPre, the tests' set-up
+    /// <summary>
+    /// Before anything reads the feature table or a service: the mod system's StartPre, the tests' set-up. Again after
+    /// Release (the next world), it registers the same.
+    /// </summary>
     public static void Register()
     {
-        Features.Use(All, InstallOrder);
-        Wire();
+        Features.Use(All);
+        Bind();
     }
 
-    // The links upward, each a hook a lower module declares and a higher one fills:
-    private static void Wire()
+    /// <summary>
+    /// The world closed: the services go with it (KometModSystem.Dispose, last)
+    /// </summary>
+    public static void Release() => Services.Clear();
+
+    private static void Bind()
     {
-        if (_wired) return;
-        _wired = true;
-        // Core asks: the shader module behind the public shader API, and who draws
-        KometShaders.Backend = ShaderBackend.Instance;
-        KometShaders.VulkanDraws = static () => VulkanRenderer.GlIdle;
+        // Core asks the shader module behind the public shader API, and the Vulkan module who draws
+        Services.Register<IShaderBackend>(ShaderBackend.Instance);
+        Services.Register<IRenderStepHost>(ModSteps.Instance);
+        Services.Register<IRenderPath>(VulkanBridge.Instance);
 
-        // Diagnostics asks Rendering, Tessellation and Vulkan
-        Diagnostics.Links.SkipIdle = IdleAnimators.Skip;
-        Diagnostics.Links.SkipRenderer = IdleAnimators.TrySkip;
-        Diagnostics.Links.FrameBegun = TessGovernor.Frame;
-        Diagnostics.Links.VulkanFrameGpuMs = static () => VulkanRenderer.FrameGpuMs;
-        Diagnostics.Links.VulkanTimesTerrain = static () => VulkanRenderer.TimesTerrain;
-        Diagnostics.Links.VulkanTerrainGpuMs = VulkanRenderer.TerrainGpuMs;
-        Diagnostics.Links.ThreadsReport = VulkanWatch.Threads;
+        // Diagnostics asks Rendering and Tessellation (frames) and Vulkan (GPU times, threads)
+        Services.Register<IRenderSkips>(RenderFrameBridge.Instance);
+        Services.Register<IFrameFollower>(RenderFrameBridge.Instance);
+        Services.Register<IGpuTimes>(VulkanBridge.Instance);
+        Services.Register<IThreadReport>(VulkanBridge.Instance);
 
-        // Rendering asks Vulkan
-        Rendering.Links.Tapped = static () => GlTap.Tapped;
-        Rendering.Links.TapVersion = static () => GlTap.Version;
-        Rendering.Links.TapState = GlTap.View;
-        Rendering.Links.Mark = static step => VulkanWatch.Mark(step);
-        Rendering.Links.Paced = VulkanRenderer.Paced;
-        Rendering.Links.Rebuilding = VulkanRenderer.Rebuilding;
-        Rendering.Links.ReadPort = VulkanPorts.Read;
-
-        // Rendering asks Chunks, Tessellation and the Ui
-        Rendering.Links.LoadingBacklogged = static () => TessSeams.Backlogged;
-        Rendering.Links.SpareChunks = ChunkPacking.Spares;
-        Rendering.Links.ReloadShaders = EngineOptions.ReloadShaders;
-        Rendering.Links.ModStarted = ModAdapters.Started;
-        Rendering.Links.ModStopped = ModAdapters.Stopped;
-        Rendering.Links.ShadersHooked = ShaderOverview.Hook;
-        Rendering.Links.ShadersUnhooked = ShaderOverview.Unhook;
-        Rendering.Links.ShadersLoaded = ShaderOverview.Build;
+        // Rendering asks Vulkan, the loading side (Chunks, Tessellation) and the Ui
+        Services.Register<IVulkanSide>(VulkanBridge.Instance);
+        Services.Register<IGlTapView>(VulkanBridge.Instance);
+        Services.Register<ILoadingSide>(LoadingBridge.Instance);
+        Services.Register<IShaderUiHost>(ShaderUiBridge.Instance);
     }
 }

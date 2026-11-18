@@ -13,6 +13,7 @@ public sealed class GlQueryCacheGpuTests
     {
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here: " + GlContext.Why);
+
         GlQueryCache.Install();
         var (a, b) = (GL.GenFramebuffer(), GL.GenFramebuffer());
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, a);
@@ -35,8 +36,8 @@ public sealed class GlQueryCacheGpuTests
 
     private static (int Draw, int Read, (int, int, int, int) Viewport) Asked()
     {
-        GL.GetInteger(GetPName.DrawFramebufferBinding, out int draw);
-        GL.GetInteger(GetPName.ReadFramebufferBinding, out int read);
+        GL.GetInteger(GetPName.DrawFramebufferBinding, out var draw);
+        GL.GetInteger(GetPName.ReadFramebufferBinding, out var read);
         var viewport = new int[4];
         GL.GetInteger(GetPName.Viewport, viewport);
         return (draw, read, (viewport[0], viewport[1], viewport[2], viewport[3]));

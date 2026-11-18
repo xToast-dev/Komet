@@ -29,7 +29,7 @@ internal static class SynthCalls
     public static void Mark(FrameProfilerUtil profiler, string code, object param) => profiler.Mark(code, param);
 
     [MethodImpl(Plain)]
-    public static void Enter(FrameProfilerUtil profiler, string code) => profiler.Enter(code);
+    public static void Enter(FrameProfilerUtil profiler, string code) => _ = profiler.Enter(code);
 
     [MethodImpl(Plain)]
     public static void Leave(FrameProfilerUtil profiler) => profiler.Leave();
@@ -38,25 +38,16 @@ internal static class SynthCalls
     public static void End(FrameProfilerUtil profiler) => profiler.End();
 
     [MethodImpl(Plain)]
-    public static void Compile(Animation animation, Shape shape) => animation.GenerateAllFrames(shape.Elements, shape.JointsById);
+    public static void Compile(Animation animation, Shape shape) =>
+        animation.GenerateAllFrames(shape.Elements, shape.JointsById);
 
     [MethodImpl(Plain)]
     public static void Init(Shape shape, ILogger logger, string name, string[] joints) =>
         shape.InitForAnimations(logger, name, null, joints);
 
     [MethodImpl(Plain)]
-    public static bool Tesselate(BlockEntityBehavior behavior, ITerrainMeshPool pool, ITesselatorAPI tesselator) =>
-        behavior.OnTesselation(pool, tesselator);
-
-    [MethodImpl(Plain)]
-    public static void Trigger(ClientEventManager events, EnumRenderStage stage) => events.TriggerRenderStage(stage, 0.016f);
-
-    [MethodImpl(Plain)]
-    public static ModelDataPoolLocation? Add(MeshDataPool pool, ICoreClientAPI api, MeshData mesh) =>
-        pool.TryAdd(api, mesh, null, 0, default);
-
-    [MethodImpl(Plain)]
-    public static void Remove(MeshDataPool pool, ModelDataPoolLocation location) => pool.RemoveLocation(location);
+    public static void Trigger(ClientEventManager events, EnumRenderStage stage) =>
+        events.TriggerRenderStage(stage, 0.016f);
 
     [MethodImpl(Plain)]
     public static MeshData Recycled(MeshData mesh) => mesh.CloneUsingRecycler();
@@ -75,11 +66,14 @@ internal sealed class Regen(params MethodBase[] callers) : IDisposable
 {
     private readonly Harmony _harmony = new("komet-synth-regen");
 
+    public void Dispose() => _harmony.UnpatchAll(_harmony.Id);
+
     public void Again()
     {
         _harmony.UnpatchAll(_harmony.Id);
-        foreach (var caller in callers) _ = _harmony.Patch(caller, postfix: Foreign.Postfix);
+        foreach (var caller in callers)
+        {
+            _ = _harmony.Patch(caller, postfix: Foreign.Postfix);
+        }
     }
-
-    public void Dispose() => _harmony.UnpatchAll(_harmony.Id);
 }

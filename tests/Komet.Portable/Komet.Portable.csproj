@@ -15,4 +15,8 @@
         <Reference Include="0Harmony" HintPath="$(VsInstall)/Lib/0Harmony.dll"/>
     </ItemGroup>
 
+    <ItemGroup Condition="Exists('$(KometRepo)Releases/komet/native/win-x64/shaderc_shared.dll')">
+        <Content Include="$(KometRepo)Releases/komet/native/win-x64/*" Link="native/win-x64/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
 </Project>

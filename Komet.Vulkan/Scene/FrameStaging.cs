@@ -14,10 +14,22 @@ internal sealed class FrameStaging(VulkanDevice device, VulkanFrame frame) : IDi
     // Takes that found no room even in a new overflow buffer (should stay 0)
     public long Refused { get; private set; }
 
+    public void Dispose()
+    {
+        _ = device.WaitIdle();
+        foreach (var (buffer, _) in _own.Bounded(MaxOwn))
+        {
+            buffer.Dispose();
+        }
+
+        _own.Clear();
+    }
+
     public HostBuffer? Take(int bytes, out long at, int align = 16)
     {
         at = -1;
         if (!Assert(bytes > 0)) return null;
+
         if (frame.Staging is { } uploads && (at = uploads.Take(bytes, out _, align)) >= 0) return uploads;
         // the newest overflow buffer first: its room is this frame's, it then lives until this frame is done
         if (_own.Count > 0 && _own[^1] is var (last, _) && (at = last.Take(bytes, out _, align)) >= 0)
@@ -27,7 +39,7 @@ internal sealed class FrameStaging(VulkanDevice device, VulkanFrame frame) : IDi
         }
 
         if (_own.Count >= MaxOwn ||
-            HostBuffer.Create(device, Math.Max((ulong)bytes + (ulong)align, ChunkBytes), bulk: true) is not { } own)
+            HostBuffer.Create(device, Math.Max((ulong)bytes + (ulong)align, ChunkBytes), true) is not { } own)
         {
             Refused++;
             return null;
@@ -43,17 +55,16 @@ internal sealed class FrameStaging(VulkanDevice device, VulkanFrame frame) : IDi
         var kept = 0;
         for (var i = 0; i < Math.Min(_own.Count, MaxOwn); i++)
         {
-            if (_own[i].Frame <= frame.Done) _own[i].Buffer.Dispose();
-            else _own[kept++] = _own[i];
+            if (_own[i].Frame <= frame.Done)
+            {
+                _own[i].Buffer.Dispose();
+            }
+            else
+            {
+                _own[kept++] = _own[i];
+            }
         }
 
         _own.RemoveRange(kept, _own.Count - kept);
-    }
-
-    public void Dispose()
-    {
-        _ = device.WaitIdle();
-        foreach (var (buffer, _) in _own.Bounded(MaxOwn)) buffer.Dispose();
-        _own.Clear();
     }
 }

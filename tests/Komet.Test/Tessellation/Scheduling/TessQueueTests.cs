@@ -34,7 +34,8 @@ public sealed class TessQueueTests
     // Columns (x, z) at y 3 as they arrive, and the order they are taken in from (100, 3, 100) facing +x: nearest first; within the
     // near ring every chunk scores its squared distance and equal scores keep the engine's arrival order; ahead beats behind
     [TestCase(new[] { 140, 100, 101, 100, 110, 100 }, new[] { 1, 2, 0 }, TestName = "nearest comes first")]
-    [TestCase(new[] { 100, 101, 99, 100, 100, 99, 101, 100 }, new[] { 0, 1, 2, 3 }, TestName = "equal scores keep the order")]
+    [TestCase(new[] { 100, 101, 99, 100, 100, 99, 101, 100 }, new[] { 0, 1, 2, 3 },
+        TestName = "equal scores keep the order")]
     [TestCase(new[] { 90, 100, 110, 100 }, new[] { 1, 0 }, TestName = "ahead beats behind at the same distance")]
     public void TheQueueTakesNearestFirst(int[] columns, int[] order)
     {
@@ -181,9 +182,13 @@ public sealed class TessQueueTests
             for (var i = 0; i < 100000 && queue.TryTake(out var raw); i++)
             {
                 if (!active.TryAdd(raw, 0)) _ = Interlocked.Increment(ref overlap);
+
                 taken.Add(raw);
                 if (i % 7 == 0 && readded.TryAdd(raw, 0))
+                {
                     queue.AddRange([raw]); // dirty again while in flight: once more, later
+                }
+
                 _ = active.TryRemove(raw, out _);
                 queue.Done(raw);
             }

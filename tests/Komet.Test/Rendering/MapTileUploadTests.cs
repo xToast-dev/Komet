@@ -16,7 +16,7 @@ public sealed class MapTileUploadTests
     {
         using var harmony = new TestHarmony("komet-test-maptileupload");
         MapTileUpload.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(MapTileUpload.Seams()[0], Is.Not.Null, "the essentials mod's map tile");
             Assert.That(MapTileUpload.Matched, Is.True,
@@ -24,11 +24,11 @@ public sealed class MapTileUploadTests
             Assert.That(MapTileUpload.Blocked, Is.False);
             Assert.That(Harmony.GetPatchInfo(MapTileUpload.Seams()[0])?.Prefixes.Select(p => p.owner),
                 Is.EqualTo([harmony.Id]));
-        });
+        }
     }
 
     private static int[] Piece(int alpha = 0xFF) =>
-        [.. Enumerable.Range(0, 1024).Select(i => alpha << 24 | i * 2713 & 0xFFFFFF)];
+        [.. Enumerable.Range(0, 1024).Select(i => (alpha << 24) | ((i * 2713) & 0xFFFFFF))];
 
     [Test]
     public void TakesOverOnlyOpaqueWholePieces()
@@ -37,13 +37,16 @@ public sealed class MapTileUploadTests
         translucent[517] &= 0x7FFFFFFF;
         Assert.Multiple(() =>
         {
-            Assert.That(MapTileUpload.Uploadable([Piece(), null, null, null, Piece(), null, null, null, Piece()]), Is.True);
+            Assert.That(MapTileUpload.Uploadable([Piece(), null, null, null, Piece(), null, null, null, Piece()]),
+                Is.True);
             Assert.That(MapTileUpload.Uploadable(new int[]?[9]), Is.True, "nothing to set");
-            Assert.That(MapTileUpload.Uploadable([Piece(), translucent, null, null, null, null, null, null, null]), Is.False,
+            Assert.That(MapTileUpload.Uploadable([Piece(), translucent, null, null, null, null, null, null, null]),
+                Is.False,
                 "one pixel not opaque");
             Assert.That(MapTileUpload.Uploadable([Piece(0), null, null, null, null, null, null, null, null]), Is.False,
                 "transparent");
-            Assert.That(MapTileUpload.Uploadable([new int[512], null, null, null, null, null, null, null, null]), Is.False,
+            Assert.That(MapTileUpload.Uploadable([new int[512], null, null, null, null, null, null, null, null]),
+                Is.False,
                 "not 32x32");
         });
     }

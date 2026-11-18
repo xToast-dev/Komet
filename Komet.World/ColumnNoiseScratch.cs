@@ -48,12 +48,15 @@ internal static class ColumnNoiseScratch
     {
         (_rewritten, _installed, _foreign, _logger) = (0, false, false, logger);
         var (ctor, body, forColumn) = (Constructor(), ColumnBody(), ForColumn());
-        if (!NotNull(harmony) || !NotNull(ctor) || !NotNull(body) || !NotNull(forColumn)) return;
+        if (!NotNull(ctor) || !NotNull(body) || !NotNull(forColumn)) return;
+
         MethodBase?[] seams = [forColumn, ctor, body, .. Members()];
         if (Foreign(seams, harmony.Id, logger)) return;
+
         _ = harmony.Patch(forColumn, transpiler: new HarmonyMethod(WatchForColumn));
         _ = harmony.Patch(ctor, transpiler: new HarmonyMethod(RewriteConstructor));
         if ((_rewritten & (CtorBit | WatchBit)) != (CtorBit | WatchBit)) return;
+
         _ = harmony.Patch(body, transpiler: new HarmonyMethod(RewriteBody));
         Volatile.Write(ref _installed, true);
         // A patch added meanwhile reran the transpilers early; GetPatchInfo shares Harmony's lock, so it shows here
@@ -64,11 +67,15 @@ internal static class ColumnNoiseScratch
     {
         var at = EngineShape.FirstForeign(seams, owner);
         if (at < 0) return false;
+
         if (at < seams.Length)
+        {
             logger?.Notification("Komet ColumnNoiseScratch stands down: {0}; terrain columns allocate as shipped",
                 seams[at] is { } seam
                     ? $"another mod patches {seam.DeclaringType?.Name}.{seam.Name}"
                     : "a ColumnNoise member is missing");
+        }
+
         return true;
     }
 
@@ -107,14 +114,19 @@ internal static class ColumnNoiseScratch
         var terra = AccessTools.TypeByName(Terra);
         var forColumn = ForColumn();
         if (!NotNull(terra) || !NotNull(forColumn)) return null;
+
         MethodInfo? found = null;
         foreach (var nested in AccessTools.InnerTypes(terra).Bounded(MaxNested))
         {
             foreach (var method in AccessTools.GetDeclaredMethods(nested).Bounded(MaxMethods))
             {
-                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) || !CallsForColumn(method, forColumn))
-                    continue;
-                if (found != null) return null; // two candidates: not the engine this was verified against
+                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) || !CallsForColumn(method, forColumn)) continue;
+
+                if (found != null)
+                {
+                    return null; // two candidates: not the engine this was verified against
+                }
+
                 found = method;
             }
         }
@@ -125,8 +137,12 @@ internal static class ColumnNoiseScratch
     private static bool CallsForColumn(MethodInfo method, MethodInfo forColumn)
     {
         if (method.GetMethodBody() == null) return false;
+
         foreach (var code in PatchProcessor.GetOriginalInstructions(method).Bounded(MaxInstructions))
+        {
             if (code.Calls(forColumn)) return true;
+        }
+
         return false;
     }
 
@@ -134,16 +150,16 @@ internal static class ColumnNoiseScratch
     private static void Rerun(int bit)
     {
         _rewritten &= ~bit;
-        if (!Volatile.Read(ref _installed) || Volatile.Read(ref _foreign))
-            return;
+        if (!Volatile.Read(ref _installed) || Volatile.Read(ref _foreign)) return;
+
         Volatile.Write(ref _foreign, true); // read by the generation threads
         _logger?.Notification("Komet ColumnNoiseScratch stands down: another mod patched {0} after install; " +
                               "terrain columns allocate as shipped", bit switch
-            {
-                WatchBit => "NewNormalizedSimplexFractalNoise.ForColumn",
-                CtorBit => "the ColumnNoise constructor",
-                _ => "GenTerra's column body"
-            });
+                              {
+                                  WatchBit => "NewNormalizedSimplexFractalNoise.ForColumn",
+                                  CtorBit => "the ColumnNoise constructor",
+                                  _ => "GenTerra's column body"
+                              });
     }
 
     // Patched only to hear of other patches; the IL goes back unchanged
@@ -152,9 +168,11 @@ internal static class ColumnNoiseScratch
         Rerun(WatchBit);
         var ctor = Constructor();
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor)) return code;
+
         var (calls, builds) = (Il.Count(code, c => c.opcode.FlowControl == FlowControl.Call),
             Il.Count(code, c => c.opcode == OpCodes.Newobj && Equals(c.operand, ctor)));
         if (Assert(calls == 1 && builds == 1)) _rewritten |= WatchBit;
+
         return code;
     }
 
@@ -168,36 +186,64 @@ internal static class ColumnNoiseScratch
         var (take, rent) = (AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Take)),
             AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Rent)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(entries) ||
-            !NotNull(past) || !NotNull(take) || !NotNull(rent)) return code;
+            !NotNull(past) || !NotNull(take) || !NotNull(rent))
+        {
+            return code;
+        }
+
         if (!Assert(code.Count > 0) || code[0].labels.Count > 0 || code[0].blocks.Count > 0) return code;
+
         Type?[] expected =
             [typeof(double), typeof(int), entries.FieldType.GetElementType(), past.FieldType.GetElementType()];
         if (!Numbers(expected[2]) || !Numbers(expected[3])) return code;
+
         var at = new int[Arrays];
+        if (!FindArrays(code, expected, entries, past, at)) return code;
+
+        var scratch = generator.DeclareLocal(typeof(Array[]));
+        if (!ReplaceArrays(code, at, scratch, rent)) return code;
+
+        code.InsertRange(0, [new CodeInstruction(OpCodes.Call, take), new CodeInstruction(OpCodes.Stloc, scratch)]);
+        _rewritten |= CtorBit;
+        return code;
+    }
+
+    private static bool FindArrays(List<CodeInstruction> code, Type?[] expected, FieldInfo entries, FieldInfo past,
+        int[] positions)
+    {
         var found = 0;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (code[i].opcode == OpCodes.Newarr)
             {
                 if (found >= Arrays || !Equals(code[i].operand, expected[found]) ||
-                    !Held(code, i, found, entries, past)) return code;
-                at[found++] = i;
+                    !Held(code, i, found, entries, past))
+                {
+                    return false;
+                }
+
+                positions[found++] = i;
                 continue;
             }
 
-            // `this` holds an array from here on: no instance call
-            if (found > 2 && code[i].operand is MethodInfo { IsStatic: false }) return code;
-            // the instruction after a newarr is the store Held checked
-            if (!Allowed(code[i]) && !(i > 0 && code[i - 1].opcode == OpCodes.Newarr)) return code;
+            if ((found > 2 && code[i].operand is MethodInfo { IsStatic: false }) ||
+                (!Allowed(code[i]) && !(i > 0 && code[i - 1].opcode == OpCodes.Newarr)))
+            {
+                return false;
+            }
         }
 
-        if (!Assert(found == Arrays)) return code;
-        var scratch = generator.DeclareLocal(typeof(Array[]));
+        return Assert(found == Arrays);
+    }
+
+    private static bool ReplaceArrays(List<CodeInstruction> code, int[] positions, LocalBuilder scratch,
+        MethodInfo rent)
+    {
         for (var j = 0; j < Arrays; j++)
         {
-            var i = at[Arrays - 1 - j]; // from the last: the inserts shift only what comes after them
-            if (code[i].operand is not Type element) return code;
-            // in place: labels and exception blocks stay on it
+            var i = positions[Arrays - 1 - j];
+            if (code[i].operand is not Type element) return false;
+
             (code[i].opcode, code[i].operand) = (OpCodes.Ldloc, scratch);
             code.InsertRange(i + 1,
             [
@@ -206,15 +252,14 @@ internal static class ColumnNoiseScratch
             ]);
         }
 
-        code.InsertRange(0, [new CodeInstruction(OpCodes.Call, take), new CodeInstruction(OpCodes.Stloc, scratch)]);
-        _rewritten |= CtorBit;
-        return code;
+        return true;
     }
 
     // Locals: newarr; stloc. Fields: ldarg.0; ldloc; newarr; stfld of exactly their field on `this`
     private static bool Held(List<CodeInstruction> code, int at, int array, FieldInfo entries, FieldInfo past)
     {
         if (!Index(at + 1, code.Count) || at < 2) return false;
+
         var next = code[at + 1];
         return array switch
         {
@@ -229,13 +274,20 @@ internal static class ColumnNoiseScratch
     {
         var op = code.opcode;
         if (op.FlowControl is FlowControl.Branch or FlowControl.Cond_Branch || op == OpCodes.Ret) return true;
+
         if (op == OpCodes.Stfld) return code.operand is FieldInfo { FieldType.IsPrimitive: true };
+
         if (op == OpCodes.Stelem || op == OpCodes.Initobj) return code.operand is Type element && Numbers(element);
+
         if (op == OpCodes.Call) return code.operand is MethodInfo method && Numeric(method);
+
         var name = op.Name ?? "";
         if (name.StartsWith("stelem.", StringComparison.Ordinal)) return op != OpCodes.Stelem_Ref;
+
         if (name.StartsWith("ldelem", StringComparison.Ordinal)) return op != OpCodes.Ldelema;
+
         if (op == OpCodes.Ldarga || op == OpCodes.Ldarga_S) return false;
+
         return name.StartsWith("ldarg", StringComparison.Ordinal) ||
                name.StartsWith("ldloc", StringComparison.Ordinal) ||
                name.StartsWith("stloc", StringComparison.Ordinal) ||
@@ -250,11 +302,17 @@ internal static class ColumnNoiseScratch
     private static bool Numeric(MethodInfo method)
     {
         if (!NotNull(method.DeclaringType)) return false;
+
         if (!method.IsStatic && !Setter(method)) return false;
+
         if (method.ReturnType != typeof(void) && !method.ReturnType.IsPrimitive) return false;
+
         var parameters = method.GetParameters();
         for (var i = 0; i < Math.Min(parameters.Length, MaxParameters); i++)
+        {
             if (!parameters[i].ParameterType.IsPrimitive) return false;
+        }
+
         return parameters.Length <= MaxParameters;
     }
 
@@ -263,6 +321,7 @@ internal static class ColumnNoiseScratch
     private static bool Setter(MethodInfo method)
     {
         if (method.DeclaringType != typeof(ColumnNoise) || method.GetMethodBody() == null) return false;
+
         var code = PatchProcessor.GetOriginalInstructions(method);
         return code.Count == 4 && code[0].IsLdarg(0) && code[1].IsLdarg(1) && code[3].opcode == OpCodes.Ret &&
                code[2].opcode == OpCodes.Stfld &&
@@ -274,10 +333,15 @@ internal static class ColumnNoiseScratch
     private static bool Numbers(Type? type)
     {
         if (!NotNull(type) || !type.IsValueType) return false;
+
         if (type.IsPrimitive) return true;
+
         var fields = AccessTools.GetDeclaredFields(type);
         for (var i = 0; i < Math.Min(fields.Count, MaxFields); i++)
+        {
             if (!fields[i].IsStatic && !fields[i].FieldType.IsPrimitive) return false;
+        }
+
         return Assert(fields.Count <= MaxFields);
     }
 
@@ -287,28 +351,38 @@ internal static class ColumnNoiseScratch
         var (forColumn, ctor, mine) = (ForColumn(), Constructor(),
             AccessTools.Method(typeof(ColumnNoiseScratch), nameof(Column)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(forColumn) || !NotNull(ctor) ||
-            !NotNull(mine)) return code;
+            !NotNull(mine))
+        {
+            return code;
+        }
+
         var at = Il.Single(code, c => c.Calls(forColumn));
         // a column the arm would not cover
         var built = Il.Count(code, c => c.operand is MethodBase method && method == ctor);
         if (!Assert(at >= 0) || built != 0 || !Index(at + 1, code.Count) || !code[at + 1].IsStloc()) return code;
+
         if (!Il.Confined(code, at + 1, Member, Il.Uses.Address, MaxReach)) return code;
+
         if (Assert(Il.Substitute(code, at, mine))) _rewritten |= BodyBit;
+
         return code;
     }
 
     // The column's address only ever as `this` of ColumnNoise's own double-returning members
     private static bool Member(CodeInstruction code, int operand) =>
         operand == 0 && code.opcode == OpCodes.Call &&
-        code.operand is MethodInfo { IsStatic: false } member && member.DeclaringType == typeof(ColumnNoise) &&
-        member.ReturnType == typeof(double);
+               code.operand is MethodInfo { IsStatic: false } member && member.DeclaringType == typeof(ColumnNoise) &&
+               member.ReturnType == typeof(double);
 
     // Replaces terrainNoise.ForColumn(...) with the thread armed for its one constructor; finally disarms on any throw
     internal static ColumnNoise Column(NewNormalizedSimplexFractalNoise noise, double relativeYFrequency,
         double[] amplitudes, double[] thresholds, double noiseX, double noiseZ)
     {
         if (!Enabled || Volatile.Read(ref _foreign) || !Assert(!_armed))
+        {
             return noise.ForColumn(relativeYFrequency, amplitudes, thresholds, noiseX, noiseZ);
+        }
+
         _armed = true;
         try
         {
@@ -324,6 +398,7 @@ internal static class ColumnNoiseScratch
     private static Array?[]? Take()
     {
         if (!_armed) return null;
+
         _armed = false;
         return _arrays ??= new Array?[Arrays * MaxLength];
     }
@@ -332,6 +407,7 @@ internal static class ColumnNoiseScratch
     internal static T[] Rent<T>(int length, Array?[]? arrays, int slot)
     {
         if (arrays is null || (uint)length >= MaxLength || !Index(slot, Arrays)) return new T[length];
+
         var at = slot * MaxLength + length;
         var cached = arrays[at];
         // exactly T[] in one compare; a cast to int[] would also take uint[], via a helper call
@@ -345,6 +421,7 @@ internal static class ColumnNoiseScratch
         var array = Unsafe.As<T[]>(cached);
         array.AsSpan().Clear();
         if (Counting.Hud) _ = Interlocked.Add(ref _saved, (ArrayHeader + (long)length * Unsafe.SizeOf<T>() + 7) & ~7L);
+
         return array;
     }
 }

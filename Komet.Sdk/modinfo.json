@@ -1,0 +1,18 @@
+{
+  "$schema": "https://moddbcdn.vintagestory.at/schema/modinfo.latest.json",
+  "type": "Code",
+  "side": "Client",
+  "requiredOnClient": false,
+  "requiredOnServer": false,
+  "modid": "kometsdk",
+  "name": "Komet SDK",
+  "authors": [
+    "xToast"
+  ],
+  "description": "The SDK for Komet",
+  "version": "3.0.0-pre.4",
+  "dependencies": {
+    "game": "1.22.0",
+    "komet": "3.0.0-pre.4"
+  }
+}

@@ -20,55 +20,64 @@ public sealed class FaceSplitsGpuTests
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
     [Category("Slow")]
-    public void EveryFaceSeenIsDrawn(string backend) => TerrainWorld.Run(backend, 160, world =>
-    {
-        foreach (var (yaw, pitch) in Views)
-        {
-            var view = new TerrainView(yaw, pitch, [0.4, 0.8, 0.3]);
-            var drawn = Variants.Select(v => Culled(world, view, v)).ToArray();
-            var triangles = drawn.Select(d => d.Sum(pool => pool.Sum(c => c.Count)) / 3).ToArray();
-            TestContext.Out.WriteLine($"yaw {yaw}, pitch {pitch}: {triangles[0]} triangles whole, {triangles[1]} with the " +
-                                      "directions facing away and their parts past the splits left out");
-            Assert.Multiple(() =>
-            {
-                Assert.That(Missing(world, view, drawn[0], drawn[1]), Is.Zero, $"yaw {yaw}: directions and splits");
-                Assert.That(triangles[1], Is.LessThan(triangles[0] * 9 / 10), $"yaw {yaw}: directions left out");
-            });
-        }
-    }, sorted: true);
-
-    [Test]
-    [Category("Slow")]
-    public void ThePictureStaysTheSame() => TerrainWorld.Run(GpuRig.Gl, 160, world =>
-    {
-        var program = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
-        using var target = new DepthTarget(Width, Height, 1);
-        try
+    public void EveryFaceSeenIsDrawn(string backend) =>
+        TerrainWorld.Run(backend, 160, world =>
         {
             foreach (var (yaw, pitch) in Views)
             {
                 var view = new TerrainView(yaw, pitch, [0.4, 0.8, 0.3]);
-                _ = Drawn(world, view, Variants[0], (program, target)); // the context's first picture differs in a few pixels
-                var pictures = Variants.Select(v => Drawn(world, view, v, (program, target))).ToArray();
+                var drawn = Variants.Select(v => Culled(world, view, v)).ToArray();
+                var triangles = drawn.Select(d => d.Sum(pool => pool.Sum(c => c.Count)) / 3).ToArray();
+                TestContext.Out.WriteLine(
+                    $"yaw {yaw}, pitch {pitch}: {triangles[0]} triangles whole, {triangles[1]} with the " +
+                    "directions facing away and their parts past the splits left out");
                 Assert.Multiple(() =>
                 {
-                    Assert.That(pictures[0].Depth.Count(d => d < 1), Is.GreaterThan(Width * Height / 4), $"yaw {yaw}: drawn");
-                    for (var v = 1; v < Variants.Length; v++)
-                    {
-                        Assert.That(Differing(pictures[0].Depth, pictures[v].Depth), Is.Zero, $"yaw {yaw}, {v}: depth");
-                        Assert.That(Differing(pictures[0].Color, pictures[v].Color), Is.Zero, $"yaw {yaw}, {v}: colour");
-                    }
+                    Assert.That(Missing(world, view, drawn[0], drawn[1]), Is.Zero, $"yaw {yaw}: directions and splits");
+                    Assert.That(triangles[1], Is.LessThan(triangles[0] * 9 / 10), $"yaw {yaw}: directions left out");
                 });
             }
-        }
-        finally
+        }, true);
+
+    [Test]
+    [Category("Slow")]
+    public void ThePictureStaysTheSame()
+    {
+        TerrainWorld.Run(GpuRig.Gl, 160, world =>
         {
-            GL.DeleteProgram(program);
-        }
-    }, sorted: true);
+            var program = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
+            using var target = new DepthTarget(Width, Height, 1);
+            try
+            {
+                foreach (var (yaw, pitch) in Views)
+                {
+                    var view = new TerrainView(yaw, pitch, [0.4, 0.8, 0.3]);
+                    _ = Drawn(world, view, Variants[0],
+                        (program, target)); // the context's first picture differs in a few pixels
+                    var pictures = Variants.Select(v => Drawn(world, view, v, (program, target))).ToArray();
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(pictures[0].Depth.Count(d => d < 1), Is.GreaterThan(Width * Height / 4),
+                            $"yaw {yaw}: drawn");
+                        for (var v = 1; v < Variants.Length; v++)
+                        {
+                            Assert.That(Differing(pictures[0].Depth, pictures[v].Depth), Is.Zero,
+                                $"yaw {yaw}, {v}: depth");
+                            Assert.That(Differing(pictures[0].Color, pictures[v].Color), Is.Zero,
+                                $"yaw {yaw}, {v}: colour");
+                        }
+                    });
+                }
+            }
+            finally
+            {
+                GL.DeleteProgram(program);
+            }
+        }, true);
+    }
 
     // Each pool's commands (first index, index count) after one culled call
-    internal static List<(uint First, uint Count)>[] Culled(TerrainWorld world, TerrainView view, bool backFaces)
+    private static List<(uint First, uint Count)>[] Culled(TerrainWorld world, TerrainView view, bool backFaces)
     {
         world.CullRows(view, backFaces);
         var counters = CullingState.Counters(1);
@@ -96,11 +105,21 @@ public sealed class FaceSplitsGpuTests
             var positions = world.Positions[p];
             var drawn = new bool[positions.Length / 12];
             foreach (var (first, count) in culled[p])
-                for (var f = first / 6; f < (first + count) / 6; f++) drawn[f] = true;
-            foreach (var location in CullingState.Listed(world.Pools[p]).Where(l => whole[p].Any(c => c.First == l.IndicesStart)))
+            {
+                for (var f = first / 6; f < (first + count) / 6; f++)
+                {
+                    drawn[f] = true;
+                }
+            }
+
+            foreach (var location in CullingState.Listed(world.Pools[p])
+                         .Where(l => whole[p].Any(c => c.First == l.IndicesStart)))
+            {
                 for (var f = location.IndicesStart / 6; f < location.IndicesEnd / 6; f++)
-                    if (!drawn[f] && Facing(positions, f, eye))
-                        missing++;
+                {
+                    if (!drawn[f] && Facing(positions, f, eye)) missing++;
+                }
+            }
         }
 
         return missing;

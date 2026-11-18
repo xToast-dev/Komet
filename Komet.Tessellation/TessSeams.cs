@@ -12,8 +12,9 @@ namespace Komet.Tessellation;
 // neighbour moves, engine fields, and foreign-patch rechecks at install, first pass and every RecheckMs after
 internal static class TessSeams
 {
-    public const int Size = 32, Ext = 34, Plane = Ext * Ext, ExtCells = Ext * Ext * Ext, Cells = Size * Size * Size;
-    public const int Faces = 6, RecheckMs = 2000;
+    public const int Size = 32, Ext = 34, Plane = Ext * Ext, ExtCells = Ext * Ext * Ext;
+    public const int Faces = 6;
+    private const int RecheckMs = 2000;
     private const int MaxFields = 32; // engine fields one feature checks
 
     // TileSideEnum's sides, and the halo index of the chunk's first cell
@@ -30,11 +31,19 @@ internal static class TessSeams
 
     internal static ILogger? Logger { get; private set; }
 
+    // Load or flight backlog: memory-only work (DeepCulling, FarFoliage going leaner, PoolTrim) waits; geometry doesn't
+    public static bool Backlogged =>
+        RuntimeStats.chunksAwaitingTesselation > 150 || RuntimeStats.chunksAwaitingPooling > 100;
+
     public static void Install(Harmony harmony, ILogger? logger)
     {
         (Logger, _nextCheck) = (logger, 0);
         var pass = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.NowProcessChunk));
-        if (!NotNull(harmony) || !NotNull(pass)) return; // the features keep what they found at install
+        if (!NotNull(pass))
+        {
+            return; // the features keep what they found at install
+        }
+
         _ = harmony.Patch(pass, new HarmonyMethod(Pass) { priority = Priority.First });
     }
 
@@ -44,6 +53,7 @@ internal static class TessSeams
         var now = Environment.TickCount64;
         var due = Volatile.Read(ref _nextCheck);
         if (now < due || Interlocked.CompareExchange(ref _nextCheck, now + RecheckMs, due) != due) return;
+
         Recheck();
     }
 
@@ -53,10 +63,6 @@ internal static class TessSeams
         OwnTessellation.Recheck();
         OccludedChunks.Recheck();
     }
-
-    // Load or flight backlog: memory-only work (DeepCulling, FarFoliage going leaner, PoolTrim) waits; geometry doesn't
-    public static bool Backlogged =>
-        RuntimeStats.chunksAwaitingTesselation > 150 || RuntimeStats.chunksAwaitingPooling > 100;
 
     public static bool Standard(int[]? moves) =>
         NotNull(moves) && moves.Length == Faces && moves.AsSpan().SequenceEqual(Moves);
@@ -77,12 +83,15 @@ internal static class TessSeams
         return Fields(feature, logger, "the engine's version runs", fields);
     }
 
-    public static bool Fields(string feature, ILogger? logger, string instead, (Type Owner, string Name, Type Type)[] fields)
+    public static bool Fields(string feature, ILogger? logger, string instead,
+        (Type Owner, string Name, Type Type)[] fields)
     {
         foreach (var (owner, name, type) in fields.Bounded(MaxFields))
         {
             if (AccessTools.DeclaredField(owner, name)?.FieldType == type) continue;
-            logger?.Warning("Komet {0}: the engine field {1}.{2} is missing or of another type, {3}", feature, owner.Name, name,
+
+            logger?.Warning("Komet {0}: the engine field {1}.{2} is missing or of another type, {3}", feature,
+                owner.Name, name,
                 instead);
             return false;
         }

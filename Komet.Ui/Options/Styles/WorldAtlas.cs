@@ -12,21 +12,36 @@ namespace Komet.Options;
 internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
 {
     public const int Size = 256;
-    private const int Count = Size * Size, Chunk = 32, MinReach = 512, MaxReach = 1 << 17, MaxPieces = 1 << 18, MaxBlob = 1 << 16;
-    private const double Refresh = 30, Moved = 512, Turn = 2.5; // Turn: the view's ease per second
 
-    private LoadedTexture _texture = new(capi);
+    private const int Count = Size * Size,
+        Chunk = 32,
+        MinReach = 512,
+        MaxReach = 1 << 17,
+        MaxPieces = 1 << 18,
+        MaxBlob = 1 << 16;
+
+    private const double Refresh = 30, Moved = 512, Turn = 2.5; // Turn: the view's ease per second
     private Task<(int[]? Pixels, double Reach, (double X, double Z) Center)>? _job;
     private (double X, double Z, double At) _made = (double.NaN, double.NaN, double.NegativeInfinity);
-    private bool _warned;
+
+    private WorldMapManager?
+        _maps; // found once: GetModSystem is a LINQ walk over every mod system, asked several times a frame
+
+    private LoadedTexture _texture = new(capi);
     private (double X, double Z) _view = (double.NaN, double.NaN); // where the globe looks: eased toward the player
     private long _viewAt;
-    private WorldMapManager? _maps; // found once: GetModSystem is a LINQ walk over every mod system, asked several times a frame
+    private bool _warned;
 
     public int Texture => Allowed ? _texture.TextureId : 0;
 
     // Whether this world has a map the player may see
-    public bool Allowed => capi.World is not null && Maps() is { } maps && maps.mapAllowedClient();
+    private bool Allowed => capi.World is not null && Maps() is { } maps && maps.mapAllowedClient();
+
+    // Blocks from the atlas' centre to its edge, and where its centre lies in the world (the player's place when read)
+    private double Reach { get; set; } = MinReach;
+    private (double X, double Z) Center { get; set; }
+
+    public void Dispose() => _texture.Dispose();
 
     // The atlas lives as long as its world (OptionsScreen per client API), so the mod system it found stays that world's
     private WorldMapManager? Maps()
@@ -35,21 +50,19 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         return _maps;
     }
 
-    // Blocks from the atlas' centre to its edge, and where its centre lies in the world (the player's place when read)
-    public double Reach { get; private set; } = MinReach;
-    public (double X, double Z) Center { get; private set; }
-
     // The globe at the world's true size: its radius in blocks (the map's width as the circumference), the map's reach,
     // the player's offset from the atlas' centre, the centre's place inside its chunk (to lay the chunk grid), the
     // player's yaw (radians, the game's: looking toward -sin, -cos in x, z), the centre's chunk
-    public (float Radius, float Reach, float Dx, float Dz, float Cx, float Cz, float Yaw, float ChunkX, float ChunkZ) Scale()
+    public (float Radius, float Reach, float Dx, float Dz, float Cx, float Cz, float Yaw, float ChunkX, float ChunkZ)
+        Scale()
     {
         var at = capi.World?.Player?.Entity?.Pos;
-        var width = capi.World?.BlockAccessor?.MapSizeX ?? 1024000;
+        var width = capi.World?.BlockAccessor.MapSizeX ?? 1024000;
         if (at is null || !Assert(width > 0)) return default;
+
         var (x, z) = Viewed(at.X, at.Z);
         return ((float)(width / (2 * Math.PI)), (float)Reach, (float)(x - Center.X), (float)(z - Center.Z),
-            (float)(((Center.X % Chunk) + Chunk) % Chunk), (float)(((Center.Z % Chunk) + Chunk) % Chunk), at.Yaw,
+            (float)((Center.X % Chunk + Chunk) % Chunk), (float)((Center.Z % Chunk + Chunk) % Chunk), at.Yaw,
             (float)Math.Floor(Center.X / Chunk), (float)Math.Floor(Center.Z / Chunk));
     }
 
@@ -59,7 +72,11 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         var now = Environment.TickCount64;
         var dt = Math.Clamp((now - _viewAt) / 1000.0, 0, 0.25); // a closed screen's pause does not skip the turn
         _viewAt = now;
-        if (!double.IsFinite(_view.X + _view.Z)) _view = (x, z); // the first look: no turn from nowhere
+        if (!double.IsFinite(_view.X + _view.Z))
+        {
+            _view = (x, z); // the first look: no turn from nowhere
+        }
+
         var k = 1 - Math.Exp(-dt * Turn);
         _view = (_view.X + (x - _view.X) * k, _view.Z + (z - _view.Z) * k);
         return _view;
@@ -71,20 +88,26 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         if (_job is { IsCompleted: true } done)
         {
             _job = null;
-            if (done.IsCompletedSuccessfully && done.Result.Pixels is { } pixels)
+            if (done is { IsCompletedSuccessfully: true, Result.Pixels: { } pixels })
             {
                 Upload(pixels);
                 (Reach, Center) = (done.Result.Reach, done.Result.Center); // with the texture they describe
             }
-            else Warn(done.Exception?.GetBaseException()?.Message);
+            else
+            {
+                Warn(done.Exception?.GetBaseException().Message);
+            }
         }
 
         if (_job is not null || !Allowed || capi.World?.Player?.Entity?.Pos is not { } at || !Finite(clock)) return;
+
         var far = double.IsNaN(_made.X) || Math.Abs(at.X - _made.X) + Math.Abs(at.Z - _made.Z) > Moved;
         if (!far && clock - _made.At < Refresh) return;
+
         _made = (at.X, at.Z, clock);
         var file = Path.Join(GamePaths.DataPath, "Maps", capi.World.SavegameIdentifier + ".db");
         if (!File.Exists(file)) return;
+
         var (x, z) = (at.X, at.Z);
         _job = Task.Run(() => Build(file, x, z));
     }
@@ -98,6 +121,7 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         using var map = Open(file);
         var positions = Positions(map);
         if (positions.Count == 0 || !Finite(x + z)) return (null, MinReach, (x, z));
+
         var reach = Reached(positions, x, z);
         var (pixels, step) = (new int[Count], 2 * reach / Size);
         var (blob, colors) = (new byte[MaxBlob], new int[Chunk * Chunk]); // one of each for every piece read
@@ -106,12 +130,15 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
             var corner = ((double)cx * Chunk - (x - reach), (double)cz * Chunk - (z - reach));
             if (!Shown(corner, step)) continue;
             // position is the table's integer primary key, so its rowid: the blob streams into the buffer, no copy made
-            using var piece = new SqliteBlob(map, "mappiece", "data", (long)position, readOnly: true);
+            using var piece = new SqliteBlob(map, "mappiece", "data", (long)position, true);
             var length = (int)Math.Min(piece.Length, MaxBlob + 1L);
             if (length is <= 0 or > MaxBlob) continue;
+
             piece.ReadExactly(blob, 0, length);
             if (Colours(blob.AsSpan(0, length), colors) || Deserialized(blob.AsSpan(0, length), colors))
+            {
                 Lay(pixels, corner, step, colors);
+            }
         }
 
         return (pixels, reach, (x, z));
@@ -128,19 +155,25 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
             if (tag == 0x08)
             {
                 if (!Varint(data, ref at, out var value)) return false;
+
                 into[n++] = (int)value;
             }
             else if (tag == 0x0A)
             {
                 if (!Varint(data, ref at, out var run) || run > (ulong)(data.Length - at)) return false;
+
                 var end = at + (int)run;
                 for (var k = 0; k < MaxBlob && at < end && n < into.Length; k++)
                 {
                     if (!Varint(data, ref at, out var value)) return false;
+
                     into[n++] = (int)value;
                 }
             }
-            else return false;
+            else
+            {
+                return false;
+            }
         }
 
         return n == into.Length && at == data.Length;
@@ -174,6 +207,7 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         }
 
         if (piece?.Pixels is not { Length: Chunk * Chunk } read) return false;
+
         read.CopyTo(into, 0);
         return true;
     }
@@ -182,8 +216,11 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
     private static ((int From, int To) X, (int From, int To) Z) Texels((double Left, double Top) corner, double step)
     {
         var (left, top) = corner;
-        return ((Math.Max(0, (int)Math.Ceiling(left / step - 0.5)), Math.Min(Size - 1, (int)Math.Floor((left + Chunk) / step - 0.5))),
-            (Math.Max(0, (int)Math.Ceiling(top / step - 0.5)), Math.Min(Size - 1, (int)Math.Floor((top + Chunk) / step - 0.5))));
+        return (
+            (Math.Max(0, (int)Math.Ceiling(left / step - 0.5)),
+                Math.Min(Size - 1, (int)Math.Floor((left + Chunk) / step - 0.5))),
+            (Math.Max(0, (int)Math.Ceiling(top / step - 0.5)),
+                Math.Min(Size - 1, (int)Math.Floor((top + Chunk) / step - 0.5))));
     }
 
     private static bool Shown((double Left, double Top) corner, double step)
@@ -199,8 +236,13 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
         var (left, top) = corner;
         var ((from, to), (up, down)) = Texels(corner, step);
         for (var tz = up; tz <= Math.Min(down, Size - 1); tz++)
+        {
             for (var tx = from; tx <= Math.Min(to, Size - 1); tx++)
-                pixels[tz * Size + tx] = Mean(colors, (tx + 0.5) * step - left, (tz + 0.5) * step - top, step) | unchecked((int)0xFF000000);
+            {
+                pixels[tz * Size + tx] = Mean(colors, (tx + 0.5) * step - left, (tz + 0.5) * step - top, step) |
+                                     unchecked((int)0xFF000000);
+            }
+        }
     }
 
     // The map's colour around a point of the chunk, averaged over a 3 x 3 grid across the texel's width: the map's
@@ -217,7 +259,7 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
             (r, g, b) = (r + (c & 0xFF), g + ((c >> 8) & 0xFF), b + ((c >> 16) & 0xFF));
         }
 
-        return r / 9 | (g / 9 << 8) | (b / 9 << 16);
+        return (r / 9) | ((g / 9) << 8) | ((b / 9) << 16);
     }
 
     // no pooling: a pooled connection keeps the file open after Dispose, and on Windows the game then cannot open its own
@@ -252,7 +294,11 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
     {
         var distances = new double[Math.Min(pieces.Count, MaxPieces)];
         for (var i = 0; i < Math.Min(distances.Length, MaxPieces); i++)
-            distances[i] = Math.Max(Math.Abs((double)pieces[i].X * Chunk + Chunk / 2.0 - x), Math.Abs((double)pieces[i].Z * Chunk + Chunk / 2.0 - z));
+        {
+            distances[i] = Math.Max(Math.Abs((double)pieces[i].X * Chunk + Chunk / 2.0 - x),
+                Math.Abs((double)pieces[i].Z * Chunk + Chunk / 2.0 - z));
+        }
+
         Array.Sort(distances);
         var far = distances.Length > 0 ? distances[(int)(distances.Length * 0.97)] : MinReach;
         return Math.Clamp(far + Chunk, MinReach, MaxReach);
@@ -267,12 +313,9 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
     private void Warn(string? why)
     {
         if (_warned) return;
-        _warned = true;
-        capi.Logger?.Warning("Komet styles: the world map could not be read for the globe: {0}", why ?? "no pieces yet");
-    }
 
-    public void Dispose()
-    {
-        _texture.Dispose();
+        _warned = true;
+        capi.Logger?.Warning("Komet styles: the world map could not be read for the globe: {0}",
+            why ?? "no pieces yet");
     }
 }

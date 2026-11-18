@@ -3,7 +3,7 @@
 A complete shader mod that runs on OpenGL and on Komet's Vulkan renderer: two passes, settings with uniforms and a
 define, texts in two languages, and an optional C# part.
 
-Get it in game with *Modding › Templates › Create Vulkan template* (it lands in
+Get it in game with *Modding › Templates › Shader mod project with optional C# integration* (it lands in
 `ModConfig/komet/mod-template/myshaders-dev` and the folder opens), or download
 [komet-vulkan-template.zip](../downloads/komet-vulkan-template.zip).
 
@@ -108,12 +108,15 @@ void main()
 `KometBridge.cs` shows what a file cannot do: a value from the game, live, and a define for one pass.
 
 ```csharp
-KometShaders.Define("myshaders", "MYSHADERS_CODE", () => "1", "pass:haze");
-KometShaders.Uniform("myshaders", "myshadersHour", () => api.World.Calendar.HourOfDay);
+var komet = Kapi.Connect(system, "1.0");
+if (komet is null) return; // no KAPI 1.0: komet.json still works on its own
+komet.Shaders.Define("MYSHADERS_CODE", () => "1", "pass:haze");
+komet.Shaders.Uniform("myshadersHour", () => api.World.Calendar.HourOfDay);
 ```
 
-The mod id `myshaders` is the mod's domain, the same id the `komet.json` pack has, so both reach the file's
-passes. Build it with
+KAPI takes the mod id from `modinfo.json`: `myshaders`, the mod's domain, the same id the `komet.json` pack has, so
+both reach the file's passes. `MyShadersSystem` calls the bridge only when Komet is enabled, so the mod loads without
+Komet too. Build it with
 `dotnet build -c Release -p:VintageStory=<game folder> -p:Komet=<path to Komet.Core.dll>`; `MyShaders.dll` lands
 in `myshaders/` next to `modinfo.json`. Then set `"type": "code"` there.
 

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
@@ -24,70 +25,89 @@ internal static class PartitionReuse
 
     public static long Reused => Interlocked.Read(ref _reused);
 
+    // The three bodies the transpilers rewrite
+    internal static MethodBase?[] Replaced =>
+    [
+        AccessTools.TypeByName(Partitioning) is { } partitioning
+            ? AccessTools.DeclaredMethod(partitioning, "PartitionEntities", [typeof(ICollection<Entity>)])
+            : null,
+        AccessTools.TypeByName(ChunkType) is { } chunk
+            ? AccessTools.DeclaredMethod(chunk, "Add", [typeof(Entity), typeof(int)])
+            : null,
+        AccessTools.TypeByName(ChunkType) is { } lists
+            ? AccessTools.DeclaredMethod(lists, "FetchOrCreateList", [typeof(List<Entity>).MakeByRefType()])
+            : null
+    ];
+
     public static void Install(Harmony harmony)
     {
         _rewritten = 0;
         var (partitioning, chunk) = (AccessTools.TypeByName(Partitioning), AccessTools.TypeByName(ChunkType));
-        if (!NotNull(harmony) || !NotNull(partitioning) || !NotNull(chunk) || !Fields(chunk)) return;
+        if (!NotNull(partitioning) || !NotNull(chunk) || !Fields(chunk)) return;
+
         var partition = AccessTools.DeclaredMethod(partitioning, "PartitionEntities", [typeof(ICollection<Entity>)]);
         var add = AccessTools.DeclaredMethod(chunk, "Add", [typeof(Entity), typeof(int)]);
         var fetch = AccessTools.DeclaredMethod(chunk, "FetchOrCreateList", [typeof(List<Entity>).MakeByRefType()]);
         if (!NotNull(partition) || !NotNull(add) || !NotNull(fetch)) return;
+
         _ = harmony.Patch(fetch, transpiler: new HarmonyMethod(RewriteFetch));
         _ = harmony.Patch(add, transpiler: new HarmonyMethod(RewriteAdd));
         _ = harmony.Patch(partition, transpiler: new HarmonyMethod(RewritePartition),
             finalizer: new HarmonyMethod(Close));
     }
 
-    // The three bodies the transpilers rewrite
-    internal static System.Reflection.MethodBase?[] Replaced =>
-    [
-        AccessTools.TypeByName(Partitioning) is { } partitioning
-            ? AccessTools.DeclaredMethod(partitioning, "PartitionEntities", [typeof(ICollection<Entity>)]) : null,
-        AccessTools.TypeByName(ChunkType) is { } chunk ? AccessTools.DeclaredMethod(chunk, "Add", [typeof(Entity), typeof(int)]) : null,
-        AccessTools.TypeByName(ChunkType) is { } lists
-            ? AccessTools.DeclaredMethod(lists, "FetchOrCreateList", [typeof(List<Entity>).MakeByRefType()]) : null
-    ];
-
     private static bool Fields(Type chunk) =>
         Assert(AccessTools.DeclaredField(chunk, "Entities")?.FieldType == typeof(List<Entity>[])) &&
-        Assert(AccessTools.DeclaredField(chunk, "InanimateEntities")?.FieldType == typeof(List<Entity>[])) &&
-        Assert(chunk.IsClass && AccessTools.DeclaredConstructor(chunk, []) is not null);
+               Assert(AccessTools.DeclaredField(chunk, "InanimateEntities")?.FieldType == typeof(List<Entity>[])) &&
+               Assert(chunk.IsClass && AccessTools.DeclaredConstructor(chunk, []) is not null);
 
     internal static List<CodeInstruction> RewritePartition(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~PartitionBit;
         var chunk = AccessTools.TypeByName(ChunkType);
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(chunk)) return code;
+
         var dictionary = typeof(Dictionary<,>).MakeGenericType(typeof(long), chunk);
         var (clear, ctor) = (AccessTools.Method(dictionary, nameof(Dictionary<,>.Clear)),
             AccessTools.DeclaredConstructor(chunk, []));
         if (!NotNull(clear) || !NotNull(ctor)) return code;
+
         var (cleared, made) = (Il.Single(code, c => c.Calls(clear)), Il.Single(code, c => c.Is(OpCodes.Newobj, ctor)));
         if (!Assert(cleared >= 0) || !Assert(made > cleared)) return code;
+
         var retire = AccessTools.Method(typeof(PartitionReuse), nameof(Retire)).MakeGenericMethod(chunk);
         var take = AccessTools.Method(typeof(PartitionReuse), nameof(Take)).MakeGenericMethod(chunk);
         if (Il.Substitute(code, cleared, retire) && Il.Substitute(code, made, take)) _rewritten |= PartitionBit;
+
         return code;
     }
 
-    internal static List<CodeInstruction> RewriteAdd(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> RewriteAdd(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~AddBit;
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code))) return code;
+
         if (Assert(Il.SubstituteSingle(code, c => c.opcode == OpCodes.Newarr && Equals(c.operand, typeof(List<Entity>)),
                 AccessTools.Method(typeof(PartitionReuse), nameof(TakeArray)))))
+        {
             _rewritten |= AddBit;
+        }
+
         return code;
     }
 
-    internal static List<CodeInstruction> RewriteFetch(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> RewriteFetch(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~FetchBit;
         var ctor = AccessTools.DeclaredConstructor(typeof(List<Entity>), [typeof(int)]);
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor)) return code;
-        if (Assert(Il.SubstituteSingle(code, c => c.Is(OpCodes.Newobj, ctor), AccessTools.Method(typeof(PartitionReuse), nameof(TakeList)))))
+
+        if (Assert(Il.SubstituteSingle(code, c => c.Is(OpCodes.Newobj, ctor),
+                AccessTools.Method(typeof(PartitionReuse), nameof(TakeList)))))
+        {
             _rewritten |= FetchBit;
+        }
+
         return code;
     }
 
@@ -95,6 +115,7 @@ internal static class PartitionReuse
     internal static void Retire<TChunk>(Dictionary<long, TChunk> partitions) where TChunk : class, new()
     {
         if (!NotNull(partitions)) return;
+
         Spares.Current = null;
         if (Enabled)
         {
@@ -103,35 +124,51 @@ internal static class PartitionReuse
             pool.Remember(partitions);
             Spares.Current = pool;
         }
-        else Pools<TChunk>.Forget(partitions);
+        else
+        {
+            Pools<TChunk>.Forget(partitions);
+        }
 
         partitions.Clear();
     }
 
     // Finalizer on PartitionEntities: nothing is pooled outside it; a void finalizer rethrows untouched
-    internal static void Close() => Spares.Current = null;
+    private static void Close() => Spares.Current = null;
 
     internal static TChunk Take<TChunk>() where TChunk : class, new()
     {
         if (!Enabled || Spares.Current is not Pool<TChunk> pool || !pool.Free.TryPop(out var chunk))
+        {
             return new TChunk();
+        }
+
         if (Counting.Hud) _ = Interlocked.Increment(ref _reused);
+
         return chunk;
     }
 
     internal static List<Entity>[] TakeArray(int length)
     {
         if (!Enabled || Spares.Current is not { } spares || !spares.Arrays.TryPeek(out var array) ||
-            array.Length != length) return new List<Entity>[length];
+            array.Length != length)
+        {
+            return new List<Entity>[length];
+        }
+
         if (Counting.Hud) _ = Interlocked.Increment(ref _reused);
+
         return spares.Arrays.Pop();
     }
 
     internal static List<Entity> TakeList(int capacity)
     {
         if (!Enabled || Spares.Current is not { } spares || !spares.Lists.TryPop(out var list))
+        {
             return new List<Entity>(capacity);
+        }
+
         if (Counting.Hud) _ = Interlocked.Increment(ref _reused);
+
         return list;
     }
 
@@ -146,6 +183,7 @@ internal static class PartitionReuse
             for (var i = 0; i < Math.Min(array.Length, MaxCells); i++)
             {
                 if (array[i] is not { } list) continue;
+
                 list.Clear();
                 if (Lists.Count < MaxLists) Lists.Push(list);
             }
@@ -174,9 +212,11 @@ internal static class PartitionReuse
             {
                 var chunk = chunks.Current;
                 if (Access<TChunk>.Entities(chunk) is { } entities) Empty(entities);
+
                 ref var inanimate = ref Access<TChunk>.Inanimate(chunk);
                 if (inanimate is not null) Keep(inanimate);
-                inanimate = null;
+
+                inanimate = null!; // the array's slots are empty lists until an entity arrives
                 if (Free.Count < MaxChunks) Free.Push(chunk);
             }
 
@@ -187,7 +227,9 @@ internal static class PartitionReuse
         {
             using var chunks = partitions.Values.GetEnumerator();
             for (var i = 0; i < MaxChunks && chunks.MoveNext(); i++)
+            {
                 if (chunks.Current is { } chunk) _ = _last.Add(chunk);
+            }
         }
     }
 

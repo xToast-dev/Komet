@@ -1,6 +1,6 @@
-using Komet.Api;
 using Komet.Core;
 using Komet.Diagnostics;
+using Komet.Api;
 using Komet.Tessellation;
 using Vintagestory.API.Client.Tesselation;
 
@@ -34,6 +34,12 @@ internal static class GameLang
     }
 }
 
+// Komet's own features in install order
+internal static class BuiltIns
+{
+    public static Feature[] All() => [.. Enumerable.Range(0, FeatureTable.BuiltInCount).Select(FeatureTable.At)];
+}
+
 // One built-in feature installed through its registry entry, as KometModSystem installs it: a server in this process and no game API,
 // which none of the features the tests install asks for.
 internal sealed class FeatureRig : IDisposable
@@ -45,18 +51,18 @@ internal sealed class FeatureRig : IDisposable
         Feature = Features.Find(id);
         Assert.That(Feature, Is.GreaterThanOrEqualTo(0), id);
         _harmony = new TestHarmony("komet-test-feature-" + id.ToLowerInvariant());
-        Features.InstallAt(new FeatureContext(_harmony, null!, logger ?? new QuietLogger(), true), Feature);
+        FeatureLifecycle.InstallAt(new FeatureContext(_harmony, null!, logger ?? new QuietLogger(), true), Feature);
     }
 
     public int Feature { get; }
 
-    public FeatureState State => Features.Evaluate(Feature);
+    public KapiFeatureState State => Features.Evaluate(Feature);
 
     public void Dispose()
     {
-        Features.All[Feature].Stop?.Invoke(null);
+        FeatureTable.At(Feature).Stop?.Invoke(null);
         _harmony.Dispose();
-        Features.Close();
+        FeatureLifecycle.Close();
     }
 }
 
@@ -65,8 +71,11 @@ internal sealed class FeatureRig : IDisposable
 // Everything else stays null, which the engine's paths under test never touch.
 internal sealed class TessRig : IDisposable
 {
-    public const int Ext = TessSeams.Ext, ExtCells = TessSeams.ExtCells, Cells = TessSeams.Cells,
+    public const int Ext = TessSeams.Ext,
+        ExtCells = TessSeams.ExtCells,
         Plane = TessSeams.Plane;
+
+    private const int Cells = TessSeams.Size * TessSeams.Size * TessSeams.Size;
 
     public static readonly int[] Moves = TessSeams.Moves;
 
@@ -82,24 +91,15 @@ internal sealed class TessRig : IDisposable
         Rgb = TessSeams.RgbsExt(Tesselator) = new int[ExtCells];
         TessSeams.Draw(Tesselator) = new byte[Cells];
         TessSeams.BlocksFast(Tesselator) = palette;
-        Pos = TessSeams.TmpPos(Tesselator) = new BlockPos(0);
-        Air = palette[0];
+        _ = TessSeams.TmpPos(Tesselator) = new BlockPos(0);
         Vars = new TCTCache(Tesselator);
     }
 
-    public ChunkTesselator Tesselator { get; }
+    private ChunkTesselator Tesselator { get; }
     public TCTCache Vars { get; }
     public Block[] Solid { get; }
     public Block[] Fluid { get; }
     public int[] Rgb { get; }
-    public BlockPos Pos { get; }
-    public Block Air { get; }
-
-    public byte[] DrawBuffer
-    {
-        get => TessSeams.Draw(Tesselator)!;
-        set => TessSeams.Draw(Tesselator) = value;
-    }
 
     public void Dispose() => _moves.CopyTo(TileSideEnum.MoveIndex, 0);
 
@@ -128,7 +128,11 @@ internal static class TessMix
     public static bool Bit(params int[] values)
     {
         var h = 0x9E3779B9u;
-        foreach (var v in values) h = ((h ^ (uint)v) * 0x85EBCA6Bu) ^ (h >> 13);
+        foreach (var v in values)
+        {
+            h = ((h ^ (uint)v) * 0x85EBCA6Bu) ^ (h >> 13);
+        }
+
         return ((h ^ (h >> 16)) & 1) != 0;
     }
 }
@@ -136,9 +140,10 @@ internal static class TessMix
 // IModLoader with one mod; only Mods is read by the walk
 public class OneModLoader : DispatchProxy
 {
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    protected override object Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         if (targetMethod?.Name != "get_Mods") throw new NotSupportedException(targetMethod?.Name);
+
         var mod = new TestMod();
         typeof(Mod).GetProperty(nameof(Mod.Info))!.SetValue(mod,
             new ModInfo { Name = "Komet", Version = "1.2.3", ModID = "komet" });

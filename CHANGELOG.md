@@ -1,29 +1,115 @@
 # Changelog
 
-## 3.0.0 (2026-11-02)
+## 3.0.0-pre.4 (2026-11-17)
 
 ### Changed
 
+- **Komet Shader Studio** (Ctrl+F8, `.komet dev`): a full-screen shader and config IDE in the menu style. One tree
+  from your Vintagestory folder (game files read-only, deletes go to a recycle bin), projects as folders with copies of
+  the game's shaders, IntelliSense with snippets, find/replace and search in files, problems per renderer
+  (OpenGL/Vulkan) with the right line, history and last good state, side-by-side compare, "original changed" after a
+  game update, every frame stage as a module (game, your project or off), whether a shader is drawn at all, export as
+  a mod. A shader that fails to compile no longer counts as loaded: the game keeps the last good state.
+- **One dockable window for every other tool** (Ctrl+F7): Overview, Frames, System, Render, Threads, Log, Protocol and
+  Inspector as one flat tab bar; the separate debug window is gone. Settings and version open from the gear and the badges.
+- **Force in the game** (Shader Studio, under "Game runs"): the open shader is drawn live although its conditions hide
+  it: the aurora at full strength in any climate and at any time; god rays, SSAO, bloom, FXAA, cloud modes, shadows,
+  particles and the transparent pass with their graphics setting switched on (the player's settings come back when it
+  is switched off or the world closes). Other shaders say they are always drawn.
+- The 3D preview shows the game's climate and season tint (temperature, rainfall and season sliders).
+- `.komet shadertest`: every shader opened in the 3D view, its picture saved and judged, contact sheets and a report.
+- The render inspector's switches work without the game's developer mode.
+- Everything for mod authors moved into the **Komet SDK** (`kometsdk`, now with Komet's icon): the Modding pages and
+  the templates. Komet alone shows only the Help pages.
 - **Shader mods run without asking**: every mod with shaders runs as it would without Komet, also one that replaces the
   game's shaders (Immersive Foliage). It needs no update and no `komet.json`; its switch under Shaders › Active shaders
   turns it off. Only a mod whose required mod is missing stays off.
 - The renderer is suggested per graphics card: Vulkan-only once it ran cleanly on that card with 6 GB video memory or
   more, OpenGL for good after a Vulkan failure. Your own choice always wins.
+- Rebuilt inside: modules talk through typed services instead of hooks, features declare what they install after
+  instead of one central list, settings are stored by the core, the HUD is split into a sampler, a capture service and
+  one class per tab, the protocol is built as structured sections (its text format is unchanged).
 
 ### Fixed
 
+- Shader Studio: edits of the survival and creative shaders (galaxy, rift, machine gear) never reached the game
+  ("Not applied" after TEST).
+- Shader Studio: the game picture flickered on every edit (the build reloaded the shaders in the middle of a frame).
+- Shader Studio: "Game runs: Vanilla" switched back to your version when the workbench closed, and could show the
+  wrong side after a restart.
 - Primitive Survival (and other mods with blocks, items or world generation that also ship shaders) crashed the join
   ("Don't know how to instantiate … inTreeHollowTransform"): Komet took it for a shader mod and held its code back.
 - Rivers' client half no longer held back; no error on leaving a world after a mod was held back.
 - Chinese, Japanese, Korean and other scripts show again in Komet's menu, overlay and windows: where the menu style's
   font lacks the letters, the game's font (the one set for your language) is used.
 - A Culinary Artillery: Komet's cooking rewrite stands back where ACA replaces the ingredient match.
+- OverhaulLib Legacy Compat and every mod built on it (Tools Animations, Combat Overhaul fork) crashed the join in
+  pre.3 (ToolsAnimations.AxeClient threw): Komet took it for a shader mod and skipped its systems. Shader mods run by
+  default now, and a mod other mods depend on is never held back for a version mismatch.
+- Vulkan-only with Fast Map: the world map showed only one section. Fast Map makes and fills its map atlases through
+  OpenTK's OpenGL4 bindings, which keep a table of their own; Komet now hears those calls too, so every page reaches Vulkan.
+- Windows, Vulkan-only: the window could stay black after switching to Vulkan until Alt-Tab; the first swapchain is made
+  anew once after three frames, as Alt-Tab did.
+- Shaders › Active shaders: [R] Standard and Del switched a shader mod not made for Komet off instead of on.
+- *Panel opacity* acts over the whole slider: the panels and the screen's dim and blur follow it (it seemed to stop at
+  about 55 to 64 %).
 
 ### Performance
 
 - Less memory: sounds are decoded when first played instead of all at the join (~200 MB), equal animation keyframes
   are shared (~70 MB), equal attribute values are shared (30–60 MB), stone and air chunks near you stay packed in
   singleplayer, and the GPU culling's row buffer grows only as needed (up to 75 MB less video memory).
+
+### For mod authors (breaking)
+
+- **KAPI 1.0**: Komet's API for other mods, rebuilt from scratch in the namespace `Komet.Api` (still in
+  `Komet.Core.dll`). A mod connects once in `StartClientSide` with `var komet = Kapi.Connect(this, "1.0");` and
+  reaches everything through that connection: `komet.Shaders`, `komet.Rendering`, `komet.Options`, `komet.Features`, `komet.Debug` and
+  `komet.Styles`. Every registration carries the mod id from `modinfo.json` (no call asks for it), `komet.Dispose()`
+  takes everything back at once (features stay until the world closes), and a connection lasts one world.
+  `komet.Shaders.TryAddPasses(...)` compiles passes at once and returns a `KapiRegistration` (`Active`, `Error`), for
+  mods that fall back to a renderer of their own.
+- **Render steps**: `komet.Rendering.AddStep(new KapiRenderStep(id, KapiRenderStage.X, render) { Order, Range,
+  Enabled })` runs a mod's own code at a named place of Komet's frame (`Before` to `Done`), on OpenGL and under Vulkan.
+  Komet times each step, books it in `.komet debug` as `modid:id`, switches it off for the world when it throws, and
+  skips it while the player switched the mod off. The same id replaces; up to 64 steps of all mods together.
+- **Connected mods page** (*Overview › Connected mods*): one switch per connected mod (off stops its render steps for
+  the session) and a card with its KAPI version, what it registered and each render step's stage and cost or error;
+  mods Komet refused this world are listed with the reason.
+- **Versioning**: KAPI is `major.minor` (`Kapi.Version`, `Major`, `Minor`, `Supports`). Komet connects a mod when
+  the major versions match and its own minor is the same or newer; otherwise `Connect` returns null and logs both
+  versions. A minor version only adds; a major version may change or remove and comes with a migration table here.
+- **Removed (breaking)**: the old API (2.x) is no longer public: `KometShaders`, `KometPass`,
+  `KometPassStage`, `KometRenderer`, `PassCapabilities`, `KometIntegration`, `KometOptions`, `OptionPage`,
+  `KometFeatures`, `FeatureDefinition`, `FeatureKnob`, `FeatureHold`, `FeatureState`, `FeatureInfo`, `PatchKinds`,
+  `KometDebug`, `KometTiming`, `KometStyles` and `KometStyle`. `komet.json` (the no-code path) is unchanged.
+
+  | Old (2.x)                                                      | New (`Komet.Api`, `komet` from `Kapi.Connect`)            |
+  |----------------------------------------------------------------|-----------------------------------------------------------|
+  | `KometShaders.Define(modId, name, value, programs)`            | `komet.Shaders.Define(name, value, programs)`             |
+  | `KometShaders.Uniform(modId, name, value)`                     | `komet.Shaders.Uniform(name, value)`                      |
+  | `KometShaders.Edit(modId, program, vertex, fragment)`          | `komet.Shaders.Edit(program, vertex, fragment)`           |
+  | `KometShaders.EditPass(modId, targetModId, passId, fragment)`  | `komet.Shaders.EditPass(modId, passId, fragment)`         |
+  | `KometShaders.AddPass(new KometPass(modId, id, stage, source))` | `komet.Shaders.AddPass(new KapiPass(id, source))`        |
+  | `TryAddPass`, `TryAddEffect`, `UsePassOrFallback`, `KometIntegration.StartOrFallback` | `komet.Shaders.TryAddPasses(...)`; `if (!fx.Active)` start your own |
+  | `KometShaders.Reload()`, `Renderer`, `Available`               | `KapiShaders.Reload()`, `Renderer`, `Available` (static)  |
+  | `KometShaders.RendererChanged`                                 | `komet.Shaders.RendererChanged`                           |
+  | `IDisposable` / null registrations                             | `KapiRegistration` (`Active`, `Error`, `Dispose()`)       |
+  | `KometOptions.Page(id, title, section)` → `OptionPage`         | `komet.Options.Page(title)` or `Page(id, title, section)` → `KapiPage` |
+  | `KometOptions.Applied`                                         | `komet.Options.Applied`                                   |
+  | `KometFeatures.Register(new FeatureDefinition(modId, name, title))` | `komet.Features.Register(new KapiFeature(name, title))` |
+  | `FeatureKnob.Switch`, `FeatureKnob.Range`                      | `KapiKnob.Switch`, `KapiKnob.Range`                       |
+  | `KometFeatures.HoldOff(id, modId, reason)` → `FeatureHold`     | `komet.Features.HoldOff(id, reason)` → `KapiHold`         |
+  | `KometFeatures.StateOf`, `Snapshot`, `Fingerprint`             | `KapiFeatures.StateOf`, `Snapshot`, `FingerprintOf`       |
+  | `KometFeatures.StateChanged`                                   | `komet.Features.StateChanged`                             |
+  | `FeatureState`, `FeatureInfo`, `PatchKinds`                    | `KapiFeatureState`, `KapiFeatureInfo`, `KapiPatchKinds`   |
+  | `KometDebug.Measure("modid:what")`                             | `komet.Debug.Measure("what")` (booked as `modid:what`)    |
+  | `KometDebug.Capturing`                                         | `KapiDebug.Capturing`                                     |
+  | `KometStyles.Register(new KometStyle { Id, Name, ... })`       | `komet.Styles.Register(new KapiStyle(id, name) { ... })`  |
+
+- `KometShaders.VulkanDraws` is a property; internal hook classes (`Links`) became service interfaces.
+- `KometSettings` is now `KnobSettings`; presets live in `Presets` (`Current`, `Changed`).
+- A built-in feature needs a unique `Order` and declares `After`/`Before`.
 
 ## 3.0.0-pre.3
 

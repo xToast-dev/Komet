@@ -22,7 +22,8 @@ public sealed class TickScratchTests
             Assert.That(TickScratch.Rewritten, Is.EqualTo(2));
             Assert.That(child.AsInt(), Is.EqualTo(3));
             Assert.That(TickScratch.Child(attributes, "killPlantRadius"), Is.SameAs(child));
-            Assert.That(TickScratch.Child(attributes, "KILLPLANTRADIUS").AsInt(), Is.EqualTo(3), "the engine's case-blind lookup");
+            Assert.That(TickScratch.Child(attributes, "KILLPLANTRADIUS").AsInt(), Is.EqualTo(3),
+                "the engine's case-blind lookup");
             Assert.That(TickScratch.Child(attributes, "absent").Exists, Is.False);
             Assert.That(TickScratch.Empty<int>(), Is.SameAs(empty));
         });
@@ -30,7 +31,8 @@ public sealed class TickScratchTests
         empty.Add(1);
         Assert.Multiple(() =>
         {
-            Assert.That(TickScratch.Child(attributes, "killPlantRadius").AsInt(), Is.EqualTo(5), "a new token under the key");
+            Assert.That(TickScratch.Child(attributes, "killPlantRadius").AsInt(), Is.EqualTo(5),
+                "a new token under the key");
             Assert.That(TickScratch.Empty<int>(), Is.Empty.And.Not.SameAs(empty));
         });
         TickScratch.Clear();

@@ -5,7 +5,8 @@ namespace Komet.Test.Gpu;
 
 public sealed class DepthPyramidGpuTests
 {
-    private const int Size = 66; // level 0 is 33 square, level 1 16: an odd level whose last row the mip chain's halving leaves over
+    private const int
+        Size = 66; // level 0 is 33 square, level 1 16: an odd level whose last row the mip chain's halving leaves over
 
     // Far only in the depth buffer's top row: every level's farthest must still reach the 1x1 level, or the screen's edge reads as
     // nearer than it is and what shows there is hidden
@@ -14,6 +15,7 @@ public sealed class DepthPyramidGpuTests
     {
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here: " + GlContext.Why);
+
         GpuBackends.Current = GlBackend.Instance;
         GL.GenTextures(1, out int depth);
         GL.BindTexture(TextureTarget.Texture2D, depth);

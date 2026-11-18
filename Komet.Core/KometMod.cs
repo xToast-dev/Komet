@@ -12,11 +12,12 @@ internal static class KometMod
     public static bool LocalServer { get; internal set; }
 
     // The mod's own assembly (Komet.dll), for the build metadata; the module assemblies carry none
-    public static Assembly Assembly { get; internal set; } = typeof(KometMod).Assembly;
+    public static Assembly Assembly { get; private set; } = typeof(KometMod).Assembly;
 
     public static void Attach(Assembly mod)
     {
         if (!NotNull(mod)) return;
+
         Assembly = mod;
     }
 }

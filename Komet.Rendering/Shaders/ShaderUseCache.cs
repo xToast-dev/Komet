@@ -2,8 +2,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using OpenTK.Graphics.OpenGL;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client;
@@ -29,11 +29,14 @@ internal static class ShaderUseCache
     private const int MaxSlots = 64, MaxUbos = 16, MaxIncludes = 8;
     private const bool External = true;
 
-    private static readonly (string File, int Bit)[] Includes = [("fogandlight.fsh", FogLightF),
+    private static readonly (string File, int Bit)[] Includes =
+    [
+        ("fogandlight.fsh", FogLightF),
         ("fogandlight.vsh", FogLightV), ("shadowcoords.vsh", ShadowCoords), ("vertexwarp.vsh", VertexWarp),
-        ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap), ("underwatereffects.fsh", Underwater)];
+        ("skycolor.fsh", SkyColor), ("colormap.vsh", ColorMap), ("underwatereffects.fsh", Underwater)
+    ];
 
-    private static readonly SeamGuard Guard = new(nameof(ShaderUseCache), PatchKinds.Replacing,
+    private static readonly SeamGuard Guard = new(nameof(ShaderUseCache), KapiPatchKinds.Replacing,
         [typeof(ShaderUseCache), typeof(DistantShadows)]);
 
     private static readonly Vec3f GuiLight = new(0.7071068f, -0.7071068f, 0f);
@@ -68,14 +71,19 @@ internal static class ShaderUseCache
         _settingsFrame = -1; // settings may have changed in the menu
         var seams = Guard.Reset(Seams(), logger);
         var update = AccessTools.Method(typeof(DefaultShaderUniforms), nameof(DefaultShaderUniforms.Update));
-        if (!NotNull(harmony) || !NotNull(update) || seams[0] is null ||
-            !Guard.Match(seams, fingerprint)) return;
+        if (!NotNull(update) || seams[0] is null ||
+            !Guard.Match(seams, fingerprint))
+        {
+            return;
+        }
+
         _ = harmony.Patch(update, postfix: new HarmonyMethod(NextFrame));
         _ = harmony.Patch(seams[0], new HarmonyMethod(Use));
         Recheck();
     }
 
-    internal static MethodBase?[] Seams() => [AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))];
+    internal static MethodBase?[] Seams() =>
+        [AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))];
 
     // At world leave: the last world's programs and their sources would stay in the main menu until the next Install
     internal static void Forget() => Array.Clear(States);
@@ -97,15 +105,22 @@ internal static class ShaderUseCache
     private static bool Use(ShaderProgramBase __instance)
     {
         if (!Enabled || Blocked || (uint)__instance.PassId >= (uint)States.Length) return true;
+
         if (!Assert(__instance.ProgramId > 0) || !NotNull(__instance.uniformLocations)) return true;
         // Another program still in use or a disposed one: the engine's Use (and other mods' patches on it, which may
         // stop that program first, as SheyderMod's deferred lighting needs) decides, not a copy of its throw
-        if (ShaderProgramBase.CurrentShaderProgram is { } active && active != __instance || __instance.Disposed) return true;
+        if ((ShaderProgramBase.CurrentShaderProgram is { } active && active != __instance) ||
+            __instance.Disposed)
+        {
+            return true;
+        }
 
         GL.UseProgram(__instance.ProgramId);
         ShaderProgramBase.CurrentShaderProgram = __instance;
         if (Counting.Hud) Calls++;
+
         if (Stage(__instance) is not { } s) return true;
+
         Upload(s, Changed(s, s.Frame != _frame));
         s.Frame = _frame;
         BindUbos(__instance);
@@ -116,12 +131,17 @@ internal static class ShaderUseCache
     internal static State? Stage(ShaderProgramBase p)
     {
         if (!Index(p.PassId, States.Length) || !Assert(p.ProgramId > 0)) return null;
+
         var s = States[p.PassId];
         if (s?.Program != p || s.ProgramId != p.ProgramId || s.ShadowQuality != ShaderProgramBase.shadowmapQuality)
+        {
             States[p.PassId] = s = Build(p);
+        }
+
         var w = new Writer(s, p, null);
         Fill(ref w, s.Mask);
         if (!w.Overflow) return s;
+
         States[p.PassId] = null;
         return null;
     }
@@ -131,21 +151,28 @@ internal static class ShaderUseCache
     {
         var ubos = p.ubos;
         if (!NotNull(ubos) || ubos.Count == 0 || !Assert(ubos.Count <= MaxUbos)) return;
-        for (var i = 0; i < Math.Min(ubos.Count, MaxUbos); i++) ubos.GetValueAtIndex(i).Bind();
+
+        for (var i = 0; i < Math.Min(ubos.Count, MaxUbos); i++)
+        {
+            ubos.GetValueAtIndex(i).Bind();
+        }
     }
 
     private static State Build(ShaderProgramBase p)
     {
         var mask = p == ShaderPrograms.Gui ? Gui : 0;
         foreach (var (file, bit) in Includes.Bounded(MaxIncludes))
+        {
             if (p.includes.Contains(file)) mask |= bit;
+        }
+
         var s = new State
-        { Program = p, ProgramId = p.ProgramId, ShadowQuality = ShaderProgramBase.shadowmapQuality, Mask = mask };
+            { Program = p, ProgramId = p.ProgramId, ShadowQuality = ShaderProgramBase.shadowmapQuality, Mask = mask };
         var layout = new List<Slot>();
         var w = new Writer(s, p, layout);
         Fill(ref w, mask);
-        if (!Assert(!w.Overflow) || !Assert(w.Total >= layout.Count) || !Assert(layout.Count <= MaxSlots))
-            return s;
+        if (!Assert(!w.Overflow) || !Assert(w.Total >= layout.Count) || !Assert(layout.Count <= MaxSlots)) return s;
+
         s.Slots = [.. layout];
         (s.Sent, s.Cur, s.Sends) = (new float[w.Total], new float[w.Total], new int[layout.Count]);
         return s;
@@ -161,7 +188,11 @@ internal static class ShaderUseCache
             return;
         }
 
-        if (_settingsFrame != _frame) ReadSettings(); // a world's first Use can precede its first update
+        if (_settingsFrame != _frame)
+        {
+            ReadSettings(); // a world's first Use can precede its first update
+        }
+
         if ((mask & FogLightF) != 0)
         {
             w.F("zNear", u.ZNear);
@@ -258,12 +289,15 @@ internal static class ShaderUseCache
         }
 
         if ((mask & Gui) != 0)
+        {
             w.V3("lightPosition", GuiLight, External); // GuiDialogCharacter, GuiDialogCreateCharacter
+        }
     }
 
     internal static int Changed(State s, bool force)
     {
         if (!Assert(s.Cur.Length == s.Sent.Length) || !Assert(s.Sends.Length == s.Slots.Length)) return 0;
+
         var cur = MemoryMarshal.Cast<float, int>(s.Cur.AsSpan());
         var sent = MemoryMarshal.Cast<float, int>(s.Sent.AsSpan());
         var n = 0;
@@ -272,11 +306,13 @@ internal static class ShaderUseCache
             ref var slot = ref s.Slots[i];
             var floats = slot.Count * Math.Max(slot.Kind, 1);
             if (floats == 0 || !Assert(slot.Offset + floats <= cur.Length)) continue;
+
             var now = cur.Slice(slot.Offset, floats);
             var last = sent.Slice(slot.Offset, floats);
-            if (!force && !slot.Dirty && !slot.Always && now.SequenceEqual(last))
+            if (!force && slot is { Dirty: false, Always: false } && now.SequenceEqual(last))
             {
                 if (Counting.Hud) Skips++;
+
                 continue;
             }
 
@@ -285,12 +321,14 @@ internal static class ShaderUseCache
         }
 
         if (Counting.Hud) Uploads += n;
+
         return n;
     }
 
     private static void Upload(State s, int n)
     {
         if (!Assert(n <= s.Sends.Length)) return;
+
         for (var k = 0; k < Math.Min(n, MaxSlots); k++)
         {
             ref var slot = ref s.Slots[s.Sends[k]];
@@ -381,18 +419,26 @@ internal static class ShaderUseCache
         public void V3(string name, Vec3f v, bool external = false)
         {
             if (Reserve(name, 3, 1, 3, external, out var o))
+            {
                 (state.Cur[o], state.Cur[o + 1], state.Cur[o + 2]) = (v.X, v.Y, v.Z);
+            }
         }
 
         public void V4(string name, Vec4f v)
         {
             if (Reserve(name, 4, 1, 4, false, out var o))
+            {
                 (state.Cur[o], state.Cur[o + 1], state.Cur[o + 2], state.Cur[o + 3]) = (v.X, v.Y, v.Z, v.W);
+            }
         }
 
         public void Arr(string name, int kind, float[]? src, int count)
         {
-            if (src is null) return; // the engine fills some late (ColorMapRects4 as a world closes)
+            if (src is null)
+            {
+                return; // the engine fills some late (ColorMapRects4 as a world closes)
+            }
+
             if (!Assert(kind > 0) || !Assert(count * kind <= src.Length))
             {
                 Overflow = true;
@@ -400,7 +446,9 @@ internal static class ShaderUseCache
             }
 
             if (Reserve(name, kind, count, src.Length, false, out var o))
+            {
                 Array.Copy(src, 0, state.Cur, o, count * kind);
+            }
         }
 
         public readonly void Tex(string name, int textureId)

@@ -49,16 +49,23 @@ internal static class LightScratch
         (_rewritten, _confined, StoodDown) = (0, false, false);
         var visited = AccessTools.Field(typeof(ChunkIlluminator), Visited);
         var (update, collect, darkness, recalc) = (Method(Update), Method(Collect), Method(Darkness), Method(Recalc));
-        if (!NotNull(harmony) || !NotNull(visited) || !NotNull(update) || !NotNull(collect) || !NotNull(darkness) ||
-            !NotNull(recalc)) return;
+        if (!NotNull(visited) || !NotNull(update) || !NotNull(collect) || !NotNull(darkness) ||
+            !NotNull(recalc))
+        {
+            return;
+        }
+
         MethodBase?[] seams = [update, collect, darkness, recalc];
         var at = EngineShape.FirstForeign(seams, harmony.Id);
         if (at >= 0)
         {
             StoodDown = true;
             if (at < seams.Length)
+            {
                 logger?.Notification("Komet LightScratch stands down: another mod patches ChunkIlluminator.{0}; " +
                                      "light updates allocate as shipped", seams[at]?.Name);
+            }
+
             return;
         }
 
@@ -81,6 +88,7 @@ internal static class LightScratch
             _ => null
         };
         if (!NotNull(parameters)) return null;
+
         var method = AccessTools.DeclaredMethod(typeof(ChunkIlluminator), name, parameters);
         return NotNull(method) && Assert(method.ReturnType == typeof(void)) ? method : null;
     }
@@ -89,6 +97,7 @@ internal static class LightScratch
     private static bool Confined(FieldInfo visited, MethodInfo collect, MethodInfo update)
     {
         if (!Assert(visited.DeclaringType == typeof(ChunkIlluminator))) return false;
+
         Type[] types = [typeof(ChunkIlluminator), .. AccessTools.InnerTypes(typeof(ChunkIlluminator))];
         foreach (var type in types.Bounded(MaxMembers))
         {
@@ -98,11 +107,16 @@ internal static class LightScratch
             {
                 var il = member.GetMethodBody()?.GetILAsByteArray();
                 if (il == null) continue;
+
                 var engine = member.DeclaringType == typeof(ChunkIlluminator);
                 var (isCollect, isUpdate) = (engine && member.MetadataToken == collect.MetadataToken,
                     engine && member.MetadataToken == update.MetadataToken);
                 if (Mentions(il, visited.MetadataToken) && !(engine && member is ConstructorInfo { IsStatic: false }) &&
-                    !isCollect && !isUpdate) return false;
+                    !isCollect && !isUpdate)
+                {
+                    return false;
+                }
+
                 if (Mentions(il, collect.MetadataToken) && !isUpdate) return false;
             }
         }
@@ -113,8 +127,12 @@ internal static class LightScratch
     private static bool Mentions(byte[] il, int token)
     {
         if (!Assert(il.Length <= MaxIl)) return true;
+
         for (var i = 0; i < Math.Min(il.Length - 3, MaxIl); i++)
+        {
             if (BinaryPrimitives.ReadInt32LittleEndian(il.AsSpan(i, 4)) == token) return true;
+        }
+
         return false;
     }
 
@@ -124,15 +142,30 @@ internal static class LightScratch
         _rewritten &= ~UpdateBit;
         var visited = AccessTools.Field(typeof(ChunkIlluminator), Visited);
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(visited) ||
-            !Assert(code.Count > 3)) return code;
+            !Assert(code.Count > 3))
+        {
+            return code;
+        }
+
         if (!code[0].IsLdarg(0) || !code[1].LoadsField(visited) || !IsNodesCall(code[2], "Clear") ||
-            code[1].labels.Count > 0 || code[2].labels.Count > 0) return code;
+            code[1].labels.Count > 0 || code[2].labels.Count > 0)
+        {
+            return code;
+        }
+
         var reads = Il.Count(code, c => c.LoadsField(visited) || c.LoadsField(visited, true) || c.StoresField(visited));
         var enumerations = 0;
         for (var i = 2; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
             if (code[i].opcode == OpCodes.Ldfld && code[i].LoadsField(visited) && Index(i + 1, code.Count) &&
-                IsNodesCall(code[i + 1], "GetEnumerator")) enumerations++;
+                IsNodesCall(code[i + 1], "GetEnumerator"))
+            {
+                enumerations++;
+            }
+        }
+
         if (Assert(reads == 2 && enumerations == 1) && EntriesOnlyRead(code)) _rewritten |= UpdateBit;
+
         return code;
     }
 
@@ -143,28 +176,43 @@ internal static class LightScratch
         var (key, node, insert, queue) = (Helper(nameof(Key)), Helper(nameof(Node)), Helper(nameof(Insert)),
             Helper(nameof(Queue)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(visited) || !NotNull(key) ||
-            !NotNull(node) || !NotNull(insert) || !NotNull(queue)) return code;
+            !NotNull(node) || !NotNull(insert) || !NotNull(queue))
+        {
+            return code;
+        }
+
         List<int> lookups = [];
         int keyLocal = -1, nodeLocal = -1;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (!Creates(code[i], typeof(Vec3i), 3)) continue;
+
             if (!IsLookup(code, i, visited, out var probe, out var value) ||
                 (keyLocal >= 0 && (probe != keyLocal || value != nodeLocal)))
+            {
                 return code;
+            }
+
             (keyLocal, nodeLocal) = (probe, value);
             lookups.Add(i);
         }
 
         var nodes = Il.Count(code, c => Creates(c, typeof(LightSourcesAtBlock), 0));
         if (!Assert(lookups.Count == 2 && nodes == 2) || !OnlyInLookups(code, lookups, keyLocal, nodeLocal, visited) ||
-            !QueueRewritable(code, out var made)) return code;
+            !QueueRewritable(code, out var made))
+        {
+            return code;
+        }
         // Insert before Key: the probe must never reach the engine's set_Item
         var rewritten = Assert(Il.Substitute(code, made, queue));
         foreach (var at in lookups.Bounded(2))
+        {
             rewritten &= Assert(Il.Substitute(code, at + 16, insert)) && Assert(Il.Substitute(code, at + 13, node)) &&
                          Assert(Il.Substitute(code, at, key));
+        }
+
         if (rewritten) _rewritten |= CollectBit;
+
         return code;
     }
 
@@ -173,8 +221,13 @@ internal static class LightScratch
         _rewritten &= ~DarknessBit;
         var queue = Helper(nameof(Queue));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(queue) ||
-            !QueueRewritable(code, out var at)) return code;
+            !QueueRewritable(code, out var at))
+        {
+            return code;
+        }
+
         if (Assert(Il.Substitute(code, at, queue))) _rewritten |= DarknessBit;
+
         return code;
     }
 
@@ -185,8 +238,12 @@ internal static class LightScratch
     {
         (key, node) = (-1, -1);
         if (!Index(at + LookupLength - 1, code.Count)) return false;
+
         for (var step = 1; step < Math.Min(code.Count - at, LookupLength - 1); step++)
+        {
             if (code[at + step].labels.Count > 0 || code[at + step].blocks.Count > 0) return false;
+        }
+
         key = Il.Local(code[at + 1], Il.Uses.Store);
         node = Il.Local(code[at + 5], Il.Uses.Address);
         var shape = code[at + 2].IsLdarg(0) && code[at + 3].LoadsField(visited) && IsLoad(code[at + 4], key) &&
@@ -207,16 +264,24 @@ internal static class LightScratch
     {
         var add = AccessTools.Method(typeof(LightSourcesAtBlock), nameof(LightSourcesAtBlock.AddHsv));
         if (!NotNull(add)) return false;
+
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             var c = code[i];
             var field = c.LoadsField(visited) || c.LoadsField(visited, true) || c.StoresField(visited);
             var local = field ? -1 : Il.Local(c);
             if (!field && local != key && local != node) continue;
+
             var inside = false;
-            foreach (var at in lookups.Bounded(2)) inside |= InLookup(i - at, field, local == key);
+            foreach (var at in lookups.Bounded(2))
+            {
+                inside |= InLookup(i - at, field, local == key);
+            }
+
             if (inside) continue;
+
             if (local != node || !IsLoad(c, node)) return false;
+
             var (use, operand) = Il.Consumer(code, i);
             if (use < 0 || operand != 0 || !code[use].Calls(add)) return false;
         }
@@ -228,6 +293,7 @@ internal static class LightScratch
     private static bool InLookup(int offset, bool field, bool key)
     {
         if (field) return offset is 3 or 11;
+
         return key ? offset is 1 or 4 or 12 : offset is 5 or 8 or 15;
     }
 
@@ -236,11 +302,14 @@ internal static class LightScratch
     {
         var recalc = Method(Recalc);
         if (!NotNull(recalc)) return false;
+
         List<int> entries = [];
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (!EntryCall(code[i], Entries, "get_Current")) continue;
+
             if (!Index(i + 1, code.Count) || !code[i + 1].IsStloc()) return false;
+
             entries.Add(Il.Local(code[i + 1]));
         }
 
@@ -249,9 +318,12 @@ internal static class LightScratch
             var c = code[i];
             var (key, value) = (EntryCall(c, Entry, "get_Key"), EntryCall(c, Entry, "get_Value"));
             if (entries.Contains(Il.Local(c)) && !Stored(code, i) && !Unpacked(code, i)) return false;
+
             if (!key && !value) continue;
+
             var (use, operand) = Il.Consumer(code, i);
             if (use < 0) return false;
+
             var coordinate = key && operand == 0 && code[use].opcode == OpCodes.Ldfld &&
                              code[use].operand is FieldInfo { DeclaringType: var t } && t == typeof(Vec3i);
             if (!coordinate && !(code[use].Calls(recalc) && operand == (key ? 1 : 2))) return false;
@@ -265,25 +337,29 @@ internal static class LightScratch
 
     private static bool Unpacked(List<CodeInstruction> code, int at) =>
         Index(at + 1, code.Count) && Il.Local(code[at], Il.Uses.Address) >= 0 &&
-        (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
+               (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
 
     private static bool EntryCall(CodeInstruction code, Type type, string name) =>
         (code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) &&
-        code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
+               code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
 
     // RecalcBlockLightAtPos only reads both: field loads, hsv indexed, neither written nor addressed
     internal static bool OnlyRead(List<CodeInstruction> code)
     {
         var hsvs = AccessTools.Field(typeof(LightSourcesAtBlock), nameof(LightSourcesAtBlock.lightHsvs));
         if (!NotNull(hsvs) || !Assert(code.Count is > 0 and <= MaxInstructions)) return false;
+
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             var c = code[i];
             if (Il.WritesArgument(c, 1) || Il.WritesArgument(c, 2)) return false;
+
             var array = c.LoadsField(hsvs) || c.LoadsField(hsvs, true);
             if (!array && !c.IsLdarg(1) && !c.IsLdarg(2)) continue;
+
             var (use, operand) = Il.Consumer(code, i);
             if (use < 0 || operand != 0) return false;
+
             var read = array ? code[use].opcode == OpCodes.Ldelem_U1 : code[use].opcode == OpCodes.Ldfld;
             if (!read || c.opcode == OpCodes.Ldflda) return false;
         }
@@ -299,6 +375,7 @@ internal static class LightScratch
             AccessTools.Method(typeof(QueueOfInt), nameof(QueueOfInt.Dequeue)));
         var count = AccessTools.Field(typeof(QueueOfInt), nameof(QueueOfInt.Count));
         if (!NotNull(enqueue) || !NotNull(dequeue) || !NotNull(count)) return false;
+
         at = Il.Single(code, c => Creates(c, typeof(QueueOfInt), 0));
         return Index(at + 1, code.Count) && code[at + 1].IsStloc() &&
                Il.Confined(code, at + 1,
@@ -311,7 +388,11 @@ internal static class LightScratch
     private static bool Creates(CodeInstruction code, Type type, int parameters)
     {
         if (code.opcode != OpCodes.Newobj ||
-            code.operand is not ConstructorInfo { DeclaringType: var t } c || t != type) return false;
+            code.operand is not ConstructorInfo { DeclaringType: var t } c || t != type)
+        {
+            return false;
+        }
+
         var p = c.GetParameters();
         return p.Length == parameters && Array.TrueForAll(p, q => q.ParameterType == typeof(int));
     }
@@ -321,20 +402,24 @@ internal static class LightScratch
     private static MethodInfo Helper(string name) => AccessTools.Method(typeof(LightScratch), name);
 
     // Whatever Enabled says, so the depth is real; the outermost scope takes every key and node back
-    internal static void Enter(out bool __state)
+    private static void Enter(out bool __state)
     {
         var visit = _visit ??= new Visit();
         if (visit.Depth == 0) (visit.KeyCount, visit.NodeCount) = (0, 0);
+
         visit.Depth++;
         __state = true;
     }
 
     // A void finalizer rethrows the original exception untouched
-    internal static void Leave(bool __state)
+    private static void Leave(bool __state)
     {
         if (!__state || _visit is not { } visit) return;
+
         if (--visit.Depth > 0) return;
+
         if (Counting.Hud && visit.Saved > 0) _ = Interlocked.Add(ref _avoided, visit.Saved);
+
         visit.Saved = 0;
     }
 
@@ -342,6 +427,7 @@ internal static class LightScratch
     internal static Vec3i Key(int x, int y, int z)
     {
         if (_visit is not { Depth: > 0 } visit || !Reuse) return new Vec3i(x, y, z);
+
         var probe = visit.Probe;
         (probe.X, probe.Y, probe.Z) = (x, y, z);
         visit.Saved++;
@@ -352,8 +438,13 @@ internal static class LightScratch
     internal static void Insert(Dictionary<Vec3i, LightSourcesAtBlock> nodes, Vec3i key, LightSourcesAtBlock node)
     {
         if (_visit is not { } visit || !ReferenceEquals(key, visit.Probe))
+        {
             nodes[key] = node; // null throws there as the engine's call would
-        else nodes[Copy(visit, key)] = node;
+        }
+        else
+        {
+            nodes[Copy(visit, key)] = node;
+        }
     }
 
     private static Vec3i Copy(Visit visit, Vec3i probe)
@@ -374,10 +465,20 @@ internal static class LightScratch
     internal static LightSourcesAtBlock Node()
     {
         if (_visit is not { Depth: > 0 } visit || !Reuse || !Room(ref visit.Nodes, visit.NodeCount))
+        {
             return new LightSourcesAtBlock();
+        }
+
         var node = visit.Nodes[visit.NodeCount++] ??= new LightSourcesAtBlock();
-        if (node.lightHsvs is { Length: HsvBytes } hsvs) Array.Clear(hsvs);
-        else node.lightHsvs = new byte[HsvBytes];
+        if (node.lightHsvs is { Length: HsvBytes } hsvs)
+        {
+            Array.Clear(hsvs);
+        }
+        else
+        {
+            node.lightHsvs = new byte[HsvBytes];
+        }
+
         node.lightCount = 0;
         visit.Saved += 2; // the node and its byte[45]
         return node;
@@ -386,6 +487,7 @@ internal static class LightScratch
     internal static QueueOfInt Queue()
     {
         if (_visit is not { Depth: > 0 and <= MaxDepth } visit || !Enabled) return new QueueOfInt();
+
         var queue = visit.Queues[visit.Depth - 1] ??= new QueueOfInt();
         queue.Clear();
         visit.Saved += 2; // the queue and its int[27]
@@ -395,7 +497,9 @@ internal static class LightScratch
     private static bool Room<T>(ref T?[] arena, int at) where T : class
     {
         if (at < arena.Length) return true;
+
         if (at >= MaxNodes) return false;
+
         Array.Resize(ref arena, Math.Min(Math.Max(arena.Length * 2, FirstArena), MaxNodes));
         return true;
     }

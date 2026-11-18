@@ -13,7 +13,8 @@ public sealed class MapPieceBudgetTests
     [Test]
     public void TheTickTakesKometsShare()
     {
-        Assert.That(typeof(ChunkMapLayer).Assembly, Is.Not.Null); // Komet finds the layer by name once VSEssentials is loaded
+        Assert.That(typeof(ChunkMapLayer).Assembly,
+            Is.Not.Null); // Komet finds the layer by name once VSEssentials is loaded
         using var harmony = new TestHarmony("komet-test-mappiecebudget");
         MapPieceBudget.Install(harmony);
         Assert.That(MapPieceBudget.Rewritten, Is.True, "ChunkMapLayer.OnTick has no single ldc.i4 200");

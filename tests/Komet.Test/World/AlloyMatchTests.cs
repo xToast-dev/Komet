@@ -32,26 +32,32 @@ public sealed class AlloyMatchTests
             var picked = metals.OrderBy(_ => random.Next()).Take(random.Next(1, 4)).ToArray();
             var recipe = new AlloyRecipe
             {
-                Ingredients = [.. picked.Select(m => new MetalAlloyIngredient
-                {
-                    ResolvedItemstack = new ItemStack(m), MinRatio = 0.1f * random.Next(0, 5), MaxRatio = 0.5f + 0.1f * random.Next(0, 6)
-                })]
+                Ingredients =
+                [
+                    .. picked.Select(m => new MetalAlloyIngredient
+                    {
+                        ResolvedItemstack = new ItemStack(m), MinRatio = 0.1f * random.Next(0, 5),
+                        MaxRatio = 0.5f + 0.1f * random.Next(0, 6)
+                    })
+                ]
             };
             for (var c = 0; c < 20; c++)
             {
                 var inputs = new ItemStack?[4];
                 for (var s = 0; s < inputs.Length; s++)
+                {
                     if (random.Next(4) > 0)
                     {
                         var i = random.Next(metals.Length);
                         inputs[s] = new ItemStack(random.Next(3) == 0 ? ores[i] : metals[i], random.Next(1, 40));
                     }
+                }
 
                 var smelted = random.Next(2) == 0;
                 AlloyMatch.Enabled = false;
-                var engine = recipe.Matches(inputs!, smelted);
+                var engine = recipe.Matches(inputs, smelted);
                 AlloyMatch.Enabled = true;
-                Assert.That(recipe.Matches(inputs!, smelted), Is.EqualTo(engine), $"recipe {r}, case {c}");
+                Assert.That(recipe.Matches(inputs, smelted), Is.EqualTo(engine), $"recipe {r}, case {c}");
                 (matched, cases) = (matched + (engine ? 1 : 0), cases + 1);
             }
         }

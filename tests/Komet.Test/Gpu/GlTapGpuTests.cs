@@ -13,7 +13,7 @@ public sealed class GlTapGpuTests
     {
         GameInstall.RequireAssets();
         using var rig = GpuRig.Open(GpuRig.Vulkan);
-        using var scene = new TerrainScene(rig.Device!, true);
+        using var scene = new TerrainScene(true);
         var mirror = new UniformMirror();
         GL.ProgramUniform1(scene.Program, GL.GetUniformLocation(scene.Program, "fogDensityIn"), 0.25f);
         Assert.That(GlTap.Tap(), Is.True);
@@ -21,7 +21,7 @@ public sealed class GlTapGpuTests
         {
             GlTap.Watch(scene.Program, scene.Ported, mirror);
             var density = scene.Ported.VertexUniforms.Members.Single(u => u.Name == "fogDensityIn");
-            Assert.That(BitConverter.UInt32BitsToSingle(mirror.Held(density)[0]), Is.EqualTo(0.25f),
+            Assert.That(BitConverter.UInt32BitsToSingle(mirror.EntryOf(density.Name)!.Held[0]), Is.EqualTo(0.25f),
                 "set before the watch began: seeded from the program");
             GL.UseProgram(scene.Program);
             GL.Uniform4(GL.GetUniformLocation(scene.Program, "rgbaFogIn"), 0.5f, 0.6f, 0.7f, 1f);
@@ -37,9 +37,9 @@ public sealed class GlTapGpuTests
             GL.UseProgram(0);
 
             var fog = scene.Ported.VertexUniforms.Members.Single(u => u.Name == "rgbaFogIn");
-            Assert.That(mirror.Held(fog).Select(BitConverter.UInt32BitsToSingle), Is.EqualTo(Fog));
+            Assert.That(mirror.EntryOf(fog.Name)!.Held.Select(BitConverter.UInt32BitsToSingle), Is.EqualTo(Fog));
             var lights = scene.Ported.VertexUniforms.Members.Single(u => u.Name == "pointLights");
-            Assert.That(mirror.Held(lights).Skip(3).Take(3).Select(BitConverter.UInt32BitsToSingle), Is.EqualTo(Light),
+            Assert.That(mirror.EntryOf(lights.Name)!.Held.Skip(3).Take(3).Select(BitConverter.UInt32BitsToSingle), Is.EqualTo(Light),
                 "element 1 of the array");
             Assert.That(GlTap.Unit((int)mirror.EntryOf("terrainTex")!.Held[0]), Is.EqualTo((texture, sampler)));
             var held = new float[4];
@@ -59,6 +59,7 @@ public sealed class GlTapGpuTests
     {
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
+
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Lequal);
         GL.BlendFunc(1, BlendingFactorSrc.Zero, BlendingFactorDest.OneMinusSrcColor);
@@ -67,9 +68,10 @@ public sealed class GlTapGpuTests
         try
         {
             var seeded = GlTap.State;
-            Assert.That(seeded.Caps & (uint)GlTap.Caps.DepthTest, Is.Not.Zero, "enabled before tapping");
+            Assert.That(seeded.Capabilities & (uint)GlTap.Caps.DepthTest, Is.Not.Zero, "enabled before tapping");
             Assert.That(seeded.Depth & 7, Is.EqualTo(3u), "GL_LEQUAL as VK_COMPARE_OP_LESS_OR_EQUAL");
-            Assert.That(seeded.Blend[1] & 0xFFFF, Is.EqualTo(0u | (3u << 4) | (0u << 8) | (3u << 12)),
+            // ReSharper disable once ShiftExpressionZeroLeftOperand - ZERO spelled out in its field
+            Assert.That(seeded.Blend[1] & 0xFFFF, Is.EqualTo((3u << 4) | (0u << 8) | (3u << 12)),
                 "ZERO, ONE_MINUS_SRC_COLOR for draw buffer 1");
 
             GL.Disable(EnableCap.DepthTest);
@@ -88,12 +90,12 @@ public sealed class GlTapGpuTests
             GL.DrawBuffers(2, [DrawBuffersEnum.ColorAttachment1, DrawBuffersEnum.None]);
 
             var state = GlTap.State;
-            Assert.That(state.Caps & (uint)GlTap.Caps.DepthTest, Is.Zero);
+            Assert.That(state.Capabilities & (uint)GlTap.Caps.DepthTest, Is.Zero);
             Assert.That(state.Depth & 8, Is.Zero, "depth writes off");
             Assert.That((state.Depth >> 4) & 3, Is.EqualTo(1u), "front faces culled");
             Assert.That(state.Depth & 64, Is.Zero, "clockwise front faces");
             Assert.That(state.Blend[0], Is.EqualTo(6u | (7u << 4) | (6u << 8) | (7u << 12) | (4u << 16) | (4u << 19) |
-                                                  (0xFu << 22) | (1u << 26)), "SRC_ALPHA, 1-SRC_ALPHA, MAX, on");
+                                                   (0xFu << 22) | (1u << 26)), "SRC_ALPHA, 1-SRC_ALPHA, MAX, on");
             Assert.That(state.Blend[2] & 0xFFFF, Is.EqualTo(0x101u), "ONE, ZERO for draw buffer 2");
             Assert.That((state.Blend[3] >> 26) & 1, Is.Zero, "blending off for draw buffer 3");
             Assert.That((state.Blend[1] >> 22) & 0xF, Is.EqualTo(0b0110u), "green and blue written");
@@ -118,6 +120,7 @@ public sealed class GlTapGpuTests
     {
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
+
         var standIn = GL.GenFramebuffer();
         var framebuffer = GL.GenFramebuffer();
         Assert.That(GlTap.Tap(), Is.True);
@@ -128,7 +131,8 @@ public sealed class GlTapGpuTests
             GL.DeleteFramebuffer(framebuffer);
             Assert.That(GlTap.DrawFramebuffer, Is.EqualTo(standIn));
             Assert.That(GlTap.ReadFramebuffer, Is.EqualTo(standIn));
-            Assert.That(GL.GetInteger(GetPName.DrawFramebufferBinding), Is.EqualTo(standIn), "and OpenGL draws into it");
+            Assert.That(GL.GetInteger(GetPName.DrawFramebufferBinding), Is.EqualTo(standIn),
+                "and OpenGL draws into it");
             Assert.That(GL.GetInteger(GetPName.ReadFramebufferBinding), Is.EqualTo(standIn), "and reads from it");
         }
         finally

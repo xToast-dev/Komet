@@ -21,7 +21,8 @@ public sealed class ChunkBudgetTests
     [TearDown]
     public void Reset()
     {
-        (ChunkBudget.CapMillis, Counting.Hud, RuntimeStats.chunksAwaitingPooling) = (ChunkBudget.DefaultCapMillis, false, 0);
+        (ChunkBudget.CapMillis, Counting.Hud, RuntimeStats.chunksAwaitingPooling) =
+            (ChunkBudget.DefaultCapMillis, false, 0);
         ChunkBudget.Yield = true;
         ChunkBudget.Begin();
     }
@@ -31,14 +32,19 @@ public sealed class ChunkBudgetTests
     [TestCase(false, ExpectedResult = "False False False False False")]
     public string ASlowFrameYieldsItsUploadsButNeverTwice(bool yield)
     {
-        var (ms, start) = (System.Diagnostics.Stopwatch.Frequency / 1000, 1L << 40);
+        var (ms, start) = (Stopwatch.Frequency / 1000, 1L << 40);
+
         bool Frame(int into)
         {
             start += 20 * ms;
             return ChunkBudget.Yielding(start + into * ms, start);
         }
 
-        for (var i = 0; i < 64; i++) _ = Frame(2);
+        for (var i = 0; i < 64; i++)
+        {
+            _ = Frame(2);
+        }
+
         ChunkBudget.Yield = yield;
         return string.Join(' ', ((int[])[2, 12, 12, 2, 12]).Select(Frame));
     }
@@ -78,15 +84,26 @@ public sealed class ChunkBudgetTests
         var (resume, body) = (il.DefineLabel(), il.DefineLabel());
         var code = new List<CodeInstruction>();
         for (var i = 0; i < reads; i++)
+        {
             code.AddRange([new CodeInstruction(OpCodes.Call, Limiter), new CodeInstruction(OpCodes.Stloc_S, 4)]);
-        code.AddRange([new CodeInstruction(OpCodes.Ldloc_2), new CodeInstruction(OpCodes.Ldloc_S, 4),
+        }
+
+        code.AddRange([
+            new CodeInstruction(OpCodes.Ldloc_2), new CodeInstruction(OpCodes.Ldloc_S, 4),
             new CodeInstruction(OpCodes.Blt_S, resume),
-            new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Ldnull) { labels = [resume] }]);
+            new CodeInstruction(OpCodes.Ret), new CodeInstruction(OpCodes.Ldnull) { labels = [resume] }
+        ]);
         if (sort) code.Add(new CodeInstruction(OpCodes.Callvirt, Sort));
+
         code.Add(new CodeInstruction(OpCodes.Nop) { labels = [body] });
         for (var i = 0; i < loopSites; i++)
-            code.AddRange([new CodeInstruction(OpCodes.Ldloc_2), new CodeInstruction(OpCodes.Ldloc_S, loopLocal),
-                new CodeInstruction(OpCodes.Blt, body)]);
+        {
+            code.AddRange([
+                new CodeInstruction(OpCodes.Ldloc_2), new CodeInstruction(OpCodes.Ldloc_S, loopLocal),
+                new CodeInstruction(OpCodes.Blt, body)
+            ]);
+        }
+
         code.Add(new CodeInstruction(OpCodes.Ret));
         return code;
     }
@@ -231,7 +248,8 @@ public sealed class ChunkBudgetTests
         (ChunkBudget.CapMillis, RuntimeStats.chunksAwaitingPooling) = (ChunkBudget.CeilingMillis + 4, 0);
         ChunkBudget.Begin();
         Busy.Spin(ChunkBudget.CeilingMillis + 1);
-        Assert.That((ChunkBudget.Priority(3), ChunkBudget.Priority(2)), Is.EqualTo((3, 2)), "past the ceiling, the cap stands");
+        Assert.That((ChunkBudget.Priority(3), ChunkBudget.Priority(2)), Is.EqualTo((3, 2)),
+            "past the ceiling, the cap stands");
     }
 
     // A frame's chunk work, OnBeforeFrame and what Vulkan's adoption added, booked against the cap at the next frame's start
@@ -301,11 +319,11 @@ public sealed class ChunkLookupTests
 {
     private static readonly MethodInfo Loaded = AccessTools.Method(typeof(ChunkLookup), "Loaded");
     private static readonly MethodInfo Unloading = AccessTools.Method(typeof(ChunkLookup), "Unloading");
+    private ClientChunk _chunk = null!;
+    private Dictionary<long, ClientChunk> _chunks = null!;
+    private TestHarmony _harmony = null!;
     private int _mainThread;
     private ChunkRig _rig = null!;
-    private TestHarmony _harmony = null!;
-    private Dictionary<long, ClientChunk> _chunks = null!;
-    private ClientChunk _chunk = null!;
 
     [SetUp]
     public void Install()
@@ -340,7 +358,11 @@ public sealed class ChunkLookupTests
         const int n = 10000;
         int[] xs = [.. Enumerable.Range(0, n).Select(i => i % 100)];
         int[] zs = [.. Enumerable.Range(0, n).Select(i => i / 100)];
-        for (var i = 0; i < n; i++) Load(xs[i], zs[i]);
+        for (var i = 0; i < n; i++)
+        {
+            Load(xs[i], zs[i]);
+        }
+
         Assert.That(_rig.Map.GetChunk(ChunkRig.Key(99, 0, 99)), Is.SameAs(_chunk));
         var packet = new Packet_UnloadServerChunk();
         (packet.X, packet.XCount, packet.Y, packet.YCount, packet.Z, packet.ZCount) = (xs, n, new int[n], n, zs, n);
@@ -357,7 +379,11 @@ public sealed class ChunkLookupTests
     {
         var gate = ChunkRig.Get(_rig.Map, "chunksLock");
         RuntimeEnv.MainThreadId = Environment.CurrentManagedThreadId;
-        for (var x = 0; x < 3; x++) Load(x, 0);
+        for (var x = 0; x < 3; x++)
+        {
+            Load(x, 0);
+        }
+
         var (absent, unseen) = (ChunkRig.Key(3, 0, 3), ChunkRig.Key(2, 0, 2));
         Assert.That(Held(gate, () => _rig.Map.GetChunk(absent)), Is.Null, "a whole mirror answers an absent chunk");
         _chunks[unseen] = _chunk; // inserted without the mirror seeing it
@@ -379,8 +405,10 @@ public sealed class ChunkLookupTests
         {
             lock (gate)
             {
+                // ReSharper disable once AccessToDisposedClosure - joined before the event is disposed
                 taken.Set();
                 Thread.Sleep(300);
+                // ReSharper disable once AccessToModifiedClosure - the holder thread sets the flag on purpose
                 Volatile.Write(ref released, 1);
             }
         });
@@ -425,7 +453,7 @@ public sealed class ChunkThreadClosureTests
             Assert.That(code[builds[0].index + 7].opcode, Is.EqualTo(OpCodes.Ldftn),
                 "the fresh closure must go straight into the delegate");
             Assert.That(code.Count(instruction => instruction.operand is FieldInfo { Name: "chunkRequest" } &&
-                instruction.opcode == OpCodes.Ldfld), Is.Zero);
+                                                  instruction.opcode == OpCodes.Ldfld), Is.Zero);
         });
     }
 }

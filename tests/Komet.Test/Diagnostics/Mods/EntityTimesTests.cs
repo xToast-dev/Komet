@@ -23,7 +23,8 @@ public sealed class EntityTimesTests
     {
         using var harmony = new TestHarmony("komet-test-entitytimes");
         EntityTimes.Install(harmony);
-        Assert.That(EntityTimes.Installed, Is.True, "ClientSystemEntities or SystemRenderEntities is not the loop measured");
+        Assert.That(EntityTimes.Installed, Is.True,
+            "ClientSystemEntities or SystemRenderEntities is not the loop measured");
     }
 
     [Test]
@@ -46,7 +47,8 @@ public sealed class EntityTimesTests
         Counting.Hud = hud;
         var entity = Ticking.Made();
         var calls = 0;
-        var manager = Answers.Of<IAnimationManager>(new() { [nameof(IAnimationManager.OnClientFrame)] = _ => calls++ });
+        var manager = Answers.Of<IAnimationManager>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { [nameof(IAnimationManager.OnClientFrame)] = _ => calls++ });
         var renderer = (Preparing)RuntimeHelpers.GetUninitializedObject(typeof(Preparing));
         renderer.entity = entity;
         EntityTimes.Ticked(entity, 0.05f);
@@ -54,7 +56,8 @@ public sealed class EntityTimesTests
         EntityTimes.Prepared(renderer, 0.016f);
         Assert.Multiple(() =>
         {
-            Assert.That((entity.Ticks, calls, renderer.Calls, entity.Dt, renderer.Dt), Is.EqualTo((1, 1, 1, 0.05f, 0.016f)));
+            Assert.That((entity.Ticks, calls, renderer.Calls, entity.Dt, renderer.Dt),
+                Is.EqualTo((1, 1, 1, 0.05f, 0.016f)));
             Assert.That(EntityTimes.Ticks(EntityTimes.Tick) > 0, Is.EqualTo(hud));
             Assert.That(EntityTimes.SlowestCode(EntityTimes.Tick), Is.EqualTo(hud ? "deer-1" : ""));
             Assert.That(EntityTimes.SlowestCode(EntityTimes.Prepare), Is.EqualTo(hud ? "deer-1" : ""));
@@ -65,7 +68,7 @@ public sealed class EntityTimesTests
     [Test]
     public void ACollectionInsideATickIsNotBookedToIt()
     {
-        var entity = Ticking.Made(collect: true);
+        var entity = Ticking.Made(true);
         var start = Stopwatch.GetTimestamp();
         EntityTimes.Ticked(entity, 0.05f);
         var outside = Stopwatch.GetTimestamp() - start;
@@ -79,15 +82,13 @@ public sealed class EntityTimesTests
     }
 
     [Test]
-    public void ANullArgumentThrowsAsTheEngineDid()
-    {
+    public void ANullArgumentThrowsAsTheEngineDid() =>
         Assert.Multiple(() =>
         {
             _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Ticked(null!, 0));
             _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Animated(null!, 0));
             _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Prepared(null!, 0));
         });
-    }
 
     private sealed class Ticking : EntityAgent
     {
@@ -107,8 +108,9 @@ public sealed class EntityTimesTests
         {
             (Ticks, Dt) = (Ticks + 1, dt);
             if (!_collect) return;
+
             var pause = GC.GetTotalPauseDuration();
-            GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+            GC.Collect(2, GCCollectionMode.Forced, true);
             Paused = (long)((GC.GetTotalPauseDuration() - pause).TotalSeconds * Stopwatch.Frequency);
         }
     }

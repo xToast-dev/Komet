@@ -14,22 +14,21 @@ public sealed class SchedStatTests
     [TestCase(" 12 3\n", SchedStat.Run, -1L)]
     [TestCase("12  3\n", SchedStat.Wait, -1L)]
     [TestCase("12 3 4\n", 3, -1L)]
-    public void TheFieldIsTheDigitsBetweenItsSeparators(string text, int field, long expected)
-    {
+    public void TheFieldIsTheDigitsBetweenItsSeparators(string text, int field, long expected) =>
         Assert.That(SchedStat.Field(Encoding.ASCII.GetBytes(text), field), Is.EqualTo(expected));
-    }
 
     [Test]
     public void TheCallingThreadsOwnFileReads()
     {
         if (!OperatingSystem.IsLinux()) Assert.Ignore("/proc is Linux's");
+
         using var file = File.OpenHandle("/proc/thread-self/schedstat");
         var (run, wait) = (SchedStat.Read(file, SchedStat.Run), SchedStat.Read(file, SchedStat.Wait));
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(run, Is.GreaterThan(0), "this thread has run");
             Assert.That(wait, Is.GreaterThanOrEqualTo(0));
             Assert.That(file.IsClosed, Is.False);
-        });
+        }
     }
 }

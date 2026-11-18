@@ -61,11 +61,12 @@ jobs:
           # the suites, and the rules left out with their reasons
           config-file: ./.github/codeql/codeql-config.yml
 
-      # A plain Release build, no Package target: CodeQL needs the compile, not the zip. The
+      # A plain Release build of the SDK, which compiles Komet and every module below it; no Package
+      # target: CodeQL needs the compile, not the zip. The
       # compiler server would compile outside CodeQL's tracer, so it is switched off.
       - name: Build
         if: matrix.build-mode == 'manual'
-        run: dotnet build Komet/Komet.csproj -c Release -p:UseSharedCompilation=false
+        run: dotnet build Komet.Sdk/Komet.Sdk.csproj -c Release -p:UseSharedCompilation=false
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

@@ -9,7 +9,9 @@ public class Answers : DispatchProxy
 
     // Stands in for ICoreClientAPI and IRenderAPI so the engine's pool classes run unchanged: every call answers a default, so
     // AllocateEmptyMesh hands back no mesh, UpdateChunkMesh uploads nothing and UseSSBOs is false.
-    public static ICoreClientAPI NullClient { get; } = Of<ICoreClientAPI>(new() { ["get_Render"] = _ => NullRender });
+    public static ICoreClientAPI NullClient { get; } =
+        Of<ICoreClientAPI>(
+            new Dictionary<string, System.Func<object?[]?, object?>> { ["get_Render"] = _ => NullRender });
 
     public static T Of<T>(Dictionary<string, System.Func<object?[]?, object?>> members) where T : class
     {
@@ -21,6 +23,7 @@ public class Answers : DispatchProxy
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
     {
         if (targetMethod != null && _members.TryGetValue(targetMethod.Name, out var member)) return member(args);
+
         var type = targetMethod?.ReturnType;
         return type is { IsValueType: true } && type != typeof(void) ? Activator.CreateInstance(type) : null;
     }
@@ -59,7 +62,11 @@ public static class Profiles
     public static ProfileEntryRange Frame(double totalMs, params (string Code, double Ms)[] marks)
     {
         var range = new ProfileEntryRange { Code = "all", ElapsedTicks = Ticks(totalMs), Marks = [] };
-        foreach (var (code, ms) in marks) range.Marks[code] = new ProfileEntry { ElapsedTicks = (int)Ticks(ms) };
+        foreach (var (code, ms) in marks)
+        {
+            range.Marks[code] = new ProfileEntry { ElapsedTicks = (int)Ticks(ms) };
+        }
+
         return range;
     }
 
@@ -70,7 +77,7 @@ public static class Profiles
         root.Marks[Tesselate] = new ProfileEntry((int)Ticks(23.7), 9);
         root.Marks["rend3D-ret-op"] = new ProfileEntry((int)Ticks(5), 1);
         var transparent = new ProfileEntryRange
-        { Code = "rendTransparent", ElapsedTicks = Ticks(3), CallCount = 2, Marks = [] };
+            { Code = "rendTransparent", ElapsedTicks = Ticks(3), CallCount = 2, Marks = [] };
         transparent.Marks["rendtransp-blocks"] = new ProfileEntry((int)Ticks(2), 4);
         root.ChildRanges = new Dictionary<string, ProfileEntryRange> { ["rendTransparent"] = transparent };
         return root;

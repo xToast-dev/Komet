@@ -24,8 +24,13 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
         var faces = vars.drawFaceFlags & OwnQuads.AllFaces;
         TextureAtlasPosition? overlay = null;
         var colorMap = 0;
-        if (faces == 0 || !OwnQuads.Ready(vars, faces, out var rgbs) || !Second(vars, block, ref overlay, ref colorMap) ||
-            !NotNull(overlay) || !Choose(vars, block, faces, ref chosen)) return false;
+        if (faces == 0 || !OwnQuads.Ready(vars, faces, out var rgbs) ||
+            !Second(vars, block, ref overlay, ref colorMap) ||
+            !NotNull(overlay) || !Choose(vars, block, faces, ref chosen))
+        {
+            return false;
+        }
+
         Draw(vars, block, faces, rgbs, ref chosen, new Overlay(overlay), colorMap);
         return true;
     }
@@ -38,16 +43,22 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
             vars.textureAtlasPositionsByTextureSubId);
         if (fast is not { Length: > Faces } || !NotNull(blocks) || !Assert(blocks.Length == ExtCells) ||
             !NotNull(positions) || !Index(vars.extIndex3d + TessSeams.Plane, blocks.Length) ||
-            blocks[vars.extIndex3d + TessSeams.Plane] is not { } above) return false;
+            blocks[vars.extIndex3d + TessSeams.Plane] is not { } above)
+        {
+            return false;
+        }
+
         var (id, value) = (fast[Faces], vars.ColorMapData.Value);
         if (above.BlockMaterial == EnumBlockMaterial.Snow || above.snowLevel > 0f)
         {
             var snow = Snowy(block);
             if (snow.Faults) return false;
+
             if (snow.Has) (id, value) = (snow.Id, 0);
         }
 
         if ((uint)id >= (uint)positions.Length || positions[id] is not { } found) return false;
+
         (overlay, colorMap) = (found, value);
         return true;
     }
@@ -57,10 +68,21 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
     private Snow Snowy(Block block)
     {
         if (_snowed.TryGet(block, out var known)) return known;
+
         Snow found;
-        if (block.Textures is not { } textures) found = new Snow(true, false, 0);
-        else if (!textures.TryGetValue(Snowed, out var snowed)) found = new Snow(false, false, 0);
-        else found = snowed?.Baked is { } baked ? new Snow(false, true, baked.TextureSubId) : new Snow(true, false, 0);
+        if (block.Textures is not { } textures)
+        {
+            found = new Snow(true, false, 0);
+        }
+        else if (!textures.TryGetValue(Snowed, out var snowed))
+        {
+            found = new Snow(false, false, 0);
+        }
+        else
+        {
+            found = snowed?.Baked is { } baked ? new Snow(false, true, baked.TextureSubId) : new Snow(true, false, 0);
+        }
+
         _snowed.Set(block, found);
         return found;
     }
@@ -71,25 +93,39 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
     {
         var (fast, positions) = (vars.fastBlockTextureSubidsByFace, vars.textureAtlasPositionsByTextureSubId);
         var pools = OwnQuads.Pools(vars.tct, vars.RenderPass);
-        if (!NotNull(pools) || !NotNull(fast) || !NotNull(positions) || (block.HasAlternates && block.FastTextureVariants is null)) return false;
+        if (!NotNull(pools) || !NotNull(fast) || !NotNull(positions) ||
+            block is { HasAlternates: true, FastTextureVariants: null })
+        {
+            return false;
+        }
+
         var variants = block.HasAlternates ? block.FastTextureVariants : null;
         var hash = variants is null ? 0u : GameMath.oaatHashU(vars.posX, vars.posY, vars.posZ);
         for (var i = 0; i < Faces; i++)
         {
             if ((faces & (1 << i)) == 0) continue;
+
             var id = fast[i];
             if (variants is not null)
             {
-                if (!Index(i, variants.Length)) return false; // the engine faults
+                if (!Index(i, variants.Length))
+                {
+                    return false; // the engine faults
+                }
+
                 if (variants[i] is { } choices)
                 {
                     if (choices.Length == 0 || choices[hash % (uint)choices.Length] is not { } baked) return false;
+
                     id = baked.TextureSubId;
                 }
             }
 
             if (!OwnQuads.Take(positions, pools, id, out var position, out var mesh) || mesh.CustomShorts is null)
+            {
                 return false;
+            }
+
             (chosen.Positions[i], chosen.Meshes[i]) = (position, mesh);
         }
 
@@ -109,9 +145,14 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
         for (var i = 0; i < Faces; i++)
         {
             if ((faces & (1 << i)) == 0) continue;
+
             OwnQuads.Light(vars, block, i, e + Moves[i], rgbs, corners);
             var (position, mesh) = (chosen.Positions[i], chosen.Meshes[i]);
-            if (!NotNull(position) || !NotNull(mesh)) continue; // Choose took every drawn face
+            if (!NotNull(position) || !NotNull(mesh))
+            {
+                continue; // Choose took every drawn face
+            }
+
             var q = quads[i];
             quad.Set(0, x + q[7].X, y + q[7].Y, z + q[7].Z, position.x2, position.y2);
             quad.Set(1, x + q[5].X, y + q[5].Y, z + q[5].Z, position.x2, position.y1);
@@ -138,11 +179,13 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
 
         public Overlay(TextureAtlasPosition position)
         {
-            (_u1, _u2, _v1, _v2) = (position.x1, position.x1 + (position.x2 - position.x1) / 2f, position.y1, position.y2);
+            (_u1, _u2, _v1, _v2) = (position.x1, position.x1 + (position.x2 - position.x1) / 2f, position.y1,
+                position.y2);
             (_packedU1, _packedU2, _packedV1, _packedV2) = (Pack(_u1, 0), Pack(_u2, 1), Pack(_v1, 0), Pack(_v2, 1));
         }
 
-        private static short Pack(float value, int far) => unchecked((short)(ushort)((int)(value * 32768f + 0.5f) + far));
+        private static short Pack(float value, int far) =>
+            unchecked((short)(ushort)((int)(value * 32768f + 0.5f) + far));
 
         // Pairs for turn 0-3 (others add none): at once where they fit, else the engine's growing calls
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -153,7 +196,7 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
             {
                 for (var k = 0; k < OwnQuads.Corners; k++)
                 {
-                    var (u, v) = ((k < 2) == (turn % 2 == 0), (k is 0 or 3) == (turn < 2));
+                    var (u, v) = (k < 2 == (turn % 2 == 0), k is 0 or 3 == turn < 2);
                     shorts.AddPackedUV(u ? _u2 : _u1, v ? _v2 : _v1, u, v);
                 }
 
@@ -162,8 +205,11 @@ internal sealed class OwnTopsoil(IBlockTesselator engine) : OwnSlot(engine)
 
             var pairs = values.AsSpan(count, 2 * OwnQuads.Corners);
             for (var k = 0; k < OwnQuads.Corners; k++)
-                (pairs[2 * k], pairs[2 * k + 1]) = ((k < 2) == (turn % 2 == 0) ? _packedU2 : _packedU1,
-                    (k is 0 or 3) == (turn < 2) ? _packedV2 : _packedV1);
+            {
+                (pairs[2 * k], pairs[2 * k + 1]) = (k < 2 == (turn % 2 == 0) ? _packedU2 : _packedU1,
+                    k is 0 or 3 == turn < 2 ? _packedV2 : _packedV1);
+            }
+
             shorts.Count = count + 2 * OwnQuads.Corners;
         }
     }

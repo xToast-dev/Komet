@@ -15,7 +15,16 @@ namespace Komet.Core;
 // only chunks in the current packed format are viewed (client and the built-in server's: a pool of the same kind).
 internal static class ChunkViews
 {
-    private const int Format = 2, Size = 32, MaxViews = 64, MaxSpares = 1024, ClientSlot = 0, ServerSlot = 1, MaxThreads = 256;
+    // Every thread's caches go with the world they read
+    static ChunkViews() => WorldEnd.On(nameof(ChunkViews), Release);
+
+    private const int Format = 2,
+        Size = 32,
+        MaxViews = 64,
+        MaxSpares = 1024,
+        ClientSlot = 0,
+        ServerSlot = 1,
+        MaxThreads = 256;
 
     // This thread's client and server caches, also listed in Threads: Release drops every thread's, not only its own
     [ThreadStatic] private static Cache?[]? _caches;
@@ -27,16 +36,29 @@ internal static class ChunkViews
 
     // Counted per thread only: views serve every block accessor read of a packed chunk on every thread, where a shared
     // interlocked count would bounce one cache line between them
-    [ThreadStatic] private static int _threadDecoded;
+
+    // Views this thread decoded (a miss each)
+    [field: ThreadStatic] public static int ThreadDecoded { get; private set; }
+
+    public static bool Enabled { get; set; } = true;
+    public static bool Usable { get; } = Present();
 
     // At world leave: every thread's caches, whose old game, last chunks and planes would otherwise live until that
     // thread's first read in the next world
-    internal static void Release()
+    private static void Release()
     {
-        if (_caches is { } own) Array.Clear(own); // the calling thread's even when Threads was full
+        if (_caches is { } own)
+        {
+            Array.Clear(own); // the calling thread's even when Threads was full
+        }
+
         lock (Threads)
         {
-            for (var i = 0; i < Math.Min(Threads.Count, MaxThreads); i++) Array.Clear(Threads[i].Caches);
+            for (var i = 0; i < Math.Min(Threads.Count, MaxThreads); i++)
+            {
+                Array.Clear(Threads[i].Caches);
+            }
+
             _ = Threads.RemoveAll(static entry => !entry.Thread.IsAlive);
         }
     }
@@ -54,12 +76,6 @@ internal static class ChunkViews
         _caches = caches;
         return caches;
     }
-
-    // Views this thread decoded (a miss each)
-    public static int ThreadDecoded => _threadDecoded;
-
-    public static bool Enabled { get; set; } = true;
-    public static bool Usable { get; } = Present();
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "packUnpackLock")]
     private static extern ref object Lock(WorldChunk chunk);
@@ -83,7 +99,8 @@ internal static class ChunkViews
                     AccessTools.DeclaredField(chunk, "datapool")?.FieldType == typeof(ChunkDataPool) &&
                     AccessTools.DeclaredField(typeof(ChunkDataLayer), "dataBits")?.FieldType == typeof(int[][]) &&
                     AccessTools.DeclaredMethod(typeof(ChunkDataLayer), "Decompress", [typeof(byte[])]) is not null &&
-                    AccessTools.DeclaredMethod(typeof(ChunkDataLayer), "DecompressSeparate", [typeof(byte[]), typeof(byte[])]) is not null;
+                    AccessTools.DeclaredMethod(typeof(ChunkDataLayer), "DecompressSeparate",
+                        [typeof(byte[]), typeof(byte[])]) is not null;
         return found;
     }
 
@@ -94,23 +111,32 @@ internal static class ChunkViews
     // or off
     public static ChunkData? Open(WorldChunk chunk)
     {
-        if (!Enabled || !Usable || chunk is null || Pool(chunk) is not { } source || !Snapshot(chunk, out var packed)) return null;
+        if (!Enabled || !Usable || Pool(chunk) is not { } source || !Snapshot(chunk, out var packed)) return null;
         // A thread outlives a world, so a new game or server gets a new cache and the old world's chunks go with the old
         // one. Client and server chunks each have their thread's cache
         var caches = _caches ?? Register();
         if (source is ClientChunkDataPool own)
         {
-            object game = (object?)own.game ?? own; // a pool without a game (tests) stands for itself
+            var game = (object?)own.game ?? own; // a pool without a game (tests) stands for itself
             var client = caches[ClientSlot];
             if (client is null || !ReferenceEquals(client.Owner, game))
-                caches[ClientSlot] = client = new Cache(game, new ClientChunkDataPool(Size, own.game!) { CacheSize = MaxSpares / 2 });
+            {
+                caches[ClientSlot] = client = new Cache(game,
+                    new ClientChunkDataPool(Size, own.game!) { CacheSize = MaxSpares / 2 });
+            }
+
             return client.View(chunk, packed);
         }
 
         if (source.server is not { } server) return null;
+
         var cache = caches[ServerSlot];
         if (cache is null || !ReferenceEquals(cache.Owner, server))
-            caches[ServerSlot] = cache = new Cache(server, new ChunkDataPool(Size, server) { CacheSize = MaxSpares / 2 });
+        {
+            caches[ServerSlot] =
+                cache = new Cache(server, new ChunkDataPool(Size, server) { CacheSize = MaxSpares / 2 });
+        }
+
         return cache.View(chunk, packed);
     }
 
@@ -125,7 +151,8 @@ internal static class ChunkViews
     // An unpacked chunk's data as it is (no unpack, no lock), or null while packed or disposed
     public static ChunkData? Live(WorldChunk chunk)
     {
-        if (!Usable || chunk is null || chunk.Disposed) return null;
+        if (!Usable || chunk.Disposed) return null;
+
         var data = Unpacked(chunk);
         return chunk.Disposed ? null : data;
     }
@@ -135,10 +162,13 @@ internal static class ChunkViews
     {
         packed = default;
         if (!Usable || chunk.Disposed) return false;
+
         lock (Lock(chunk))
         {
             if (chunk.Disposed || Unpacked(chunk) is not null || Version(chunk) != Format) return false;
-            packed = new Packing(chunk.blocksCompressed, chunk.lightCompressed, chunk.lightSatCompressed, chunk.fluidsCompressed);
+
+            packed = new Packing(chunk.blocksCompressed, chunk.lightCompressed, chunk.lightSatCompressed,
+                chunk.fluidsCompressed);
         }
 
         return true;
@@ -150,23 +180,24 @@ internal static class ChunkViews
         // Four reference compares: the record's == goes through EqualityComparer<byte[]>.Default per field, on every read
         public bool Same(in Packing other) =>
             ReferenceEquals(Blocks, other.Blocks) && ReferenceEquals(Light, other.Light) &&
-            ReferenceEquals(LightSat, other.LightSat) && ReferenceEquals(Fluids, other.Fluids);
+                   ReferenceEquals(LightSat, other.LightSat) && ReferenceEquals(Fluids, other.Fluids);
     }
 
     private sealed class Cache(object owner, ChunkDataPool pool)
     {
-        private static void MarkDecoded() => _threadDecoded++;
+        private readonly (BlockChunkDataLayer Blocks, BlockChunkDataLayer Fluids, ChunkDataLayer Light)?[] _layers =
+            new (BlockChunkDataLayer, BlockChunkDataLayer, ChunkDataLayer)?[MaxViews];
 
         private readonly WorldChunk?[] _owners = new WorldChunk?[MaxViews];
         private readonly Packing[] _packed = new Packing[MaxViews];
-        private readonly ChunkData?[] _views = new ChunkData?[MaxViews];
-        private readonly (BlockChunkDataLayer Blocks, BlockChunkDataLayer Fluids, ChunkDataLayer Light)?[] _layers =
-            new (BlockChunkDataLayer, BlockChunkDataLayer, ChunkDataLayer)?[MaxViews];
         private readonly long[] _used = new long[MaxViews];
+        private readonly ChunkData?[] _views = new ChunkData?[MaxViews];
         private long _clock;
         private int _last; // the slot read last: block accessors read one chunk many times in a row, no walk for those
 
         public object Owner => owner;
+
+        private static void MarkDecoded() => ThreadDecoded++;
 
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "dataBits")]
         private static extern ref int[][]? Planes(ChunkDataLayer layer);
@@ -185,12 +216,14 @@ internal static class ChunkViews
         public ChunkData View(WorldChunk chunk, Packing packed)
         {
             if (Hit(_last, chunk, packed) is { } recent) return recent;
+
             var slot = 0;
             for (var i = 0; i < MaxViews; i++)
             {
                 if (ReferenceEquals(_owners[i], chunk))
                 {
                     if (Hit(i, chunk, packed) is { } hit) return hit;
+
                     slot = i; // its older bytes: decoded anew in the same view
                     break;
                 }
@@ -205,7 +238,10 @@ internal static class ChunkViews
         private ChunkData? Hit(int slot, WorldChunk chunk, Packing packed)
         {
             if (!ReferenceEquals(_owners[slot], chunk) || !_packed[slot].Same(packed) || _views[slot] is not { } view)
+            {
                 return null;
+            }
+
             (_used[slot], _last) = (++_clock, slot);
             return view;
         }
@@ -215,8 +251,9 @@ internal static class ChunkViews
         private ChunkData Decode(int slot, WorldChunk chunk, Packing packed)
         {
             var view = _views[slot] ??= pool.Request();
-            var (blocks, fluids, light) = _layers[slot] ??= (new BlockChunkDataLayer(pool), new BlockChunkDataLayer(pool), new ChunkDataLayer(pool));
-            (_owners[slot], _packed[slot]) = (null, default);
+            var (blocks, fluids, light) = _layers[slot] ??= (new BlockChunkDataLayer(pool),
+                new BlockChunkDataLayer(pool), new ChunkDataLayer(pool));
+            (_owners[slot], _packed[slot]) = (null, default(Packing));
             pool.FreeArraysAndReset(view); // the layers' planes back, the view's layer fields cleared
             // Clear leaves the given-back planes in the layer's array, and the decoder fills an entry only when it is
             // null: left there, a plane would be written here and handed out by the pool at once

@@ -14,7 +14,8 @@ namespace Komet.World;
 // block's light changes only when its chunk is relit, which a particle shows HoldMs later at most.
 internal static class ParticleLight
 {
-    public const int BackoffMs = 20, HoldMs = 500;
+    public const int BackoffMs = 20;
+    private const int HoldMs = 500;
     private const int Remembered = 32, Cells = 4096;
 
     private static readonly Slot[] Slots = new Slot[Remembered];
@@ -36,7 +37,8 @@ internal static class ParticleLight
         Installed = false;
         var target = AccessTools.Method(typeof(BlockAccessorReadLockfree),
             nameof(BlockAccessorReadLockfree.GetLightRGBsAsInt), [typeof(int), typeof(int), typeof(int)]);
-        if (!NotNull(harmony) || !NotNull(target)) return;
+        if (!NotNull(target)) return;
+
         _ = harmony.Patch(target, new HarmonyMethod(Prefix), finalizer: new HarmonyMethod(Finalizer));
         Installed = true;
     }
@@ -46,9 +48,11 @@ internal static class ParticleLight
     {
         __state = null;
         if (!Enabled || Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId) return true;
+
         if (Held(posX, posY, posZ, out var held))
         {
             if (Counting.Hud) Reads++;
+
             __result = held;
             return false;
         }
@@ -64,17 +68,21 @@ internal static class ParticleLight
         state = null;
         var gate = ChunkInternals.PackUnpackLock(chunk);
         if (!NotNull(gate)) return true;
+
         if (Counting.Hud) Reads++;
+
         var slot = Find(chunk);
         if (slot >= 0 && Stopwatch.GetTimestamp() < Slots[slot].BusyUntil)
         {
             if (Counting.Hud) Busy++;
+
             return Served(slot, ref result);
         }
 
         if (!Monitor.TryEnter(gate))
         {
             if (Counting.Hud) Busy++;
+
             slot = Claim(chunk, slot);
             Slots[slot].BusyUntil = Stopwatch.GetTimestamp() + BackoffMs * Stopwatch.Frequency / 1000;
             return Served(slot, ref result);
@@ -84,6 +92,7 @@ internal static class ParticleLight
         {
             Monitor.Exit(gate);
             if (Counting.Hud) Packed++;
+
             return Served(slot, ref result);
         }
 
@@ -93,9 +102,11 @@ internal static class ParticleLight
     }
 
     // Releases the prefix's lock exactly once, also when the original threw
-    internal static Exception? Finalizer(Exception? __exception, WorldChunk? __state, int __result, int posX, int posY, int posZ)
+    internal static Exception? Finalizer(Exception? __exception, WorldChunk? __state, int __result, int posX, int posY,
+        int posZ)
     {
         if (__state is null) return __exception;
+
         if (__exception is null)
         {
             (_last, _hasLast) = (__result, true);
@@ -125,14 +136,24 @@ internal static class ParticleLight
         return cell.Until > Environment.TickCount64 && cell.X == x && cell.Y == y && cell.Z == z;
     }
 
-    private static int Index(int x, int y, int z) => (int)((uint)(x * 73856093 ^ y * 19349663 ^ z * 83492791) & (Cells - 1));
+    private static int Index(int x, int y, int z) =>
+        (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) & (Cells - 1));
 
     // The chunk's last light, else the last anywhere; the very first read waits like the engine's
     private static bool Served(int slot, ref int result)
     {
-        if (slot >= 0 && Slots[slot].Known) result = Slots[slot].Light;
-        else if (_hasLast) result = _last;
-        else return true;
+        if (slot >= 0 && Slots[slot].Known)
+        {
+            result = Slots[slot].Light;
+        }
+        else if (_hasLast)
+        {
+            result = _last;
+        }
+        else
+        {
+            return true;
+        }
 
         return false;
     }
@@ -140,7 +161,10 @@ internal static class ParticleLight
     private static int Find(WorldChunk chunk)
     {
         for (var i = 0; i < Remembered; i++)
+        {
             if (ReferenceEquals(Slots[i].Owner, chunk)) return i;
+        }
+
         return -1;
     }
 
@@ -148,6 +172,7 @@ internal static class ParticleLight
     private static int Claim(WorldChunk chunk, int slot)
     {
         if (slot >= 0) return slot;
+
         var i = _next;
         _next = (_next + 1) % Remembered;
         Slots[i] = new Slot { Owner = chunk };
@@ -158,7 +183,10 @@ internal static class ParticleLight
     {
         var map = WorldMapOf(accessor);
         if (!NotNull(map) || (x | y | z) < 0 || x >= map.MapSizeX || y >= map.MapSizeY || z >= map.MapSizeZ)
+        {
             return null;
+        }
+
         const int size = GlobalConstants.ChunkSize;
         return map.GetChunkNonLocking(x / size, y / size, z / size) as WorldChunk;
     }

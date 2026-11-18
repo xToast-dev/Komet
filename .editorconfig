@@ -9,6 +9,26 @@ insert_final_newline = true
 # Code wraps at 120 columns (comments run to 140); a wrapped construct that fits in 120 is joined again
 max_line_length = 120
 csharp_style_namespace_declarations = file_scoped
+# Compact bodies: a member that is one expression is written `=> expression;`, an if whose one statement is a return,
+# continue, break, throw or call stands on one line without braces, where the line fits. The IDE's reformat keeps it
+# so (the resharper_ keys are Rider's names for the same choices).
+csharp_style_expression_bodied_methods = when_on_single_line
+csharp_style_expression_bodied_constructors = when_on_single_line
+csharp_style_expression_bodied_operators = when_on_single_line
+csharp_style_expression_bodied_local_functions = when_on_single_line
+csharp_style_expression_bodied_properties = true
+csharp_style_expression_bodied_indexers = true
+csharp_style_expression_bodied_accessors = true
+csharp_prefer_braces = when_multiline
+csharp_preserve_single_line_statements = true
+csharp_preserve_single_line_blocks = true
+resharper_method_or_operator_body = expression_body
+resharper_local_function_body = expression_body
+resharper_constructor_or_destructor_body = expression_body
+resharper_accessor_owner_body = expression_body
+resharper_braces_for_ifelse = not_required
+resharper_place_simple_embedded_statement_on_same_line = always
+resharper_keep_existing_embedded_arrangement = true
 # dotnet format keeps a one-line initializer on one line
 csharp_new_line_before_members_in_object_initializers = false
 csharp_new_line_before_members_in_anonymous_types = false
@@ -53,75 +73,118 @@ dotnet_diagnostic.RCS1163.severity = warning
 dotnet_code_quality.null_check_validation_methods = NotNull
 
 # Rules that do not fit this mod
-dotnet_diagnostic.RCS1123.severity = none   # redundant parentheses stay out
-dotnet_diagnostic.CA1031.severity = none    # thread and engine boundaries catch everything: an escaping exception ends the game
-dotnet_diagnostic.CA1308.severity = none    # lang keys are lower case
-dotnet_diagnostic.S1144.severity = none     # flags [InlineArray] elements; IDE0051/IDE0052 cover unused members
+dotnet_diagnostic.RCS1123.severity = none # redundant parentheses stay out
+dotnet_diagnostic.CA1031.severity = none # thread and engine boundaries catch everything: an escaping exception ends the game
+dotnet_diagnostic.CA1308.severity = none # lang keys are lower case
+dotnet_diagnostic.S1144.severity = none # flags [InlineArray] elements; IDE0051/IDE0052 cover unused members
+
+# Build time (measured 2026-11-16 with -p:ReportAnalyzer=true: these were 45 % of all analyzer time). The first group
+# looks for cryptography, passwords, secrets, SQL, process paths and certificates, which Komet has none of; CodeQL's
+# security suite checks the same in CI. The second group repeats what a rule above or CodeQL already reports:
+# CA1508 = cs/constant-condition, S4487 = IDE0052, S1172 = IDE0060, S1854 = IDE0059.
+dotnet_diagnostic.S5547.severity = none
+dotnet_diagnostic.S5344.severity = none
+dotnet_diagnostic.S2068.severity = none
+dotnet_diagnostic.S6418.severity = none
+dotnet_diagnostic.S2077.severity = none
+dotnet_diagnostic.S4036.severity = none
+dotnet_diagnostic.S7039.severity = none
+dotnet_diagnostic.CA5403.severity = none
+dotnet_diagnostic.CA5390.severity = none
+dotnet_diagnostic.CA1508.severity = none
+dotnet_diagnostic.S4487.severity = none
+dotnet_diagnostic.S1172.severity = none
+dotnet_diagnostic.S1854.severity = none
+
+# Rider/ReSharper: a project's namespace is its top folder, subfolders only sort the files. Harmony binds a patch's
+# parameters by name: __instance, __result, __state, ___field (the engine's own spelling)
+resharper_check_namespace_highlighting = none
+resharper_csharp_naming_rule.parameters = aaBb, __ + aaBb, ___ + aaBb, ___ + AaBb
 
 [{Komet.Ui/Hud/UpdateCheck.cs,Komet.Vulkan/Shaders/ShadercFetch.cs}]
-dotnet_diagnostic.S1075.severity = none     # the release feed and the shader compiler's download each have exactly one home
+dotnet_diagnostic.S1075.severity = none # the release feed and the shader compiler's download each have exactly one home
 
 [Komet/KometModSystem.cs]
-dotnet_diagnostic.CA1063.severity = none    # sealed override of ModSystem's virtual Dispose
+dotnet_diagnostic.CA1063.severity = none # sealed override of ModSystem's virtual Dispose
 
 [Komet.Bench/Benchmark.cs]
-dotnet_diagnostic.CA2000.severity = none    # the engine disposes a registered renderer with the world
+dotnet_diagnostic.CA2000.severity = none # the engine disposes a registered renderer with the world
 
 # Mapped memory (the backend's staging, GL's persistent mappings: draws, packed faces, query results) read and filled through raw
 # pointers; GL entry points that take pointers; an object's address handed to a prefetch hint (IdleAnimators), never read through
-[{Komet.Rendering/Gpu/IGpuBackend.cs,Komet.Rendering/Occlusion/OcclusionCulling.cs,Komet.Rendering/Pools/FacePacking.cs,Komet.Rendering/Pools/IndirectDraw.cs,Komet.Rendering/IdleAnimators.cs,Komet.Rendering/Gl/GlQueryCache.cs,Komet.Rendering/Gl/RoundTrips.cs}]
+[{Komet.Rendering/Gpu/IGpuBackend.cs,Komet.Rendering/Occlusion/OcclusionCulling*.cs,Komet.Rendering/Pools/FacePacking.cs,Komet.Rendering/Pools/IndirectDraw.cs,Komet.Rendering/IdleAnimators*.cs,Komet.Rendering/Gl/GlQueryCache.cs,Komet.Rendering/Gl/RoundTrips.cs}]
 dotnet_diagnostic.S6640.severity = none
 
 [Komet.Vulkan/**.cs]
-dotnet_diagnostic.S6640.severity = none     # Vulkan and the GL extensions are a C API: structures with pointers, function pointers
+dotnet_diagnostic.S6640.severity = none # Vulkan and the GL extensions are a C API: structures with pointers, function pointers
+
+# Vulkan's structures: the driver reads the fields Komet fills and fills the ones Komet reads
+[Komet.Vulkan/Api/Vk.cs]
+resharper_unassigned_field_compiler_highlighting = none
+resharper_not_accessed_field_global_highlighting = none
+resharper_unassigned_field_global_highlighting = none
 
 [Komet.Vulkan/Device/VulkanCore.cs]
-dotnet_diagnostic.CA2000.severity = none    # the device made passes to VulkanCore.Device
+dotnet_diagnostic.CA2000.severity = none # the device made passes to VulkanCore.Device
 
 [Komet.Diagnostics/Frames/RenderCost.cs]
-dotnet_diagnostic.CA2000.severity = none    # Owned.Kept disposes an unreadable schedstat handle; Tracked owns the others until Stop
+dotnet_diagnostic.CA2000.severity = none # Owned.Kept disposes an unreadable schedstat handle; Tracked owns the others until Stop
 
-[Komet.Ui/Hud/Overlay/HudOverlay.Debug.cs]
-dotnet_diagnostic.CA2213.severity = none    # RuntimeEvents.Stop (Komet.Diagnostics) takes the snapshot and disposes the session
+[Komet.Ui/Hud/Debug/DebugCapture.cs]
+dotnet_diagnostic.CA2213.severity = none # RuntimeEvents.Stop (Komet.Diagnostics) takes the snapshot and disposes the session
+
+[Komet.Ui/Hud/Overlay/HudOverlay.cs]
+dotnet_diagnostic.CA2213.severity = none # Owned.DropAll disposes every listed HUD field, including after a preceding Dispose throws
 
 [Komet.Vulkan/Device/**.cs]
-dotnet_diagnostic.CA2000.severity = none    # Owned.Kept (Komet.Core) disposes a buffer, image or device whose setup failed; the caller owns it from then
+dotnet_diagnostic.CA2000.severity = none # Owned.Kept (Komet.Core) disposes a buffer, image or device whose setup failed; the caller owns it from then
 
 [Komet.Vulkan/Terrain/**.cs]
-dotnet_diagnostic.CA2000.severity = none    # the renderer owns its pools, targets, images, samplers, pipelines and frames until Dispose; an adopted pool its buffers, the targets their images, the quad pattern goes to its caller
+dotnet_diagnostic.CA2000.severity = none # the renderer owns its pools, targets, images, samplers, pipelines and frames until Dispose; an adopted pool its buffers, the targets their images, the quad pattern goes to its caller
 
 [Komet.Vulkan/Frame/**.cs]
-dotnet_diagnostic.CA2000.severity = none    # the frame owns its slots' uploads and fences until Dispose
+dotnet_diagnostic.CA2000.severity = none # the frame owns its slots' uploads and fences until Dispose
 
 [Komet.Vulkan/Scene/**.cs]
-dotnet_diagnostic.CA2000.severity = none    # the scene owns its mirrors, heap, staging buffers, pipelines and query pool until Dispose
+dotnet_diagnostic.CA2000.severity = none # the scene owns its mirrors, heap, staging buffers, pipelines and query pool until Dispose
 
 [Komet.Vulkan/Engine/VulkanRenderer*.cs]
-dotnet_diagnostic.CA2000.severity = none    # the engine disposes registered renderers with the world; the renderer lives until then
+dotnet_diagnostic.CA2000.severity = none # the engine disposes registered renderers with the world; the renderer lives until then
+
+# KAPI, the public API other mods call: what Komet itself leaves unused is still theirs
+[Komet.Core/Api/**.cs]
+resharper_member_can_be_private_global_highlighting = none
+resharper_unused_member_global_highlighting = none
+resharper_unused_type_global_highlighting = none
+resharper_not_accessed_positional_property_global_highlighting = none
+resharper_unused_auto_property_accessor_global_highlighting = none
+resharper_auto_property_can_be_made_get_only_global_highlighting = none
+resharper_collection_never_updated_global_highlighting = none
+resharper_class_never_instantiated_global_highlighting = none
 
 [tests/**.cs]
-dotnet_diagnostic.CA5394.severity = none    # seeded Random: reproducible, not secret
+dotnet_diagnostic.CA5394.severity = none # seeded Random: reproducible, not secret
 
 [tests/Komet.Test/**.cs]
-dotnet_diagnostic.CA1515.severity = none    # NUnit finds fixtures by reflection
-dotnet_diagnostic.CA1062.severity = none    # NUnit passes the case arguments
-dotnet_diagnostic.S6640.severity = none     # the GPU tests record Vulkan commands through its C API
-dotnet_diagnostic.CA2000.severity = none    # GL, Vulkan and rig objects live until the test or the fixture's teardown ends them
-dotnet_diagnostic.CA1812.severity = none    # mods, entities and animators the engine or Harmony instantiate by reflection
-dotnet_diagnostic.CA2211.severity = none    # patch probes record into public static fields
-dotnet_diagnostic.S1215.severity = none     # memory and allocation tests collect to measure
-dotnet_diagnostic.S2223.severity = none     # patch probes record into public static fields
-dotnet_diagnostic.S3236.severity = none     # the contract tests pass the caller information a real call site would
+dotnet_diagnostic.CA1515.severity = none # NUnit finds fixtures by reflection
+dotnet_diagnostic.CA1062.severity = none # NUnit passes the case arguments
+dotnet_diagnostic.S6640.severity = none # the GPU tests record Vulkan commands through its C API
+dotnet_diagnostic.CA2000.severity = none # GL, Vulkan and rig objects live until the test or the fixture's teardown ends them
+dotnet_diagnostic.CA1812.severity = none # mods, entities and animators the engine or Harmony instantiate by reflection
+dotnet_diagnostic.CA2211.severity = none # patch probes record into public static fields
+dotnet_diagnostic.S1215.severity = none # memory and allocation tests collect to measure
+dotnet_diagnostic.S2223.severity = none # patch probes record into public static fields
+dotnet_diagnostic.S3236.severity = none # the contract tests pass the caller information a real call site would
 
 [tests/Komet.Portable/**.cs]
-dotnet_diagnostic.CA1515.severity = none    # NUnit finds fixtures by reflection
-dotnet_diagnostic.S3236.severity = none     # the contract test passes the caller information a Windows build would
+dotnet_diagnostic.CA1515.severity = none # NUnit finds fixtures by reflection
+dotnet_diagnostic.S3236.severity = none # the contract test passes the caller information a Windows build would
 
 # A public library of test rigs: its callers are tests
 [tests/Komet.Testing/**.cs]
-dotnet_diagnostic.CA1062.severity = none    # a null argument fails the calling test where it is used
-dotnet_diagnostic.CA1002.severity = none    # tests read, add to and compare the lists a rig records into
-dotnet_diagnostic.CA1819.severity = none    # the arrays are the engine's own buffers and palettes, handed out to inspect and fill
+dotnet_diagnostic.CA1062.severity = none # a null argument fails the calling test where it is used
+dotnet_diagnostic.CA1002.severity = none # tests read, add to and compare the lists a rig records into
+dotnet_diagnostic.CA1819.severity = none # the arrays are the engine's own buffers and palettes, handed out to inspect and fill
 
 # Loaded only by this repository's build: no release tracking, and the compiler never passes a null context
 [tools/Komet.Rules/**.cs]
@@ -129,4 +192,4 @@ dotnet_diagnostic.RS2008.severity = none
 dotnet_diagnostic.CA1062.severity = none
 
 [Komet.Rendering/Gl/GlQueryCache.cs]
-dotnet_diagnostic.S6640.severity = none     # GL entry points are C functions taking pointers
+dotnet_diagnostic.S6640.severity = none # GL entry points are C functions taking pointers

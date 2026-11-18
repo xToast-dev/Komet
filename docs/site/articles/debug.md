@@ -1,15 +1,15 @@
 # Debug timings
 
-`.komet debug` (a client command: the dot, not a slash) writes a protocol of where a frame's time goes. <xref:Komet.Api.KometDebug> puts your own code in
-it.
+`.komet debug` (a client command: the dot, not a slash) writes a protocol of where a frame's time goes.
+<xref:Komet.Api.KapiDebug> (`komet.Debug`) puts your own code in it.
 
 ```csharp
-using (KometDebug.Measure("mymod:grade"))
+using (komet.Debug.Measure("grade"))
 {
     RenderGrade();
 }
 ```
 
-Outside a capture `Measure` costs a field read and books nothing. Work done only for the protocol can test
-<xref:Komet.Api.KometDebug.Capturing> first. Any thread may measure. Names are `modid:what`, at most 128
-characters; a capture keeps up to 1024 names.
+The timing is booked as `modid:grade`. Outside a capture `Measure` costs a field read and allocates nothing. Work done
+only for the protocol can test <xref:Komet.Api.KapiDebug.Capturing> first. Any thread may measure. `modid:what` has at
+most 128 characters (`KapiDebug.MaxName`); a capture keeps up to 1024 names.

@@ -40,21 +40,23 @@ internal static unsafe partial class GlTap
     public static Action<uint>? Unmapping { get; set; }
 
     private static Entry[] SpecEntries() =>
-    [
-        new("glCompressedTexImage2D", (nint)(CompressedImage2DFn)(&CompressedTexImage2D), Optional: true),
-        new("glCompressedTexSubImage2D", (nint)(CompressedSubImage2DFn)(&CompressedTexSubImage2D), Optional: true),
-        new("glCompressedTexImage3D", (nint)(CompressedImage3DFn)(&CompressedTexImage3D), Optional: true),
-        new("glCopyTexImage2D", (nint)(CopyImage2DFn)(&CopyTexImage2D), Optional: true),
-        new("glTexImage2DMultisample", (nint)(ImageMultisampleFn)(&TexImage2DMultisample), Optional: true),
-        new("glTextureView", (nint)(TextureViewFn)(&TextureView), Optional: true),
-        new("glTexBuffer", (nint)(TexBufferFn)(&TexBuffer), Optional: true),
-        new("glRenderbufferStorage", (nint)(RenderbufferStorageFn)(&RenderbufferStorage), Optional: true),
-        new("glRenderbufferStorageMultisample", (nint)(RenderbufferMultisampleFn)(&RenderbufferStorageMultisample), Optional: true),
-        new("glNamedRenderbufferStorage", (nint)(RenderbufferStorageFn)(&NamedRenderbufferStorage), Optional: true),
-        new("glBindRenderbuffer", (nint)(BindRenderbufferFn)(&BindRenderbuffer), Optional: true),
-        new("glUnmapBuffer", (nint)(UnmapFn)(&UnmapBuffer), Optional: true),
-        new("glUnmapNamedBuffer", (nint)(UnmapFn)(&UnmapNamedBuffer), Optional: true)
-    ];
+        [
+            new("glCompressedTexImage2D", (nint)(CompressedImage2DFn)(&CompressedTexImage2D), true),
+            new("glCompressedTexSubImage2D", (nint)(CompressedSubImage2DFn)(&CompressedTexSubImage2D), true),
+            new("glCompressedTexImage3D", (nint)(CompressedImage3DFn)(&CompressedTexImage3D), true),
+            new("glCopyTexImage2D", (nint)(CopyImage2DFn)(&CopyTexImage2D), true),
+            new("glTexImage2DMultisample", (nint)(ImageMultisampleFn)(&TexImage2DMultisample), true),
+            new("glTextureView", (nint)(TextureViewFn)(&TextureView), true),
+            new("glTexBuffer", (nint)(TexBufferFn)(&TexBuffer), true),
+            new("glRenderbufferStorage", (nint)(RenderbufferStorageFn)(&RenderbufferStorage), true),
+            new("glRenderbufferStorageMultisample",
+                (nint)(RenderbufferMultisampleFn)(&RenderbufferStorageMultisample),
+                true),
+            new("glNamedRenderbufferStorage", (nint)(RenderbufferStorageFn)(&NamedRenderbufferStorage), true),
+            new("glBindRenderbuffer", (nint)(BindRenderbufferFn)(&BindRenderbuffer), true),
+            new("glUnmapBuffer", (nint)(UnmapFn)(&UnmapBuffer), true),
+            new("glUnmapNamedBuffer", (nint)(UnmapFn)(&UnmapNamedBuffer), true)
+        ];
 
     [UnmanagedCallersOnly]
     private static byte UnmapBuffer(uint target)
@@ -80,20 +82,35 @@ internal static unsafe partial class GlTap
         int size, nint data)
     {
         if (Kept(SpecsAt) && Assert(level >= 0))
-            ((CompressedImage2DFn)Original[RecordsAt + SpecsAt])(target, level, format, width, height, border, size, data);
+        {
+            ((CompressedImage2DFn)Original[RecordsAt + SpecsAt])(target, level, format, width, height, border, size,
+                data);
+        }
+
         Heard(static s => Compressed(s.target, s.level, ((int)s.format, s.width, s.height, 1)),
             (target, level, format, width, height));
     }
 
     [UnmanagedCallersOnly]
-    private static void CompressedTexSubImage2D(uint target, int level, int x, int y, int width, int height, uint format,
+    private static void CompressedTexSubImage2D(uint target, int level, int x, int y, int width, int height,
+        uint format,
         int size, nint data)
     {
         if (Kept(SpecsAt + 1) && Assert(level >= 0))
-            ((CompressedSubImage2DFn)Original[RecordsAt + SpecsAt + 1])(target, level, x, y, width, height, format, size,
+        {
+            ((CompressedSubImage2DFn)Original[RecordsAt + SpecsAt + 1])(target, level, x, y, width, height, format,
+                size,
                 data);
-        if (Specifiable(target)) Changed(BoundName(target));
-        else UntrackedCalls++;
+        }
+
+        if (Specifiable(target))
+        {
+            Changed(BoundName(target));
+        }
+        else
+        {
+            UntrackedCalls++;
+        }
     }
 
     [UnmanagedCallersOnly]
@@ -101,8 +118,12 @@ internal static unsafe partial class GlTap
         int border, int size, nint data)
     {
         if (Kept(SpecsAt + 2) && Assert(level >= 0))
-            ((CompressedImage3DFn)Original[RecordsAt + SpecsAt + 2])(target, level, format, width, height, depth, border,
+        {
+            ((CompressedImage3DFn)Original[RecordsAt + SpecsAt + 2])(target, level, format, width, height, depth,
+                border,
                 size, data);
+        }
+
         Heard(static s => Compressed(s.target, s.level, ((int)s.format, s.width, s.height, s.depth)),
             (target, level, format, width, height, depth));
     }
@@ -111,6 +132,7 @@ internal static unsafe partial class GlTap
     private static void Compressed(uint target, int level, (int Format, int Width, int Height, int Depth) spec)
     {
         if (!Assert(level >= 0)) return;
+
         if (!Specifiable(target))
         {
             UntrackedCalls++;
@@ -127,9 +149,15 @@ internal static unsafe partial class GlTap
     private static void CopyTexImage2D(uint target, int level, uint format, int x, int y, int width, int height,
         int border)
     {
-        if (Rests && Specifiable(target)) SpecOnly(target, level, format, (width, height)); // the copy is Vulkan's
+        if (Rests && Specifiable(target))
+        {
+            SpecOnly(target, level, format, (width, height)); // the copy is Vulkan's
+        }
         else if (Kept(SpecsAt + 3) && Assert(level >= 0))
+        {
             ((CopyImage2DFn)Original[RecordsAt + SpecsAt + 3])(target, level, format, x, y, width, height, border);
+        }
+
         Heard(static s => CopiedSpec(s.target, s.level, (int)s.format, (s.x, s.y, s.width, s.height)),
             (target, level, format, x, y, width, height));
     }
@@ -139,28 +167,36 @@ internal static unsafe partial class GlTap
     private static void SpecOnly(uint target, int level, uint format, (int Width, int Height) size)
     {
         if (!Assert(level >= 0)) return;
+
         var lean = TextureLean(BoundName(target), level, (size.Width, size.Height, 1));
         var (data, type) = SpecData(format);
         var small = lean == Leaning.Small;
         if (lean != Leaning.Held && Original[TexImage2DAt] != IntPtr.Zero)
-            ((SpecFn)Original[TexImage2DAt])(target, level, (int)format, small ? 1 : size.Width, small ? 1 : size.Height, 0,
+        {
+            ((SpecFn)Original[TexImage2DAt])(target, level, (int)format, small ? 1 : size.Width,
+                small ? 1 : size.Height, 0,
                 data, type, 0);
+        }
     }
 
     // A pixel format and type glTexImage2D takes with the internal format (no data is given)
-    internal static (uint Format, uint Type) SpecData(uint internalFormat) => internalFormat switch
+    internal static (uint Format, uint Type) SpecData(uint internalFormat)
     {
-        0x1902 or (>= 0x81A5 and <= 0x81A7) or 0x8CAC => (0x1902u, 0x1406u), // depth: GL_DEPTH_COMPONENT, GL_FLOAT
-        0x84F9 or 0x88F0 => (0x84F9u, 0x84FAu), // GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8
-        0x8CAD => (0x84F9u, 0x8DADu), // GL_DEPTH32F_STENCIL8: GL_FLOAT_32_UNSIGNED_INT_24_8_REV
-        (>= 0x8D70 and <= 0x8D9D) or (>= 0x8231 and <= 0x823C) => (0x8D99u, 0x1401u), // integer: GL_RGBA_INTEGER
-        _ => (0x1908u, 0x1401u) // GL_RGBA, GL_UNSIGNED_BYTE
-    };
+        return internalFormat switch
+        {
+            0x1902 or >= 0x81A5 and <= 0x81A7 or 0x8CAC => (0x1902u, 0x1406u), // depth: GL_DEPTH_COMPONENT, GL_FLOAT
+            0x84F9 or 0x88F0 => (0x84F9u, 0x84FAu), // GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8
+            0x8CAD => (0x84F9u, 0x8DADu), // GL_DEPTH32F_STENCIL8: GL_FLOAT_32_UNSIGNED_INT_24_8_REV
+            >= 0x8D70 and <= 0x8D9D or >= 0x8231 and <= 0x823C => (0x8D99u, 0x1401u), // integer: GL_RGBA_INTEGER
+            _ => (0x1908u, 0x1401u) // GL_RGBA, GL_UNSIGNED_BYTE
+        };
+    }
 
     // glCopyTexImage2D: the level specified, then filled from the read framebuffer as glCopyTexSubImage2D fills it
     private static void CopiedSpec(uint target, int level, int format, (int X, int Y, int Width, int Height) rect)
     {
         if (!Assert(level >= 0)) return;
+
         if (!Specifiable(target))
         {
             UntrackedCalls++;
@@ -174,10 +210,14 @@ internal static unsafe partial class GlTap
     }
 
     [UnmanagedCallersOnly]
-    private static void TexImage2DMultisample(uint target, int samples, uint format, int width, int height, byte fixedAt)
+    private static void TexImage2DMultisample(uint target, int samples, uint format, int width, int height,
+        byte fixedAt)
     {
         if (Kept(SpecsAt + 4) && Assert(samples >= 0))
+        {
             ((ImageMultisampleFn)Original[RecordsAt + SpecsAt + 4])(target, samples, format, width, height, fixedAt);
+        }
+
         UntrackedCalls++;
     }
 
@@ -186,8 +226,11 @@ internal static unsafe partial class GlTap
         uint minLayer, uint layers)
     {
         if (Kept(SpecsAt + 5))
+        {
             ((TextureViewFn)Original[RecordsAt + SpecsAt + 5])(texture, target, original, format, minLevel, levels,
                 minLayer, layers);
+        }
+
         Heard(static t => Viewed(t), texture);
     }
 
@@ -195,7 +238,9 @@ internal static unsafe partial class GlTap
     private static void Viewed(uint texture)
     {
         if (texture == 0) return;
+
         if (TextureRecords.TryGetValue(texture, out var t)) t.Untracked = true;
+
         UntrackedCalls++;
         Changed(texture);
     }
@@ -204,7 +249,10 @@ internal static unsafe partial class GlTap
     private static void TexBuffer(uint target, uint format, uint buffer)
     {
         if (Kept(SpecsAt + 6) && Assert(target > 0))
+        {
             ((TexBufferFn)Original[RecordsAt + SpecsAt + 6])(target, format, buffer);
+        }
+
         UntrackedCalls++;
     }
 
@@ -212,7 +260,10 @@ internal static unsafe partial class GlTap
     private static void RenderbufferStorage(uint target, uint format, int width, int height)
     {
         if (Kept(SpecsAt + 7) && Assert(width >= 0))
+        {
             ((RenderbufferStorageFn)Original[RecordsAt + SpecsAt + 7])(target, format, width, height);
+        }
+
         Heard(static s => Stored(_renderbuffer, ((int)s.format, s.width, s.height), 0), (format, width, height));
     }
 
@@ -220,23 +271,34 @@ internal static unsafe partial class GlTap
     private static void RenderbufferStorageMultisample(uint target, int samples, uint format, int width, int height)
     {
         if (Kept(SpecsAt + 8) && Assert(samples >= 0))
+        {
             ((RenderbufferMultisampleFn)Original[RecordsAt + SpecsAt + 8])(target, samples, format, width, height);
-        Heard(static s => Stored(_renderbuffer, ((int)s.format, s.width, s.height), s.samples), (format, samples, width, height));
+        }
+
+        Heard(static s => Stored(_renderbuffer, ((int)s.format, s.width, s.height), s.samples),
+            (format, samples, width, height));
     }
 
     [UnmanagedCallersOnly]
     private static void NamedRenderbufferStorage(uint renderbuffer, uint format, int width, int height)
     {
         if (Kept(SpecsAt + 9) && Assert(width >= 0))
+        {
             ((RenderbufferStorageFn)Original[RecordsAt + SpecsAt + 9])(renderbuffer, format, width, height);
-        Heard(static s => Stored(s.renderbuffer, ((int)s.format, s.width, s.height), 0), (renderbuffer, format, width, height));
+        }
+
+        Heard(static s => Stored(s.renderbuffer, ((int)s.format, s.width, s.height), 0),
+            (renderbuffer, format, width, height));
     }
 
     [UnmanagedCallersOnly]
     private static void BindRenderbuffer(uint target, uint renderbuffer)
     {
         if (Kept(SpecsAt + 10) && Assert(target > 0))
+        {
             ((BindRenderbufferFn)Original[RecordsAt + SpecsAt + 10])(target, renderbuffer);
+        }
+
         _renderbuffer = renderbuffer;
     }
 
@@ -244,42 +306,55 @@ internal static unsafe partial class GlTap
     private static void Stored(uint renderbuffer, (int Format, int Width, int Height) spec, int samples)
     {
         if (renderbuffer is 0 or >= RenderbufferBase || !Assert(samples >= 0)) return;
+
         if (RenderbufferRecords.Count >= MaxRenderbuffers && !RenderbufferRecords.ContainsKey(renderbuffer)) Unstood();
+
         RenderbufferRecords[renderbuffer] = (spec.Format, samples);
         var name = RenderbufferName(renderbuffer);
         var format = Unsized(spec.Format) ? SizedRenderbuffer(spec.Format) : spec.Format;
         // Stand-ins sit past the texture cap: OpenGL has no texture to ask for them, and their count follows the records
         TextureRecords[name] = new TextureRecord
         {
-            Target = Texture2D, Width = spec.Width, Height = spec.Height, Format = format, Levels = spec.Width > 0 ? 1 : 0,
+            Target = Texture2D, Width = spec.Width, Height = spec.Height, Format = format,
+            Levels = spec.Width > 0 ? 1 : 0,
             MaxLevel = 0, Min = 0x2600, Mag = 0x2600 // GL_NEAREST
         };
-        if (Writes is { } writes && spec.Width > 0 && spec.Height > 0) // an image of the new shape for it
-            Heard(static s => s.writes.TextureImaged(s.name, Texture2D, (0, 1), (s.format, s.Item4, s.Item5, 1), default, 0),
+        if (Writes is { } writes && spec is { Width: > 0, Height: > 0 }) // an image of the new shape for it
+        {
+            Heard(
+                static s => s.writes.TextureImaged(s.name, Texture2D, (0, 1), (s.format, s.Item4, s.Item5, 1), default,
+                    0),
                 (writes, name, format, spec.Width, spec.Height));
+        }
     }
 
     // A full renderbuffer table starts over, its stand-in textures with it, so stand-ins never outnumber the records
     private static void Unstood()
     {
         foreach (var renderbuffer in RenderbufferRecords.Keys.Bounded(MaxRenderbuffers))
+        {
             _ = TextureRecords.Remove(RenderbufferName(renderbuffer));
+        }
+
         RenderbufferRecords.Clear();
     }
 
     // A renderbuffer's unsized format as drivers size it (OpenGL answers no level query for it)
-    private static int SizedRenderbuffer(int format) => format switch
+    private static int SizedRenderbuffer(int format)
     {
-        0x84F9 => 0x88F0, // GL_DEPTH_STENCIL: DEPTH24_STENCIL8
-        0x1902 => 0x81A6, // GL_DEPTH_COMPONENT: DEPTH_COMPONENT24
-        0x1907 => 0x8051, // GL_RGB: RGB8
-        _ => 0x8058 // GL_RGBA and the rest: RGBA8
-    };
+        return format switch
+        {
+            0x84F9 => 0x88F0, // GL_DEPTH_STENCIL: DEPTH24_STENCIL8
+            0x1902 => 0x81A6, // GL_DEPTH_COMPONENT: DEPTH_COMPONENT24
+            0x1907 => 0x8051, // GL_RGB: RGB8
+            _ => 0x8058 // GL_RGBA and the rest: RGBA8
+        };
+    }
 
     // A renderbuffer attachment completing a framebuffer: stored, single-sampled, sized format the attachment renders
     private static bool RenderbufferFits(uint renderbuffer, bool depth) =>
         RenderbufferRecords.TryGetValue(renderbuffer, out var r) && r.Samples == 0 && !Unsized(r.Format) &&
-        DepthFormat(r.Format) == depth;
+               DepthFormat(r.Format) == depth;
 
     private static void Unrenderbuffered()
     {
@@ -295,7 +370,9 @@ internal static unsafe partial class GlTap
         (int Format, int Width, int Height, int Depth) spec, (uint Format, uint Type) data, nint pixels)
     {
         if (Writes is not { } writes || texture == 0) return;
+
         if (Unheard(texture)) return;
+
         Heard(static s => s.writes.TextureImaged(s.texture, s.target, s.levels, s.spec, s.data, s.Item7),
             (writes, texture, target, levels, spec, data, Unpacking ? 0 : pixels));
         if (Unpacking && data.Format != 0) Changed(texture);
@@ -305,10 +382,12 @@ internal static unsafe partial class GlTap
         (int X, int Y, int Z, int Width, int Height, int Depth) box, (uint Format, uint Type) data, nint pixels)
     {
         if (Writes is not { } writes || texture == 0 || !Assert(level >= 0)) return false;
+
         var taken = !Unheard(texture) && !Unpacking && pixels != 0 &&
                     Asked(static s => s.writes.TextureSubImaged(s.texture, s.target, s.level, s.box, s.data, s.pixels),
                         (writes, texture, target, level, box, data, pixels), false);
         if (!taken) Changed(texture);
+
         return taken;
     }
 
@@ -316,7 +395,11 @@ internal static unsafe partial class GlTap
     private static void Remipmapped(uint texture)
     {
         if (Writes is not { } writes || texture == 0) return;
-        if (!Unheard(texture) && !Asked(static s => s.writes.TextureMipmapped(s.texture), (writes, texture), false)) Changed(texture);
+
+        if (!Unheard(texture) && !Asked(static s => s.writes.TextureMipmapped(s.texture), (writes, texture), false))
+        {
+            Changed(texture);
+        }
     }
 
     // glCopyTexSubImage2D: a rectangle of the read framebuffer's read buffer (depth for a depth texture) into a level
@@ -324,11 +407,16 @@ internal static unsafe partial class GlTap
         (int X, int Y, int Width, int Height) rect)
     {
         if (Writes is not { } writes || texture == 0 || !Assert(level >= 0)) return;
+
         var read = Framed(_readFramebuffer);
         var from = (Fbo: (int)read, Read: ReadBufferOf(read));
-        var taken = read != 0 && !Unheard(texture) && Asked(static s => s.writes.TextureRead(s.texture, s.level, (s.at.X, s.at.Y, s.face),
+        var taken = read != 0 && !Unheard(texture) && Asked(static s => s.writes.TextureRead(s.texture, s.level,
+            (s.at.X, s.at.Y, s.face),
             s.from, s.rect), (writes, texture, level, at, face: Face(target), from, rect), false);
-        if (!taken && !Rests) Changed(texture); // resting, OpenGL copies nothing either: missing, not stale
+        if (!taken && !Rests)
+        {
+            Changed(texture); // resting, OpenGL copies nothing either: missing, not stale
+        }
     }
 
     // glCopyImageSubData between two textures
@@ -336,7 +424,9 @@ internal static unsafe partial class GlTap
         (uint Texture, int Level, int X, int Y, int Z) to, (int Width, int Height, int Depth) size)
     {
         if (Writes is not { } writes || to.Texture == 0 || !Assert(size.Width >= 0)) return;
-        var taken = from.Texture != 0 && !Unheard(to.Texture) && Asked(static s => s.writes.TextureCopied(s.to, s.from, s.size),
+
+        var taken = from.Texture != 0 && !Unheard(to.Texture) && Asked(
+            static s => s.writes.TextureCopied(s.to, s.from, s.size),
             (writes, to, from, size), false);
         if (!taken && !Rests) Changed(to.Texture);
     }
@@ -345,6 +435,7 @@ internal static unsafe partial class GlTap
     private static bool Unheard(uint texture)
     {
         if (_quiet == 0) return false;
+
         Changed(texture);
         return true;
     }
@@ -354,7 +445,11 @@ internal static unsafe partial class GlTap
     {
         if (_quiet > 0 || Mapping is not { } mapping || gl == 0 || buffer == 0 || offset != 0 ||
             (access & (MapReadBit | MapWriteBit | MapPersistentBit)) != (MapWriteBit | MapPersistentBit) ||
-            BufferSizeOf(buffer) != length || !Assert(length > 0)) return gl;
+            BufferSizeOf(buffer) != length || !Assert(length > 0))
+        {
+            return gl;
+        }
+
         return Asked(static s => s.mapping(s.buffer, s.length, s.gl), (mapping, buffer, length: (long)length, gl), gl);
     }
 

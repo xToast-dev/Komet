@@ -23,7 +23,7 @@ internal static class PackCommit
     private static AccessTools.FieldRef<object, int>? _compressed;
     private static AccessTools.FieldRef<object, int[]>? _ttls;
 
-    public static bool Installed { get; private set; }
+    private static bool Installed { get; set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "game")]
     private static extern ref ClientMain? Game(ClientSystem system);
@@ -42,12 +42,21 @@ internal static class PackCommit
         Installed = false;
         var type = AccessTools.TypeByName(System);
         var frame = type is null ? null : AccessTools.DeclaredMethod(type, "OnFinalizeFrame", [typeof(float)]);
-        if (!NotNull(harmony) || type is null || frame is null ||
-            Array.Exists(["chunkCompressScanTimer", "compressionRatio", "compactableClientChunks", "compressed", "ttlsByRamMode"],
-                f => AccessTools.DeclaredField(type, f) is null)) return;
+        if (type is null || frame is null ||
+            Array.Exists(
+                [
+                    "chunkCompressScanTimer", "compressionRatio", "compactableClientChunks", "compressed",
+                    "ttlsByRamMode"
+                ],
+                f => AccessTools.DeclaredField(type, f) is null))
+        {
+            return;
+        }
+
         _scanned = AccessTools.FieldRefAccess<object, long>(AccessTools.DeclaredField(type, "chunkCompressScanTimer"));
         _ratio = AccessTools.FieldRefAccess<object, float>(AccessTools.DeclaredField(type, "compressionRatio"));
-        _compactable = AccessTools.FieldRefAccess<object, Queue<long>>(AccessTools.DeclaredField(type, "compactableClientChunks"));
+        _compactable =
+            AccessTools.FieldRefAccess<object, Queue<long>>(AccessTools.DeclaredField(type, "compactableClientChunks"));
         _compressed = AccessTools.FieldRefAccess<object, int>(AccessTools.DeclaredField(type, "compressed"));
         _ttls = AccessTools.FieldRefAccess<object, int[]>(AccessTools.DeclaredField(type, "ttlsByRamMode"));
         Installed = harmony.Patch(frame, new HarmonyMethod(typeof(PackCommit), nameof(Finalizing))) is not null;
@@ -57,18 +66,33 @@ internal static class PackCommit
     private static bool Finalizing(ClientSystem __instance)
     {
         if (!Installed || Game(__instance) is not { WorldMap: { } map } game || game.EntityPlayer?.Pos is not { } at ||
-            Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId) return true;
+            Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId)
+        {
+            return true;
+        }
+
         Shown(__instance, game);
         var now = game.Platform.EllapsedMs;
         if (now - _scanned!(__instance) < ScanMs) return false;
+
         _scanned(__instance) = now;
         var ttl = _ttls!(__instance)[Math.Clamp(ClientSettings.OptimizeRamMode, 0, 2)];
         var chunks = ChunkLookup.Chunks(map);
         lock (SyncLock(game))
         {
             for (var i = 0; i < MaxCommits && game.compactedClientChunks.Count > 0; i++)
-                if (chunks.TryGetValue(game.compactedClientChunks.Dequeue(), out var packed)) _ = packed?.TryCommitPackAndFree();
-            if (_compactable!(__instance).Count == 0) Scan(__instance, map, chunks, ((int)at.X, (int)at.Y, (int)at.Z), ttl);
+            {
+                if (chunks.TryGetValue(game.compactedClientChunks.Dequeue(), out var packed))
+                {
+                    _ = packed.TryCommitPackAndFree();
+                }
+            }
+
+            if (_compactable!(__instance).Count == 0)
+            {
+                Scan(__instance, map, chunks, ((int)at.X, (int)at.Y, (int)at.Z), ttl);
+            }
+
             _ratio!(__instance) = chunks.Count > 0 ? (float)_compressed!(__instance) / chunks.Count : 0;
         }
 
@@ -76,7 +100,8 @@ internal static class PackCommit
     }
 
     // The engine's walk: packed ones counted, the player's own column kept fresh, the rest past their time queued
-    private static void Scan(object system, ClientWorldMap map, Dictionary<long, ClientChunk> chunks, (int X, int Y, int Z) at, int ttl)
+    private static void Scan(object system, ClientWorldMap map, Dictionary<long, ClientChunk> chunks,
+        (int X, int Y, int Z) at, int ttl)
     {
         var compressed = 0;
         var (own, pos) = (new Vec3i(at.X, at.Y, at.Z) / map.ClientChunkSize, new Vec3i());
@@ -88,10 +113,21 @@ internal static class PackCommit
                 continue;
             }
 
-            if (Environment.TickCount - chunk.lastReadOrWrite <= ttl || Centre(chunk) is null || Edge(chunk) is null) continue;
+            if (Environment.TickCount - chunk.lastReadOrWrite <= ttl || Centre(chunk) is null ||
+                Edge(chunk) is null)
+            {
+                continue;
+            }
+
             MapUtil.PosInt3d(key, map.index3dMulX, map.index3dMulZ, pos);
-            if (Math.Abs(own.X - pos.X) < 2 && Math.Abs(own.Z - pos.Z) < 2 && !chunk.Empty) chunk.MarkFresh();
-            else _compactable!(system).Enqueue(key);
+            if (Math.Abs(own.X - pos.X) < 2 && Math.Abs(own.Z - pos.Z) < 2 && !chunk.Empty)
+            {
+                chunk.MarkFresh();
+            }
+            else
+            {
+                _compactable!(system).Enqueue(key);
+            }
         }
 
         _compressed!(system) = compressed;
@@ -100,9 +136,11 @@ internal static class PackCommit
     private static void Shown(object system, ClientMain game)
     {
         var debug = game.extendedDebugInfo; // every frame: one string each, as the engine's
-        game.DebugScreenInfo["compactqueuesize"] = debug ? "Client Chunks in compact queue: " + _compactable!(system).Count : "";
+        game.DebugScreenInfo["compactqueuesize"] =
+            debug ? "Client Chunks in compact queue: " + _compactable!(system).Count : "";
         game.DebugScreenInfo["compactratio"] = debug
-            ? "Client chunk compression ratio: " + (_ratio!(system) * 100f).ToString("0.#", CultureInfo.InvariantCulture) + "%"
+            ? "Client chunk compression ratio: " +
+              (_ratio!(system) * 100f).ToString("0.#", CultureInfo.InvariantCulture) + "%"
             : "";
     }
 }

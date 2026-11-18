@@ -15,10 +15,13 @@ internal static partial class FrustumSweep
     {
         var player = PlayerPos(culler);
         if (!NotNull(player)) return;
+
         float px = player.X, pz = player.Z;
         double rx = culler.shadowRangeX, rz = culler.shadowRangeZ; // locals: the JIT reloads fields after each store
         for (var i = from; i < Math.Min(to, MaxSlots); i++)
+        {
             m.Outside[i] = Math.Abs(px - m.Cx[i]) >= rx || Math.Abs(pz - m.Cz[i]) >= rz ? -1 : 0;
+        }
     }
 
     // AABBisOutside a vector at a time, normal sign picks the corner; Diff rows sit behind the grid. Planes written
@@ -28,37 +31,69 @@ internal static partial class FrustumSweep
     {
         var w = Vector<double>.Count;
         if (!Assert(m.Outside.Length >= m.Slots)) return;
+
         Span<PlaneV> pv = stackalloc PlaneV[MaxPlanes];
         var count = Math.Min(planes.Length, MaxPlanes);
-        for (var p = 0; p < Math.Min(count, MaxPlanes); p++) pv[p] = new PlaneV(planes[p]);
+        for (var p = 0; p < Math.Min(count, MaxPlanes); p++)
+        {
+            pv[p] = new PlaneV(planes[p]);
+        }
+
         var allOut = new Vector<long>(-1);
-        if (m.Dirty) Array.Clear(m.Cand); // Candidates clears the words it takes; only an untaken sweep leaves bits
+        if (m.Dirty)
+        {
+            Array.Clear(m.Cand); // Candidates clears the words it takes; only an untaken sweep leaves bits
+        }
+
         m.Dirty = true;
         var from = 0;
         if (m.Cells > 0)
         {
-            SweepBoxes(m, pv, count, w, allOut);
-            for (var b = 0; b < Math.Min(m.Cells, MaxCells); b++)
-            {
-                var (at, padded) = (m.BStart[b], (m.BCount[b] + w - 1) / w * w);
-                if (!Assert(at + padded <= m.Base)) return;
-                if (m.BOutside[b] != 0)
-                {
-                    if (Counting.Hud) m.SkippedRows += m.BCount[b];
-                    continue;
-                }
-
-                if (ranged) Range(m, culler, at, at + padded);
-                for (var i = at; i < Math.Min(at + padded, MaxSlots); i += Vector<double>.Count)
-                    SweepVector(m, pv, count, ranged, i, allOut);
-            }
+            if (!SweepCells(m, pv, count, w, allOut, ranged, culler)) return;
 
             from = m.Base;
         }
 
         if (ranged) Range(m, culler, from, m.Slots);
+
+        SweepVectors(m, pv, count, ranged, from, allOut);
+    }
+
+    private static bool SweepCells(Mirror m, Span<PlaneV> pv, int count, int width, Vector<long> allOut,
+        bool ranged, FrustumCulling culler)
+    {
+        SweepBoxes(m, pv, count, width, allOut);
+        for (var b = 0; b < Math.Min(m.Cells, MaxCells); b++)
+        {
+            var (at, padded) = (m.BStart[b], (m.BCount[b] + width - 1) / width * width);
+            if (!Assert(at + padded <= m.Base)) return false;
+
+            if (m.BOutside[b] != 0)
+            {
+                if (Counting.Hud) m.SkippedRows += m.BCount[b];
+
+                continue;
+            }
+
+            if (ranged) Range(m, culler, at, at + padded);
+
+            for (var i = at; i < Math.Min(at + padded, MaxSlots); i += Vector<double>.Count)
+            {
+                SweepVector(m, pv, count, ranged, i, allOut);
+            }
+        }
+
+        return true;
+    }
+
+    // The remaining slots: one vector per slot, in the grid's order
+    private static void SweepVectors(Mirror m, Span<PlaneV> pv, int count, bool ranged, int from,
+        Vector<long> allOut)
+    {
         for (var i = from; i < Math.Min(m.Slots, MaxSlots); i += Vector<double>.Count)
+        {
             SweepVector(m, pv, count, ranged, i, allOut);
+        }
     }
 
     // Plane kernel over cell boxes; no range test (that runs in float on a sphere centre)
@@ -66,6 +101,7 @@ internal static partial class FrustumSweep
     {
         var padded = (m.Cells + w - 1) / w * w;
         if (!Assert(padded <= m.BCx.Length) || !Assert(padded <= m.BOutside.Length)) return;
+
         for (var i = m.Cells; i < Math.Min(padded, MaxCells + MaxLanes); i++)
         {
             (m.BCx[i], m.BCy[i], m.BCz[i]) = (0, 0, 0);
@@ -93,8 +129,10 @@ internal static partial class FrustumSweep
         Vector<long> allOut)
     {
         if (!Assert(i + Vector<double>.Count <= m.Outside.Length)) return;
+
         var outside = ranged ? new Vector<long>(m.Outside, i) : Vector<long>.Zero;
         if (ranged && Vector.EqualsAll(outside, allOut)) return;
+
         Vector<double> cx = Widen(m.Cx, i), cy = Widen(m.Cy, i), cz = Widen(m.Cz, i);
         Vector<double> hx = Widen(m.Hx, i), hy = Widen(m.Hy, i), hz = Widen(m.Hz, i);
         for (var p = 0; p < Math.Min(count, MaxPlanes); p++)
@@ -112,15 +150,23 @@ internal static partial class FrustumSweep
     private static Vector<double> Widen(float[] values, int i)
     {
         if (Vector<double>.Count == Vector256<double>.Count)
+        {
             return Vector256.WidenLower(Vector128.Create(values.AsSpan(i, 4)).ToVector256Unsafe()).AsVector();
+        }
+
         if (Vector<double>.Count == Vector128<double>.Count)
+        {
             return Vector128.WidenLower(Vector64.Create(values.AsSpan(i, 2)).ToVector128Unsafe()).AsVector();
-        return Vector512.WidenLower(Vector256.Create(values.AsSpan(i, 8)).ToVector512Unsafe()).AsVector(); // 8 lanes, Install's guard
+        }
+
+        return Vector512.WidenLower(Vector256.Create(values.AsSpan(i, 8)).ToVector512Unsafe())
+            .AsVector(); // 8 lanes, Install's guard
     }
 
     private static void Mark(Mirror m, Vector<long> outside, int i, Vector<long> allOut)
     {
         if (Vector.EqualsAll(outside, allOut) || !Assert(i + Vector<long>.Count <= m.Inv.Length)) return;
+
         var keep = ~Lanes(outside) & (uint.MaxValue >> (32 - Vector<long>.Count));
         for (var k = 0; k < MaxLanes && keep != 0; k++)
         {
@@ -134,7 +180,9 @@ internal static partial class FrustumSweep
     private static uint Lanes(Vector<long> outside)
     {
         if (Vector<long>.Count == Vector256<long>.Count) return outside.AsVector256().ExtractMostSignificantBits();
+
         if (Vector<long>.Count == Vector128<long>.Count) return outside.AsVector128().ExtractMostSignificantBits();
+
         return (uint)outside.AsVector512().ExtractMostSignificantBits(); // 8 lanes, Install's guard
     }
 
@@ -148,8 +196,10 @@ internal static partial class FrustumSweep
     {
         rendered = 0;
         if (!Scratch(m)) return -1;
+
         var k = Candidates(m, mode, culler);
         if (k < 0) return -1;
+
         var (rows, ok, refs, buffer) = (m.Rows, m.Ok, m.Refs, ModelDataPoolLocation.VisibleBufIndex);
         for (var q = 0; q < Math.Min(k, MaxLocations); q++)
         {
@@ -162,6 +212,7 @@ internal static partial class FrustumSweep
         for (var q = 0; q < Math.Min(k, MaxLocations); q++)
         {
             if (!ok[q]) continue;
+
             var i = rows[q];
             (starts[groups * 2], sizes[groups]) = (m.Start[i], m.Count[i]);
             rendered += m.Count[i] / 3;
@@ -176,7 +227,9 @@ internal static partial class FrustumSweep
     {
         var n = m.Length;
         if (!Assert(n <= MaxLocations)) return false;
+
         if (m.Rows.Length >= n) return true;
+
         var cap = Capacity(n, m.Rows.Length, MaxLocations);
         (m.Rows, m.Ok) = (new int[cap], new bool[cap]);
         return true;
@@ -189,6 +242,7 @@ internal static partial class FrustumSweep
         var (normal, minLod) = (mode == EnumFrustumCullMode.CullNormal,
             mode == EnumFrustumCullMode.CullInstantShadowPassFar ? 1 : int.MinValue);
         if ((normal && !NotNull(player)) || !Assert(words <= m.Cand.Length)) return -1;
+
         for (var word = 0; word < Math.Min(words, MaxWords); word++)
         {
             var bits = m.Cand[word];
@@ -197,7 +251,7 @@ internal static partial class FrustumSweep
             {
                 var i = word * WordBits + BitOperations.TrailingZeroCount(bits);
                 bits &= bits - 1;
-                if (normal ? LodVisible(m, i, player, culler) : m.Lod[i] >= minLod) m.Rows[k++] = i;
+                if (normal ? LodVisible(m, i, player!, culler) : m.Lod[i] >= minLod) m.Rows[k++] = i;
             }
         }
 
@@ -209,8 +263,10 @@ internal static partial class FrustumSweep
     private static bool LodVisible(Mirror m, int i, BlockPos player, FrustumCulling culler)
     {
         if (!Index(i, m.Length)) return false;
+
         var slot = m.Slot[i];
         if (!Index(slot, m.Slots)) return false;
+
         double d = player.HorDistanceSqTo(m.Cx[slot], m.Cz[slot]);
         return m.Lod[i] switch
         {
@@ -226,7 +282,8 @@ internal static partial class FrustumSweep
     {
         public readonly Vector<double> Nx = new(p.normalX), Ny = new(p.normalY), Nz = new(p.normalZ), D = new(p.D);
 
-        public readonly Vector<double> Sx = new(p.normalX > 0 ? 1.0 : -1.0), Sy = new(p.normalY > 0 ? 1.0 : -1.0),
+        public readonly Vector<double> Sx = new(p.normalX > 0 ? 1.0 : -1.0),
+            Sy = new(p.normalY > 0 ? 1.0 : -1.0),
             Sz = new(p.normalZ > 0 ? 1.0 : -1.0);
     }
 }

@@ -17,17 +17,13 @@ internal static class ChunkInternals
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "chunkdataVersion")]
     public static extern ref int Version(WorldChunk chunk);
 
-    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "unpackNoLock")]
-    public static extern void Unpack(WorldChunk chunk);
-
     // Whether every member is there with the type the accessors expect: a missing one throws at its first use
     public static bool Present()
     {
         var chunk = typeof(WorldChunk);
         var found = AccessTools.DeclaredField(chunk, "packUnpackLock")?.FieldType == typeof(object) &&
                     AccessTools.DeclaredField(chunk, "chunkdata")?.FieldType == typeof(ChunkData) &&
-                    AccessTools.DeclaredField(chunk, "chunkdataVersion")?.FieldType == typeof(int) &&
-                    AccessTools.DeclaredMethod(chunk, "unpackNoLock", []) is not null;
+                    AccessTools.DeclaredField(chunk, "chunkdataVersion")?.FieldType == typeof(int);
         return found;
     }
 }

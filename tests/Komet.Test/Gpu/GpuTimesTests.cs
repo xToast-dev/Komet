@@ -1,3 +1,4 @@
+using Komet.Core;
 using Komet.Vulkan;
 
 namespace Komet.Test.Gpu;
@@ -15,13 +16,14 @@ public sealed class GpuTimesTests
         using var rig = GpuRig.Open(GpuRig.Vulkan);
         var device = rig.Device!;
         if (device.TimestampPeriod <= 0) Assert.Ignore("the queue takes no timestamps");
+
         using var from = HostBuffer.Create(device, Bytes);
         using var to = HostBuffer.Create(device, Bytes);
         using var frame = VulkanFrame.Create(device, out var why);
         Assert.That(frame, Is.Not.Null, why);
         var (opaque, sky) = (VulkanFrame.SectionOf("opaque terrain"), VulkanFrame.SectionOf("opaque sky"));
-        var (measuring, hud) = (VulkanFrame.Measuring, Komet.Core.Counting.Hud);
-        (VulkanFrame.Measuring, Komet.Core.Counting.Hud) = (true, true); // the HUD shown: every frame is timed
+        var (measuring, hud) = (VulkanFrame.Measuring, Counting.Hud);
+        (VulkanFrame.Measuring, Counting.Hud) = (true, true); // the HUD shown: every frame is timed
         Span<double> groups = stackalloc double[3];
         try
         {
@@ -49,7 +51,7 @@ public sealed class GpuTimesTests
         }
         finally
         {
-            (VulkanFrame.Measuring, Komet.Core.Counting.Hud) = (measuring, hud);
+            (VulkanFrame.Measuring, Counting.Hud) = (measuring, hud);
         }
     }
 }

@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.API.Client.Tesselation;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
@@ -27,9 +27,13 @@ internal static class OwnTessellation
     private const int MaxSlots = 64, OursCounter = 0, EngineCounter = 1, JsonCounter = 2, Counters = 3;
 
     private static readonly Tally Counts = new(Counters);
-    private static MethodBase?[] _skipped = [], _jsonSkipped = [];
+    private static MethodBase?[] _skipped = [], _crossSkipped = [], _jsonSkipped = [], _face = [];
+
+    // A post-processor on the face light must see each cube and topsoil face through the patched engine entry.
+    internal static bool UsePatchedFaceLight { get; private set; }
 
     public static bool Enabled { get; set; } = true;
+
     // Cleared by Stop or leaving the world or mod: replacements left in a tesselator hand every block back
     public static bool Installed { get; internal set; }
 
@@ -46,6 +50,8 @@ internal static class OwnTessellation
     public static bool JsonInstalled { get; private set; }
 
     // Another mod patches a body the JSON replacements skip: the engine's tesselators draw every JSON block
+    internal static bool CrossStoodDown { get; private set; }
+
     public static bool JsonStoodDown { get; private set; }
 
     internal static bool Active => Enabled && Installed && !StoodDown;
@@ -67,9 +73,18 @@ internal static class OwnTessellation
     {
         (Installed, StoodDown, JsonInstalled, JsonStoodDown) = (false, false, false, false);
         var start = Method(typeof(ChunkTesselator), nameof(ChunkTesselator.Start));
-        if (!NotNull(harmony) || !NotNull(start) || !Accessible(nameof(OwnTessellation), logger) || !Fields(logger) ||
-            !EngineShape.Matches(Shaped(), shape, nameof(OwnTessellation), logger)) return;
-        _skipped = Shaped();
+        if (!NotNull(start) || !Accessible(nameof(OwnTessellation), logger) || !Fields(logger) ||
+            !EngineShape.Matches(Shaped(), shape, nameof(OwnTessellation), logger))
+        {
+            return;
+        }
+
+        var shaped = Shaped();
+        var target = FaceLight.Target();
+        _face = [target];
+        _skipped = [.. shaped.Where(m => m != target && m?.DeclaringType != typeof(CrossTesselator))];
+        _crossSkipped = [.. shaped.Where(static m => m?.DeclaringType == typeof(CrossTesselator))];
+        CrossStoodDown = false;
         JsonInstalled = JsonMesher.Fields(logger) && OwnJsonSnow.Fields(logger) && JsonMesh.Tables(logger) &&
                         EngineShape.Matches(JsonShaped(), jsonShape, nameof(OwnTessellation) + " JSON", logger);
         _jsonSkipped = JsonInstalled ? JsonShaped() : [];
@@ -85,18 +100,40 @@ internal static class OwnTessellation
     internal static void Recheck()
     {
         if (!Installed) return;
-        StoodDown = EngineShape.Report(Logger, nameof(OwnTessellation), StoodDown,
-            EngineShape.Foreign(_skipped, PatchKinds.All, null, typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)));
+
+        UsePatchedFaceLight = EngineShape.Foreign(_face, KapiPatchKinds.Postfix, null, typeof(FaceLight));
+        StoodDown = CheckCubes();
+        CrossStoodDown = Check("OwnTessellation Cross", CrossStoodDown, _crossSkipped);
         if (!JsonInstalled) return;
+
         JsonStoodDown = EngineShape.Report(Logger, nameof(OwnTessellation) + " JSON", JsonStoodDown,
-            EngineShape.Foreign(_jsonSkipped, PatchKinds.All, null, typeof(JitWarm), typeof(FaceLight),
-                typeof(TessSafety)));
+            EngineShape.Foreign(_jsonSkipped, KapiPatchKinds.All, null, typeof(JitWarm), typeof(FaceLight),
+                typeof(TessSafety)), _jsonSkipped, KapiPatchKinds.All, null,
+            [typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)]);
     }
+
+    private static bool CheckCubes()
+    {
+        const KapiPatchKinds otherFacePatches = KapiPatchKinds.All & ~KapiPatchKinds.Postfix;
+        if (EngineShape.Foreign(_face, otherFacePatches, null, typeof(FaceLight)))
+        {
+            return EngineShape.Report(Logger, nameof(OwnTessellation), StoodDown, true, _face, otherFacePatches,
+                null, [typeof(FaceLight)]);
+        }
+
+        return Check(nameof(OwnTessellation), StoodDown, _skipped);
+    }
+
+    private static bool Check(string feature, bool previous, MethodBase?[] methods) =>
+        EngineShape.Report(Logger, feature, previous,
+            EngineShape.Foreign(methods, KapiPatchKinds.All, null, typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)),
+            methods, KapiPatchKinds.All, null, [typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)]);
 
     internal static void Count(bool ours, bool json = false)
     {
         var counter = ours ? OursCounter : EngineCounter;
         if (!Counting.Hud) return;
+
         Counts.Add(counter, 1);
         if (ours && json) Counts.Add(JsonCounter, 1);
     }
@@ -139,7 +176,8 @@ internal static class OwnTessellation
     // even-face light lerp; face light; bounds; in-place appends; SideAo reads
     internal static MethodBase?[] JsonShaped()
     {
-        var (t, i, f, b, json, mesh) = (typeof(TCTCache), typeof(int), typeof(float), typeof(bool), typeof(JsonTesselator),
+        var (t, i, f, b, json, mesh) = (typeof(TCTCache), typeof(int), typeof(float), typeof(bool),
+            typeof(JsonTesselator),
             typeof(MeshData));
         var (supplier, pass, matrix, bits) = (typeof(IMeshPoolSupplier), typeof(EnumChunkRenderPass), typeof(float[]),
             typeof(SmallBoolArray));
@@ -165,7 +203,8 @@ internal static class OwnTessellation
             Method(typeof(GameMath), nameof(GameMath.BiLerpRgbaColor), f, f, i, i, i, i),
             FaceLight.Target(), Method(t, nameof(TCTCache.UpdateChunkMinMax), f, f, f),
             Method(mesh, nameof(MeshData.AddVertexWithFlags), f, f, f, f, f, i, i),
-            Method(mesh, nameof(MeshData.AddQuadIndices), i), Method(mesh, nameof(MeshData.AddIndices), b, i, i, i, i, i, i),
+            Method(mesh, nameof(MeshData.AddQuadIndices), i),
+            Method(mesh, nameof(MeshData.AddIndices), b, i, i, i, i, i, i),
             Method(typeof(CustomMeshDataPart<int>), nameof(CustomMeshDataPart<>.Add4), i),
             Method(typeof(CustomMeshDataPart<int>), nameof(CustomMeshDataPart<>.Add), i),
             Method(typeof(TileSideEnum), nameof(TileSideEnum.ToFlags), i),
@@ -179,10 +218,12 @@ internal static class OwnTessellation
     {
         var slots = Slots(tesselator);
         if (!NotNull(slots) || !Assert(slots.Length <= MaxSlots)) return 0;
+
         var swapped = 0;
         for (var i = 0; i < Math.Min(slots.Length, MaxSlots); i++)
         {
             if (Replacement(slots[i]) is not { } replacement) continue;
+
             slots[i] = replacement;
             swapped++;
         }
@@ -191,20 +232,22 @@ internal static class OwnTessellation
     }
 
     // A height that is not finite stays the engine's, the JSON tesselators while their bodies are not the ones matched
-    private static IBlockTesselator? Replacement(IBlockTesselator? engine) => engine switch
-    {
-        JsonTesselator when engine.GetType() == typeof(JsonTesselator) && JsonInstalled => new OwnJson(engine),
-        JsonAndSnowLayerTesselator snow when engine.GetType() == typeof(JsonAndSnowLayerTesselator) && JsonInstalled =>
-            new OwnJsonSnow(snow),
-        BleedingCubeTesselator bleeding when engine.GetType() == typeof(BleedingCubeTesselator) &&
-                                             Finite(BleedingHeight(bleeding)) =>
-            new OwnCube(bleeding, BleedingHeight(bleeding), true),
-        CubeTesselator cube when engine.GetType() == typeof(CubeTesselator) && Finite(CubeHeight(cube)) =>
-            new OwnCube(cube, CubeHeight(cube), false),
-        TopsoilTesselator topsoil when engine.GetType() == typeof(TopsoilTesselator) => new OwnTopsoil(topsoil),
-        CrossTesselator when OwnCross.Replaces(engine) => new OwnCross(engine),
-        _ => null
-    };
+    private static IBlockTesselator? Replacement(IBlockTesselator? engine) =>
+        engine switch
+        {
+            JsonTesselator when engine.GetType() == typeof(JsonTesselator) && JsonInstalled => new OwnJson(engine),
+            JsonAndSnowLayerTesselator snow when engine.GetType() == typeof(JsonAndSnowLayerTesselator) && JsonInstalled
+                =>
+                new OwnJsonSnow(snow),
+            BleedingCubeTesselator bleeding when engine.GetType() == typeof(BleedingCubeTesselator) &&
+                                                 Finite(BleedingHeight(bleeding)) =>
+                new OwnCube(bleeding, BleedingHeight(bleeding), true),
+            CubeTesselator cube when engine.GetType() == typeof(CubeTesselator) && Finite(CubeHeight(cube)) =>
+                new OwnCube(cube, CubeHeight(cube), false),
+            TopsoilTesselator topsoil when engine.GetType() == typeof(TopsoilTesselator) => new OwnTopsoil(topsoil),
+            CrossTesselator when OwnCross.Replaces(engine) => new OwnCross(engine),
+            _ => null
+        };
 
     // ChunkTesselator.Start, which also runs for the pool threads' instances; harmless before the instance has started
     private static void Started(ChunkTesselator __instance)
@@ -213,13 +256,14 @@ internal static class OwnTessellation
     }
 
     // The private engine fields the accessors reach, with their types (a missing one would throw on a game thread)
-    private static bool Fields(ILogger? logger) => TessSeams.Fields(nameof(OwnTessellation), logger, "the engine's tesselators run",
-    [
-        (typeof(ChunkTesselator), "blockTesselators", typeof(IBlockTesselator[])),
-        (typeof(ChunkTesselator), "currentModeldataByRenderPassByLodLevel", typeof(MeshData[][][])),
-        (typeof(CubeTesselator), "blockHeight", typeof(float)),
-        (typeof(BleedingCubeTesselator), "blockHeight", typeof(float))
-    ]);
+    private static bool Fields(ILogger? logger) =>
+        TessSeams.Fields(nameof(OwnTessellation), logger, "the engine's tesselators run",
+        [
+            (typeof(ChunkTesselator), "blockTesselators", typeof(IBlockTesselator[])),
+            (typeof(ChunkTesselator), "currentModeldataByRenderPassByLodLevel", typeof(MeshData[][][])),
+            (typeof(CubeTesselator), "blockHeight", typeof(float)),
+            (typeof(BleedingCubeTesselator), "blockHeight", typeof(float))
+        ]);
 }
 
 // Common to cube, topsoil and cross replacements: switch and stand-down, counting, and the replaced engine tesselator

@@ -9,14 +9,20 @@ namespace Komet.Diagnostics;
 // Deltas between frame starts. Outside: end to next start (OpenTK input/window events, no engine mark). NaN:
 // unmeasured.
 internal readonly record struct FrameRecord(
-    long Index, double DtMs, double GcMs, double OutsideMs, double JitMs, double RunQueueMs, ProfileEntryRange? Root);
+    long Index,
+    double DtMs,
+    double GcMs,
+    double OutsideMs,
+    double JitMs,
+    double RunQueueMs,
+    ProfileEntryRange? Root);
 
 // A gen2 counts in all three generations, as GC.CollectionCount does
 internal readonly record struct FrameCounters(int Gen0, int Gen1, int Gen2, long Allocated, long MainAllocated)
 {
     public FrameCounters Since(in FrameCounters before) =>
         Assert(Gen0 >= before.Gen0 && Gen1 >= before.Gen1 && Gen2 >= before.Gen2) &&
-        Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
+               Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
             ? new FrameCounters(Gen0 - before.Gen0, Gen1 - before.Gen1, Gen2 - before.Gen2,
                 Allocated - before.Allocated, MainAllocated - before.MainAllocated)
             : default;
@@ -57,9 +63,11 @@ internal static class FrameClock
 
     public static void Install(Harmony harmony)
     {
-        (_start, _end, _root, _seen, Last, Completed, Sink, _counted, FrameStart, Frames) = (0, 0, null, null, default, 0, null, false, 0, 0);
+        (_start, _end, _root, _seen, Last, Completed, Sink, _counted, FrameStart, Frames) =
+            (0, 0, null, null, default, 0, null, false, 0, 0);
         var frame = AccessTools.Method(typeof(ClientPlatformWindows), "window_RenderFrame");
-        if (!NotNull(harmony) || !NotNull(frame) || !Assert(frame.GetParameters().Length == 1)) return;
+        if (!NotNull(frame) || !Assert(frame.GetParameters().Length == 1)) return;
+
         _ = harmony.Patch(frame, new HarmonyMethod(Begin), new HarmonyMethod(End));
     }
 
@@ -67,7 +75,7 @@ internal static class FrameClock
     internal static void Begin()
     {
         (FrameStart, Frames) = (Stopwatch.GetTimestamp(), Frames + 1);
-        Links.FrameBegun();
+        Links.Frames.FrameBegun();
         var sink = Sink;
         if (!Stats && sink is null)
         {
@@ -76,7 +84,8 @@ internal static class FrameClock
         }
 
         var now = Stopwatch.GetTimestamp();
-        var (pause, jit, delay) = (GC.GetTotalPauseDuration(), JitInfo.GetCompilationTime(true), SchedStat.MainWaitNs() is >= 0 and var ns ? ns : double.NaN);
+        var (pause, jit, delay) = (GC.GetTotalPauseDuration(), JitInfo.GetCompilationTime(true),
+            SchedStat.MainWaitNs() is >= 0 and var ns ? ns : double.NaN);
         var counters = sink is null
             ? default
             : new FrameCounters(GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
@@ -100,6 +109,7 @@ internal static class FrameClock
     internal static void End()
     {
         if (_start == 0) return;
+
         _end = Stopwatch.GetTimestamp();
         var profiler = ScreenManager.FrameProfiler;
         var root = profiler?.PrevRootEntry;
@@ -109,6 +119,5 @@ internal static class FrameClock
     }
 
     // Engine profiler ranges can go negative across a long stall (seen after a 2.7 s compaction)
-    internal static double ToMs(long ticks) =>
-        ticks > 0 ? ticks * 1000.0 / Stopwatch.Frequency : 0;
+    internal static double ToMs(long ticks) => ticks > 0 ? ticks * 1000.0 / Stopwatch.Frequency : 0;
 }

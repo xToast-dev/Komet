@@ -9,10 +9,7 @@ public sealed class RenderCostTests
         ["OnRenderBefore", "RenderShadow", "OnBeforeRenderOpaque", "RenderOpaque", "RenderOIT", "RenderAfterOIT"];
 
     [TearDown]
-    public void SwitchOff()
-    {
-        RenderCost.Clear();
-    }
+    public void SwitchOff() => RenderCost.Clear();
 
     private static MethodInfo RenderMesh() =>
         AccessTools.Method(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.RenderMesh),
@@ -23,14 +20,16 @@ public sealed class RenderCostTests
     {
         using var harmony = new TestHarmony("komet-test-rendercost-off");
         RenderCost.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(RenderCost.Patched, Is.False);
             Assert.That(PatchedBy(RenderMesh(), harmony), Is.False);
             foreach (var stage in Stages)
+            {
                 Assert.That(PatchedBy(AccessTools.DeclaredMethod(typeof(ChunkRenderer), stage), harmony), Is.False,
                     stage);
-        });
+            }
+        }
     }
 
     [Test]
@@ -40,7 +39,7 @@ public sealed class RenderCostTests
         RenderCost.Install(harmony, new QuietLogger());
         RenderCost.Enabled = true;
         Assert.That(RenderCost.Patched, Is.True);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             foreach (var stage in Stages)
             {
@@ -50,7 +49,7 @@ public sealed class RenderCostTests
             }
 
             Assert.That(PatchedBy(RenderMesh(), harmony), Is.True, "RenderMesh");
-        });
+        }
     }
 
     [TestCase("Vintagestor:gl0", 1)]
@@ -59,8 +58,6 @@ public sealed class RenderCostTests
     [TestCase("glxgea:sh_opt0", -1)]
     [TestCase("gl0", -1)]
     [TestCase("foo:gl", -1)]
-    public void DriverThreadsAreKnownByName(string comm, int kind)
-    {
+    public void DriverThreadsAreKnownByName(string comm, int kind) =>
         Assert.That(RenderCost.Classify(comm), Is.EqualTo(kind));
-    }
 }

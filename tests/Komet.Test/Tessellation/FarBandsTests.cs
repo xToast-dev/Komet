@@ -40,21 +40,110 @@ public sealed class FarLodTests
         FarLod.Kinds = [1, 2, 2];
         var source = Enumerable.Repeat(air, Ext * Ext * Ext).ToArray();
         // coarse cell (1, 1, 1) covers ext 1..2 on every axis: stone below, grass on one top block
-        foreach (var (x, z) in new[] { (1, 1), (2, 1), (1, 2), (2, 2) }) source[At(x, 1, z)] = stone;
+        foreach (var (x, z) in new[] { (1, 1), (2, 1), (1, 2), (2, 2) })
+        {
+            source[At(x, 1, z)] = stone;
+        }
+
         source[At(1, 2, 1)] = grass;
-        Assert.That(FarLod.Cell(source, 1, 1, 1, false), Is.SameAs(grass));
+        Assert.That(FarLod.Cell(source, 1, 1, 1), Is.SameAs(grass));
         // three of eight: air (two of eight would do for leaves or wood)
         var thin = Enumerable.Repeat(air, Ext * Ext * Ext).ToArray();
-        foreach (var (x, z) in new[] { (1, 1), (2, 1), (1, 2) }) thin[At(x, 1, z)] = stone;
-        Assert.That(FarLod.Cell(thin, 1, 1, 1, false), Is.Null);
+        foreach (var (x, z) in new[] { (1, 1), (2, 1), (1, 2) })
+        {
+            thin[At(x, 1, z)] = stone;
+        }
+
+        Assert.That(FarLod.Cell(thin, 1, 1, 1), Is.Null);
         // the +x border reads the neighbour's layer (ext 33): solid only where all four of its blocks hold
         source[At(33, 1, 1)] = stone;
         source[At(33, 2, 1)] = stone;
-        Assert.That(FarLod.Cell(source, 17, 1, 1, false), Is.Null);
+        Assert.That(FarLod.Cell(source, 17, 1, 1), Is.Null);
         source[At(33, 1, 2)] = stone;
         source[At(33, 2, 2)] = stone;
-        Assert.That(FarLod.Cell(source, 17, 1, 1, false), Is.SameAs(stone));
+        Assert.That(FarLod.Cell(source, 17, 1, 1), Is.SameAs(stone));
     }
+
+    [TestCase(33, 12, 0)] // diagonal neighbour
+    [TestCase(1, 1, 1)] // first voxel of the chunk
+    [TestCase(0, 33, 33)] // halo at three chunk boundaries
+    public void NewLiquidProtectsTheExtendedGrid(int x, int y, int z)
+    {
+        using var rig = new ChunkRig();
+        var fluids = Enumerable.Repeat(rig.Blocks[ChunkRig.Air], Ext * Ext * Ext).ToArray();
+        Assert.That(FarLod.HasFluids(fluids, false), Is.False);
+        fluids[At(x, y, z)] = rig.Blocks[ChunkRig.Water];
+        Assert.That(FarLod.HasFluids(fluids, true), Is.True);
+        Assert.That(FarLod.HasFluids(fluids, false), Is.True);
+        Assert.That(FarLod.Want(5000, ChunkBands.FullDetail, 256), Is.EqualTo(ChunkBands.FullDetail));
+    }
+
+    [Test]
+    public void EdgePassUsesOnlyRefreshedLiquidAndKeepsItsSolidSamples()
+    {
+        using var rig = new ChunkRig();
+        var fluids = Enumerable.Repeat(rig.Blocks[ChunkRig.Air], Ext * Ext * Ext).ToArray();
+        fluids[At(3, 3, 3)] = rig.Blocks[ChunkRig.Water];
+        Assert.That(FarLod.HasFluids(fluids, true), Is.False, "the interior still belongs to the last pass");
+        Assert.That(FarLod.HasFluids(fluids, false), Is.True);
+
+        fluids[At(32, 12, 33)] = rig.Blocks[ChunkRig.Water];
+        Assert.That(FarLod.FluidAlongSide(fluids, Ext - 1, -1, Ext, Ext * Ext), Is.True);
+        Assert.That(FarLod.FluidAlongSide(fluids, 0, 1, Ext, Ext * Ext), Is.False);
+    }
+
+    [Test]
+    public void WetFarChunksKeepBothSidesOfTheEngineWaterBoundary()
+    {
+        using var rig = new ChunkRig();
+        using var harmony = new TestHarmony("komet-test-farlod-water");
+        var world = Answers.Of<IClientWorldAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
+        {
+            // ReSharper disable once AccessToDisposedClosure - asked only while rig lives
+            ["GetBlock"] = _ => rig.Blocks[ChunkRig.Air]
+        });
+        var api = Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+        {
+            ["get_World"] = _ => world,
+            ["get_Event"] = _ => Answers.Of<IClientEventAPI>([])
+        });
+        for (var x = 1; x <= 2; x++)
+        {
+            _ = rig.Put(x, 1, 1, static (_, _, _) => ChunkRig.Air,
+                static (_, y, _) => y == 12 ? ChunkRig.Water : ChunkRig.Air);
+        }
+
+        var original = new byte[2][];
+        for (var x = 1; x <= 2; x++)
+        {
+            _ = rig.Tesselator.BeginProcessChunk(x, 1, 1, rig.At(x, 1, 1)!, false);
+            original[x - 1] = (byte[])rig.DrawFluids.Clone();
+        }
+
+        var pixels = FarLod.Pixels;
+        try
+        {
+            FarLod.Pixels = 2;
+            FarLod.Install(harmony, api);
+            Assert.That(FarLod.Installed, Is.True);
+            AccessTools.Field(typeof(FarLod), "_threshold").SetValue(null, 1d);
+            _ = harmony.Patch(AccessTools.Method(typeof(ChunkTesselator), nameof(ChunkTesselator.BuildBlockPolygons)),
+                new HarmonyMethod(typeof(FarLodTests), nameof(SkipMeshing)));
+            for (var x = 1; x <= 2; x++)
+            {
+                _ = rig.Tesselator.NowProcessChunk(x, 1, 1, rig.Tess(x, 1, 1), false);
+                Assert.That(rig.DrawFluids, Is.EqualTo(original[x - 1]), $"water face mask at chunk {x}");
+                Assert.That(rig.FluidsExt[At(x == 1 ? 33 : 0, 13, 12)], Is.SameAs(rig.Blocks[ChunkRig.Water]));
+            }
+        }
+        finally
+        {
+            FarLod.Stop();
+            FarLod.Pixels = pixels;
+        }
+    }
+
+    private static bool SkipMeshing() => false;
 
     [Test]
     public void LightIsTheBrightestByteByByte()
@@ -91,7 +180,11 @@ public sealed class FarLodTests
         Assert.Multiple(() =>
         {
             Assert.That(draw[ChunkRig.Local(15, 15, 15)], Is.EqualTo(0x3F));
-            Assert.That(new[] { draw[ChunkRig.Local(16, 0, 0)], draw[ChunkRig.Local(0, 16, 0)], draw[ChunkRig.Local(0, 0, 16)] },
+            Assert.That(
+                new[]
+                {
+                    draw[ChunkRig.Local(16, 0, 0)], draw[ChunkRig.Local(0, 16, 0)], draw[ChunkRig.Local(0, 0, 16)]
+                },
                 Is.All.Zero);
             Assert.That(draw.Count(b => b != 0), Is.EqualTo(16 * 16 * 16));
         });
@@ -103,8 +196,7 @@ public sealed class FarLodTests
     [Test]
     public void AnAnnouncedBandKeepsTheDrawnOne()
     {
-        var table = new ChunkBands();
-        table.Bands[7] = ChunkBands.Far;
+        var table = new ChunkBands { Bands = { [7] = ChunkBands.Far } };
         table.Announce(7, ChunkBands.Near);
         Assert.That((table.Bands[7], table.DrawnBand(7)), Is.EqualTo((ChunkBands.Near, ChunkBands.Far)));
         table.Announce(7, ChunkBands.Far);
@@ -137,15 +229,15 @@ public sealed class FarFoliageTests
         });
     }
 
-    private static int Want(double d, int band, double threshold) => PixelBand.Want(d, band, threshold, FarFoliage.Band);
+    private static int Want(double d, int band, double threshold) =>
+        PixelBand.Want(d, band, threshold, FarFoliage.Band);
 }
 
 public sealed class DeepCullingTests
 {
     // A deep chunk is culled past the near distance plus the band and kept culled until it comes inside the near distance
     [Test]
-    public void CullsWithHysteresis()
-    {
+    public void CullsWithHysteresis() =>
         Assert.Multiple(() =>
         {
             Assert.That(DeepCulling.Cull(0, 200, 96), Is.True);
@@ -155,5 +247,4 @@ public sealed class DeepCullingTests
             Assert.That(DeepCulling.Cull(1, 130, 96), Is.False);
             Assert.That(DeepCulling.Cull(0, 5000, double.NaN), Is.False);
         });
-    }
 }

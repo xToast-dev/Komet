@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Komet.Core;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
@@ -43,13 +44,18 @@ internal static class DeepCulling
     {
         Installed = false;
         var (map, pass) = (typeof(ClientWorldMap), AccessTools.DeclaredMethod(typeof(ChunkTesselator),
-            nameof(ChunkTesselator.NowProcessChunk), [typeof(int), typeof(int), typeof(int), typeof(TesselatedChunk), typeof(bool)]));
-        if (!NotNull(harmony) || !NotNull(api) || pass is null || !TessSeams.Fields(nameof(DeepCulling), logger,
+            nameof(ChunkTesselator.NowProcessChunk),
+            [typeof(int), typeof(int), typeof(int), typeof(TesselatedChunk), typeof(bool)]));
+        if (pass is null || !TessSeams.Fields(nameof(DeepCulling), logger,
                 "deep chunks keep their geometry",
                 [
                     (map, "chunks", typeof(Dictionary<long, ClientChunk>)), (map, "chunksLock", typeof(object)),
                     (map, "MapChunks", typeof(Dictionary<long, ClientMapChunk>))
-                ])) return;
+                ]))
+        {
+            return;
+        }
+
         _ = harmony.Patch(pass, new HarmonyMethod(typeof(DeepCulling), nameof(Prefix)) { priority = Priority.High });
         _api = api;
         _tick = api.Event.RegisterGameTickListener(Scan, EveryMs);
@@ -58,7 +64,7 @@ internal static class DeepCulling
 
     public static void Stop()
     {
-        Komet.Core.Listeners.Unregister(_api?.Event, _tick);
+        Listeners.Unregister(_api?.Event, _tick);
         (_api, _tick, Installed, _near) = (null, 0, false, double.MaxValue);
         (_chunkCursor, _chunkCount, _columnCursor, _columnCount) = (0, 0, 0, 0);
         (_chunks, _columns, _x, _z) = ([], [], 0, 0); // the snapshots (often on the LOH) die with the world
@@ -69,16 +75,20 @@ internal static class DeepCulling
     private static long Column(int cx, int cz) => ((long)cz << 32) | (uint)cx;
 
     // The chunk's top lies Margin below the surface of the nine columns around it (false where one is not known yet)
-    internal static bool Deep(int cx, int cy, int cz)
+    private static bool Deep(int cx, int cy, int cz)
     {
         if (cy >= Dimension || !Assert(cx >= 0 && cz >= 0)) return false;
+
         var lowest = int.MaxValue;
         for (var dx = -1; dx <= 1; dx++)
+        {
             for (var dz = -1; dz <= 1; dz++)
             {
                 if (!Surfaces.TryGetValue(Column(cx + dx, cz + dz), out var surface)) return false;
+
                 lowest = Math.Min(lowest, surface);
             }
+        }
 
         return cy * Size + Size - 1 < lowest - Margin;
     }
@@ -87,23 +97,28 @@ internal static class DeepCulling
     internal static bool Cull(int state, double distance, double near)
     {
         if (!double.IsFinite(near) || !Assert(state is >= 0 and <= Culled)) return false;
+
         return state == Culled ? distance > near : distance > near + Band;
     }
 
     // NowProcessChunk: a deep chunk far from the player is left without geometry, as an enclosed one. Every pass answers
     // the chunk's mark; one drawn in full for any reason but distance is no longer tracked, and a pass that ends a
     // culled state is never edge-only.
-    private static bool Prefix(ChunkTesselator __instance, int chunkX, int chunkY, int chunkZ, TesselatedChunk tessChunk,
+    private static bool Prefix(ChunkTesselator __instance, int chunkX, int chunkY, int chunkZ,
+        TesselatedChunk tessChunk,
         ref bool skipChunkCenter, ref int __result)
     {
         var key = ChunkKey.Pack(chunkX, chunkY, chunkZ);
         if (key < 0 || !Installed) return true;
+
         _ = Table.Pending.TryRemove(key, out _);
         if (!NotNull(tessChunk)) return true;
+
         if (!Enabled || !OccludedChunks.Installed || OccludedChunks.StoodDown || !Deep(chunkX, chunkY, chunkZ))
         {
             // a culled chunk leaves the table drawn whole: an edge-only pass would keep its empty centre untracked
             if (Table.Bands.TryRemove(key, out var held) && held == Culled) skipChunkCenter = false;
+
             return true;
         }
 
@@ -111,8 +126,13 @@ internal static class DeepCulling
         var distance = ChunkKey.CentreDistance(chunkX, chunkZ, Volatile.Read(ref _x), Volatile.Read(ref _z));
         var cull = Cull(state, distance, Volatile.Read(ref _near));
         Table.Bands[key] = cull ? Culled : Full;
-        if (state == Culled && !cull) skipChunkCenter = false; // an edge-only pass would keep the empty centre
+        if (state == Culled && !cull)
+        {
+            skipChunkCenter = false; // an edge-only pass would keep the empty centre
+        }
+
         if (!cull) return true;
+
         __result = OccludedChunks.Apply(__instance, chunkX, chunkY, chunkZ, tessChunk, skipChunkCenter);
         return false;
     }
@@ -121,14 +141,20 @@ internal static class DeepCulling
     private static void Scan(float dt)
     {
         if (_api is not { World.Player.Entity: { } entity } api || api.World is not ClientMain game) return;
+
         var (px, py, pz) = (entity.Pos.X, entity.Pos.Y, entity.Pos.Z);
         var under = py < SurfaceAt(game, (int)px, (int)pz) - 2;
         Volatile.Write(ref _x, px);
         Volatile.Write(ref _z, pz);
         double near = under ? FarUnder : Near;
         if (!Enabled) near = double.MaxValue;
+
         Volatile.Write(ref _near, near);
-        if (!Enabled && Table.Bands.IsEmpty) return; // off, every chunk drawn in full
+        if (!Enabled && Table.Bands.IsEmpty)
+        {
+            return; // off, every chunk drawn in full
+        }
+
         Refresh(game);
         var (now, busy) = (Environment.TickCount64, TessSeams.Backlogged);
         Table.Begin(px, pz, near, now);
@@ -140,14 +166,25 @@ internal static class DeepCulling
     private static int Slice(ClientMain game, (double X, double Z) at, bool busy, long now)
     {
         var marks = 0;
-        for (var n = 0; n < TrackedPerScan && marks < MaxMarks && Table.TryNext(game, now, out var key, out var state); n++)
+        for (var n = 0;
+             n < TrackedPerScan && marks < MaxMarks && Table.TryNext(game, now, out var key, out var state);
+             n++)
         {
             if (state == 0) continue;
+
             var (x, y, z) = ChunkKey.Unpack(key);
             // distance first: cheap
             var want = Enabled && Cull(state, ChunkKey.CentreDistance(x, z, at.X, at.Z), _near) && Deep(x, y, z);
-            if (want == (state == Culled) && !Enabled) Table.Forget(key); // off: drawn in full, no longer watched
-            if (want == (state == Culled) || (want && busy)) continue; // culling waits for the backlog
+            if (want == (state == Culled) && !Enabled)
+            {
+                Table.Forget(key); // off: drawn in full, no longer watched
+            }
+
+            if (want == (state == Culled) || (want && busy))
+            {
+                continue; // culling waits for the backlog
+            }
+
             marks += Table.Mark(game, x, y, z, now);
         }
 
@@ -159,10 +196,12 @@ internal static class DeepCulling
     {
         var map = game.WorldMap;
         if (!NotNull(map) || Chunks(map) is not { } chunks || ChunksLock(map) is not { } gate) return marks;
+
         if (_chunkCursor >= _chunkCount)
         {
             // the chunk loader holds the lock for whole batches at a join: the main thread does not wait, the next scan asks again
             if (!Monitor.TryEnter(gate)) return marks;
+
             try
             {
                 _chunkCount = Snapshot(chunks.Keys, ref _chunks);
@@ -180,7 +219,11 @@ internal static class DeepCulling
             var pos = map.ChunkPosFromChunkIndex3D(_chunks[_chunkCursor]);
             var key = ChunkKey.Pack(pos.X, pos.Y + pos.Dimension * Dimension, pos.Z);
             if (pos.Dimension != 0 || key < 0 || Table.Bands.ContainsKey(key) || Table.Waiting(key, now) ||
-                !Deep(pos.X, pos.Y, pos.Z) || !Cull(0, ChunkKey.CentreDistance(pos.X, pos.Z, px, pz), _near)) continue;
+                !Deep(pos.X, pos.Y, pos.Z) || !Cull(0, ChunkKey.CentreDistance(pos.X, pos.Z, px, pz), _near))
+            {
+                continue;
+            }
+
             marks += Table.Mark(game, pos.X, pos.Y, pos.Z, now);
         }
 
@@ -193,6 +236,7 @@ internal static class DeepCulling
     {
         var count = keys.Count;
         if (buffer.Length < count + 256) buffer = new long[Math.Max(count + 256, buffer.Length * 2)];
+
         try
         {
             keys.CopyTo(buffer, 0);
@@ -210,7 +254,8 @@ internal static class DeepCulling
     {
         // a negative coordinate (past the map's edge) would index the wrong map chunk and throw below
         if (x < 0 || z < 0 || game.WorldMap.GetMapChunk(x / Size, z / Size) is not { } map) return int.MaxValue;
-        var i = (z % Size) * Size + x % Size;
+
+        var i = z % Size * Size + x % Size;
         var rain = map.RainHeightMap is { Length: Size * Size } r ? r[i] : int.MaxValue;
         var terrain = map.WorldGenTerrainHeightMap is { Length: Size * Size } t ? t[i] : int.MaxValue;
         return Math.Min(rain, terrain);
@@ -222,7 +267,9 @@ internal static class DeepCulling
     {
         var map = game.WorldMap;
         if (!NotNull(map) || MapChunks(map) is not { } columns) return;
+
         if (_columnCursor >= _columnCount) (_columnCount, _columnCursor) = (Snapshot(columns.Keys, ref _columns), 0);
+
         var sizeX = Math.Max(1, map.ChunkMapSizeX);
         try
         {
@@ -230,15 +277,20 @@ internal static class DeepCulling
             {
                 var key = _columns[_columnCursor];
                 if (!columns.TryGetValue(key, out var found) || found is not IMapChunk column) continue;
+
                 var (rain, terrain) = (column.RainHeightMap, column.WorldGenTerrainHeightMap);
                 var lowest = int.MaxValue;
                 for (var i = 0; i < Size * Size; i++)
                 {
                     if (rain is { Length: Size * Size }) lowest = Math.Min(lowest, rain[i]);
+
                     if (terrain is { Length: Size * Size }) lowest = Math.Min(lowest, terrain[i]);
                 }
 
-                if (lowest < int.MaxValue) Surfaces[Column((int)(key % sizeX), (int)(key / sizeX))] = (short)Math.Min(lowest, short.MaxValue);
+                if (lowest < int.MaxValue)
+                {
+                    Surfaces[Column((int)(key % sizeX), (int)(key / sizeX))] = (short)Math.Min(lowest, short.MaxValue);
+                }
             }
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or IndexOutOfRangeException)

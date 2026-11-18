@@ -12,7 +12,10 @@ public sealed class DirtyBlocksTests
     {
         var queue = new ConcurrentQueue<Vec4i>();
         foreach (var (x, w) in new[] { (1, -1), (2, -1), (1, -1), (1, 5), (3, -1), (2, -1), (1, -1) })
+        {
             queue.Enqueue(new Vec4i(x, 10, 20, w));
+        }
+
         var dropped = DirtyBlocks.Squeeze(queue);
         (int, int)[] expected = [(1, -1), (2, -1), (1, 5), (3, -1)];
         Assert.Multiple(() =>

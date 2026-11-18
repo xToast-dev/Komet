@@ -50,13 +50,13 @@ public sealed class AnimatableCullingTests
     {
         using var harmony = new TestHarmony("komet-test-animatableculling");
         AnimatableCulling.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(AnimatableCulling.Matched, Is.True,
                 "AnimatableRenderer.OnRenderFrame is not the body verified");
             Assert.That(AnimatableCulling.Blocked, Is.False);
             Assert.That(Harmony.GetPatchInfo(Draw)?.Prefixes.Select(p => p.owner), Is.EqualTo([harmony.Id]));
-        });
+        }
     }
 
     // In front of the camera it draws, behind it it does not; a model 400 blocks behind still draws when a joint its vertices read
@@ -68,8 +68,8 @@ public sealed class AnimatableCullingTests
         using var harmony = new TestHarmony("komet-test-animatableculling");
         AnimatableCulling.Install(harmony, new QuietLogger());
         var (ahead, behind) = (Renderer(new Vec3d(0, 0, -100)), Renderer(new Vec3d(0, 0, 400)));
-        var carried = Renderer(new Vec3d(0, 0, 400), joint: 800, jointId: 1);
-        var unread = Renderer(new Vec3d(0, 0, 400), joint: 800);
+        var carried = Renderer(new Vec3d(0, 0, 400), 800, 1);
+        var unread = Renderer(new Vec3d(0, 0, 400), 800);
         var scaled = Renderer(new Vec3d(0, 0, 400));
         scaled.ScaleZ = 1000;
         var placed = Renderer(new Vec3d(0, 0, 400));
@@ -79,7 +79,8 @@ public sealed class AnimatableCullingTests
             Assert.That(AnimatableCulling.Frame(ahead, EnumRenderStage.Opaque), Is.True, "ahead");
             Assert.That(AnimatableCulling.Frame(behind, EnumRenderStage.Opaque), Is.False, "behind");
             Assert.That(AnimatableCulling.Frame(carried, EnumRenderStage.Opaque), Is.True, "carried by its joint");
-            Assert.That(AnimatableCulling.Frame(unread, EnumRenderStage.Opaque), Is.False, "carried by a joint none reads");
+            Assert.That(AnimatableCulling.Frame(unread, EnumRenderStage.Opaque), Is.False,
+                "carried by a joint none reads");
             Assert.That(AnimatableCulling.Frame(scaled, EnumRenderStage.Opaque), Is.True, "scaled");
             Assert.That(AnimatableCulling.Frame(placed, EnumRenderStage.Opaque), Is.True, "custom transform");
         });
@@ -142,7 +143,7 @@ public sealed class AnimatableCullingTests
 
     private string Final()
     {
-        var last = new SortedDictionary<string, string>();
+        var last = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var call in _state)
         {
             var (key, value) = call.StartsWith("cull", StringComparison.Ordinal)
@@ -191,7 +192,7 @@ public sealed class AnimatableCullingTests
     private static MultiTextureMeshRef Uploaded() => new([new NoMesh()], [1]);
 
     // A camera at the origin looking down -z, 70 degrees high, planes as MainRenderLoop computes them
-    internal static FrustumCulling Culler()
+    private static FrustumCulling Culler()
     {
         var culler = new FrustumCulling();
         var projection = Mat4d.Perspective(Mat4d.Create(), 70 * GameMath.DEG2RAD, 16 / 9.0, 0.1, 1536);
@@ -199,11 +200,32 @@ public sealed class AnimatableCullingTests
         return culler;
     }
 
+    // A client whose render API answers with Culler() and writes its blend and face-culling calls into state
+    internal static ICoreClientAPI StateClient(List<string> state)
+    {
+        var culler = Culler();
+        object? Record(string call)
+        {
+            state.Add(call);
+            return null;
+        }
+
+        var render = Answers.Of<IRenderAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+        {
+            ["get_DefaultFrustumCuller"] = _ => culler, ["get_ShaderUniforms"] = _ => new DefaultShaderUniforms(),
+            ["GlToggleBlend"] = a => Record($"blend {a![0]} {a[1]}"), ["GlDisableCullFace"] = _ => Record("cull off"),
+            ["GlEnableCullFace"] = _ => Record("cull on")
+        });
+        return Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_Render"] = _ => render });
+    }
+
     private ICoreClientAPI Client()
     {
         var culler = Culler();
-        var shader = Answers.Of<IShaderProgram>(new() { ["get_UBOs"] = _ => Ubos() });
-        var render = Answers.Of<IRenderAPI>(new()
+        var shader = Answers.Of<IShaderProgram>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_UBOs"] = _ => Ubos() });
+        var render = Answers.Of<IRenderAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["get_DefaultFrustumCuller"] = _ => culler, ["get_ShaderUniforms"] = _ => new DefaultShaderUniforms(),
             ["GetEngineShader"] = _ => shader, ["get_CurrentModelviewMatrix"] = _ => Mat4f.Create(),
@@ -212,11 +234,12 @@ public sealed class AnimatableCullingTests
             ["GlEnableCullFace"] = _ => Record("cull on"), ["GlDisableCullFace"] = _ => Record("cull off")
         });
         var player = Player();
-        var world = Answers.Of<IClientWorldAccessor>(new()
+        var world = Answers.Of<IClientWorldAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["get_Player"] = _ => player, ["get_BlockAccessor"] = _ => Answers.Of<IBlockAccessor>([])
         });
-        return Answers.Of<ICoreClientAPI>(new() { ["get_Render"] = _ => render, ["get_World"] = _ => world });
+        return Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_Render"] = _ => render, ["get_World"] = _ => world });
     }
 
     // A ClientPlayer without a game, with an entity: the draw reads the camera position from it

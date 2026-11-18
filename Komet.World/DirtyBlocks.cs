@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using HarmonyLib;
 using Vintagestory.API.MathTools;
 using Vintagestory.Server;
@@ -21,45 +23,54 @@ internal static class DirtyBlocks
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
 
-    // Duplicates left out, a total (server thread)
-    public static long Dropped { get; private set; }
-
     public static void Install(Harmony harmony)
     {
-        (Installed, Dropped) = (false, 0); // a total per world, as EventBusSweep.Swept
-        if (!NotNull(harmony) || Target() is not { } target ||
-            AccessTools.Field(typeof(ServerSystemBlockSimulation), "server")?.FieldType != typeof(ServerMain)) return;
+        Installed = false;
+        if (Target() is not { } target ||
+            AccessTools.Field(typeof(ServerSystemBlockSimulation), "server")?.FieldType != typeof(ServerMain))
+        {
+            return;
+        }
+
         _ = harmony.Patch(target, new HarmonyMethod(Handling));
         Installed = true;
     }
 
-    internal static System.Reflection.MethodInfo? Target() =>
+    private static MethodInfo? Target() =>
         AccessTools.DeclaredMethod(typeof(ServerSystemBlockSimulation), "HandleDirtyAndUpdatedBlocks", []);
 
     // HandleDirtyAndUpdatedBlocks prefix (server thread)
-    private static void Handling(ServerMain ___server)
+    private static void Handling(ServerMain? ___server)
     {
         if (!Enabled || ___server?.DirtyBlocks is not { IsEmpty: false } queue) return;
-        Dropped += Squeeze(queue);
+
+        _ = Squeeze(queue);
     }
 
     // The queue's entries now, first of each block and skip-player kept in order; the number left out
-    internal static int Squeeze(System.Collections.Concurrent.ConcurrentQueue<Vec4i> queue)
+    internal static int Squeeze(ConcurrentQueue<Vec4i> queue)
     {
         var count = Math.Min(queue.Count, MaxDrain);
         if (count < 2) return 0;
+
         Seen.Clear();
         Kept.Clear();
         var taken = 0;
         for (var i = 0; i < Math.Min(count, MaxDrain); i++)
         {
             if (!queue.TryDequeue(out var entry)) break;
+
             taken++;
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract - a mod may queue null
             if (entry is not null && Seen.Add((entry.X, entry.Y, entry.Z, entry.W))) Kept.Add(entry);
         }
 
         var dropped = Math.Max(0, taken - Kept.Count);
-        foreach (var entry in Kept.Bounded(MaxDrain)) queue.Enqueue(entry);
+        foreach (var entry in Kept.Bounded(MaxDrain))
+        {
+            queue.Enqueue(entry);
+        }
+
         Kept.Clear();
         Seen.Clear();
         // A catch-up burst (up to 2^20 entries, tens of MB) is not kept for the session once it has passed

@@ -1,16 +1,14 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using Komet.Core;
 using Komet.Diagnostics;
-using Vintagestory.API.MathTools;
-using Vintagestory.Client;
-using Vintagestory.Client.NoObf;
 
 namespace Komet.Bench;
 
 // Flies the scenario from a Before-stage renderer at RenderOrder -1, ahead of camera, tesselator, physics and HUD,
 // inert until LevelFinalize. Kinematic like SystemCinematicCamera.AdvanceTo; the clock is the engine's dt.
-internal sealed class BenchDriver : IRenderer
+internal sealed partial class BenchDriver : IRenderer
 {
     // Seconds of scenario time one frame may advance; route speeds are capped against it
     public const double MaxStep = 2;
@@ -28,36 +26,40 @@ internal sealed class BenchDriver : IRenderer
     ];
 
     private readonly ICoreClientAPI _capi;
+    private readonly Timer? _pulse;
     private readonly BenchRecorder _recorder;
     private readonly ResourceStats _resources = new();
     private readonly BenchRun _run;
     private readonly BenchShots? _shots;
-    private readonly Timer? _pulse;
-    private long _frames;
+    private int _burst;
+    private bool _captured;
     private int _command, _index = -1;
+    private long _frames;
     private (double X, double Y, double Z) _home, _from, _landing, _lift;
+    private float _joinYaw = float.NaN;
+    private long _joinedAt;
     private bool _modeRequested, _profilerOwned, _resourcesFailed;
     private Phase _phase = Phase.Waiting;
     private (double X, double Y, double Z, double Yaw) _pose;
     private double _t, _clock, _climbSeconds;
-    private long _joinedAt;
-    private float _joinYaw = float.NaN;
-    private bool _captured;
-    private int _burst;
 
     public BenchDriver(ICoreClientAPI capi, BenchRun run, BenchRecorder recorder)
     {
         (_capi, _run, _recorder) = (capi, run, recorder);
         if (!NotNull(capi.Event) || !Assert(run.Segments.Length > 0)) return;
-        if (run.Config?.Shots == true)
+
+        if (run.Config.Shots)
         {
             _shots = new BenchShots(Path.GetDirectoryName(run.Config.Output) ?? ".");
             capi.Event.RegisterRenderer(_shots, EnumRenderStage.Done, "komet-bench-shots");
         }
 
         // bench.sh's freeze watchdog: a timer thread writes the frame count, so a hung frame shows as a stopped count
-        if (run.Config?.Output is { Length: > 0 } output)
+        if (run.Config.Output is { Length: > 0 } output)
+        {
             _pulse = new Timer(_ => Pulse(output + ".pulse"), null, PulseMs, PulseMs);
+        }
+
         capi.Event.LevelFinalize += Finalized;
         capi.Event.LeaveWorld += Left;
         capi.Event.ChatMessage += Chat;
@@ -74,6 +76,33 @@ internal sealed class BenchDriver : IRenderer
         _pulse?.Dispose();
     }
 
+    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
+    {
+        _ = Interlocked.Increment(ref _frames);
+        if (_phase is Phase.Waiting or Phase.Finished || !Assert(stage == EnumRenderStage.Before) ||
+            !Finite(deltaTime))
+        {
+            return;
+        }
+
+        try
+        {
+            if (_phase == Phase.Boot)
+            {
+                Boot();
+            }
+            else
+            {
+                Frame(Math.Clamp(deltaTime, 0f, (float)MaxStep));
+            }
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            _capi.Logger.Error("Komet bench: {0}", e);
+            Finish("exception: " + e.Message);
+        }
+    }
+
     private void Pulse(string path)
     {
         try
@@ -88,38 +117,27 @@ internal sealed class BenchDriver : IRenderer
         }
     }
 
-    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
-    {
-        _ = Interlocked.Increment(ref _frames);
-        if (_phase is Phase.Waiting or Phase.Finished || !Assert(stage == EnumRenderStage.Before) ||
-            !Finite(deltaTime)) return;
-        try
-        {
-            if (_phase == Phase.Boot) Boot();
-            else Frame(Math.Clamp(deltaTime, 0f, (float)MaxStep));
-        }
-        catch (Exception e) when (e is not OutOfMemoryException)
-        {
-            _capi.Logger.Error("Komet bench: {0}", e);
-            Finish("exception: " + e.Message);
-        }
-    }
-
     // Each arm: the player's values (engine values with "engine"), then its settings; error names the first bad knob
     internal static int[][] ArmValues(int[] baseline, IReadOnlyList<BenchArm> arms, out string? error)
     {
         var values = new int[arms.Count][];
         error = null;
         if (!Assert(baseline.Length == Knobs.Count) || !Assert(arms.Count <= BenchConfig.MaxArms)) return values;
+
         for (var a = 0; a < Math.Min(arms.Count, BenchConfig.MaxArms); a++)
         {
-            values[a] = arms[a].Engine ? Knobs.Snapshot(engine: true) : (int[])baseline.Clone();
+            values[a] = arms[a].Engine ? Knobs.Snapshot(true) : (int[])baseline.Clone();
             foreach (var setting in arms[a].Settings.Bounded(Knobs.MaxKnobs))
             {
                 var knob = Knobs.Find(setting.Key);
                 if (knob >= 0 && Knobs.InRange(knob, setting.Value) && Index(knob, values[a].Length))
+                {
                     values[a][knob] = setting.Value;
-                else error ??= Unresolved(a, setting.Key, knob >= 0);
+                }
+                else
+                {
+                    error ??= Unresolved(a, setting.Key, knob >= 0);
+                }
             }
         }
 
@@ -129,6 +147,7 @@ internal sealed class BenchDriver : IRenderer
     private static string Unresolved(int arm, string key, bool known)
     {
         if (!Index(arm, BenchConfig.MaxArms) || !Assert(key.Length > 0)) return "bench.json: an arm names no knob";
+
         var at = string.Create(CultureInfo.InvariantCulture, $"bench.json: arms[{arm}].set.{key}");
         return at + (known ? " must be a value inside the knob's range" : " names no registered knob");
     }
@@ -136,6 +155,7 @@ internal sealed class BenchDriver : IRenderer
     private void Finalized()
     {
         if (!Assert(_phase == Phase.Waiting) || !NotNull(_capi.Event)) return;
+
         _capi.Event.LevelFinalize -= Finalized;
         _phase = Phase.Boot;
         _run.Status("booted");
@@ -145,6 +165,7 @@ internal sealed class BenchDriver : IRenderer
     private void Left()
     {
         if (!NotNull(_capi.Event) || !Assert(_run.Segments.Length > 0)) return;
+
         _capi.Event.LeaveWorld -= Left;
         _capi.Event.ChatMessage -= Chat;
         if (_phase is Phase.Boot or Phase.Running) Finish("the world was left before the run ended", false);
@@ -153,6 +174,7 @@ internal sealed class BenchDriver : IRenderer
     private void Chat(int groupId, string message, EnumChatType chattype, string data)
     {
         if (_phase != Phase.Running || !NotNull(message) || !Finite(_clock)) return;
+
         _run.AddChat(_clock, chattype.ToString(), message);
     }
 
@@ -161,8 +183,9 @@ internal sealed class BenchDriver : IRenderer
     {
         var player = _capi.World.Player;
         if (!_capi.PlayerReadyFired || player?.Entity == null || _capi.IsGamePaused || !NotNull(_run.Config)) return;
+
         var id = _capi.World.SavegameIdentifier;
-        if (!string.Equals(id, _run.Config.SavegameId, StringComparison.Ordinal))
+        if (!_run.Config.AnyWorld && !string.Equals(id, _run.Config.SavegameId, StringComparison.Ordinal))
         {
             Finish($"savegame {id} is not the configured {_run.Config.SavegameId}: a new world would be benchmarked");
             return;
@@ -170,8 +193,11 @@ internal sealed class BenchDriver : IRenderer
 
         var position = player.Entity.Pos;
         if (!Finite(position.X) || !Finite(position.Z)) return;
+
         if (_run.Config.CaptureSeconds > 0 && !_captured) Capture((float)_run.Config.CaptureSeconds);
+
         if (Joining()) return;
+
         Benchmark.Collect(_capi, _run);
         _run.AddInfo("komet.holds", Features.HoldsText()); // a held knob stays at its engine value in every arm
         _run.Baseline = Knobs.Snapshot();
@@ -207,14 +233,18 @@ internal sealed class BenchDriver : IRenderer
     {
         var wait = _run.Config.JoinSeconds;
         if (wait <= 0 || _joinedAt < 0) return false;
-        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        var now = Stopwatch.GetTimestamp();
         if (_joinedAt == 0) _joinedAt = now;
 
-        if (_run.Config.Gui == BenchGui.Help) Sweep((now - _joinedAt) / (double)System.Diagnostics.Stopwatch.Frequency);
-        if ((now - _joinedAt) < wait * System.Diagnostics.Stopwatch.Frequency) return true;
+        if (_run.Config.Gui == BenchGui.Help) Sweep((now - _joinedAt) / (double)Stopwatch.Frequency);
+
+        if (now - _joinedAt < wait * Stopwatch.Frequency) return true;
+
         _shots?.Take("shot-join.png");
         _joinedAt = -1;
-        return Assert(wait > 0) && Assert(_joinedAt < 0); // the shot is taken this frame; the setup starts with the next
+        return
+            Assert(wait > 0) && Assert(_joinedAt < 0); // the shot is taken this frame; the setup starts with the next
     }
 
     // Komet's own debug capture, as a player's ".komet debug" (ExecuteUnparsed drops the leading dot)
@@ -222,16 +252,20 @@ internal sealed class BenchDriver : IRenderer
     {
         _captured = true;
         if (!NotNull(_capi.ChatCommands) || !Assert(seconds > 0) || _capi.World?.Player is not { } player) return;
+
         var caller = new Caller { Type = EnumCallerType.Player, Player = player, CallerPrivileges = ["*"] };
         _capi.ChatCommands.ExecuteUnparsed(string.Create(CultureInfo.InvariantCulture, $".komet debug {seconds:0} en"),
-            new TextCommandCallingArgs { Caller = caller }, result => _capi.Logger.Notification("Komet bench: capture: {0}", result.StatusMessage));
+            new TextCommandCallingArgs { Caller = caller },
+            result => _capi.Logger.Notification("Komet bench: capture: {0}", result.StatusMessage));
     }
 
     // Yaw swings 60° either way at 0.4 rad/s, the view pitched to the ground a few blocks ahead
     private void Sweep(double seconds)
     {
         if (_capi.World?.Player?.Entity?.Pos is not { } pos || !Finite(seconds)) return;
+
         if (float.IsNaN(_joinYaw)) _joinYaw = pos.Yaw;
+
         var yaw = _joinYaw + (float)(Math.Sin(seconds * 0.4) * Math.PI / 3);
         var pitch = MathF.PI + 0.55f;
         (pos.Yaw, pos.Pitch) = (yaw, pitch);
@@ -242,6 +276,7 @@ internal sealed class BenchDriver : IRenderer
     private void SampleResources()
     {
         if (_resourcesFailed || !Assert(_phase != Phase.Finished)) return;
+
         try
         {
             _resources.Sample();
@@ -253,333 +288,5 @@ internal sealed class BenchDriver : IRenderer
             _capi.Logger.Warning("Komet bench: resource sampling failed, segments report no cpu or memory: {0}",
                 e.Message);
         }
-    }
-
-    private void Frame(float dt)
-    {
-        if (!Index(_index, _run.Segments.Length) || !Finite(dt)) return;
-        BenchGui.Switching(_capi);
-        var paused = _capi.IsGamePaused;
-        if (!paused)
-        {
-            (_t, _clock) = (_t + dt, _clock + dt);
-            TurnShot(dt);
-            StillShots(dt);
-            GroundShots(dt);
-            if (!Step()) return;
-            if (_run.Config.Gui == BenchGui.Creative && _run.Segments[_index].Kind == BenchKind.Still) BenchGui.Scroll(_capi, dt);
-        }
-
-        Stamp(paused);
-    }
-
-    // Still, a second in: six consecutive frames, then six a quarter second apart. The camera does not move, so what differs
-    // between them flickers (a shadow map kept and redrawn, far foliage, a cache)
-    private void StillShots(float dt)
-    {
-        var segment = _run.Segments[_index];
-        if (_shots is null || segment.Kind != BenchKind.Still || segment.Warmup || !Index(segment.Arm, _run.Config.Arms.Count))
-        {
-            _burst = 0;
-            return;
-        }
-
-        if (_t < BurstAt || _burst >= 2 * Burst) return;
-        if (_burst >= Burst && _t < BurstAt + (_burst - Burst + 1) * BurstGap) return;
-        _shots.Take(string.Create(CultureInfo.InvariantCulture,
-            $"burst-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-{_burst:D2}.png"));
-        _burst++;
-        _ = Assert(dt >= 0);
-    }
-
-    // The landing point, or with GroundDepth the eye that far below the terrain's surface there
-    private double Ground()
-    {
-        if (_run.Config.GroundDepth <= 0) return _landing.Y;
-        var surface = _capi.World.BlockAccessor.GetTerrainMapheightAt(new BlockPos((int)_landing.X, 0, (int)_landing.Z));
-        return surface + 1 - _run.Config.GroundDepth - (_capi.World.Player?.Entity?.LocalEyePos.Y ?? 1.6);
-    }
-
-    private static int Quarter(BenchSegment segment, double t) => Math.Clamp((int)(4 * t / segment.Seconds), 0, 3);
-
-    // Standing on the ground: one shot near the end of each quarter turn, the terrain around the player as it settled
-    private void GroundShots(float dt)
-    {
-        var segment = _run.Segments[_index];
-        if (_shots is null || segment.Kind != BenchKind.Ground || segment.Seconds <= 0) return;
-        var quarter = Quarter(segment, _t);
-        var at = (quarter + 0.9) * segment.Seconds / 4;
-        if (_t < at || _t - dt >= at) return;
-        _shots.Take(string.Create(CultureInfo.InvariantCulture, $"shot-ground-{quarter}.png"));
-    }
-
-    // Mid-turn as well: what a cache or reprojection gets wrong shows while the camera turns
-    private void TurnShot(float dt)
-    {
-        var segment = _run.Segments[_index];
-        if (_shots is null || segment.Kind != BenchKind.Rotate || segment.Warmup || !Index(segment.Arm, _run.Config.Arms.Count) ||
-            _t < segment.Seconds / 2 || _t - dt >= segment.Seconds / 2) return;
-        _shots.Take(string.Create(CultureInfo.InvariantCulture, $"shot-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-turn.png"));
-    }
-
-    private bool Step()
-    {
-        var segment = _run.Segments[_index];
-        if (!Assert(_phase == Phase.Running) || !Assert(_t >= 0)) return false;
-        if (_index > 0 && _recorder.Count == 0 && _recorder.Dropped == 0)
-        {
-            // Setup spans several frames, so an empty recorder means FrameClock's window_RenderFrame patch never ran
-            Finish("the recorder saw no frame: FrameClock is not installed");
-            return false;
-        }
-
-        var done = segment.Kind switch
-        {
-            BenchKind.Setup => Setup(),
-            BenchKind.Climb or BenchKind.Land => _t >= _climbSeconds,
-            _ => _t >= segment.Seconds
-        };
-        if (_phase != Phase.Running || (done && !Next())) return false;
-        Place();
-        return true;
-    }
-
-    private bool Next()
-    {
-        if (!Index(_index, _run.Segments.Length) || !Assert(_phase == Phase.Running)) return false;
-        End(_index);
-        if (_index + 1 < _run.Segments.Length)
-        {
-            Enter(_index + 1);
-            return true;
-        }
-
-        _run.Complete = true;
-        Finish(null);
-        return false;
-    }
-
-    private void Enter(int index)
-    {
-        if (!Index(index, _run.Segments.Length) || !Assert(index > _index)) return;
-        var segment = _run.Segments[index];
-        (_index, _t) = (index, 0);
-        if (_shots is not null && index > 0 &&
-            _run.Segments[index - 1] is { Kind: BenchKind.LapSettle, Warmup: false } settled &&
-            Index(settled.Arm, _run.Config.Arms.Count))
-            _shots.Take(string.Create(CultureInfo.InvariantCulture,
-                $"shot-{_run.Config.Arms[settled.Arm].Name}-lap{settled.Lap}.png"));
-        switch (segment.Kind)
-        {
-            case BenchKind.Climb:
-                Climb();
-                break;
-            case BenchKind.Land:
-                Land();
-                break;
-            case BenchKind.LapSettle when Index(segment.Arm, _run.ArmValues.Length):
-                // the run's first lap settle: the warm-ups absorb the shader reload and warm up with the mod running
-                if (segment.Lap == 0 && segment.Warmup == (_run.Config.WarmupLaps > 0)) StartLate();
-                if (_run.Config.Gui == BenchGui.Options)
-                {
-                    var name = string.Create(CultureInfo.InvariantCulture, $"shot-menu-{(segment.Warmup ? "warmup-" : "")}lap{segment.Lap}.png");
-                    BenchGui.Switch(_capi, _run.ArmValues[segment.Arm], _run.Config.MenuPage,
-                        _shots is { } shots ? () => shots.Take(name) : null); // the menu as players see it, once drawn
-                }
-                else _ = Knobs.Apply(_run.ArmValues[segment.Arm]); // the lap settle and the discard window follow
-                _capi.SendChatMessage(Time()); // every lap starts at the hour the setup set
-                if (segment.Lap == 0) _run.Status(segment.Warmup ? "warmup" : "measuring");
-                if (_run.Config.HudWindow == "cycle") Hud.HudOverlay.ShowForBench?.Invoke(segment.Lap);
-                if (_run.Config.Gui == BenchGui.Creative) BenchGui.Open(_capi);
-                if (_run.Config.Gui == BenchGui.Debug) Hud.HudOverlay.CaptureForBench?.Invoke(BenchGui.CaptureSeconds);
-                break;
-            case BenchKind.Setup or BenchKind.Settle:
-                _run.Status(segment.Name);
-                break;
-        }
-    }
-
-    private void StartLate()
-    {
-        foreach (var id in _run.Config.LateStart.Bounded(16))
-        {
-            var mod = Rendering.ShaderMods.All(_capi).Find(m => m.Id == id);
-            var started = mod is not null && Rendering.ShaderMods.Start(_capi, mod);
-            _capi.Logger.Notification("Komet bench: late start of {0}: {1}", id, started);
-        }
-    }
-
-    private void Climb()
-    {
-        if (_capi.World.Player?.Entity?.Pos is { } position) _pose = (position.X, position.Y, position.Z, _pose.Yaw);
-        _from = (_pose.X, _pose.Y, _pose.Z);
-        _landing = _from;
-        _climbSeconds = GlideSeconds(_from, _home);
-    }
-
-    // From where the laps left the player down to the ground spot the world was joined at (Climb's start)
-    private void Land()
-    {
-        // down where the player is: the join spot after a lap home, the terrain just flown to without route.back
-        var ground = _capi.World?.BlockAccessor?.GetTerrainMapheightAt(new Vintagestory.API.MathTools.BlockPos((int)_pose.X, (int)_pose.Y, (int)_pose.Z, 0)) ?? -1;
-        if (ground > 0 && Math.Abs(_pose.X - _landing.X) + Math.Abs(_pose.Z - _landing.Z) > 8) _landing = (_pose.X, ground + 1.5, _pose.Z);
-        _lift = (_pose.X, _pose.Y, _pose.Z);
-        _climbSeconds = GlideSeconds(_lift, _landing);
-        _run.Status("landing");
-    }
-
-    // A straight flight at ClimbSpeed: its seconds, at least one
-    private static double GlideSeconds((double X, double Y, double Z) from, (double X, double Y, double Z) to)
-    {
-        var (dx, dy, dz) = (to.X - from.X, to.Y - from.Y, to.Z - from.Z);
-        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-        return Finite(distance) && Assert(distance < 1e7) ? Math.Max(1, distance / BenchScenario.ClimbSpeed) : 1;
-    }
-
-    // Where that flight is after t of its seconds, facing the route's heading
-    private static (double X, double Y, double Z, double Yaw) Glide((double X, double Y, double Z) from,
-        (double X, double Y, double Z) to, double t, double seconds)
-    {
-        var s = Assert(seconds >= 1) && Finite(t) ? Math.Clamp(t / seconds, 0, 1) : 1;
-        return (from.X + (to.X - from.X) * s, from.Y + (to.Y - from.Y) * s, from.Z + (to.Z - from.Z) * s, BenchScenario.Heading);
-    }
-
-    private void End(int index)
-    {
-        if (!Index(index, _run.Segments.Length) || !Assert(index == _index)) return;
-        SampleResources(); // closes the interval the previous sample opened: this segment
-        _run.Logs[index] = _resourcesFailed
-            ? new BenchSegmentLog(true, _t, double.NaN, double.NaN, 0, 0)
-            : new BenchSegmentLog(true, _t, _resources.CpuPercent, _resources.SystemCpuPercent, _resources.WorkingSetMb,
-                _resources.ManagedUsedMb);
-    }
-
-    // RequestMode once, await the server, then one command per frame so replies keep their order
-    private bool Setup()
-    {
-        if (_capi.World is not ClientMain game || _capi.World.Player.WorldData is not ClientWorldPlayerData data)
-        {
-            Finish("not a ClientMain world");
-            return false;
-        }
-
-        if (!_modeRequested)
-        {
-            // Creative, not Spectator: spectators hide the held item and the HUD differs
-            data.RequestMode(game, data.MoveSpeedMultiplier, data.PickingRange, EnumGameMode.Creative, true, true,
-                EnumFreeMovAxisLock.None, ClientSettings.RenderMetaBlocks);
-            game.AllowCameraControl = false;
-            _modeRequested = true;
-            return false;
-        }
-
-        if (data.CurrentGameMode != EnumGameMode.Creative || !data.FreeMove || !data.NoClip)
-        {
-            if (_t >= BenchScenario.ModeTimeout) Finish("the server did not grant creative fly mode with noclip");
-            return false;
-        }
-
-        if (_command >= Commands.Length) return Assert(_command == Commands.Length);
-        if (!Index(_command, Commands.Length)) return true;
-        var command = Commands[_command++];
-        if (_run.Config.Rain) command = command.Replace("setprecip -1", "setprecip 1", StringComparison.Ordinal)
-            .Replace("set clearsky", "set overcast", StringComparison.Ordinal);
-        if (!_run.Config.Spawning || !command.Contains("entityspawning", StringComparison.Ordinal))
-            _capi.SendChatMessage(command == LapCommand ? Time() : command);
-        return false;
-    }
-
-    // The configured hour as the game's command (LapCommand stands for it in the setup's list)
-    private string Time()
-    {
-        var hour = _run.Config.Hour;
-        return string.Create(CultureInfo.InvariantCulture, $"/time set {(int)hour:00}:{(int)((hour - (int)hour) * 60):00}");
-    }
-
-    // The player stands where it spawned until the server has made it a flyer
-    private void Place()
-    {
-        var segment = _run.Segments[_index];
-        var entity = _capi.World.Player?.Entity;
-        if (segment.Kind == BenchKind.Setup || !NotNull(entity) || !Finite(_t)) return;
-        if (segment.Kind == BenchKind.Climb) _pose = Glide(_from, _home, _t, _climbSeconds);
-        else if (segment.Kind == BenchKind.Land) _pose = Glide(_lift, _landing, _t, _climbSeconds);
-        else if (segment.Kind == BenchKind.Ground) // a quarter turn each quarter of the time: GroundShots looks all around
-            _pose = (_landing.X, Ground(), _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
-        else
-        {
-            var pose = BenchScenario.Pose(segment, _t, BenchScenario.Heading, _run.Config.Speed * _run.Config.Leg);
-            _pose = (_home.X + pose.X, _home.Y, _home.Z + pose.Z, pose.Yaw);
-        }
-
-        var pos = entity.Pos;
-        // a NaN position would stick to the entity
-        if (!Finite(_pose.X) || !Finite(_pose.Y) || !Finite(_pose.Z)) return;
-        _ = pos.SetPos(_pose.X, _pose.Y, _pose.Z);
-        (pos.Yaw, pos.Pitch) = ((float)_pose.Yaw, MathF.PI); // pitch π looks level
-        _ = pos.Motion.Set(0, 0, 0);
-        (_capi.Input.MouseYaw, _capi.Input.MousePitch) = ((float)_pose.Yaw, MathF.PI);
-    }
-
-    private void Stamp(bool paused)
-    {
-        if (!Index(_index, _run.Segments.Length) || !Finite(_pose.Yaw)) return;
-        var segment = _run.Segments[_index];
-        var flags = BenchFrameTags.None;
-        if (paused) flags |= BenchFrameTags.Paused;
-        if (!ScreenManager.Platform.IsFocused) flags |= BenchFrameTags.Unfocused;
-        if (_t < BenchScenario.Discard) flags |= BenchFrameTags.Discard;
-        if (segment.Warmup) flags |= BenchFrameTags.Warmup;
-        if (!segment.Measured) flags |= BenchFrameTags.Unmeasured;
-        _recorder.Stamp(_index, flags, (float)_pose.X, (float)_pose.Z, (float)_pose.Yaw);
-    }
-
-    private void Finish(string? error, bool exit = true)
-    {
-        if (_phase == Phase.Finished || !NotNull(_run)) return;
-        _phase = Phase.Finished;
-        if (error is not null) _run.Fail(error);
-        if (ReferenceEquals(FrameClock.Sink, _recorder)) FrameClock.Sink = null;
-        if (_recorder.Recording) _recorder.Stop();
-        Counting.Bench = false;
-        // an options switch cut short (an exception mid-switch): Reset drops it, so unpause and close the menu here,
-        // or the single-player server stays suspended into the exit
-        if (_run.Config.Gui == BenchGui.Options && _capi.IsGamePaused && _capi.World is ClientMain paused)
-        {
-            paused.PauseGame(false);
-            Hud.HudOverlay.OptionsForBench?.Invoke(false, null);
-        }
-
-        BenchGui.Reset();
-        _run.Finished = DateTime.UtcNow;
-        if (_run.Baseline.Length == Knobs.Count) _ = Knobs.Apply(_run.Baseline);
-        var profiler = _capi.World?.FrameProfiler; // only ours: End() of this frame then returns early, as for the HUD
-        if (_profilerOwned && profiler is not null) profiler.Enabled = false;
-        _profilerOwned = false;
-        _run.Status("writing");
-        try
-        {
-            BenchReport.Write(_run, _recorder);
-        }
-        catch (Exception e) when (e is not OutOfMemoryException)
-        {
-            // Whatever went wrong, the exit must happen: an unattended run must not idle until the script's budget
-            _run.Fail("result not written: " + e.Message);
-            _capi.Logger.Error("Komet bench: result not written: {0}", e);
-        }
-
-        _run.Status(_run.Error is null ? "exiting" : "error");
-        _capi.Logger.Notification("Komet bench: {0}, result in {1}", _run.Error ?? "complete", _run.Config.Output);
-        if (_capi.World is not ClientMain game) return;
-        game.AllowCameraControl = true;
-        if (exit && _capi.IsSinglePlayer) Benchmark.Exit(game, Done);
-    }
-
-    private enum Phase
-    {
-        Waiting, // before LevelFinalize
-        Boot, // waiting for the player
-        Running,
-        Finished
     }
 }

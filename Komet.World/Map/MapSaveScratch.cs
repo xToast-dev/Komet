@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 using Vintagestory.API.MathTools;
@@ -23,7 +23,10 @@ internal static class MapSaveScratch
 
     [ThreadStatic] private static byte[]? _buffer;
     [ThreadStatic] private static List<int[]?>? _written; // the saving thread's pieces, one save at a time
-    private static readonly SeamGuard Guard = new(nameof(MapSaveScratch), PatchKinds.Replacing, [typeof(MapSaveScratch)]);
+
+    private static readonly SeamGuard Guard = new(nameof(MapSaveScratch), KapiPatchKinds.Replacing,
+        [typeof(MapSaveScratch)]);
+
     private static Action<object, sqlite3>? _write;
 
     public static bool Enabled { get; set; } = true;
@@ -39,8 +42,12 @@ internal static class MapSaveScratch
     {
         _write = null;
         var seams = Guard.Reset(Seams(), logger);
-        if (!NotNull(harmony) || seams[0] is null ||
-            AccessTools.TypeByName(Piece) is not { } piece || !Guard.Match(seams, fingerprint)) return;
+        if (seams[0] is null ||
+            AccessTools.TypeByName(Piece) is not { } piece || !Guard.Match(seams, fingerprint))
+        {
+            return;
+        }
+
         _write = AccessTools.Method(typeof(MapSaveScratch), nameof(Write)).MakeGenericMethod(piece)
             .CreateDelegate<Action<object, sqlite3>>();
         _ = harmony.Patch(seams[0], new HarmonyMethod(Save));
@@ -60,16 +67,21 @@ internal static class MapSaveScratch
         return seams;
     }
 
-    internal static bool Save(object pieces, SqliteConnection? ___sqliteConn)
+    private static bool Save(object? pieces, SqliteConnection? ___sqliteConn)
     {
         if (!Enabled || Blocked || _write is null || pieces is null || ___sqliteConn?.Handle is not { } db) return true;
+
         var written = _written ??= [];
         written.Clear();
         using var transaction = ___sqliteConn.BeginTransaction();
         _write(pieces, db);
         transaction.Commit();
         // committed: the save's hold on each piece ends (a throw before leaves them held: the engine saves them again)
-        foreach (var pixels in written.Bounded(MaxPieces)) MapPixels.Release(pixels);
+        foreach (var pixels in written.Bounded(MaxPieces))
+        {
+            MapPixels.Release(pixels);
+        }
+
         written.Clear();
         return false;
     }
@@ -81,6 +93,7 @@ internal static class MapSaveScratch
         _ = Assert(rows.Count <= MaxPieces);
         using var each = rows.GetEnumerator();
         using (statement)
+        {
             for (var i = 0; i < MaxPieces && each.MoveNext(); i++)
             {
                 var (key, piece) = each.Current;
@@ -93,29 +106,36 @@ internal static class MapSaveScratch
                 SqliteException.ThrowExceptionForRC(raw.sqlite3_reset(statement), db);
                 _written?.Add(pixels); // the array written, released once committed
             }
-    }
-
-    // A piece's pixels, the engine's field
-    private static class Pixels<T> where T : class
-    {
-        public static readonly AccessTools.FieldRef<T, int[]> Of = AccessTools.FieldRefAccess<T, int[]>("Pixels");
+        }
     }
 
     // MapPieceDB as protobuf-net writes it: nothing for no pixels, else each pixel tagged, a sign-extended varint
     internal static int Encode(int[]? pixels, ref byte[]? buffer)
     {
         if (pixels is null || !Assert(pixels.Length <= MaxPixels)) return 0;
+
         var need = pixels.Length * (1 + MaxVarint);
         if (buffer is null || buffer.Length < need) buffer = new byte[need];
+
         var at = 0;
         for (var i = 0; i < Math.Min(pixels.Length, MaxPixels); i++)
         {
             buffer[at++] = Tag;
-            var value = (ulong)(long)pixels[i];
-            for (var b = 1; b < MaxVarint && value >= 0x80; b++, value >>= 7) buffer[at++] = (byte)(value | 0x80);
+            var value = (ulong)pixels[i];
+            for (var b = 1; b < MaxVarint && value >= 0x80; b++, value >>= 7)
+            {
+                buffer[at++] = (byte)(value | 0x80);
+            }
+
             buffer[at++] = (byte)value;
         }
 
         return at;
+    }
+
+    // A piece's pixels, the engine's field
+    private static class Pixels<T> where T : class
+    {
+        public static readonly AccessTools.FieldRef<T, int[]> Of = AccessTools.FieldRefAccess<T, int[]>("Pixels");
     }
 }

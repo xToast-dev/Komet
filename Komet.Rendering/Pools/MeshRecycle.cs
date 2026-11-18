@@ -33,10 +33,13 @@ internal static class MeshRecycle
         var dispose = AccessTools.Method(typeof(MeshData), "DisposeExtraData");
         var part = typeof(CustomMeshDataPart<float>);
         var prefix = new HarmonyMethod(CloneExtraData);
-        if (!NotNull(harmony) || !NotNull(clone) || !NotNull(dispose) || !Assert(Il.Binds(clone, prefix.method)) ||
+        if (!NotNull(clone) || !NotNull(dispose) || !Assert(Il.Binds(clone, prefix.method)) ||
             !Assert(AccessTools.Field(part, "customAllocationSize") != null) ||
             !Assert(AccessTools.Field(part, "allocationSize") != null))
+        {
             return; // the Allocation accessors would throw at first use
+        }
+
         _ = harmony.Patch(clone, prefix);
         _ = harmony.Patch(dispose, new HarmonyMethod(DisposeExtraData));
     }
@@ -45,9 +48,13 @@ internal static class MeshRecycle
     internal static bool CloneExtraData(MeshData __instance, MeshData dest)
     {
         if ((!Enabled && !_kept) || !NotNull(__instance) || !NotNull(dest) || ReferenceEquals(__instance, dest))
+        {
             return true;
+        }
+
         var source = __instance;
-        if (source.TextureIndices != null && source.TextureIds == null) return true;
+        if (source is { TextureIndices: not null, TextureIds: null }) return true;
+
         dest.Normals = Exact(dest.Normals, source.Normals, source.NormalsCount);
         dest.XyzFaces = Exact(dest.XyzFaces, source.XyzFaces, source.XyzFacesCount);
         dest.TextureIndices = Exact(dest.TextureIndices, source.TextureIndices, source.TextureIndicesCount);
@@ -63,6 +70,7 @@ internal static class MeshRecycle
         dest.CustomBytes = Part<CustomMeshDataPartByte, byte>(dest.CustomBytes, source.CustomBytes);
         dest.CustomInts = Part<CustomMeshDataPartInt, int>(dest.CustomInts, source.CustomInts);
         if (Counting.Hud) _ = Interlocked.Increment(ref _clones);
+
         return false;
     }
 
@@ -70,15 +78,21 @@ internal static class MeshRecycle
     internal static bool DisposeExtraData(MeshData __instance)
     {
         if (!Enabled || !NotNull(__instance) || !__instance.Recyclable) return true;
+
         var mesh = __instance;
         if (!Assert(mesh.XyzFacesCount >= 0) || !Assert(mesh.RenderPassCount >= 0)) return true;
+
         _kept = true;
         (mesh.NormalsCount, mesh.XyzFacesCount, mesh.TextureIndicesCount) = (0, 0, 0);
         (mesh.ColorMapIdsCount, mesh.RenderPassCount) = (0, 0);
         if (mesh.CustomFloats is { } floats) floats.Count = 0;
+
         if (mesh.CustomShorts is { } shorts) shorts.Count = 0;
+
         if (mesh.CustomBytes is { } bytes) bytes.Count = 0;
+
         if (mesh.CustomInts is { } ints) ints.Count = 0;
+
         return false;
     }
 
@@ -86,10 +100,16 @@ internal static class MeshRecycle
     private static void Counts(MeshData source, MeshData dest)
     {
         if (!Assert(source.XyzFacesCount >= 0) || !Assert(source.RenderPassCount >= 0)) return;
+
         if (source.XyzFaces != null) dest.XyzFacesCount = source.XyzFacesCount;
+
         if (source.TextureIndices != null) dest.TextureIndicesCount = source.TextureIndicesCount;
+
         if (source.ClimateColorMapIds != null || source.SeasonColorMapIds != null)
+        {
             dest.ColorMapIdsCount = source.ColorMapIdsCount;
+        }
+
         if (source.RenderPassesAndExtraBits != null) dest.RenderPassCount = source.RenderPassCount;
     }
 
@@ -97,11 +117,15 @@ internal static class MeshRecycle
     private static T[]? Exact<T>(T[]? existing, T[]? source, int count) where T : unmanaged
     {
         if (source is null) return null;
+
         if (!Assert(count >= 0 && count <= source.Length)) return (T[])source.Clone();
+
         var target = existing is not null && existing.Length == count
-            ? existing : GC.AllocateUninitializedArray<T>(count);
+            ? existing
+            : GC.AllocateUninitializedArray<T>(count);
         Array.Copy(source, target, count);
         if (Counting.Hud && ReferenceEquals(target, existing)) Reuse(count);
+
         return target;
     }
 
@@ -111,14 +135,25 @@ internal static class MeshRecycle
     {
         var engine = source?.Values is null || !Assert(source.Count >= 0 && source.Count <= source.Values.Length);
         if (engine && Enabled && dest?.Values is { } dropped) Spare<T>.Put(dropped);
+
         if (source is null) return null;
+
         var part = engine ? new TPart() : Filled(dest ?? new TPart(), source);
         if (engine) part.SetFrom(source);
         // Byte Clone copies Conversion; Short and Int clones leave the default
         if (part is CustomMeshDataPartByte bytes && source is CustomMeshDataPartByte from)
+        {
             bytes.Conversion = from.Conversion;
-        else if (part is CustomMeshDataPartShort shorts) shorts.Conversion = ShortConversion;
-        else if (part is CustomMeshDataPartInt ints) ints.Conversion = IntConversion;
+        }
+        else if (part is CustomMeshDataPartShort shorts)
+        {
+            shorts.Conversion = ShortConversion;
+        }
+        else if (part is CustomMeshDataPartInt ints)
+        {
+            ints.Conversion = IntConversion;
+        }
+
         return part;
     }
 
@@ -138,6 +173,7 @@ internal static class MeshRecycle
         (dest.InterleaveStride, dest.Instanced, dest.StaticDraw, dest.BaseOffset) =
             (source.InterleaveStride, source.Instanced, source.StaticDraw, source.BaseOffset);
         if (Counting.Hud && reuse) Reuse(source.Values.Length);
+
         return dest;
     }
 
@@ -152,10 +188,14 @@ internal static class MeshRecycle
     private static T[] Grown<T>(T[]? small, int count) where T : unmanaged
     {
         if (!Enabled) return GC.AllocateUninitializedArray<T>(Capacity(count));
+
         if (small is not null) Spare<T>.Put(small);
+
         var spare = Spare<T>.Take(count);
         if (spare is null) return GC.AllocateUninitializedArray<T>(Capacity(count));
+
         if (Counting.Hud) Reuse(count);
+
         return spare;
     }
 
@@ -171,9 +211,16 @@ internal static class MeshRecycle
             {
                 var best = -1;
                 for (var i = 0; i < Slots; i++)
+                {
                     if (Kept[i] is { } array && array.Length >= count &&
-                        (best < 0 || array.Length < Kept[best]!.Length)) best = i;
+                        (best < 0 || array.Length < Kept[best]!.Length))
+                    {
+                        best = i;
+                    }
+                }
+
                 if (best < 0) return null;
+
                 var taken = Kept[best];
                 Kept[best] = null;
                 return taken;

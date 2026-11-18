@@ -11,6 +11,51 @@ public sealed class OwnTessellationTests
     public void Reset() => OwnTessellation.Installed = false;
 
     [Test]
+    public void CrossPatchLeavesTheOtherTessellatorsAvailable()
+    {
+        using var harmony = new TestHarmony("komet-test-own-cross-base");
+        using var other = new TestHarmony("komet-test-own-cross-foreign");
+        OwnTessellation.Install(harmony);
+        var method = AccessTools.DeclaredMethod(typeof(CrossTesselator), nameof(CrossTesselator.DrawCross));
+        _ = other.Patch(method, postfix: new HarmonyMethod(typeof(OwnTessellationTests), nameof(AfterCross)));
+        OwnTessellation.Recheck();
+        Assert.That(OwnTessellation.Active, Is.True);
+        Assert.That(OwnTessellation.CrossStoodDown, Is.True);
+        other.UnpatchAll(other.Id);
+        OwnTessellation.Recheck();
+        Assert.That(OwnTessellation.CrossStoodDown, Is.False);
+    }
+
+    private static void AfterCross()
+    {
+        /* Compatibility probe only. */
+    }
+
+    [Test]
+    public void FaceLightPostfixStillColorsTheOwnTessellatorQuads()
+    {
+        using var rig = new ChunkRig();
+        using var harmony = new TestHarmony("komet-test-own-light-base");
+        using var other = new TestHarmony("komet-test-own-light-foreign");
+        OwnTessellation.Install(harmony);
+        _ = other.Patch(FaceLight.Target(),
+            postfix: new HarmonyMethod(typeof(OwnTessellationTests), nameof(ColorCorners)));
+        OwnTessellation.Recheck();
+
+        var vars = (TCTCache)ChunkRig.Get(rig.Tesselator, "vars");
+        vars.block = rig.Blocks[ChunkRig.Stone];
+        vars.aoAndSmoothShadows = false;
+        OwnQuads.Light(vars, vars.block, 0, TessSeams.Origin, rig.RgbsExt, vars.CurrentLightRGBByCorner);
+
+        Assert.That(OwnTessellation.Active, Is.True);
+        Assert.That(vars.CurrentLightRGBByCorner.Take(4), Is.All.EqualTo(12345));
+        Assert.That(OwnTessellation.JsonStoodDown, Is.True);
+    }
+
+    private static void ColorCorners(TCTCache __instance) =>
+        __instance.CurrentLightRGBByCorner.AsSpan(0, 4).Fill(12345);
+
+    [Test]
     public void AnotherEngineShapeKeepsTheReplacementsOut()
     {
         using (var harmony = new TestHarmony("komet-test-ownshape"))
@@ -39,10 +84,21 @@ public sealed class OwnTessellationTests
 [NonParallelizable]
 public sealed class OwnTessellationGoldenTests
 {
-    private const int Worlds = 8, Soil = ChunkRig.Count, Grass = Soil + 1, SnowCube = Soil + 2, Layer = Soil + 3, Json = Soil + 4,
-        JsonSnow = Soil + 5, Leaves = Soil + 6, Plant = Soil + 7, Cross = Soil + 8, Turned = Soil + 9, Extra = 10;
-    private const int Positions = 8, Slots = 40, Deep = 40;
-    private static readonly int[] OneAtlas = [0];
+    private const int Worlds = 8,
+        Soil = ChunkRig.Count,
+        Grass = Soil + 1,
+        SnowCube = Soil + 2,
+        Layer = Soil + 3,
+        Json = Soil + 4,
+        JsonSnow = Soil + 5,
+        Leaves = Soil + 6,
+        Plant = Soil + 7,
+        Cross = Soil + 8,
+        Turned = Soil + 9,
+        Extra = 10,
+        Deep = 40;
+
+    private static readonly TessBlocks Ids = new(Soil, Grass, SnowCube, Layer, Json, JsonSnow, Leaves, Cross, Turned, Plant);
 
     [TearDown]
     public void Reset() => (OwnTessellation.Enabled, OwnTessellation.Installed, Counting.Hud) = (true, false, false);
@@ -70,8 +126,8 @@ public sealed class OwnTessellationGoldenTests
             }
 
             var (ao, seed) = (world % 2 == 0, r.Next());
-            var engine = Run(Prepare(rig, ao, Shapes(new Random(seed), rig.Blocks)));
-            var ours = Prepare(rig, ao, Shapes(new Random(seed), rig.Blocks)); // the overrides wrote into the first run's models
+            var engine = Run(Prepare(rig, ao, seed));
+            var ours = Prepare(rig, ao, seed); // fresh models: the overrides wrote into the first run's
             Assert.That(OwnTessellation.Swap(ours.Tesselator), Is.EqualTo(13),
                 "slots 1-8, 10-12, 14 and 17");
             Assert.That(Run(rig), Is.EqualTo(engine), $"world {world}");
@@ -99,80 +155,34 @@ public sealed class OwnTessellationGoldenTests
     {
         var ground = 40 + TessMix.Hash(x, 0, z) % 8;
         if (y > ground)
-            return y != ground + 1 ? ChunkRig.Air : (TessMix.Hash(x, 1, z) % 9) switch
-            {
-                0 => SnowCube,
-                1 => Layer,
-                2 => JsonSnow,
-                3 => Leaves,
-                4 => Plant,
-                5 => Cross,
-                6 => Turned,
-                _ => ChunkRig.Air
-            };
+        {
+            return y != ground + 1
+                ? ChunkRig.Air
+                : (TessMix.Hash(x, 1, z) % 9) switch
+                {
+                    0 => SnowCube,
+                    1 => Layer,
+                    2 => JsonSnow,
+                    3 => Leaves,
+                    4 => Plant,
+                    5 => Cross,
+                    6 => Turned,
+                    _ => ChunkRig.Air
+                };
+        }
+
         if (y == ground) return r.Next(2) == 0 ? Soil : Grass;
+
         return r.Next(14) switch
         {
-            0 => ChunkRig.Air, 1 => ChunkRig.Glass, 2 => ChunkRig.Slab, 3 => ChunkRig.Merge, 4 => ChunkRig.Granite, 5 => Layer,
+            0 => ChunkRig.Air, 1 => ChunkRig.Glass, 2 => ChunkRig.Slab, 3 => ChunkRig.Merge, 4 => ChunkRig.Granite,
+            5 => Layer,
             6 => Json, 7 => JsonSnow, 8 when y >= Deep => Leaves, 9 => Plant, 10 => Cross, _ => ChunkRig.Stone
         };
     }
 
-    // TessParallelTests' Mesher and Manager with the game's slots on fresh pools, 7 texture ids a block, 8 distinct atlas positions
-    private static ChunkRig Prepare(ChunkRig rig, bool ao, ShapeTesselatorManager shapes)
-    {
-        var (game, blocks) = (rig.Game, rig.Blocks);
-        foreach (var id in (int[])[Soil, Grass])
-            (blocks[id].DrawType, blocks[id].RenderPass, blocks[id].Textures) = (EnumDrawType.TopSoil,
-                EnumChunkRenderPass.TopSoil,
-                new Dictionary<string, CompositeTexture> { ["snowed"] = new() { Baked = new() { TextureSubId = 7 } } });
-        (blocks[ChunkRig.Glass].DrawType, blocks[SnowCube].BlockMaterial) = (EnumDrawType.Transparent, EnumBlockMaterial.Snow);
-        (blocks[Layer].DrawType, blocks[Layer].SideOpaque, blocks[Layer].SideAo) =
-            (EnumDrawType.BlockLayer_3, new SmallBoolArray(1 << 5), new SmallBoolArray(0));
-        foreach (var id in (int[])[Cross, Turned])
-            (blocks[id].DrawType, blocks[id].RenderPass, blocks[id].AllSidesOpaque) =
-                (EnumDrawType.Cross, EnumChunkRenderPass.OpaqueNoCull, false);
-        (blocks[Turned].RandomizeRotations, blocks[Turned].RandomizeAxes, blocks[Turned].DoNotRenderAtLod2) =
-            (true, EnumRandomizeAxes.XYZ, true);
-        foreach (var id in (int[])[ChunkRig.Granite, Grass, Layer, Cross])
-            (blocks[id].HasAlternates, blocks[id].FastTextureVariants) = (true, Variants());
-        (blocks[ChunkRig.Merge].RandomDrawOffset, blocks[Grass].ShapeUsesColormap) = (1, true);
-        JsonBlocks(blocks);
-        foreach (var b in blocks)
-            (b.VertexFlags, b.EmitSideAo) = (new VertexFlags(b.BlockId), b.AllSidesOpaque ? (byte)63 : (byte)0);
-        (blocks[Json].VertexFlags.WindMode, blocks[JsonSnow].VertexFlags.WindMode) =
-            (EnumWindBitMode.NormalWind, EnumWindBitMode.Leaves);
-        (blocks[Leaves].VertexFlags.WindMode, blocks[Plant].VertexFlags.WindMode) =
-            (EnumWindBitMode.Leaves, EnumWindBitMode.NormalWind);
-        (blocks[Cross].VertexFlags.WindMode, blocks[Turned].VertexFlags.WindMode) =
-            (EnumWindBitMode.NormalWind, EnumWindBitMode.WeakWind);
-        game.FastBlockTextureSubidsByBlockAndFace =
-            [.. blocks.Select(b => Enumerable.Range(b.BlockId, 7).Select(f => f % 7).ToArray())];
-        ChunkRig.Set(game.BlockAtlasManager, "TextureAtlasPositionsByTextureSubId", Enumerable.Range(0, Positions)
-            .Select(i => new TextureAtlasPosition { x1 = i / 8f, x2 = (i + 1) / 8f, y1 = i / 16f, y2 = 1 - i / 16f })
-            .ToArray());
-        var platform = (ClientPlatformWindows)RuntimeHelpers.GetUninitializedObject(typeof(ClientPlatformWindows));
-        ChunkRig.Set(platform, "uptimeStopWatch", Stopwatch.StartNew());
-        (game.Platform, rig.Map.MapChunkSize) = (platform, ChunkRig.Size);
-        var tesselators = new IBlockTesselator[Slots];
-        for (var layer = 1; layer <= 7; layer++) tesselators[layer] = new CubeTesselator(0.125f * layer);
-        tesselators[(int)EnumDrawType.Cube] = new BleedingCubeTesselator(1f);
-        tesselators[(int)EnumDrawType.Transparent] = new CubeTesselator(1f);
-        tesselators[(int)EnumDrawType.TopSoil] = new TopsoilTesselator();
-        tesselators[(int)EnumDrawType.Cross] = new CrossTesselator();
-        tesselators[(int)EnumDrawType.JSON] = new JsonTesselator();
-        tesselators[(int)EnumDrawType.JSONAndSnowLayer] = new JsonAndSnowLayerTesselator();
-        ChunkRig.Set(rig.Tesselator, "blockTesselators", tesselators);
-        ((TCTCache)ChunkRig.Get(rig.Tesselator, "vars")).shapes = shapes;
-        var (api, render) = ((ClientCoreAPI)RuntimeHelpers.GetUninitializedObject(typeof(ClientCoreAPI)),
-            AccessTools.Field(typeof(ClientCoreAPI), "renderapi"));
-        render.SetValue(api, RuntimeHelpers.GetUninitializedObject(render.FieldType)); // AddJsonModelDataToMesh reads useSSBOs
-        game.api = api;
-        ChunkRig.Set(rig.Tesselator, "AoAndSmoothShadows", ao);
-        ChunkRig.Set(rig.Tesselator, "regionSize", 16 * ChunkRig.Size); // the colour map's climate lookup
-        _ = AccessTools.Method(typeof(ChunkTesselator), "UpdateForAtlasses").Invoke(rig.Tesselator, [OneAtlas]);
-        return rig;
-    }
+    private static ChunkRig Prepare(ChunkRig rig, bool ao, int seed) =>
+        TessWorld.Prepare(rig, Ids, ao, TessWorld.Shapes(new Random(seed), rig.Blocks, Ids));
 
     // The flags writers in place of two of the rig's cubes, as see-through JSON blocks of their own material
     private static void Writers(ChunkRig rig)
@@ -187,69 +197,4 @@ public sealed class OwnTessellationGoldenTests
             (rig.Blocks[id], rig.Game.Blocks[id]) = (block, block);
         }
     }
-
-    // The JSON blocks: one opaque with a colour map, frost, alternates by x, y and z; one with snow under it, see-through, in the
-    // OpaqueNoCull pass, offset at random, collapsing into its material and drawn at lod 2
-    private static void JsonBlocks(Block[] blocks)
-    {
-        var (json, snow) = (blocks[Json], blocks[JsonSnow]);
-        (json.DrawType, json.ShapeUsesColormap, json.Frostable, json.ExtraColorBits, json.RandomizeAxes) =
-            (EnumDrawType.JSON, true, true, 5, EnumRandomizeAxes.XYZ);
-        (snow.DrawType, snow.RenderPass, snow.RandomDrawOffset, snow.FaceCullMode, snow.DoNotRenderAtLod2) =
-            (EnumDrawType.JSONAndSnowLayer, EnumChunkRenderPass.OpaqueNoCull, 1, EnumFaceCullMode.CollapseMaterial, true);
-        (snow.AllSidesOpaque, snow.Lod0Shape) = (false, new CompositeShape());
-    }
-
-    // The models: the default and three lod 1 alternates of the first JSON block and its lod 2 model, the second one's default and
-    // lod 0, the flags writers' defaults and two lod 1 alternates of the leaves
-    private static ShapeTesselatorManager Shapes(Random r, Block[] blocks)
-    {
-        var shapes = (ShapeTesselatorManager)RuntimeHelpers.GetUninitializedObject(typeof(ShapeTesselatorManager));
-        (shapes.blockModelDatas, shapes.altblockModelDatasLod0, shapes.altblockModelDatasLod1, shapes.altblockModelDatasLod2) =
-            (new MeshData[blocks.Length], new MeshData[blocks.Length][], new MeshData[blocks.Length][],
-                new MeshData[blocks.Length][]);
-        (shapes.blockModelDatas[Json], shapes.blockModelDatas[JsonSnow]) = (Model(r, 14, true), Model(r, 10, false));
-        shapes.altblockModelDatasLod1[Json] = [Model(r, 14, true), Model(r, 9, true), Model(r, 20, true)];
-        (blocks[Json].Lod2Mesh, blocks[JsonSnow].Lod0Mesh) = (Model(r, 6, true), Model(r, 8, false));
-        (shapes.blockModelDatas[Leaves], shapes.blockModelDatas[Plant]) = (Model(r, 12, true), Model(r, 8, false));
-        shapes.altblockModelDatasLod1[Leaves] = [Model(r, 12, true), Model(r, 7, false)];
-        return shapes;
-    }
-
-    // Quads facing none or one of the six sides, every third one inside the block, the rest on its side (and culled there where the
-    // side is hidden, unless a coordinate leaves the block); some DisableRandoms or Liquid faces where the model has passes
-    private static MeshData Model(Random r, int faces, bool passes)
-    {
-        float[] steps = [0f, 0.25f, 0.5f, 1f, 1.25f];
-        var mesh = new MeshData(4 * faces, 6 * faces);
-        for (var l = 0; l < faces; l++)
-        {
-            var facing = l % 7 - 1;
-            var axis = facing < 0 ? 1 : JsonMesh.FaceCoord[facing];
-            var plane = facing is 1 or 2 or 4 ? 1f : 0f;
-            if (l % 3 == 0) plane = 0.5f;
-            for (var k = 0; k < 4; k++)
-            {
-                var p = Enumerable.Range(0, 3).Select(c => c == axis ? plane : steps[r.Next(steps.Length)]).ToArray();
-                mesh.AddVertexWithFlags(p[0], p[1], p[2], r.NextSingle(), r.NextSingle(), 0, (r.Next(4) << 25) | r.Next(256));
-            }
-
-            mesh.AddIndices(4 * l, 4 * l + 1, 4 * l + 2, 4 * l, 4 * l + 2, 4 * l + 3);
-            mesh.AddXyzFace((byte)(facing + 1));
-            mesh.AddTextureId(0);
-            mesh.AddColorMapIndex((byte)r.Next(4), (byte)r.Next(4), r.Next(2) == 0);
-            if (passes) mesh.AddRenderPass((l % 5) switch { 0 => 1024, 4 => 4, _ => 0 });
-        }
-
-        return mesh;
-    }
-
-    // Two or three alternates a face, one of texture id 0 (BleedingCubeTesselator then takes the face's own), none for the down face
-    private static BakedCompositeTexture[]?[] Variants() =>
-    [
-        .. Enumerable.Range(0, 6).Select(f => f == 5
-            ? null
-            : Enumerable.Range(0, 2 + f % 2).Select(k => new BakedCompositeTexture { TextureSubId = (f + 3 * k) % Positions })
-                .ToArray())
-    ];
 }

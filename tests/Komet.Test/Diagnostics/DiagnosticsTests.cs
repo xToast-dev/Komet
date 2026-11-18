@@ -5,10 +5,7 @@ namespace Komet.Test.Diagnostics;
 public sealed class DiagnosticsTests
 {
     [TearDown]
-    public void SwitchModTimesOff()
-    {
-        ModTimes.Enabled = false;
-    }
+    public void SwitchModTimesOff() => ModTimes.Enabled = false;
 
     internal static bool PatchedBy(MethodBase method, Harmony harmony) =>
         Harmony.GetPatchInfo(method) is { } info && info.Owners.Contains(harmony.Id);
@@ -22,17 +19,17 @@ public sealed class DiagnosticsTests
         using var harmony = new TestHarmony("komet-test-frameclock");
         FrameClock.Install(harmony);
         var patches = Harmony.GetPatchInfo(frame);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(patches?.Prefixes.Select(patch => patch.owner), Does.Contain(harmony.Id));
             Assert.That(patches?.Postfixes.Select(patch => patch.owner), Does.Contain(harmony.Id));
-        });
+        }
     }
 
-    private static List<RenderHandler>[] Stage(params Action<float>[] actions)
+    private static List<RenderHandler?>[] Stage(params Action<float>[] actions)
     {
         var stages = Enumerable.Range(0, Enum.GetValues<EnumRenderStage>().Length)
-            .Select(_ => new List<RenderHandler>()).ToArray();
+            .Select(_ => new List<RenderHandler?>()).ToArray();
         stages[(int)EnumRenderStage.Opaque].AddRange(actions.Select(action =>
             new RenderHandler { Renderer = new DummyRenderer { action = action }, ProfilingName = "dummy" }));
         return stages;
@@ -45,10 +42,7 @@ public sealed class DiagnosticsTests
         var ran = new List<int>();
         var game = (ClientMain)RuntimeHelpers.GetUninitializedObject(typeof(ClientMain));
 
-        Action<float> Renderer(int index)
-        {
-            return _ => ran.Add(index);
-        }
+        Action<float> Renderer(int index) => _ => ran.Add(index);
 
         ModTimes.Enabled = true;
         Assert.Multiple(() =>
@@ -90,20 +84,12 @@ public sealed class DiagnosticsTests
         // no work: the last of the three
     }
 
-    private static void Dear(float dt)
-    {
-        Busy.Spin(12);
-    }
+    private static void Dear(float dt) => Busy.Spin(12);
 
-    private static void Middle(float dt)
-    {
-        Busy.Spin(1);
-    }
+    private static void Middle(float dt) => Busy.Spin(1);
 
-    private static void Install(Harmony harmony)
-    {
+    private static void Install(Harmony harmony) =>
         ModTimes.Install(harmony, DispatchProxy.Create<IModLoader, OneModLoader>(), new QuietLogger());
-    }
 
     // Off by default the engine runs untouched; after Ready the first switch-on patches it. The next session's install starts over:
     // switched on by the saved settings in StartClientSide, it waits for that session's Ready. Ends patched-and-removed, so later
@@ -123,13 +109,13 @@ public sealed class DiagnosticsTests
         Install(harmony);
         var early = PatchedBy(stage, harmony);
         ModTimes.Ready();
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(before, Is.False, "not patched by default");
             Assert.That(enabled, Is.True);
             Assert.That(early, Is.False, "switched on before the level is finalized, it waits");
             Assert.That(PatchedBy(stage, harmony), Is.True, "the new session's Ready");
-        });
+        }
     }
 
     // A mod that starts after Komet puts a transpiler on the loop RenderStage would skip; Ready sees it, leaves the renderers to that
@@ -147,14 +133,13 @@ public sealed class DiagnosticsTests
         ModTimes.Enabled = true;
         _ = other.Patch(stage, transpiler: Foreign.Transpiler);
         ModTimes.Ready();
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(PatchedBy(stage, harmony), Is.False, "the other mod's loop runs");
             Assert.That(PatchedBy(entity, harmony), Is.True, "the entity listeners are timed");
             Assert.That(PatchedBy(block, harmony), Is.True, "and the block listeners");
-        });
+        }
     }
-
 }
 
 // The lows are taken over the frames actually recorded, so an empty or short history must report nothing rather than a number
@@ -165,7 +150,11 @@ public sealed class FrameStatsTests
     private static FrameStats Filled(int frames, float ms = 10f)
     {
         var stats = new FrameStats();
-        for (var i = 0; i < Math.Min(frames, 4 * History); i++) stats.Record(ms / 1000f, 0, true);
+        for (var i = 0; i < Math.Min(frames, 4 * History); i++)
+        {
+            stats.Record(ms / 1000f, 0, true);
+        }
+
         stats.SampleWindow();
         return stats;
     }
@@ -174,8 +163,16 @@ public sealed class FrameStatsTests
     public void FramesThatAreNotSteadyStayOutOfTheHistory()
     {
         var stats = new FrameStats();
-        for (var i = 0; i < 500; i++) stats.Record(1f, 0, false); // a load stall
-        for (var i = 0; i < 200; i++) stats.Record(0.01f, 0, true);
+        for (var i = 0; i < 500; i++)
+        {
+            stats.Record(1f, 0, false); // a load stall
+        }
+
+        for (var i = 0; i < 200; i++)
+        {
+            stats.Record(0.01f, 0, true);
+        }
+
         stats.SampleWindow();
         Assert.Multiple(() =>
         {
@@ -208,7 +205,11 @@ public sealed class FrameStatsTests
     public void TheWorstFrameIsTheOneTheLowsAreTakenFrom()
     {
         var stats = new FrameStats();
-        for (var i = 0; i < 1998; i++) stats.Record(0.01f, 0.5f, true);
+        for (var i = 0; i < 1998; i++)
+        {
+            stats.Record(0.01f, 0.5f, true);
+        }
+
         stats.Record(0.2f, 12f, true); // one 200 ms hitch
         stats.Record(0.01f, 40f, true); // a big pause in a short frame is not the worst frame's
         stats.SampleWindow();
@@ -229,7 +230,11 @@ public sealed class FrameStatsTests
     {
         var stats = new FrameStats();
         stats.Record(0.5f, 0, true); // falls out again
-        for (var i = 0; i < History; i++) stats.Record(0.01f, 0, true);
+        for (var i = 0; i < History; i++)
+        {
+            stats.Record(0.01f, 0, true);
+        }
+
         stats.SampleWindow();
         Assert.Multiple(() =>
         {
@@ -265,7 +270,11 @@ public sealed class FrameStatsTests
             var stats = Filled(100);
             stats.Reset();
             stats.ResetHistory();
-            for (var i = 0; i < 100; i++) stats.Record(0.02f, 0, true);
+            for (var i = 0; i < 100; i++)
+            {
+                stats.Record(0.02f, 0, true);
+            }
+
             RuntimeStats.drawCallsCount = after;
             stats.SampleWindow();
             Assert.Multiple(() =>
@@ -282,13 +291,14 @@ public sealed class FrameStatsTests
 
     // IconBudget and HangWatch count frames with the HUD off too: Completed stood still there, the creative inventory stayed empty
     [Test]
-    public void FramesCountWithoutTheHud() => Clock.With(false, null, () =>
-    {
-        var (frames, completed) = (FrameClock.Frames, FrameClock.Completed);
-        FrameClock.Begin();
-        FrameClock.Begin();
-        Assert.That((FrameClock.Frames, FrameClock.Completed), Is.EqualTo((frames + 2, completed)));
-    });
+    public void FramesCountWithoutTheHud() =>
+        Clock.With(false, null, () =>
+        {
+            var (frames, completed) = (FrameClock.Frames, FrameClock.Completed);
+            FrameClock.Begin();
+            FrameClock.Begin();
+            Assert.That((FrameClock.Frames, FrameClock.Completed), Is.EqualTo((frames + 2, completed)));
+        });
 
     // Read in the Ortho stage, the dt that ended at this frame's start pairs with the GC pause since the previous Ortho, so a collection
     // early in a frame lands on the one before. FrameClock cuts both at frame starts.
@@ -298,12 +308,16 @@ public sealed class FrameStatsTests
         Clock.With(true, null, () =>
         {
             var records = new List<FrameRecord>();
-            TimeSpan own = default;
+            var own = TimeSpan.Zero;
             FrameClock.Begin();
             for (var frame = 0; frame < 4; frame++)
             {
                 var completed = FrameClock.Completed;
-                if (frame == 2) own = Busy.Collect(); // inside the third frame, early, well before any Ortho stage
+                if (frame == 2)
+                {
+                    own = Busy.Collect(); // inside the third frame, early, well before any Ortho stage
+                }
+
                 Busy.Spin(frame == 2 ? 30 : 5);
                 FrameClock.End();
                 FrameClock.Begin();
@@ -312,7 +326,11 @@ public sealed class FrameStatsTests
             }
 
             var history = new FrameStats();
-            foreach (var record in records) history.Record((float)(record.DtMs / 1000), (float)record.GcMs, true);
+            foreach (var record in records)
+            {
+                history.Record((float)(record.DtMs / 1000), (float)record.GcMs, true);
+            }
+
             history.SampleWindow();
             Assert.Multiple(() =>
             {
@@ -347,8 +365,7 @@ public sealed class FrameStatsTests
     }
 
     [Test]
-    public void TheClockStandsStillWhileNobodyLooks()
-    {
+    public void TheClockStandsStillWhileNobodyLooks() =>
         Clock.With(false, ScreenManager.FrameProfiler, () =>
         {
             var completed = FrameClock.Completed;
@@ -360,7 +377,6 @@ public sealed class FrameStatsTests
 
             Assert.That(FrameClock.Completed, Is.EqualTo(completed));
         });
-    }
 }
 
 public sealed class DrmMemoryTests
@@ -369,8 +385,10 @@ public sealed class DrmMemoryTests
     [Test]
     public void ParsesAClient()
     {
-        var client = DrmMemory.Parse(["pos:\t0", "drm-driver:\tamdgpu", "drm-client-id:\t42", "drm-memory-vram:\t6291456 KiB",
-            "drm-memory-gtt:\t\t20480 KiB"]);
+        var client = DrmMemory.Parse([
+            "pos:\t0", "drm-driver:\tamdgpu", "drm-client-id:\t42", "drm-memory-vram:\t6291456 KiB",
+            "drm-memory-gtt:\t\t20480 KiB"
+        ]);
         Assert.That(client, Is.EqualTo(new DrmMemory.Client(42, "amdgpu", 6291456, 20480)));
         Assert.That(DrmMemory.Parse(["pos:\t0", "flags:\t02"]), Is.Null);
         Assert.That(DrmMemory.Text([client!.Value, new DrmMemory.Client(7, "amdgpu", 1024 * 1024, 0)], 6100),

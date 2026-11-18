@@ -14,7 +14,7 @@ public sealed class OcclusionTests
     {
         var (shared, projection, view) = (new float[16], Mat4f.Perspective(new float[16], 1.2f, 1.5f, 0.1f, 1000),
             Mat4f.Translate(new float[16], Mat4f.Create(), 1, 2, 3));
-        var render = Answers.Of<IRenderAPI>(new()
+        var render = Answers.Of<IRenderAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["get_CurrentProjectionMatrix"] = _ => Fill(shared, projection),
             ["get_CurrentModelviewMatrix"] = _ => Fill(shared, view)
@@ -35,22 +35,24 @@ public sealed class OcclusionTests
     }
 
     [Test]
-    public void TheRangeIsSixteenBytesTwice()
-    {
+    public void TheRangeIsSixteenBytesTwice() =>
         Assert.That(Unsafe.SizeOf<Occlusion.Range>(), Is.EqualTo(32), "std430 Range in cull.comp");
-    }
 
-    private static ModelDataPoolLocation Location(int start, int end, float x) => new()
-    {
-        IndicesStart = start, IndicesEnd = end, FrustumCullSphere = new Sphere(x, 110, 512000, 32, 32, 32)
-    };
+    private static ModelDataPoolLocation Location(int start, int end, float x) =>
+        new()
+        {
+            IndicesStart = start, IndicesEnd = end, FrustumCullSphere = new Sphere(x, 110, 512000, 32, 32, 32)
+        };
 
     // A pool's draw list as FrustumCull leaves it: byte offsets of the starts in every other int, sizes in indices
     private static (int[] Starts, int[] Sizes) Drawn(params ModelDataPoolLocation[] drawn)
     {
         var (starts, sizes) = (new int[2 * drawn.Length + 2], new int[drawn.Length + 1]);
         for (var i = 0; i < drawn.Length; i++)
+        {
             (starts[2 * i], sizes[i]) = (drawn[i].IndicesStart * 4, drawn[i].IndicesEnd - drawn[i].IndicesStart);
+        }
+
         return (starts, sizes);
     }
 
@@ -114,7 +116,7 @@ public sealed class OcclusionTests
     {
         public bool Equals((float, float, float) a, (float, float, float) b) =>
             Math.Abs(a.Item1 - b.Item1) < 1e-3 && Math.Abs(a.Item2 - b.Item2) < 1e-3 &&
-            Math.Abs(a.Item3 - b.Item3) < 1e-3;
+                   Math.Abs(a.Item3 - b.Item3) < 1e-3;
 
         public int GetHashCode((float, float, float) value) => 0;
     }

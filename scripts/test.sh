@@ -29,7 +29,7 @@ START=$SECONDS
 
 if ((BUILD)); then
   dotnet build "$PROJECT" -c Release --disable-build-servers -v q -nologo >"$OUT/build.log" 2>&1 ||
-    { grep -E "error|Fehler" "$OUT/build.log" | sort -u | head -40; echo "test.sh: build failed" >&2; exit 1; }
+    { tail -60 "$OUT/build.log"; echo "test.sh: build failed" >&2; exit 1; }
 fi
 
 ns() { echo "FullyQualifiedName~Komet.Test.$1"; }

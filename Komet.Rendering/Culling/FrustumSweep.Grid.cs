@@ -12,16 +12,25 @@ internal static partial class FrustumSweep
     {
         var w = Vector<double>.Count;
         if (!Assert(m.Length <= m.Refs.Length) || !Assert(m.Slots <= m.Cx.Length)) return;
-        if (quiet && m.Cells == 0 && !m.Tried && m.Length >= MinBucketed && ++m.Quiet >= QuietCulls)
+
+        if (quiet && m is { Cells: 0, Tried: false, Length: >= MinBucketed } && ++m.Quiet >= QuietCulls)
         {
             Settle(m, w);
             return;
         }
 
         if (4 * (m.Dead + m.Fresh) <= m.Length + Churn || !Relayout()) return;
+
         if (Counting.Hud) _ = Interlocked.Increment(ref _relayouts);
-        if (m.Cells > 0 && m.Length >= MinBucketed) Settle(m, w);
-        else if (Gather(m, m.Length)) Lay(m, m.Length, w);
+
+        if (m is { Cells: > 0, Length: >= MinBucketed })
+        {
+            Settle(m, w);
+        }
+        else if (Gather(m, m.Length))
+        {
+            Lay(m, m.Length, w);
+        }
     }
 
     // One of RelayoutsPerFrame, taken by CAS (workers tidy in parallel)
@@ -32,6 +41,7 @@ internal static partial class FrustumSweep
         {
             var was = Interlocked.CompareExchange(ref _frameRelayouts, seen + 1, seen);
             if (was == seen) return true;
+
             seen = was;
         }
 
@@ -42,6 +52,7 @@ internal static partial class FrustumSweep
     {
         var n = m.Length;
         if (!Assert(n >= MinBucketed) || !Gather(m, n)) return;
+
         var (minX, maxX, minZ, maxZ) = (int.MaxValue, int.MinValue, int.MaxValue, int.MinValue);
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
         {
@@ -53,6 +64,7 @@ internal static partial class FrustumSweep
         {
             (m.Base, m.Used, m.Dead, m.Fresh) = (m.Slots, m.Slots, 0, 0);
             if (Counting.Hud) _ = Interlocked.Increment(ref _settles);
+
             return;
         }
 
@@ -63,10 +75,12 @@ internal static partial class FrustumSweep
     private static bool Gather(Mirror m, int n)
     {
         if (!Assert(n > 0) || !Unsorted(m, n)) return false;
+
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
         {
             var s = m.Slot[i];
             if (!Index(s, m.Slots)) return false;
+
             (m.Sx[i], m.Sy[i], m.Sz[i]) = (m.Cx[s], m.Cy[s], m.Cz[s]);
             (m.Shx[i], m.Shy[i], m.Shz[i]) = (m.Hx[s], m.Hy[s], m.Hz[s]);
         }
@@ -78,6 +92,7 @@ internal static partial class FrustumSweep
     {
         m.Cells = 0;
         if (!Assert(n <= m.Sx.Length) || !Assert(n <= m.Cx.Length)) return;
+
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
         {
             (m.Cx[i], m.Cy[i], m.Cz[i]) = (m.Sx[i], m.Sy[i], m.Sz[i]);
@@ -92,8 +107,10 @@ internal static partial class FrustumSweep
     private static bool Unsorted(Mirror m, int n)
     {
         if (m.Sx.Length >= n) return true;
+
         var room = Capacity(n, m.Sx.Length, MaxLocations);
         if (!Assert(room >= n)) return false;
+
         (m.Sx, m.Sy, m.Sz) = (new float[room], new float[room], new float[room]);
         (m.Shx, m.Shy, m.Shz) = (new float[room], new float[room], new float[room]);
         return true;
@@ -103,10 +120,12 @@ internal static partial class FrustumSweep
     {
         var slots = Geometry(n, w);
         if (!Assert(slots >= n) || !Assert(slots <= MaxSlots)) return false;
+
         if (m.Refs.Length < n)
         {
             var cap = Capacity(n, m.Refs.Length, MaxLocations);
             if (!Assert(cap >= n)) return false;
+
             (m.Refs, m.NRefs, m.Cand) = (new LocRef[cap], new LocRef[cap], new ulong[(cap + WordBits - 1) / WordBits]);
             (m.Start, m.Count, m.Lod, m.Slot) = (new int[cap], new int[cap], new int[cap], new int[cap]);
             (m.NStart, m.NCount, m.NLod, m.NSlot, m.Match) =
@@ -114,8 +133,10 @@ internal static partial class FrustumSweep
         }
 
         if (m.Cx.Length >= slots) return true;
+
         var room = Capacity(slots, m.Cx.Length, MaxSlots);
         if (!Assert(room >= slots)) return false;
+
         (m.Cx, m.Cy, m.Cz) = (new float[room], new float[room], new float[room]);
         (m.Hx, m.Hy, m.Hz) = (new float[room], new float[room], new float[room]);
         (m.Outside, m.Inv) = (new long[room], new int[room]);
@@ -129,7 +150,12 @@ internal static partial class FrustumSweep
     {
         m.Slots = (n + w - 1) / w * w;
         if (!Assert(m.Cx.Length >= m.Slots)) return;
-        for (var i = n; i < Math.Min(m.Slots, MaxSlots); i++) Blank(m, i);
+
+        for (var i = n; i < Math.Min(m.Slots, MaxSlots); i++)
+        {
+            Blank(m, i);
+        }
+
         (m.Base, m.Used) = (m.Slots, m.Slots);
     }
 
@@ -137,6 +163,7 @@ internal static partial class FrustumSweep
     private static void Blank(Mirror m, int slot, float x = 0, float y = 0, float z = 0)
     {
         if (!Index(slot, m.Cx.Length) || !Index(slot, m.Inv.Length)) return;
+
         (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = (x, y, z);
         (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (0, 0, 0);
         m.Inv[slot] = Gone;
@@ -146,19 +173,24 @@ internal static partial class FrustumSweep
     {
         m.Cells = 0;
         if (minX > maxX || minZ > maxZ) return false;
+
         var want = Math.Min(MaxCells, Math.Max(1, n / PerCell));
         var shift = MaxShift; // each step halves the grid, so the span ends well before MaxShift
         for (var s = CellShift; s < MaxShift; s++)
+        {
             if (Span(minX, maxX, s) * Span(minZ, maxZ, s) <= want)
             {
                 shift = s;
                 break;
             }
+        }
 
         if (!Assert(shift < MaxShift)) return false;
+
         var (wide, deep) = (Span(minX, maxX, shift), Span(minZ, maxZ, shift));
         var cells = wide * deep;
         if (cells <= 1 || cells > MaxCells) return false;
+
         (m.Shift, m.OriginX, m.OriginZ, m.Wide) = (shift, minX >> shift, minZ >> shift, (int)wide);
         return Bin(m, n, w, (int)cells);
     }
@@ -174,6 +206,7 @@ internal static partial class FrustumSweep
         {
             var cell = (((int)m.Sz[i] >> m.Shift) - m.OriginZ) * m.Wide + ((int)m.Sx[i] >> m.Shift) - m.OriginX;
             if (!Index(cell, cells)) return false;
+
             (m.Key[i], m.Bins[cell]) = (cell, m.Bins[cell] + 1);
         }
 
@@ -183,12 +216,14 @@ internal static partial class FrustumSweep
             var count = m.Bins[c];
             m.Bins[c] = count == 0 ? Empty : at;
             if (count == 0) continue;
+
             at += (count + w - 1) / w * w;
             used++;
         }
 
         m.Slots = at;
         if (!Assert(at <= m.Cx.Length)) return false;
+
         Grid(m, used, w);
         return Scatter(m, n, cells) && Box(m, cells, w);
     }
@@ -196,6 +231,7 @@ internal static partial class FrustumSweep
     private static bool Scatter(Mirror m, int n, int cells)
     {
         if (!Assert(cells <= m.LoX.Length)) return false;
+
         for (var c = 0; c < Math.Min(cells, MaxCells); c++)
         {
             (m.LoX[c], m.HiX[c]) = (double.MaxValue, double.MinValue);
@@ -208,6 +244,7 @@ internal static partial class FrustumSweep
             var cell = m.Key[i];
             var slot = m.Bins[cell]++;
             if (!Index(slot, m.Slots)) return false;
+
             (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = (m.Sx[i], m.Sy[i], m.Sz[i]);
             (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (m.Shx[i], m.Shy[i], m.Shz[i]);
             double cx = m.Sx[i], cy = m.Sy[i], cz = m.Sz[i];
@@ -224,6 +261,7 @@ internal static partial class FrustumSweep
     private static void Room(Mirror m, int n, int cells)
     {
         if (m.Key.Length < n) m.Key = new int[Capacity(n, m.Key.Length, MaxLocations)];
+
         if (m.Bins.Length < cells)
         {
             var room = Capacity(cells, m.Bins.Length, MaxCells);
@@ -252,8 +290,10 @@ internal static partial class FrustumSweep
         for (var c = 0; c < Math.Min(cells, MaxCells) && b < m.Cells; c++)
         {
             if (m.Bins[c] == Empty) continue;
+
             var count = m.Bins[c] - at; // the cursor stopped past the cell's last member
             if (!Assert(count > 0) || !Index(at, m.Slots) || !Assert(at + count <= m.Slots)) return false;
+
             (m.BStart[b], m.BCount[b]) = (at, count);
             (m.BCx[b], m.BHx[b]) = ((m.LoX[c] + m.HiX[c]) / 2, (m.HiX[c] - m.LoX[c]) / 2 + Slack);
             (m.BCy[b], m.BHy[b]) = ((m.LoY[c] + m.HiY[c]) / 2, (m.HiY[c] - m.LoY[c]) / 2 + Slack);
@@ -261,7 +301,10 @@ internal static partial class FrustumSweep
             var padded = (count + w - 1) / w * w;
             // at the cell's centre a padding lane costs at most its vector
             for (var i = at + count; i < Math.Min(at + padded, MaxSlots); i++)
+            {
                 Blank(m, i, (float)m.BCx[b], (float)m.BCy[b], (float)m.BCz[b]);
+            }
+
             (at, b) = (at + padded, b + 1);
         }
 
@@ -273,6 +316,7 @@ internal static partial class FrustumSweep
     private static void Place(Mirror m, Sphere s, int slot)
     {
         if (!Index(slot, m.Cx.Length)) return;
+
         (m.Cx[slot], m.Cy[slot], m.Cz[slot]) = (s.x, s.y, s.z);
         // AABBisOutside's float division; the kernel widens it as the engine does
         (m.Hx[slot], m.Hy[slot], m.Hz[slot]) = (s.radius / Sqrt3, s.radiusY / Sqrt3, s.radiusZ / Sqrt3);

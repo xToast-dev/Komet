@@ -17,9 +17,11 @@ public sealed class MapTileUploadGpuTests
         GameInstall.RequireAssets();
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here: " + GlContext.Why);
+
         var random = new Random(11);
         int[]?[] first = [Piece(random), null, Piece(random), null, Piece(random), null, null, Piece(random), null];
-        int[]?[] second = [Piece(random), Piece(random), null, null, Piece(random), Piece(random), Piece(random), null, null];
+        int[]?[] second =
+            [Piece(random), Piece(random), null, null, Piece(random), Piece(random), Piece(random), null, null];
         var (drawn, uploaded) = (Texture(), Texture());
         var engine = Engine();
         try
@@ -58,9 +60,14 @@ public sealed class MapTileUploadGpuTests
     {
         GL.BindTexture(TextureTarget.Texture2D, texture);
         for (var i = 0; i < pieces.Length; i++)
+        {
             if (pieces[i] is { } pixels)
-                GL.TexSubImage2D(TextureTarget.Texture2D, 0, Side * (i % 3), Side * (i / 3), Side, Side, PixelFormat.Rgba,
+            {
+                GL.TexSubImage2D(TextureTarget.Texture2D, 0, Side * (i % 3), Side * (i / 3), Side, Side,
+                    PixelFormat.Rgba,
                     PixelType.UnsignedByte, pixels);
+            }
+        }
     }
 
     private static int[] Read(int texture)
@@ -94,6 +101,13 @@ public sealed class MapTileUploadGpuTests
 
     private sealed class Drawer(int program, int array, int[] buffers) : IDisposable
     {
+        public void Dispose()
+        {
+            GL.DeleteProgram(program);
+            GL.DeleteVertexArray(array);
+            GL.DeleteBuffers(buffers.Length, buffers);
+        }
+
         public void Draw(int tile, int[]?[] pieces)
         {
             var (framebuffer, piece) = (GL.GenFramebuffer(), GL.GenTexture());
@@ -114,6 +128,7 @@ public sealed class MapTileUploadGpuTests
             for (var i = 0; i < pieces.Length; i++)
             {
                 if (pieces[i] is not { } pixels) continue;
+
                 GL.BindTexture(TextureTarget.Texture2D, piece);
                 GL.TexSubImage2D(TextureTarget.Texture2D, 0, 0, 0, Side, Side, PixelFormat.Rgba, PixelType.UnsignedByte,
                     pixels);
@@ -122,8 +137,9 @@ public sealed class MapTileUploadGpuTests
                 Uniform("texw", 1);
                 Uniform("texh", 1);
                 Uniform("alphaTest", 0.005f);
-                Uniform("xs", Side * (i % 3) / (float)Tile);
-                Uniform("ys", Side * (i / 3) / (float)Tile);
+                var (column, row) = (i % 3, i / 3);
+                Uniform("xs", Side * column / (float)Tile);
+                Uniform("ys", Side * row / (float)Tile);
                 Uniform("width", Side / (float)Tile);
                 Uniform("height", Side / (float)Tile);
                 GL.Uniform1(GL.GetUniformLocation(program, "tex2d"), 0);
@@ -140,12 +156,5 @@ public sealed class MapTileUploadGpuTests
         }
 
         private void Uniform(string name, float value) => GL.Uniform1(GL.GetUniformLocation(program, name), value);
-
-        public void Dispose()
-        {
-            GL.DeleteProgram(program);
-            GL.DeleteVertexArray(array);
-            GL.DeleteBuffers(buffers.Length, buffers);
-        }
     }
 }

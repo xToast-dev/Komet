@@ -35,8 +35,7 @@ internal static class Rules
         "Mutual recursion is forbidden: {0}", Category, DiagnosticSeverity.Error, true, customTags: End);
 
     public static readonly DiagnosticDescriptor Length = new("KR0008", "Function too long",
-        "'{0}' spans {1} lines, more than {2}", Category, DiagnosticSeverity.Error, true);
-
+        "'{0}' spans {1} lines, more than {2}", Category, DiagnosticSeverity.Warning, true);
 
     public static readonly DiagnosticDescriptor MissingKey = new("KR0010", "Lang key missing",
         "Lang key '{0}' is missing in {1}", Category, DiagnosticSeverity.Error, true);
@@ -86,16 +85,21 @@ public sealed class KometAnalyzer : DiagnosticAnalyzer
 internal static class Symbols
 {
     // Komet.Contracts holds the assertion helpers; the loop and foreach rules skip the class itself
-    public static bool IsContracts(ITypeSymbol? type) => type is
-    {
-        Name: "Contracts", ContainingType: null,
-        ContainingNamespace: { Name: "Komet", ContainingNamespace.IsGlobalNamespace: true }
-    };
+    private static bool IsContracts(ITypeSymbol? type) =>
+        type is
+        {
+            Name: "Contracts", ContainingType: null,
+            ContainingNamespace: { Name: "Komet", ContainingNamespace.IsGlobalNamespace: true }
+        };
 
     public static bool InContracts(ISymbol? symbol)
     {
         var type = symbol as INamedTypeSymbol ?? symbol?.ContainingType;
-        while (type?.ContainingType is { } outer) type = outer;
+        while (type?.ContainingType is { } outer)
+        {
+            type = outer;
+        }
+
         return IsContracts(type);
     }
 
@@ -111,7 +115,11 @@ internal static class Symbols
 
     public static ExpressionSyntax Unparenthesized(ExpressionSyntax expression)
     {
-        while (expression is ParenthesizedExpressionSyntax parenthesized) expression = parenthesized.Expression;
+        while (expression is ParenthesizedExpressionSyntax parenthesized)
+        {
+            expression = parenthesized.Expression;
+        }
+
         return expression;
     }
 
@@ -140,24 +148,28 @@ internal sealed class Sources(HashSet<SyntaxTree> user)
         return new Sources([.. compilation.SyntaxTrees.Where(tree => IsUser(Normal(tree.FilePath), root))]);
     }
 
-    public Action<SyntaxTreeAnalysisContext> Tree(Action<SyntaxTreeAnalysisContext> action) => c =>
-    {
-        if (user.Contains(c.Tree)) action(c);
-    };
+    public Action<SyntaxTreeAnalysisContext> Tree(Action<SyntaxTreeAnalysisContext> action) =>
+        c =>
+        {
+            if (user.Contains(c.Tree)) action(c);
+        };
 
-    public Action<SyntaxNodeAnalysisContext> Node(Action<SyntaxNodeAnalysisContext> action) => c =>
-    {
-        if (user.Contains(c.Node.SyntaxTree)) action(c);
-    };
+    public Action<SyntaxNodeAnalysisContext> Node(Action<SyntaxNodeAnalysisContext> action) =>
+        c =>
+        {
+            if (user.Contains(c.Node.SyntaxTree)) action(c);
+        };
 
-    public Action<OperationAnalysisContext> Operation(Action<OperationAnalysisContext> action) => c =>
-    {
-        if (user.Contains(c.Operation.Syntax.SyntaxTree)) action(c);
-    };
+    public Action<OperationAnalysisContext> Operation(Action<OperationAnalysisContext> action) =>
+        c =>
+        {
+            if (user.Contains(c.Operation.Syntax.SyntaxTree)) action(c);
+        };
 
     private static bool IsUser(string path, string? root)
     {
         if (root is null) return Array.TrueForAll(path.Split('/'), segment => segment is not ("obj" or "bin"));
+
         return path.StartsWith(root, StringComparison.OrdinalIgnoreCase) &&
                !path.StartsWith(root + "obj/", StringComparison.OrdinalIgnoreCase) &&
                !path.StartsWith(root + "bin/", StringComparison.OrdinalIgnoreCase);

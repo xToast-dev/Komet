@@ -2,8 +2,8 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Util;
@@ -21,20 +21,26 @@ namespace Komet.World;
 internal static class BlockEntityCaches
 {
     // EngineShape of each part's Seams() in Vintage Story 1.22.7
-    internal const ulong IgnitableFingerprint = 0x34197668D3D251E9UL, MeshFingerprint = 0x8820BC0184089CB8UL,
+    internal const ulong IgnitableFingerprint = 0x34197668D3D251E9UL,
+        MeshFingerprint = 0x8820BC0184089CB8UL,
         PotFingerprint = 0xF8D80DAFDEC67646UL;
 
     internal const int Ignitable = 0, Meshes = 1, Pots = 2;
     private const int Parts = 3;
     private const int MaxInstructions = 512, MaxMeshes = 4096, MaxShapes = 256, PotTries = 2;
+
     private const string Firepit = "Vintagestory.GameContent.BlockEntityFirepit",
         GroundStorage = "Vintagestory.GameContent.BlockEntityGroundStorage",
         PotRenderer = "Vintagestory.GameContent.PotInFirepitRenderer",
-        MeshCache = "firepit-meshes", FirepitShapes = "shapes/block/wood/firepit/";
+        MeshCache = "firepit-meshes",
+        FirepitShapes = "shapes/block/wood/firepit/";
 
     private static readonly ConditionalWeakTable<string, JsonObject> Parsed = [];
     private static readonly ConcurrentDictionary<(int Block, string State), MeshData> Built = new();
-    private static int _built; // Built's count: ConcurrentDictionary.Count takes every bucket lock, and firepits mesh on several threads
+
+    private static int
+        _built; // Built's count: ConcurrentDictionary.Count takes every bucket lock, and firepits mesh on several threads
+
     private static readonly ConcurrentDictionary<string, Shape> PotShapes = new(StringComparer.Ordinal);
     private static readonly bool[] Shaped = new bool[Parts], Foreign = new bool[Parts], Rewritten = new bool[Parts];
     private static readonly MethodBase?[][] Bodies = new MethodBase?[Parts][];
@@ -56,19 +62,34 @@ internal static class BlockEntityCaches
         Array.Clear(Shaped);
         Array.Clear(Foreign);
         Array.Clear(Rewritten);
-        for (var part = 0; part < Parts; part++) Bodies[part] = Seams(part);
-        if (!NotNull(harmony) || !Survival) return;
-        Shaped[Ignitable] = EngineShape.Matches(Bodies[Ignitable], IgnitableFingerprint, nameof(BlockEntityCaches), logger);
+        for (var part = 0; part < Parts; part++)
+        {
+            Bodies[part] = Seams(part);
+        }
+
+        if (!Survival) return;
+
+        Shaped[Ignitable] =
+            EngineShape.Matches(Bodies[Ignitable], IgnitableFingerprint, nameof(BlockEntityCaches), logger);
         Shaped[Meshes] = EngineShape.Matches(Bodies[Meshes], MeshFingerprint, nameof(BlockEntityCaches), logger);
         Shaped[Pots] = EngineShape.Matches(Bodies[Pots], PotFingerprint, nameof(BlockEntityCaches), logger);
-        if (Shaped[Ignitable]) _ = harmony.Patch(Bodies[Ignitable][0], transpiler: new(Method(nameof(RewriteIgnitable))));
-        if (Shaped[Meshes] && Bodies[Meshes] is [{ } mesh] && Method(nameof(Mesh)) is { } prefix && Assert(Il.Binds(mesh, prefix)))
+        if (Shaped[Ignitable])
+        {
+            _ = harmony.Patch(Bodies[Ignitable][0], transpiler: new HarmonyMethod(Method(nameof(RewriteIgnitable))));
+        }
+
+        if (Shaped[Meshes] && Bodies[Meshes] is [{ } mesh] && Method(nameof(Mesh)) is { } prefix &&
+            Assert(Il.Binds(mesh, prefix)))
         {
             _ = harmony.Patch(mesh, new HarmonyMethod(prefix));
             Rewritten[Meshes] = true;
         }
 
-        if (Shaped[Pots]) _ = harmony.Patch(Bodies[Pots][0], transpiler: new(Method(nameof(RewritePots))));
+        if (Shaped[Pots])
+        {
+            _ = harmony.Patch(Bodies[Pots][0], transpiler: new HarmonyMethod(Method(nameof(RewritePots))));
+        }
+
         if (api?.Event is { } events)
         {
             events.ReloadShapes += Clear;
@@ -89,13 +110,13 @@ internal static class BlockEntityCaches
             typeof(string[])
         ]);
         var own = typeof(BlockEntityCaches);
-        Foreign[Ignitable] = Rewritten[Ignitable] && EngineShape.Foreign(Bodies[Ignitable], PatchKinds.Body, null, own);
+        Foreign[Ignitable] = Rewritten[Ignitable] && EngineShape.Foreign(Bodies[Ignitable], KapiPatchKinds.Body, null, own);
         // A postfix editing the result in place would re-edit the one kept mesh on every call
         Foreign[Meshes] = Rewritten[Meshes] &&
-                          (EngineShape.Foreign(Bodies[Meshes], PatchKinds.All, null, own) ||
-                           EngineShape.Foreign([tryGet, tesselate], PatchKinds.All, null, own));
-        Foreign[Pots] = Rewritten[Pots] && (EngineShape.Foreign(Bodies[Pots], PatchKinds.Body, null, own) ||
-                                            EngineShape.Foreign([tryGet], PatchKinds.All, null, own));
+                          (EngineShape.Foreign(Bodies[Meshes], KapiPatchKinds.All, null, own) ||
+                           EngineShape.Foreign([tryGet, tesselate], KapiPatchKinds.All, null, own));
+        Foreign[Pots] = Rewritten[Pots] && (EngineShape.Foreign(Bodies[Pots], KapiPatchKinds.Body, null, own) ||
+                                            EngineShape.Foreign([tryGet], KapiPatchKinds.All, null, own));
         _ = EngineShape.Report(_logger, nameof(BlockEntityCaches), was, Blocked);
     }
 
@@ -115,14 +136,25 @@ internal static class BlockEntityCaches
     internal static MethodBase?[] Seams(int part)
     {
         var (firepit, storage, renderer) =
-            (AccessTools.TypeByName(Firepit), AccessTools.TypeByName(GroundStorage), AccessTools.TypeByName(PotRenderer));
+            (AccessTools.TypeByName(Firepit), AccessTools.TypeByName(GroundStorage),
+                AccessTools.TypeByName(PotRenderer));
         MethodBase?[] seams = part switch
         {
-            Ignitable => [storage is null ? null : AccessTools.DeclaredMethod(storage, "UpdateIgnitable", Type.EmptyTypes)],
-            Meshes => [firepit is null ? null : AccessTools.DeclaredMethod(firepit, "getOrCreateMesh", [typeof(string), typeof(string)])],
-            _ => [renderer is null
-                ? null
-                : AccessTools.DeclaredConstructor(renderer, [typeof(ICoreClientAPI), typeof(ItemStack), typeof(BlockPos), typeof(bool)])]
+            Ignitable =>
+                [storage is null ? null : AccessTools.DeclaredMethod(storage, "UpdateIgnitable", Type.EmptyTypes)],
+            Meshes =>
+            [
+                firepit is null
+                    ? null
+                    : AccessTools.DeclaredMethod(firepit, "getOrCreateMesh", [typeof(string), typeof(string)])
+            ],
+            _ =>
+            [
+                renderer is null
+                    ? null
+                    : AccessTools.DeclaredConstructor(renderer,
+                        [typeof(ICoreClientAPI), typeof(ItemStack), typeof(BlockPos), typeof(bool)])
+            ]
         };
         return seams;
     }
@@ -133,29 +165,42 @@ internal static class BlockEntityCaches
     // UpdateIgnitable's one JsonObject.FromJson becomes Parse (result only indexed); else the engine's IL
     internal static List<CodeInstruction> RewriteIgnitable(IEnumerable<CodeInstruction> instructions)
     {
-        var (from, parse) = (AccessTools.DeclaredMethod(typeof(JsonObject), nameof(JsonObject.FromJson), [typeof(string)]),
+        var (from, parse) = (
+            AccessTools.DeclaredMethod(typeof(JsonObject), nameof(JsonObject.FromJson), [typeof(string)]),
             Method(nameof(Parse)));
         if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(from) || !NotNull(parse)) return code;
+
         var at = Il.Single(code, c => c.Calls(from));
         if (at < 0 || Il.Consumer(code, at) is not (var use, 0) || !Index(use, code.Count) ||
-            code[use].operand is not MethodInfo { Name: "get_Item" } index || index.DeclaringType != typeof(JsonObject)) return code;
+            code[use].operand is not MethodInfo { Name: "get_Item" } index ||
+            index.DeclaringType != typeof(JsonObject))
+        {
+            return code;
+        }
+
         Rewritten[Ignitable] = Il.Substitute(code, at, parse);
         return code;
     }
 
-    internal static JsonObject Parse(string jsonCode)
+    internal static JsonObject Parse(string? jsonCode)
     {
-        if (jsonCode is null || !On(Ignitable)) return JsonObject.FromJson(jsonCode!); // null throws, as in the engine
+        if (jsonCode is null || !On(Ignitable))
+        {
+            return JsonObject.FromJson(jsonCode!); // null throws, as in the engine
+        }
+
         if (Parsed.TryGetValue(jsonCode, out var known)) return known;
+
         var parsed = JsonObject.FromJson(jsonCode);
         Parsed.AddOrUpdate(jsonCode, parsed);
         return parsed;
     }
 
     // In place of getOrCreateMesh: the engine's body, with what it tessellates kept by block id and state
-    internal static bool Mesh(BlockEntity __instance, string burnstate, string contentstate, ref MeshData? __result)
+    internal static bool Mesh(BlockEntity? __instance, string burnstate, string contentstate, ref MeshData? __result)
     {
         if (!On(Meshes) || __instance?.Api is not ICoreClientAPI api || __instance.Pos is not { } pos) return true;
+
         var engine = ObjectCacheUtil.GetOrCreate(api, MeshCache, NewCache);
         var state = burnstate + "-" + contentstate;
         if (engine.TryGetValue(state, out var stored))
@@ -178,6 +223,7 @@ internal static class BlockEntityCaches
             {
                 var kept = Built.GetOrAdd((block.BlockId, state), mesh);
                 if (ReferenceEquals(kept, mesh)) _ = Interlocked.Increment(ref _built);
+
                 mesh = kept;
             }
         }
@@ -191,26 +237,39 @@ internal static class BlockEntityCaches
     {
         var (tryGet, kept) = (TryGet(), Method(nameof(PotShape)));
         if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(tryGet) || !NotNull(kept) ||
-            Il.Count(code, c => c.Calls(tryGet)) != PotTries) return code;
+            Il.Count(code, c => c.Calls(tryGet)) != PotTries)
+        {
+            return code;
+        }
+
         var sites = new List<int>(PotTries);
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (!code[i].Calls(tryGet)) continue;
+
             if (Il.Consumer(code, i) is not (var use, 2) || !Index(use, code.Count) ||
                 code[use].operand is not MethodInfo { Name: "TesselateShape" })
+            {
                 return code;
+            }
+
             sites.Add(i);
         }
 
         var all = true;
-        foreach (var site in sites.Bounded(PotTries)) all &= Il.Substitute(code, site, kept);
+        foreach (var site in sites.Bounded(PotTries))
+        {
+            all &= Il.Substitute(code, site, kept);
+        }
+
         Rewritten[Pots] = all;
         return code;
     }
 
-    internal static Shape? PotShape(ICoreAPI api, string shapePath)
+    internal static Shape? PotShape(ICoreAPI api, string? shapePath)
     {
         if (!On(Pots) || shapePath is null) return Shape.TryGet(api, shapePath);
+
         if (PotShapes.TryGetValue(shapePath, out var known))
         {
             ShapeElement.locationForLogging = shapePath; // as the engine's parse leaves it
@@ -219,6 +278,7 @@ internal static class BlockEntityCaches
 
         var shape = Shape.TryGet(api, shapePath);
         if (shape is not null && Assert(PotShapes.Count < MaxShapes)) _ = PotShapes.TryAdd(shapePath, shape);
+
         return shape;
     }
 }

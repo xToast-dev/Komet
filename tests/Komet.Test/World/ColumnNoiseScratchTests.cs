@@ -1,9 +1,7 @@
 using System.Collections.Concurrent;
 using Komet.Core;
 using Komet.World;
-using Vintagestory.API.Server;
 using Vintagestory.ServerMods;
-using Vintagestory.ServerMods.NoObf;
 using ColumnNoise = Vintagestory.API.MathTools.NewNormalizedSimplexFractalNoise.ColumnNoise;
 
 namespace Komet.Test.World;
@@ -15,13 +13,16 @@ namespace Komet.Test.World;
 // OnChunkColumnGen, which runs the rewritten Parallel.For body over real landforms and records every block it writes.
 public sealed class ColumnNoiseScratchTests
 {
-    private const int Inputs = 600, Heights = 254, Short = 48, Calls = 20000, Passes = 3, MapSizeY = 256,
-        RegionSize = 512, Threads = 8;
+    private const int Inputs = 600,
+        Heights = 254,
+        Short = 48,
+        Calls = 20000,
+        Passes = 3,
+        Threads = 8; // every machine runs the Parallel.For body concurrently
 
     private static readonly FieldInfo Entries = AccessTools.Field(typeof(ColumnNoise), "orderedOctaveEntries");
     private static readonly FieldInfo Past = AccessTools.Field(typeof(ColumnNoise), "pastEvaluations");
     private static readonly FieldInfo Armed = AccessTools.Field(typeof(ColumnNoiseScratch), "_armed");
-    private static readonly MethodInfo ColumnGen = AccessTools.Method(typeof(GenTerra), "OnChunkColumnGen");
     private static int _seen;
 
     [TearDown]
@@ -76,8 +77,15 @@ public sealed class ColumnNoiseScratchTests
         var trace = new List<long>(heights + 32)
             { Bits(column.BoundMin), Bits(column.BoundMax), Bits(column.UncurvedBound) };
         for (var y = 1; y <= heights; y++)
+        {
             trace.Add(Bits(column.NoiseSign(y, input.Thresholders[y % input.Thresholders.Length])));
-        for (var y = 0; y < heights; y += 17) trace.Add(Bits(column.Noise(y)));
+        }
+
+        for (var y = 0; y < heights; y += 17)
+        {
+            trace.Add(Bits(column.Noise(y)));
+        }
+
         return [.. trace];
     }
 
@@ -249,15 +257,18 @@ public sealed class ColumnNoiseScratchTests
                     var entries = EntriesOf(column);
                     var mine = entries.Length > 0 && live.TryAdd(entries, i);
                     if (entries.Length > 0 && !mine) _ = Interlocked.Increment(ref shared);
+
                     results[i] = Trace(column, inputs[i], Short);
                     if (mine) _ = live.TryRemove(entries, out _);
                 });
-            Assert.Multiple(() =>
+            using (Assert.EnterMultipleScope())
             {
                 Assert.That(shared, Is.Zero, "two live columns shared their arrays");
                 for (var i = 0; i < inputs.Length; i++)
+                {
                     Assert.That(results[i], Is.EqualTo(engine[i]), $"round {round}, column {i}");
-            });
+                }
+            }
         }
 
         Assert.Multiple(() =>
@@ -287,19 +298,33 @@ public sealed class ColumnNoiseScratchTests
         static long Allocated(Input[] set, System.Func<Input, ColumnNoise> build)
         {
             double sink = 0;
-            for (var i = 0; i < 200; i++) sink += build(set[i % set.Length]).BoundMax;
+            for (var i = 0; i < 200; i++)
+            {
+                sink += build(set[i % set.Length]).BoundMax;
+            }
+
             var start = GC.GetAllocatedBytesForCurrentThread();
-            for (var i = 0; i < Calls; i++) sink += build(set[i % set.Length]).BoundMax;
+            for (var i = 0; i < Calls; i++)
+            {
+                sink += build(set[i % set.Length]).BoundMax;
+            }
+
             Assert.That(sink, Is.Not.NaN);
             return (GC.GetAllocatedBytesForCurrentThread() - start) / Calls;
         }
 
         long shipped = long.MaxValue, shippedChunk = long.MaxValue;
         for (var pass = 0; pass < Passes; pass++)
+        {
             (shipped, shippedChunk) = (Math.Min(shipped, Allocated(gen, input => input.Engine())),
                 Math.Min(shippedChunk, PerChunkColumn()));
+        }
+
         using var harmony = Patched();
-        long off = long.MaxValue, on = long.MaxValue, mixedOn = long.MaxValue, offChunk = long.MaxValue,
+        long off = long.MaxValue,
+            on = long.MaxValue,
+            mixedOn = long.MaxValue,
+            offChunk = long.MaxValue,
             onChunk = long.MaxValue;
         for (var pass = 0; pass < Passes; pass++)
         {
@@ -331,7 +356,11 @@ public sealed class ColumnNoiseScratchTests
         var world = World(5);
         _ = Generate(world, 5, 5, false); // the region's landform map and the threads' temporary arrays
         var start = GC.GetTotalAllocatedBytes(true);
-        for (var z = 0; z < 4; z++) _ = Generate(world, 5, 6 + z, false);
+        for (var z = 0; z < 4; z++)
+        {
+            _ = Generate(world, 5, 6 + z, false);
+        }
+
         return (GC.GetTotalAllocatedBytes(true) - start) / 4;
     }
 
@@ -364,7 +393,7 @@ public sealed class ColumnNoiseScratchTests
             _ = Parallel.For(0, jobs.Length, new ParallelOptions { MaxDegreeOfParallelism = 4 },
                 i => results[i] = Generate(worlds[i], jobs[i].X, jobs[i].Z, jobs[i].Smooth));
             saved[round] = ColumnNoiseScratch.Saved - start;
-            Assert.Multiple(() =>
+            using (Assert.EnterMultipleScope())
             {
                 for (var i = 0; i < jobs.Length; i++)
                 {
@@ -373,7 +402,7 @@ public sealed class ColumnNoiseScratchTests
                     Assert.That(results[i].HeightMaps, Is.EqualTo(engine[i].HeightMaps),
                         $"height maps of chunk column {i}, round {round}");
                 }
-            });
+            }
         }
 
         ColumnNoiseScratch.Enabled = true;
@@ -391,13 +420,14 @@ public sealed class ColumnNoiseScratchTests
         });
     }
 
-    private static MethodBase Seam(int seam) => seam switch
-    {
-        0 => ColumnNoiseScratch.ForColumn()!,
-        1 => ColumnNoiseScratch.Constructor()!,
-        2 => ColumnNoiseScratch.ColumnBody()!,
-        _ => AccessTools.Method(typeof(ColumnNoise), nameof(ColumnNoise.NoiseSign))
-    };
+    private static MethodBase Seam(int seam) =>
+        seam switch
+        {
+            0 => ColumnNoiseScratch.ForColumn()!,
+            1 => ColumnNoiseScratch.Constructor()!,
+            2 => ColumnNoiseScratch.ColumnBody()!,
+            _ => AccessTools.Method(typeof(ColumnNoise), nameof(ColumnNoise.NoiseSign))
+        };
 
     private static void SeenByAnotherMod() => _ = Interlocked.Increment(ref _seen);
 
@@ -429,6 +459,7 @@ public sealed class ColumnNoiseScratchTests
             Assert.That(ColumnNoiseScratch.Saved, Is.EqualTo(start));
             Assert.That(Trace(first, input), Is.EqualTo(engine));
             if (seam < 2) Assert.That(_seen, Is.GreaterThan(seen), "the other mod's patch ran");
+
             Assert.That(string.Join('\n', logger.Lines), Is.EqualTo(
                 "Notification Komet ColumnNoiseScratch stands down: another mod patched " +
                 seam switch
@@ -453,15 +484,18 @@ public sealed class ColumnNoiseScratchTests
         ColumnNoiseScratch.Install(harmony, logger);
         var input = Contributing(new Random(18));
         var (first, second) = (input.Scratch(), input.Scratch());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(ColumnNoiseScratch.Rewritten, Is.False);
             for (var i = 0; i < 3; i++)
+            {
                 Assert.That(Harmony.GetPatchInfo(Seam(i))?.Owners ?? [], Does.Not.Contain(harmony.Id), $"seam {i}");
+            }
+
             Assert.That(EntriesOf(second), Is.Not.SameAs(EntriesOf(first)), "every column owns new arrays");
             Assert.That(string.Join('\n', logger.Lines), Is.EqualTo(
                 "Notification Komet ColumnNoiseScratch stands down: another mod patches ColumnNoise.NoiseSign; terrain columns allocate as shipped"));
-        });
+        }
     }
 
     // ForColumn is only watched: its IL goes back as it came
@@ -619,79 +653,45 @@ public sealed class ColumnNoiseScratchTests
     private static bool IsMine(CodeInstruction code) =>
         code.operand is MethodInfo { DeclaringType: var t } && t == typeof(ColumnNoiseScratch);
 
+    private static GenTerraRegion World(int seed) => GenTerraWorld.World(seed, Threads);
+
+    private static System.Func<object?[]?, object?> Fixed(object value) => GenTerraWorld.Fixed(value);
+
     private static Generated Fresh(int seed, int chunkX, int chunkZ, bool smooth) =>
         Generate(World(seed), chunkX, chunkZ, smooth);
 
-    // One region of one world: the four maps GenTerra reads, drawn at random but fixed by the seed, and a GenTerra set up by its own
-    // initWorldGen. The landform map is the region's, 32 pixels plus the engine's padding of 4, each pixel a landform of the game's.
-    // initWorldGen sizes the Parallel.For by the machine's cores; eight threads make every machine run the body concurrently.
-    private static Region World(int seed)
-    {
-        var api = Server(seed);
-        NoiseLandforms.LoadLandforms(api);
-        var terra = new GenTerra();
-        AccessTools.Field(typeof(GenTerra), "api").SetValue(terra, api);
-        terra.initWorldGen();
-        AccessTools.Field(typeof(GenTerra), "maxThreads").SetValue(terra, Threads);
-        var r = new Random(seed);
-        var count = NoiseLandforms.landforms.LandFormsByIndex.Length;
-        return new Region(terra, Answers.Of<IMapRegion>(new()
-        {
-            ["get_ClimateMap"] = Fixed(Map(r, 16, 2, x => x.Next(0x1000000))),
-            ["get_OceanMap"] = Fixed(Map(r, 16, 2, x => x.Next(3) == 0 ? x.Next(0, 255) : 0)),
-            ["get_UpheavelMap"] = Fixed(Map(r, 16, 2, x => x.Next(0, 255))),
-            ["get_LandformMap"] = Fixed(Map(r, 32, 4, x => x.Next(count)))
-        }));
-    }
-
-    private static System.Func<object?[]?, object?> Fixed(object value) => _ => value;
-
-    private static IntDataMap2D Map(Random r, int inner, int padding, System.Func<Random, int> value)
-    {
-        var size = inner + 2 * padding;
-        return new IntDataMap2D
-        {
-            Data = [.. Enumerable.Range(0, size * size).Select(_ => value(r))], Size = size, TopLeftPadding = padding,
-            BottomRightPadding = padding
-        };
-    }
-
     // The chunk column request: eight chunks whose blocks record every write in order, one map chunk with the two height maps, and
     // for border smoothing the neighbours' terrain heights on some sides
-    private static Generated Generate(Region region, int chunkX, int chunkZ, bool smooth)
+    private static Generated Generate(GenTerraRegion region, int chunkX, int chunkZ, bool smooth)
     {
         var writes = new List<(Write Op, int Chunk, int Index, int Value)>();
         var (rain, terrain) = (new ushort[1024], new ushort[1024]);
         var yMax = new int[1];
-        var map = Answers.Of<IMapChunk>(new()
+        var map = Answers.Of<IMapChunk>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["get_MapRegion"] = Fixed(region.Maps), ["get_RainHeightMap"] = Fixed(rain),
             ["get_WorldGenTerrainHeightMap"] = Fixed(terrain),
             ["set_YMax"] = args => yMax[0] = (ushort)args![0]!
         });
-        var chunks = Enumerable.Range(0, MapSizeY / 32).Select(chunk =>
+        IChunkBlocks Blocks(int chunk) => Answers.Of<IChunkBlocks>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
-            var blocks = Answers.Of<IChunkBlocks>(new()
-            {
-                ["SetBlockBulk"] = args => Log(writes, Write.Bulk, chunk, (int)args![0]!,
-                    (int)args[3]! ^ ((int)args[1]! << 16) ^ ((int)args[2]! << 24)),
-                ["set_Item"] = args => Log(writes, Write.Block, chunk, (int)args![0]!, (int)args[1]!),
-                ["SetFluid"] = args => Log(writes, Write.Fluid, chunk, (int)args![0]!, (int)args[1]!)
-            });
-            return Answers.Of<IServerChunk>(new()
-            { ["get_Data"] = Fixed(blocks), ["get_MapChunk"] = Fixed(map) });
-        }).ToArray();
+            ["SetBlockBulk"] = args => Log(writes, Write.Bulk, chunk, (int)args![0]!,
+                (int)args[3]! ^ ((int)args[1]! << 16) ^ ((int)args[2]! << 24)),
+            ["set_Item"] = args => Log(writes, Write.Block, chunk, (int)args![0]!, (int)args[1]!),
+            ["SetFluid"] = args => Log(writes, Write.Fluid, chunk, (int)args![0]!, (int)args[1]!)
+        });
+
         var r = new Random(chunkX * 31 + chunkZ);
         var neighbours = new ushort[8][];
         for (var i = 0; i < neighbours.Length; i++)
-            if (smooth && r.Next(3) > 0)
-                neighbours[i] = [.. Enumerable.Range(0, 1024).Select(_ => (ushort)r.Next(80, 170))];
-        var request = Answers.Of<IChunkColumnGenerateRequest>(new()
         {
-            ["get_Chunks"] = Fixed(chunks), ["get_ChunkX"] = Fixed(chunkX), ["get_ChunkZ"] = Fixed(chunkZ),
-            ["get_NeighbourTerrainHeight"] = Fixed(neighbours), ["get_RequiresChunkBorderSmoothing"] = Fixed(smooth)
-        });
-        _ = ColumnGen.Invoke(region.Terra, [request]);
+            if (smooth && r.Next(3) > 0)
+            {
+                neighbours[i] = [.. Enumerable.Range(0, 1024).Select(_ => (ushort)r.Next(80, 170))];
+            }
+        }
+
+        GenTerraWorld.Generate(region, chunkX, chunkZ, map, Blocks, neighbours, smooth);
         return new Generated(writes, [.. rain.Select(h => (int)h), .. terrain.Select(h => (int)h), yMax[0]]);
     }
 
@@ -702,37 +702,14 @@ public sealed class ColumnNoiseScratchTests
         return null;
     }
 
-    // Just enough of a server: initWorldGen reads the world's size and seed and the thread limits, GlobalConfig.GetInstance finds the
-    // block ids in the API's object cache before it would look anything up, and LoadLandforms reads the game's own landforms.json
-    private static ICoreServerAPI Server(int seed)
-    {
-        var world = Answers.Of<IWorldManagerAPI>(new()
-        {
-            ["get_MapSizeX"] = Fixed(1024000), ["get_MapSizeY"] = Fixed(MapSizeY), ["get_MapSizeZ"] = Fixed(1024000),
-            ["get_RegionSize"] = Fixed(RegionSize), ["get_Seed"] = Fixed(seed)
-        });
-        var config = new GlobalConfig
-        { defaultRockId = 1, waterBlockId = 2, saltWaterBlockId = 3, lakeIceBlockId = 4, mantleBlockId = 5 };
-        var cache = new Dictionary<string, object> { [GlobalConfig.cacheKey] = config };
-        var landforms = Path.Combine(GameInstall.Assets, "survival", "worldgen", "landforms.json");
-        var assets = Answers.Of<IAssetManager>(new()
-        { ["Get"] = args => new Asset(File.ReadAllBytes(landforms), (AssetLocation)args![0]!, null) });
-        var server = Answers.Of<IServerAPI>(new()
-        { ["get_Config"] = Fixed(Answers.Of<IServerConfig>([])) });
-        return Answers.Of<ICoreServerAPI>(new()
-        {
-            ["get_WorldManager"] = Fixed(world),
-            ["get_World"] =
-                Fixed(Answers.Of<IServerWorldAccessor>(new()
-                { ["get_Seed"] = Fixed(seed) })),
-            ["get_Server"] = Fixed(server), ["get_ObjectCache"] = Fixed(cache), ["get_Assets"] = Fixed(assets),
-            ["get_Event"] = Fixed(Answers.Of<IServerEventAPI>([])),
-            ["get_ModLoader"] = Fixed(Answers.Of<IModLoader>([]))
-        });
-    }
-
-    private sealed record Input(NewNormalizedSimplexFractalNoise Noise, double YFrequency, double[] Amplitudes,
-        double[] Thresholds, double X, double Z, double[] Thresholders)
+    private sealed record Input(
+        NewNormalizedSimplexFractalNoise Noise,
+        double YFrequency,
+        double[] Amplitudes,
+        double[] Thresholds,
+        double X,
+        double Z,
+        double[] Thresholders)
     {
         public ColumnNoise Engine() => Noise.ForColumn(YFrequency, Amplitudes, Thresholds, X, Z);
 
@@ -755,5 +732,4 @@ public sealed class ColumnNoiseScratchTests
 
     private sealed record Generated(List<(Write Op, int Chunk, int Index, int Value)> Writes, int[] HeightMaps);
 
-    private sealed record Region(GenTerra Terra, IMapRegion Maps);
 }

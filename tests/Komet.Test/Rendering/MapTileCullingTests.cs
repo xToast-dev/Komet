@@ -1,6 +1,6 @@
 using Komet.Core;
-using Vintagestory.GameContent;
 using Komet.World;
+using Vintagestory.GameContent;
 
 namespace Komet.Test.Rendering;
 
@@ -17,7 +17,7 @@ public sealed class MapTileCullingTests
     {
         using var harmony = new TestHarmony("komet-test-maptileculling");
         MapTileCulling.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(MapTileCulling.Seams()[0], Is.Not.Null, "the essentials mod's map tile");
             Assert.That(MapTileCulling.Matched, Is.True,
@@ -25,7 +25,7 @@ public sealed class MapTileCullingTests
             Assert.That(MapTileCulling.Blocked, Is.False);
             Assert.That(Harmony.GetPatchInfo(MapTileCulling.Seams()[0])?.Prefixes.Select(p => p.owner),
                 Is.EqualTo([harmony.Id]));
-        });
+        }
     }
 
     // A 200 pixel map at (10, 20) showing 200 blocks from (1000, 2000): one pixel a block, a tile 96 of each
@@ -86,9 +86,14 @@ public sealed class MapTileCullingTests
         return harmony;
     }
 
-    private static bool Drawn(GuiElementMap map, double x, double z) => MapTileCulling.Render(map, Tile(), new Vec3d(x, 0, z));
+    private static bool Drawn(GuiElementMap map, double x, double z) =>
+        MapTileCulling.Render(map, Tile(), new Vec3d(x, 0, z));
 
-    private static LoadedTexture Tile() => new(null!, 0, 96, 96); // no texture id: nothing to dispose
+    private static LoadedTexture Tile()
+    {
+        return new LoadedTexture(null!, 0, 96, 96);
+        // no texture id: nothing to dispose
+    }
 
     private static GuiElementMap Map(Cuboidd view, float zoom)
     {

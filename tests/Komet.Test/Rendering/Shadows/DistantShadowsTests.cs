@@ -63,14 +63,12 @@ public sealed class DistantShadowsTests
     }
 
     [Test]
-    public void AnotherShaderIsLeftAlone()
-    {
+    public void AnotherShaderIsLeftAlone() =>
         Assert.Multiple(() =>
         {
             Assert.That(DistantShadows.Vertex("void main() {}"), Is.Null);
             Assert.That(DistantShadows.Fragment(null), Is.Null);
         });
-    }
 
     // The centre moves off the camera only across the light, onto a texel corner in the light's plane, wherever the camera is
     [TestCase(512568.3, 200.7, 512874.9, 0.3, 0.8, 0.52)]

@@ -8,30 +8,20 @@ public sealed class PackedTicksTests
 {
     private const int Cells = 32 * 32 * 32;
 
-    private sealed class Growing : Block
-    {
-        public override bool ShouldReceiveServerGameTicks(IWorldAccessor world, BlockPos pos, Random offThreadRandom,
-            out object extra)
-        {
-            extra = null!;
-            return true;
-        }
-    }
-
     [Test]
     public void OnlyChunksWithoutTickingBlocksAreQuiet()
     {
         var snowy = new Block { BlockId = 3 };
         snowy.snowCovered1 = snowy;
-        Block[] blocks = [new Block { BlockId = 0 }, new Block { BlockId = 1 }, new Growing { BlockId = 2 }, snowy];
+        Block[] blocks = [new() { BlockId = 0 }, new() { BlockId = 1 }, new Growing { BlockId = 2 }, snowy];
         Assert.That(PackedTicks.Ready(blocks), Is.True);
 
-        var rock = Chunk(data => data[5] = 1, pack: true);
-        var grass = Chunk(data => data[5] = 2, pack: true);
-        var water = Chunk(data => data.SetFluid(7, 2), pack: true);
-        var snow = Chunk(data => data[9] = 3, pack: true);
-        var looseRock = Chunk(data => data[5] = 1, pack: false);
-        var looseGrass = Chunk(data => data[5] = 2, pack: false);
+        var rock = Chunk(data => data[5] = 1, true);
+        var grass = Chunk(data => data[5] = 2, true);
+        var water = Chunk(data => data.SetFluid(7, 2), true);
+        var snow = Chunk(data => data[9] = 3, true);
+        var looseRock = Chunk(data => data[5] = 1, false);
+        var looseGrass = Chunk(data => data[5] = 2, false);
         Assert.Multiple(() =>
         {
             Assert.That(rock.IsPacked() && grass.IsPacked() && !looseRock.IsPacked(), Is.True);
@@ -58,7 +48,8 @@ public sealed class PackedTicksTests
         {
             Assert.That(PackedTicks.Rewritten, Is.True);
             Assert.That(code.Count(c => c.Calls(fresh)), Is.EqualTo(1));
-            Assert.That(code.Count(c => c.operand is MethodInfo { Name: "MarkFresh" }), Is.EqualTo(1), "the map chunk's");
+            Assert.That(code.Count(c => c.operand is MethodInfo { Name: "MarkFresh" }), Is.EqualTo(1),
+                "the map chunk's");
         });
     }
 
@@ -66,11 +57,26 @@ public sealed class PackedTicksTests
     {
         var chunk = ClientChunk.CreateNew(new ClientChunkDataPool(32, null!));
         var data = (ChunkData)chunk.Data;
-        for (var i = 0; i < Cells; i += 97) data[i] = 1; // rock all through: a palette of more than one entry
+        for (var i = 0; i < Cells; i += 97)
+        {
+            data[i] = 1; // rock all through: a palette of more than one entry
+        }
+
         fill(data);
         if (!pack) return chunk;
+
         chunk.lastReadOrWrite = Environment.TickCount - 60_000;
         chunk.TryPackAndCommit(0);
         return chunk;
+    }
+
+    private sealed class Growing : Block
+    {
+        public override bool ShouldReceiveServerGameTicks(IWorldAccessor world, BlockPos pos, Random offThreadRandom,
+            out object extra)
+        {
+            extra = null!;
+            return true;
+        }
     }
 }

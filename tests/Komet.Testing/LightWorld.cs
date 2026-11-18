@@ -7,13 +7,15 @@ namespace Komet.Testing;
 // light code neither reads nor writes it, and flooding the columns would take most of the test's time.
 public sealed class LightWorld : IChunkProvider
 {
-    public const int Size = 32, ChunksX = 4, ChunksY = 3, ChunksZ = 4;
+    public const int ChunksX = 4, ChunksY = 3, ChunksZ = 4;
+    private const int Size = 32;
     public const int SizeX = Size * ChunksX, SizeY = Size * ChunksY, SizeZ = Size * ChunksZ;
     private const ushort Sunlight = 24;
 
     // Block ids; the light sources are the engine's hsv triples: value 18 is the one RemoveBlockLight widens to 20
-    public const int Air = 0, Stone = 1, Glass = 2, Leaves = 3, Water = 4, Torch = 5, Lantern = 6, Crystal = 7,
-        Lava = 8, Beacon = 9, Nesting = 10, NestingLight = 11;
+    public const int Air = 0, Stone = 1, Lantern = 6;
+    private const int Glass = 2, Leaves = 3, Water = 4, Torch = 5, Crystal = 7, Lava = 8, Beacon = 9, Nesting = 10,
+        NestingLight = 11;
 
     private readonly LightChunk[] _chunks = new LightChunk[ChunksX * ChunksY * ChunksZ];
     private readonly List<(int X, int Y, int Z, int Id)> _lights = [];
@@ -23,7 +25,10 @@ public sealed class LightWorld : IChunkProvider
     {
         Blocks = blocks;
         var pool = new ChunkDataPool(Size, null!); // no server: the client's palette rules, which never compact
-        for (var i = 0; i < _chunks.Length; i++) _chunks[i] = new LightChunk(pool);
+        for (var i = 0; i < _chunks.Length; i++)
+        {
+            _chunks[i] = new LightChunk(pool);
+        }
         // readBlockAccess only reaches Block.GetLightHsv, which ignores it
         Illuminator = new ChunkIlluminator(this, null!, Size);
         Illuminator.InitForWorld(blocks, Sunlight, SizeX, SizeY, SizeZ);
@@ -35,12 +40,12 @@ public sealed class LightWorld : IChunkProvider
     public List<long[]> Touched { get; } = [];
     public List<ulong> Hashes { get; } = [];
     public List<string> Errors { get; } = [];
-    public bool Recording { get; set; } = true; // off for the measurements: the hash reads light values
-    public bool Catching { get; set; }
-    public ILogger Logger { get; } = new QuietLogger();
+    public bool Recording { get; init; } = true; // off for the measurements: the hash reads light values
+    public bool Catching { get; init; }
 
     // Chunks the provider answers as not loaded, as a server with a column loaded only in part; the world keeps them
     public HashSet<(int X, int Y, int Z)> Unloaded { get; } = [];
+    public ILogger Logger { get; } = new QuietLogger();
 
     public IWorldChunk GetChunk(int chunkX, int chunkY, int chunkZ) =>
         Unloaded.Contains((chunkX, chunkY, chunkZ)) ? null! : Chunk(chunkX, chunkY, chunkZ)!;
@@ -54,10 +59,7 @@ public sealed class LightWorld : IChunkProvider
     public long ChunkIndex3D(int chunkX, int chunkY, int chunkZ) =>
         ((long)chunkY * ChunksZ + chunkZ) * ChunksX + chunkX;
 
-    public long ChunkIndex3D(EntityPos pos)
-    {
-        throw new NotSupportedException();
-    }
+    public long ChunkIndex3D(EntityPos pos) => throw new NotSupportedException();
 
     private LightChunk? Chunk(int x, int y, int z) =>
         x is >= 0 and < ChunksX && y is >= 0 and < ChunksY && z is >= 0 and < ChunksZ
@@ -94,13 +96,17 @@ public sealed class LightWorld : IChunkProvider
             var layer = _chunks[c].Cells.lightLayer;
             all[c] = new int[Size * Size * Size];
             if (layer == null) continue;
-            for (var i = 0; i < all[c].Length; i++) all[c][i] = layer.Get(i);
+
+            for (var i = 0; i < all[c].Length; i++)
+            {
+                all[c][i] = layer.Get(i);
+            }
         }
 
         return all;
     }
 
-    public ulong Hash(IEnumerable<long> chunks)
+    private ulong Hash(IEnumerable<long> chunks)
     {
         var hash = 14695981039346656037UL;
         foreach (var index in chunks)
@@ -108,7 +114,11 @@ public sealed class LightWorld : IChunkProvider
             var layer = _chunks[index].Cells.lightLayer;
             hash = (hash ^ (ulong)index) * 1099511628211UL;
             if (layer == null) continue;
-            for (var i = 0; i < Size * Size * Size; i++) hash = (hash ^ (uint)layer.Get(i)) * 1099511628211UL;
+
+            for (var i = 0; i < Size * Size * Size; i++)
+            {
+                hash = (hash ^ (uint)layer.Get(i)) * 1099511628211UL;
+            }
         }
 
         return hash;
@@ -119,6 +129,7 @@ public sealed class LightWorld : IChunkProvider
     private void Record(FastSetOfLongs touched)
     {
         if (!Recording) return;
+
         long[] chunks = [.. touched];
         Touched.Add(chunks);
         Hashes.Add(Hash(chunks));
@@ -130,7 +141,11 @@ public sealed class LightWorld : IChunkProvider
     // Every light source placed in a fixed order
     public void LightUp()
     {
-        foreach (var (x, y, z, id) in _lights) Do(() => Illuminator.PlaceBlockLight(Hsv(id), x, y, z));
+        foreach (var (x, y, z, id) in _lights)
+        {
+            Do(() => Illuminator.PlaceBlockLight(Hsv(id), x, y, z));
+        }
+
         _placed.AddRange(_lights);
     }
 
@@ -146,6 +161,7 @@ public sealed class LightWorld : IChunkProvider
         {
             var kind = random.Next(8);
             if ((kind is 2 or 3 or 4 or 6 && _placed.Count == 0) || (kind == 5 && blocked.Count == 0)) kind = 0;
+
             if (kind is 0 or 1 or 7)
             {
                 var (x, y, z) = Open(random);
@@ -222,15 +238,13 @@ public sealed class LightWorld : IChunkProvider
     {
         for (var attempt = 0; attempt < 1000; attempt++)
         {
-            int Near(int size)
-            {
-                return random.Next(3) switch
+            int Near(int size) =>
+                random.Next(3) switch
                 {
                     0 => random.Next(size),
                     1 => Clamp(random.Next(size / Size) * Size + random.Next(-2, 2), size),
                     _ => random.Next(2) == 0 ? random.Next(3) : size - 1 - random.Next(3)
                 };
-            }
 
             var (x, y, z) = (Near(SizeX), 1 + random.Next(SizeY - 2), Near(SizeZ));
             if (BlockAt(x, y, z) == Air && Fluid(x, y, z) == 0) return (x, y, z);
@@ -247,7 +261,10 @@ public sealed class LightWorld : IChunkProvider
             for (var z = 0; z < SizeZ; z++)
             {
                 var height = 30 + (int)(6 * Math.Sin(x / 11.0 + p) + 5 * Math.Cos(z / 9.0 + q));
-                for (var y = 0; y < height; y++) Set(x, y, z, Stone);
+                for (var y = 0; y < height; y++)
+                {
+                    Set(x, y, z, Stone);
+                }
             }
         }
 
@@ -259,8 +276,9 @@ public sealed class LightWorld : IChunkProvider
                 for (var y = Math.Max(1, cy - r); y <= Math.Min(SizeY - 1, cy + r); y++)
                 {
                     for (var z = Math.Max(0, cz - r); z <= Math.Min(SizeZ - 1, cz + r); z++)
-                        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz) <= r * r)
-                            Set(x, y, z, Air);
+                    {
+                        if ((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz) <= r * r) Set(x, y, z, Air);
+                    }
                 }
             }
 
@@ -270,9 +288,11 @@ public sealed class LightWorld : IChunkProvider
         for (var y = 20; y < 60; y++) // a glass wall across the border between chunk columns 1 and 2
         {
             for (var z = 40; z < 90; z++)
-                if (BlockAt(64, y, z) == Air)
-                    Set(64, y, z, Glass);
+            {
+                if (BlockAt(64, y, z) == Air) Set(64, y, z, Glass);
+            }
         }
+
         for (var tree = 0; tree < 10; tree++) // leaf crowns above the hills
         {
             var (tx, tz) = (4 + random.Next(SizeX - 8), 4 + random.Next(SizeZ - 8));
@@ -282,8 +302,9 @@ public sealed class LightWorld : IChunkProvider
                 for (var y = top; y <= top + 3; y++)
                 {
                     for (var z = tz - 2; z <= tz + 2; z++)
-                        if (BlockAt(x, y, z) == Air)
-                            Set(x, y, z, Leaves);
+                    {
+                        if (BlockAt(x, y, z) == Air) Set(x, y, z, Leaves);
+                    }
                 }
             }
         }
@@ -293,7 +314,9 @@ public sealed class LightWorld : IChunkProvider
             for (var z = 10; z < 28; z++)
             {
                 for (var y = 30; y < 38; y++)
+                {
                     Set(x, y, z, Water);
+                }
             }
         }
 
@@ -301,8 +324,11 @@ public sealed class LightWorld : IChunkProvider
         for (var x = 0; x < 6; x++) // lava at the map's corner
         {
             for (var z = SizeZ - 6; z < SizeZ; z++)
+            {
                 Set(x, 36, z, Lava);
+            }
         }
+
         _lights.AddRange([(0, 36, SizeZ - 1, Lava), (5, 36, SizeZ - 6, Lava), (2, 36, SizeZ - 3, Lava)]);
         // clusters on chunk borders and at the map's edges, overlapping one another
         _lights.AddRange([
@@ -314,16 +340,23 @@ public sealed class LightWorld : IChunkProvider
         for (var x = 28; x < 36; x++) // blocks whose absorption a test can hook, around the cluster on the chunk corner
         {
             for (var z = 26; z < 29; z++)
+            {
                 Set(x, 44, z, Nesting);
+            }
         }
+
         _lights.Add((34, 47, 34, NestingLight));
         foreach (var (x, y, z, id) in _lights)
-            if (id != Lava)
-                Set(x, y, z, id);
+        {
+            if (id != Lava) Set(x, y, z, id);
+        }
+
         foreach (var (x, y, z, _) in _lights)
+        {
             _ = Chunk(x / Size, y / Size, z / Size)!.LightPositions.Add(Local(x, y, z));
+        }
         // one lava block lit only as a neighbour's source position
-        _ = _lights.RemoveAll(light => light.Id == Lava && light.X == 2);
+        _ = _lights.RemoveAll(light => light is { Id: Lava, X: 2 });
     }
 
     // The engine's blocks for this world: absorption as the game's, light as hsv triples

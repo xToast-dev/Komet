@@ -38,7 +38,9 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
             _ => (null, null)
         };
         if (targets is (null, null)) return;
+
         if (Caller(operation, context.ContainingSymbol) is not { } caller) return;
+
         Edge(context, caller, targets.First);
         Edge(context, caller, targets.Second);
     }
@@ -46,8 +48,10 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
     private void Edge(OperationAnalysisContext context, IMethodSymbol caller, IMethodSymbol? target)
     {
         if (target is null || target.MethodKind == MethodKind.DelegateInvoke) return;
+
         var callee = Symbols.Normalize(target);
         if (!SymbolEqualityComparer.Default.Equals(callee.ContainingAssembly, assembly)) return;
+
         var where = context.Operation.Syntax.GetLocation();
         if (SymbolEqualityComparer.Default.Equals(caller, callee))
         {
@@ -68,11 +72,16 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
     {
         var (get, set) = (reference.Property.GetMethod, reference.Property.SetMethod ?? reference.Property.GetMethod);
         IOperation target = reference;
-        while (target.Parent is ITupleOperation tuple) target = tuple;
+        while (target.Parent is ITupleOperation tuple)
+        {
+            target = tuple;
+        }
+
         return target.Parent switch
         {
             ISimpleAssignmentOperation assignment when ReferenceEquals(assignment.Target, target) => (set, null),
-            IDeconstructionAssignmentOperation deconstruction when ReferenceEquals(deconstruction.Target, target) => (set, null),
+            IDeconstructionAssignmentOperation deconstruction when ReferenceEquals(deconstruction.Target, target) => (
+                set, null),
             ICompoundAssignmentOperation compound when ReferenceEquals(compound.Target, target) => (get, set),
             ICoalesceAssignmentOperation coalesce when ReferenceEquals(coalesce.Target, target) => (get, set),
             IIncrementOrDecrementOperation step when ReferenceEquals(step.Target, target) => (get, set),
@@ -86,6 +95,7 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
         for (var parent = operation.Parent; parent is not null; parent = parent.Parent)
         {
             if (parent is ILocalFunctionOperation local) return Symbols.Normalize(local.Symbol);
+
             if (parent is IAnonymousFunctionOperation or INameOfOperation) return null;
         }
 
@@ -102,6 +112,7 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
         foreach (var root in calls.Keys)
         {
             if (state.ContainsKey(root)) continue;
+
             state[root] = false;
             stack.Add((root, 0));
             while (stack.Count > 0)
@@ -119,8 +130,11 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
                 if (state.TryGetValue(callee, out var done))
                 {
                     if (!done)
+                    {
                         context.ReportDiagnostic(Diagnostic.Create(Rules.MutualRecursion, where,
                             Cycle(stack, callee)));
+                    }
+
                     continue;
                 }
 
@@ -144,8 +158,11 @@ internal sealed class CallGraph(IAssemblySymbol assembly)
         foreach (var (caller, callee, where) in edges)
         {
             if (!calls.TryGetValue(caller, out var callees)) calls[caller] = callees = [];
+
             if (!callees.Exists(c => SymbolEqualityComparer.Default.Equals(c.Item1, callee)))
+            {
                 callees.Add((callee, where));
+            }
         }
 
         return calls;

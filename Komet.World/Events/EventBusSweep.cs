@@ -20,7 +20,8 @@ internal static class EventBusSweep
     // Main thread: block entities that registered a listener, and those gone since the last pass
     private static readonly HashSet<BlockEntity> Listening = new(ReferenceEqualityComparer.Instance);
     private static readonly HashSet<BlockEntity> Dead = new(ReferenceEqualityComparer.Instance);
-    private static readonly Predicate<EventBusListener> Gone = static listener => listener?.handler?.Target switch
+
+    private static readonly Predicate<EventBusListener?> Gone = static listener => listener?.handler?.Target switch
     {
         BlockEntity entity => Dead.Contains(entity),
         BlockEntityBehavior { Blockentity: { } entity } => Dead.Contains(entity),
@@ -38,8 +39,12 @@ internal static class EventBusSweep
         (Installed, Swept, Listeners) = (false, 0, 0);
         Clear();
         var seams = Seams();
-        if (!NotNull(harmony) || !Assert(!Array.Exists(seams, s => s is null)) ||
-            !EngineShape.Matches(seams, fingerprint, nameof(EventBusSweep), logger)) return;
+        if (!Assert(!Array.Exists(seams, s => s is null)) ||
+            !EngineShape.Matches(seams, fingerprint, nameof(EventBusSweep), logger))
+        {
+            return;
+        }
+
         var type = typeof(BlockEntity);
         MethodBase?[] targets =
         [
@@ -50,7 +55,11 @@ internal static class EventBusSweep
         ];
         if (!Assert(Array.TrueForAll(targets, t => t is not null)) ||
             !Assert(AccessTools.DeclaredField(typeof(ClientEventManager), nameof(ClientEventManager.EventBusListeners))
-                ?.FieldType == typeof(List<EventBusListener>))) return;
+                ?.FieldType == typeof(List<EventBusListener>)))
+        {
+            return;
+        }
+
         _ = harmony.Patch(targets[0], postfix: new HarmonyMethod(Died));
         _ = harmony.Patch(targets[1], postfix: new HarmonyMethod(Died));
         _ = harmony.Patch(targets[2], new HarmonyMethod(Revived));
@@ -78,7 +87,8 @@ internal static class EventBusSweep
     }
 
     // Postfix on RegisterEventBusListener; Harmony binds the parameter by name
-    internal static void Registered(EventBusListenerDelegate OnEvent)
+    // ReSharper disable once InconsistentNaming - Harmony binds the engine's parameter name
+    private static void Registered(EventBusListenerDelegate? OnEvent)
     {
         var owner = OnEvent?.Target switch
         {
@@ -87,25 +97,36 @@ internal static class EventBusSweep
             _ => null
         };
         if (owner is not null && Assert(Listening.Count < MaxListening) &&
-            Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId) _ = Listening.Add(owner);
+            Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId)
+        {
+            _ = Listening.Add(owner);
+        }
     }
 
     // Postfix on the base bodies every proper override calls; the server's (singleplayer) are not the client's
-    internal static void Died(BlockEntity __instance)
+    private static void Died(BlockEntity? __instance)
     {
         if (!Enabled || !Installed || __instance?.Api is not ICoreClientAPI ||
-            Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId) return;
+            Environment.CurrentManagedThreadId != RuntimeEnv.MainThreadId)
+        {
+            return;
+        }
+
         if (Listening.Remove(__instance) && Assert(Dead.Count < MaxDead)) _ = Dead.Add(__instance);
     }
 
-    internal static void Revived(BlockEntity __instance)
+    private static void Revived(BlockEntity __instance)
     {
-        if (Dead.Count > 0 && Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId) _ = Dead.Remove(__instance);
+        if (Dead.Count > 0 && Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId)
+        {
+            _ = Dead.Remove(__instance);
+        }
     }
 
-    internal static void Sweep(ClientMain __instance)
+    private static void Sweep(ClientMain? __instance)
     {
         if (Dead.Count == 0) return;
+
         if (Enabled && __instance?.eventManager?.EventBusListeners is { } listeners &&
             Assert(Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId))
         {

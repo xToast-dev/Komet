@@ -33,7 +33,9 @@ internal sealed class FrameStats
     public void Record(float deltaTime, float gcMs, bool steady)
     {
         if (!Assert(deltaTime >= 0) || deltaTime >= MaxFrameSeconds) return;
+
         if (!Assert(float.IsNaN(gcMs) || gcMs >= 0)) gcMs = float.NaN;
+
         Frames++;
         _elapsed += deltaTime;
         if (steady)
@@ -44,6 +46,7 @@ internal sealed class FrameStats
         }
 
         if (RuntimeStats.renderedTriangles != 0) RenderedTriangles = RuntimeStats.renderedTriangles;
+
         if (RuntimeStats.availableTriangles != 0) AvailableTriangles = RuntimeStats.availableTriangles;
     }
 
@@ -55,13 +58,19 @@ internal sealed class FrameStats
         var calls = RuntimeStats.drawCallsCount;
         var drawn = unchecked(calls - _drawCallsAtLastSample);
         if (drawn < 0) drawn = Math.Max(calls, 0);
+
         if (Frames > 0) DrawCallsPerFrame = drawn / Frames;
+
         _drawCallsAtLastSample = calls;
         if (Recorded == 0) return;
+
         var history = _history.AsSpan(0, Recorded);
         var worst = 0;
         for (var i = 1; i < Math.Min(Recorded, History); i++)
+        {
             if (history[i] > history[worst]) worst = i;
+        }
+
         (WorstMs, WorstGcMs) = (history[worst], _gcMs[worst]);
         var window = _sorted.AsSpan(0, Recorded);
         history.CopyTo(window);
@@ -72,6 +81,7 @@ internal sealed class FrameStats
     internal static float Percentile(ReadOnlySpan<float> sorted, int perMille)
     {
         if (sorted.IsEmpty || !Assert(perMille is > 0 and <= 1000)) return float.NaN;
+
         var rank = ((long)perMille * sorted.Length + 999) / 1000; // ceil(p · n), 1-based
         return sorted[(int)rank - 1];
     }
@@ -81,10 +91,16 @@ internal sealed class FrameStats
     internal static float LowFps(ReadOnlySpan<float> sorted, int share)
     {
         if (!Assert(share is 100 or 1000) || sorted.Length < share) return float.NaN;
+
         var worst = sorted[^(sorted.Length / share)..];
         if (!Assert(worst.Length <= MaxFrames) || !Assert(worst[0] <= worst[^1])) return float.NaN;
+
         float sum = 0;
-        for (var i = 0; i < Math.Min(worst.Length, MaxFrames); i++) sum += worst[i];
+        for (var i = 0; i < Math.Min(worst.Length, MaxFrames); i++)
+        {
+            sum += worst[i];
+        }
+
         return Finite(sum) && sum > 0 ? 1000f * worst.Length / sum : 0;
     }
 

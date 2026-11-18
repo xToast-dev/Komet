@@ -33,12 +33,13 @@ internal static class JsonMesher
     private static extern ref int Quantity(ChunkTesselator tesselator);
 
     // Private fields the accessors read, with types (a missing one would throw on a tessellation thread)
-    internal static bool Fields(ILogger? logger) => TessSeams.Fields(nameof(OwnTessellation), logger, "the engine draws the JSON blocks",
-    [
-        (typeof(TCTCache), "blockEntitiesOfChunk", typeof(Dictionary<BlockPos, BlockEntity>)),
-        (typeof(ChunkTesselator), "TextureIdToReturnNum", typeof(int[])),
-        (typeof(ChunkTesselator), "quantityAtlasses", typeof(int))
-    ]);
+    internal static bool Fields(ILogger? logger) =>
+        TessSeams.Fields(nameof(OwnTessellation), logger, "the engine draws the JSON blocks",
+        [
+            (typeof(TCTCache), "blockEntitiesOfChunk", typeof(Dictionary<BlockPos, BlockEntity>)),
+            (typeof(ChunkTesselator), "TextureIdToReturnNum", typeof(int[])),
+            (typeof(ChunkTesselator), "quantityAtlasses", typeof(int))
+        ]);
 
     // The thread's BlockPos for JsonAndSnowLayerTesselator's question to the block below, at (x, y, z) of the dimension
     internal static BlockPos Below(int dimension, int x, int y, int z)
@@ -61,9 +62,11 @@ internal static class JsonMesher
         }
 
         if (!Eligible(vars, block, drawType, s, out var rgbs, out var mesh)) return false;
+
         var sum = Light(vars, s.Json, rgbs);
         s.Count = 0;
         if (!Plan(vars, block, mesh, sum, s)) return false;
+
         Draw(vars, block, s);
         return true;
     }
@@ -78,9 +81,18 @@ internal static class JsonMesher
             block.RandomizeRotations || Math.Abs(block.RandomSizeAdjust) > 0f || vars.preRotationMatrix is not null ||
             vars.OverlayTextureFace is not null || !OwnQuads.Ready(vars, 0, out var light) || !Plain(s, block) ||
             vars.shapes?.blockModelDatas is not { } models || !Index(block.BlockId, models.Length) ||
-            models[block.BlockId] is not { } found) return false;
+            models[block.BlockId] is not { } found)
+        {
+            return false;
+        }
+
         var fluid = vars.extIndex3d + block.IceCheckOffset * TessSeams.Plane;
-        if (FluidsExt(vars.tct) is not { Length: ExtCells } fluids || !Index(fluid, ExtCells) || fluids[fluid] is null) return false;
+        if (FluidsExt(vars.tct) is not { Length: ExtCells } fluids || !Index(fluid, ExtCells) ||
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract other mods' fluid layers
+            fluids[fluid] is null)
+        {
+            return false;
+        }
         // Engine's lookup, skipped for decors: any entry at the position, even null, leaves the block to the engine
         if (!vars.isDecorTesselate && Entities(vars) is { Count: > 0 } entities)
         {
@@ -102,7 +114,8 @@ internal static class JsonMesher
             return kind.IsPlain || (kind.Writes && !TessSafety.Broken);
         }
 
-        var hook = block.GetType().GetMethod(nameof(Block.OnJsonTesselation), BindingFlags.Public | BindingFlags.Instance,
+        var hook = block.GetType().GetMethod(nameof(Block.OnJsonTesselation),
+            BindingFlags.Public | BindingFlags.Instance,
             TessSafety.JsonArgs);
         var plain = NotNull(hook) && hook.DeclaringType == typeof(Block); // Block's own at least
         s.Writes = !plain && TessSafety.WritesFlags(block);
@@ -115,6 +128,7 @@ internal static class JsonMesher
     private static long Light(TCTCache vars, int[] json, int[] rgbs)
     {
         if (FaceLight.Fused(vars, json, out var sum)) return sum;
+
         var (e, corners) = (vars.extIndex3d, vars.CurrentLightRGBByCorner);
         for (var t = 0; t < Faces; t++)
         {
@@ -132,12 +146,20 @@ internal static class JsonMesher
         var farther = block.DoNotRenderAtLod2;
         if (block.Lod0Shape is not null)
         {
-            if (!JsonTesselator.NotSurrounded(vars, vars.extIndex3d)) farther = true;
-            else if (!Add(vars, block, block.Lod0Mesh, 0, s)) return false;
+            if (!JsonTesselator.NotSurrounded(vars, vars.extIndex3d))
+            {
+                farther = true;
+            }
+            else if (!Add(vars, block, block.Lod0Mesh, 0, s))
+            {
+                return false;
+            }
         }
 
         if (sum == JsonTesselator.Darkness) return Add(vars, block, mesh, 0, s);
+
         if (block.Lod2Mesh is not { } far) return Add(vars, block, mesh, farther ? 2 : 1, s);
+
         return Add(vars, block, mesh, 2, s) && Add(vars, block, far, 3, s);
     }
 
@@ -146,7 +168,9 @@ internal static class JsonMesher
     private static bool Add(TCTCache vars, Block block, MeshData? mesh, int lod, Scratch s)
     {
         if (mesh is null || !Index(s.Count, MaxPlan)) return false;
+
         if (mesh.VerticesCount == 0) return true;
+
         var shapes = vars.shapes;
         var all = lod switch
         {
@@ -155,16 +179,25 @@ internal static class JsonMesher
             _ => shapes.altblockModelDatasLod2
         };
         if (all is null || !Index(vars.blockId, all.Length)) return false;
+
         if (all[vars.blockId] is { } alternates)
         {
             if (alternates.Length == 0) return false;
+
             var y = block.RandomizeAxes == EnumRandomizeAxes.XYZ ? vars.posY : 0;
-            if (alternates[GameMath.MurmurHash3Mod(vars.posX, y, vars.posZ, alternates.Length)] is not { } chosen) return false;
+            if (alternates[GameMath.MurmurHash3Mod(vars.posX, y, vars.posZ, alternates.Length)] is not
+                { } chosen)
+            {
+                return false;
+            }
+
             mesh = chosen;
         }
 
         if (s.Writes && !Flags(vars, block, ref mesh, s)) return false;
+
         if (Table(vars, block, mesh, s) is not { } table || !Pools(vars, table, lod)) return false;
+
         s.Steps[s.Count++] = new Planned(mesh, table, lod);
         return true;
     }
@@ -174,10 +207,13 @@ internal static class JsonMesher
     private static bool Flags(TCTCache vars, Block block, ref MeshData mesh, Scratch s)
     {
         if (BlocksExt(vars.tct) is not { } blocks) return false;
-        var (same, light) = (mesh, s.Json);
+
+        MeshData? same = mesh;
+        var light = s.Json;
         _ = s.At.SetDimension(vars.dimension).Set(vars.posX, vars.posY, vars.posZ);
         TessSafety.Json(block, ref same, ref light, s.At, blocks, vars.extIndex3d);
         if (same is null || !ReferenceEquals(light, s.Json) || !ReferenceEquals(same.xyz, mesh.xyz)) return false;
+
         mesh = same;
         return true;
     }
@@ -198,12 +234,19 @@ internal static class JsonMesher
         }
 
         if (!JsonMesh.Shaped(mesh) || BlocksExt(vars.tct) is not { } blocks) return null;
+
         var (same, light) = (mesh, s.Json);
         _ = s.At.SetDimension(vars.dimension).Set(vars.posX, vars.posY, vars.posZ);
         if (!s.Writes) block.OnJsonTesselation(ref same, ref light, s.At, blocks, vars.extIndex3d);
+
         if (!Assert(ReferenceEquals(same, mesh)) || !Assert(ReferenceEquals(light, s.Json)) ||
-            JsonMesh.Build(mesh, block, atlases, quantity) is not { } built) return null;
+            JsonMesh.Build(mesh, block, atlases, quantity) is not { } built)
+        {
+            return null;
+        }
+
         if (s.Meshes.Count >= MaxMeshes) s.Meshes.Clear();
+
         (s.Meshes[mesh], s.Last) = (built, built);
         return built.Usable ? built : null;
     }
@@ -214,17 +257,25 @@ internal static class JsonMesher
     {
         var lods = OwnQuads.Lods(vars.tct);
         if (lods is null || !Index(lod, lods.Length) || lods[lod] is not { } passes) return false;
+
         foreach (var use in table.Uses.Bounded(JsonMesh.MaxUses))
         {
             var pass = use.Pass >= 0 ? use.Pass : (int)vars.RenderPass;
             if (!Index(pass, passes.Length) || passes[pass] is not { } atlases || !Index(use.Atlas, atlases.Length) ||
-                atlases[use.Atlas] is not { } pool) return false;
+                atlases[use.Atlas] is not { } pool)
+            {
+                return false;
+            }
+
             var (n, max) = (pool.VerticesCount, pool.VerticesMax);
             if (n < 0 || n > max || (pool.xyz?.Length ?? -1) < 3 * max || (pool.Uv?.Length ?? -1) < 2 * max ||
                 (pool.Rgba?.Length ?? -1) < 4 * max || (pool.Flags?.Length ?? -1) < max || pool.Indices is null ||
                 pool.IndicesCount < 0 || pool.CustomInts is null ||
                 ((use.Needs & JsonMesh.NeedsFloats) != 0 && pool.CustomFloats is null) ||
-                ((use.Needs & JsonMesh.NeedsShorts) != 0 && pool.CustomShorts is null)) return false;
+                ((use.Needs & JsonMesh.NeedsShorts) != 0 && pool.CustomShorts is null))
+            {
+                return false;
+            }
         }
 
         return true;
@@ -235,8 +286,13 @@ internal static class JsonMesher
     private static void Draw(TCTCache vars, Block block, Scratch s)
     {
         var (lods, fluids) = (OwnQuads.Lods(vars.tct), FluidsExt(vars.tct));
-        if (!NotNull(lods) || !NotNull(fluids)) return; // Eligible and Pools found both
-        var at = new JsonEmit.State(vars, block, s.Json, fluids[vars.extIndex3d + block.IceCheckOffset * TessSeams.Plane]);
+        if (!NotNull(lods) || !NotNull(fluids))
+        {
+            return; // Eligible and Pools found both
+        }
+
+        var at = new JsonEmit.State(vars, block, s.Json,
+            fluids[vars.extIndex3d + block.IceCheckOffset * TessSeams.Plane]);
         for (var i = 0; i < Math.Min(s.Count, MaxPlan); i++)
         {
             var plan = s.Steps[i];
@@ -250,14 +306,14 @@ internal static class JsonMesher
 
     private sealed class Scratch
     {
-        public readonly int[] Json = new int[JsonMesh.Lights];
         public readonly BlockPos At = new(0), Under = new(0);
+        public readonly int[] Json = new int[JsonMesh.Lights];
         public readonly Dictionary<MeshData, JsonMesh> Meshes = new(ReferenceEqualityComparer.Instance);
         public readonly Planned[] Steps = new Planned[MaxPlan];
+        public int Count;
         public BlockTable<Kind> Kinds = new();
         public JsonMesh? Last; // the table Table handed out last
-        public int Count;
-        public bool Writes; // the block's override is one of FlagWriters'
         public ShapeTesselatorManager? World; // whose meshes the tables are of
+        public bool Writes; // the block's override is one of FlagWriters'
     }
 }

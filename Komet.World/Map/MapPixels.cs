@@ -22,18 +22,15 @@ internal static class MapPixels
     private static readonly Stack<int[]> Pooled = new(MaxPooled);
     private static readonly ConditionalWeakTable<int[], StrongBox<int>> Held = [];
 
-    private static long _rented, _reused;
-
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
-    public static long Rented => Interlocked.Read(ref _rented);
-    public static long Reused => Interlocked.Read(ref _reused);
 
     public static void Install(Harmony harmony)
     {
         Rewritten = false;
         Clear();
-        if (!NotNull(harmony) || Target() is not { } target) return;
+        if (Target() is not { } target) return;
+
         _ = harmony.Patch(target, transpiler: new HarmonyMethod(Rewrite));
     }
 
@@ -43,15 +40,18 @@ internal static class MapPixels
         var type = AccessTools.TypeByName(Map);
         var method = type is null
             ? null
-            : AccessTools.DeclaredMethod(type, "GenerateChunkImage", [typeof(FastVec2i), typeof(IMapChunk), typeof(bool)]);
+            : AccessTools.DeclaredMethod(type, "GenerateChunkImage",
+                [typeof(FastVec2i), typeof(IMapChunk), typeof(bool)]);
         return method is null || Assert(method.ReturnType == typeof(int[])) ? method : null;
     }
 
     // The one `newarr int32` becomes Rent; any other shape keeps the engine's IL
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         if (!Il.Take(instructions, MaxInstructions, out var code)) return code;
-        Rewritten = Il.SubstituteSingle(code, c => c.opcode == OpCodes.Newarr && c.operand is Type t && t == typeof(int),
+
+        Rewritten = Il.SubstituteSingle(code,
+            c => c.opcode == OpCodes.Newarr && c.operand is Type t && t == typeof(int),
             AccessTools.Method(typeof(MapPixels), nameof(Rent)));
         return code;
     }
@@ -60,19 +60,23 @@ internal static class MapPixels
     internal static int[] Rent(int length)
     {
         if (!Enabled || length != Length) return new int[length];
+
         int[]? pixels = null;
         lock (Gate)
-            if (Pooled.Count > 0)
-                pixels = Pooled.Pop();
-        if (pixels is null) pixels = new int[Length];
+        {
+            if (Pooled.Count > 0) pixels = Pooled.Pop();
+        }
+
+        if (pixels is null)
+        {
+            pixels = new int[Length];
+        }
         else
         {
             Array.Clear(pixels);
-            _ = Interlocked.Increment(ref _reused);
         }
 
         Held.AddOrUpdate(pixels, new StrongBox<int>(Holders));
-        _ = Interlocked.Increment(ref _rented);
         return pixels;
     }
 
@@ -80,9 +84,11 @@ internal static class MapPixels
     internal static void Release(int[]? pixels)
     {
         if (pixels is null || !Held.TryGetValue(pixels, out var holders)) return;
+
         lock (Gate)
         {
             if (--holders.Value > 0) return;
+
             _ = Held.Remove(pixels);
             if (Pooled.Count < MaxPooled) Pooled.Push(pixels);
         }

@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.API.MathTools;
 
 namespace Komet.Rendering;
@@ -24,7 +24,9 @@ internal static class AnimatableCulling
 
     private static readonly ConditionalWeakTable<AnimatableRenderer, Bounds> Known = [];
     private static readonly float[] Model = Mat4f.Create(); // main thread only
-    private static readonly SeamGuard Guard = new(nameof(AnimatableCulling), PatchKinds.Replacing, [typeof(AnimatableCulling)]);
+
+    private static readonly SeamGuard Guard = new(nameof(AnimatableCulling), KapiPatchKinds.Replacing,
+        [typeof(AnimatableCulling)]);
 
     public static bool Enabled { get; set; } = true;
 
@@ -40,39 +42,45 @@ internal static class AnimatableCulling
     public static long Drawn { get; private set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "pos")]
-    private static extern ref Vec3d Pos(AnimatableRenderer renderer);
+    private static extern ref Vec3d? Pos(AnimatableRenderer renderer);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "animator")]
-    private static extern ref AnimatorBase Animator(AnimatableRenderer renderer);
+    private static extern ref AnimatorBase? Animator(AnimatableRenderer renderer);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "capi")]
-    private static extern ref ICoreClientAPI Capi(AnimatableRenderer renderer);
+    private static extern ref ICoreClientAPI? Capi(AnimatableRenderer renderer);
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
         var seams = Guard.Reset(Seams(), logger);
-        if (!NotNull(harmony) || !NotNull(seams[0]) || !NotNull(seams[1]) ||
-            !Guard.Match(Shaped(), fingerprint)) return;
+        if (!NotNull(seams[0]) || !NotNull(seams[1]) ||
+            !Guard.Match(Shaped(), fingerprint))
+        {
+            return;
+        }
+
         _ = harmony.Patch(seams[0], new HarmonyMethod(Frame));
         _ = harmony.Patch(seams[1], postfix: new HarmonyMethod(Measured));
         Recheck();
     }
 
     private static MethodBase?[] Seams() =>
-    [
-        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
-            [typeof(float), typeof(EnumRenderStage)]),
-        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), "mainThreadInit",
-            [typeof(ICoreClientAPI), typeof(MeshData), typeof(EnumRenderStage)])
-    ];
+        [
+            AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
+                [typeof(float), typeof(EnumRenderStage)]),
+            AccessTools.DeclaredMethod(typeof(AnimatableRenderer), "mainThreadInit",
+                [typeof(ICoreClientAPI), typeof(MeshData), typeof(EnumRenderStage)])
+        ];
 
     internal static MethodBase?[] Shaped() => [.. Seams().AsSpan(0, 1)];
 
-    internal static void Measured(AnimatableRenderer __instance, MeshData meshdata)
+    internal static void Measured(AnimatableRenderer __instance, MeshData? meshdata)
     {
         if (!NotNull(__instance) || meshdata?.xyz is not { } xyz) return;
+
         var count = Math.Min(meshdata.VerticesCount, Math.Min(xyz.Length / 3, MaxVertices));
         if (!Assert(count >= 0)) return;
+
         var (min, max) = (new Vec3f(float.MaxValue, float.MaxValue, float.MaxValue),
             new Vec3f(float.MinValue, float.MinValue, float.MinValue));
         for (var i = 0; i < Math.Min(count, MaxVertices); i++)
@@ -83,11 +91,15 @@ internal static class AnimatableCulling
         }
 
         var centre = count == 0
-            ? new Vec3f() : new Vec3f((min.X + max.X) / 2, (min.Y + max.Y) / 2, (min.Z + max.Z) / 2);
+            ? new Vec3f()
+            : new Vec3f((min.X + max.X) / 2, (min.Y + max.Y) / 2, (min.Z + max.Z) / 2);
         var radius = 0f;
         for (var i = 0; i < Math.Min(count, MaxVertices); i++)
+        {
             radius = Math.Max(radius,
                 Distance(xyz[3 * i] - centre.X, xyz[3 * i + 1] - centre.Y, xyz[3 * i + 2] - centre.Z));
+        }
+
         var bounds = new Bounds(centre, radius, Joints(meshdata.CustomInts));
         if (Finite(radius)) Known.AddOrUpdate(__instance, bounds);
     }
@@ -96,9 +108,13 @@ internal static class AnimatableCulling
     private static int Joints(CustomMeshDataPartInt? ints)
     {
         if (ints?.Values is not { } values || !Assert(ints.Count >= 0)) return 0;
+
         var (top, low, count) = (0, 0, Math.Min(ints.Count, values.Length));
         for (var i = 0; i < Math.Min(count, MaxVertices); i++)
+        {
             (top, low) = (Math.Max(top, values[i]), Math.Min(low, values[i]));
+        }
+
         return low < 0 ? MaxJoints : top; // a negative id is no joint this reasons about
     }
 
@@ -106,17 +122,23 @@ internal static class AnimatableCulling
     {
         if (!Enabled || Blocked || !NotNull(__instance) || !__instance.ShouldRender ||
             stage is not (EnumRenderStage.Opaque or EnumRenderStage.OIT or EnumRenderStage.ShadowFar
-                or EnumRenderStage.ShadowNear)) return true;
+                or EnumRenderStage.ShadowNear))
+        {
+            return true;
+        }
         // the engine's own exit
         if (__instance.mtmeshrefOpaque is not { Disposed: false, Initialized: true }) return true;
+
         if (Visible(__instance))
         {
             if (Counting.Hud) Drawn++;
+
             return true;
         }
 
         Leave(__instance, stage);
         if (Counting.Hud) Culled++;
+
         return false;
     }
 
@@ -124,9 +146,16 @@ internal static class AnimatableCulling
     {
         var (capi, animator, pos) = (Capi(renderer), Animator(renderer), Pos(renderer));
         if (capi?.Render?.DefaultFrustumCuller is not { } culler || animator?.Matrices is not { } matrices ||
-            pos is null || !Known.TryGetValue(renderer, out var bounds)) return true;
-        if (!Assert(matrices.Length % MatrixFloats == 0) || bounds.TopJoint >= matrices.Length / MatrixFloats)
+            pos is null || !Known.TryGetValue(renderer, out var bounds))
+        {
             return true;
+        }
+
+        if (!Assert(matrices.Length % MatrixFloats == 0) || bounds.TopJoint >= matrices.Length / MatrixFloats)
+        {
+            return true;
+        }
+
         var reach = Reach(matrices, bounds);
         var (x, y, z, scale) = Place(renderer, pos, bounds.Centre);
         var radius = scale * reach + Warp(capi.Render.ShaderUniforms);
@@ -155,7 +184,10 @@ internal static class AnimatableCulling
     {
         var model = Model;
         _ = Mat4f.Identity(model);
-        if (renderer.CustomTransform is { Length: MatrixFloats } custom) _ = Mat4f.Multiply(model, model, custom);
+        if (renderer.CustomTransform is { Length: MatrixFloats } custom)
+        {
+            _ = Mat4f.Multiply(model, model, custom);
+        }
         else
         {
             _ = Mat4f.Translate(model, model, 0.5f, 0f, 0.5f);
@@ -174,6 +206,7 @@ internal static class AnimatableCulling
     internal static float Warp(DefaultShaderUniforms? uniforms)
     {
         if (!NotNull(uniforms)) return float.PositiveInfinity;
+
         var wind = 6f + 6f * Math.Abs(uniforms.WindWaveIntensity) * (1 + Math.Abs(uniforms.WindSpeed)) +
                    Math.Abs(uniforms.WaterWaveIntensity);
         var warp = 50f * Math.Max(0f, uniforms.GlitchWaviness - 0.1f) + 0.1f * Math.Abs(uniforms.GlobalWorldWarp) +
@@ -184,18 +217,28 @@ internal static class AnimatableCulling
     private static void Leave(AnimatableRenderer renderer, EnumRenderStage stage)
     {
         if (stage == EnumRenderStage.OIT || Capi(renderer)?.Render is not { } render) return;
+
         var cull = stage is EnumRenderStage.Opaque or EnumRenderStage.ShadowNear && !renderer.backfaceCulling;
         if (LeftState.Holds(cull ? LeftState.Kind.Culling : LeftState.Kind.Unculled)) return;
+
         render.GLDepthMask(true);
         render.GlToggleBlend(true);
-        if (cull) render.GlEnableCullFace();
-        else render.GlDisableCullFace();
+        if (cull)
+        {
+            render.GlEnableCullFace();
+        }
+        else
+        {
+            render.GlDisableCullFace();
+        }
+
         LeftState.Left(cull ? LeftState.Kind.Culling : LeftState.Kind.Unculled);
     }
 
     // At least the 3x3 part's largest stretch
-    private static float Frobenius(ReadOnlySpan<float> m) => MathF.Sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2] +
-        m[4] * m[4] + m[5] * m[5] + m[6] * m[6] + m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+    private static float Frobenius(ReadOnlySpan<float> m) =>
+        MathF.Sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2] +
+                          m[4] * m[4] + m[5] * m[5] + m[6] * m[6] + m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
 
     private static float Distance(float x, float y, float z) => MathF.Sqrt(x * x + y * y + z * z);
 

@@ -8,23 +8,13 @@ internal sealed class UniformMirror
 {
     private const int MaxWords = 4096, MaxNames = 512;
 
-    // Touched: set since the last draw
-    public sealed class Entry(string name)
-    {
-        public string Name { get; } = name;
-        public uint[] Held { get; set; } = [];
-        public (int Block, GlslPort.Uniform Uniform, (int Columns, int Rows) Shape)[] Places { get; set; } = [];
-        public bool Sampler { get; set; }
-        public bool Touched { get; set; }
-    }
-
-    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-    private GlslPort.Block?[] _layout = [];
-    private uint[][] _images = [];
-
     // How often each uniform changed between draws, over how many draws (while Measuring)
     private readonly Dictionary<string, int> _changed = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
     private readonly List<Entry> _touched = [];
+    private uint[][] _images = [];
+    private GlslPort.Block?[] _layout = [];
     public int Draws { get; private set; }
 
     // Whether the uniforms set between draws are counted (Drawn, Hot), until the hot ones are settled
@@ -44,8 +34,11 @@ internal sealed class UniformMirror
     public Entry? EntryOf(string name)
     {
         if (!NotNull(name)) return null;
+
         if (_entries.TryGetValue(name, out var known)) return known;
+
         if (_entries.Count >= MaxNames) return null;
+
         var made = new Entry(name);
         _entries[name] = made;
         return made;
@@ -54,6 +47,7 @@ internal sealed class UniformMirror
     public void SetAt(Entry entry, int start, ReadOnlySpan<uint> words)
     {
         if (!Assert(start >= 0 && start + words.Length <= MaxWords) || words.IsEmpty || !NotNull(entry)) return;
+
         var held = entry.Held;
         if (held.Length < start + words.Length)
         {
@@ -62,7 +56,9 @@ internal sealed class UniformMirror
             entry.Held = held = grown;
         }
         else if (held.AsSpan(start, words.Length).SequenceEqual(words))
+        {
             return; // the engine sets many uniforms again unchanged: a value already held changes nothing
+        }
 
         words.CopyTo(held.AsSpan(start));
         if (Measuring && !entry.Touched && _touched.Count < MaxNames)
@@ -72,6 +68,7 @@ internal sealed class UniformMirror
         }
 
         if (entry.Sampler) SamplerWrites++;
+
         foreach (var (block, u, shape) in entry.Places.Bounded(3))
         {
             Write(u, shape, words, _images[block], start);
@@ -85,7 +82,8 @@ internal sealed class UniformMirror
         Draws++;
         foreach (var entry in _touched.Bounded(MaxNames))
         {
-            CollectionsMarshal.GetValueRefOrAddDefault(_changed, entry.Name, out _)++; // one lookup per uniform and draw
+            CollectionsMarshal.GetValueRefOrAddDefault(_changed, entry.Name,
+                out _)++; // one lookup per uniform and draw
             entry.Touched = false;
         }
 
@@ -95,7 +93,11 @@ internal sealed class UniformMirror
     // Counting again from nothing: the hot uniforms are settled anew
     public void Remeasure()
     {
-        foreach (var entry in _touched.Bounded(MaxNames)) entry.Touched = false;
+        foreach (var entry in _touched.Bounded(MaxNames))
+        {
+            entry.Touched = false;
+        }
+
         _touched.Clear();
         _changed.Clear();
         (Draws, Measuring) = (0, true);
@@ -105,40 +107,45 @@ internal sealed class UniformMirror
         [.. _changed.Where(c => c.Value >= share * Draws).OrderByDescending(c => c.Value).Select(c => c.Key)];
 
     // The program's blocks and samplers: images of the blocks from here on, from what the mirror holds now
-    public void Lay(GlslPort.Block vertex, GlslPort.Block fragment, GlslPort.Block hot, IEnumerable<string> samplers)
+    public void Lay(GlslPort.Block vertex, GlslPort.Block fragment, GlslPort.Block hot, string[] samplers)
     {
         if (!NotNull(vertex) || !NotNull(fragment) || !NotNull(hot) || !NotNull(samplers)) return;
+
         _layout = [vertex, fragment, hot];
         _images = [new uint[vertex.Size / 4], new uint[fragment.Size / 4], new uint[hot.Size / 4]];
         (Changes, Uploaded) = (new int[3], new (HostBuffer?, long, long, int)[3]);
-        foreach (var entry in _entries.Values.ToArray().Bounded(MaxNames)) (entry.Places, entry.Sampler) = ([], false);
-        foreach (var name in samplers.ToArray().Bounded(MaxNames))
-            if (EntryOf(name) is { } sampler)
-                sampler.Sampler = true;
+        foreach (var entry in _entries.Values.ToArray().Bounded(MaxNames))
+        {
+            (entry.Places, entry.Sampler) = ([], false);
+        }
+
+        foreach (var name in samplers.Bounded(MaxNames))
+        {
+            if (EntryOf(name) is { } sampler) sampler.Sampler = true;
+        }
+
         for (var b = 0; b < 3; b++)
+        {
             foreach (var u in _layout[b]!.Members.Bounded(MaxNames))
             {
                 if (EntryOf(u.Name) is not { } entry) continue;
-                entry.Places = [.. entry.Places, (b, u, GlslPort.Shape(u.Type))]; // the shape parsed once, not per write
+
+                entry.Places =
+                    [.. entry.Places, (b, u, GlslPort.Shape(u.Type))]; // the shape parsed once, not per write
                 var source = entry.Held.Length > 0 ? entry.Held : Initial(u);
                 if (source.Length > 0) Write(u, source, _images[b], 0);
             }
+        }
     }
 
     // Empty before Lay
-    public ReadOnlySpan<uint> Image(int block) =>
-        Index(block, 3) && _images.Length == 3 ? _images[block] : [];
-
-    public uint[] Held(GlslPort.Uniform u)
-    {
-        if (!NotNull(u)) return [];
-        return _entries.TryGetValue(u.Name, out var entry) && entry.Held.Length > 0 ? entry.Held : Initial(u);
-    }
+    public ReadOnlySpan<uint> Image(int block) => Index(block, 3) && _images.Length == 3 ? _images[block] : [];
 
     // Columns of a matrix 16 bytes apart, as std140 has them
     public void Pack(GlslPort.Block block, Span<byte> into)
     {
         if (!NotNull(block) || !Assert(into.Length >= block.Size)) return;
+
         var words = MemoryMarshal.Cast<byte, uint>(into[..(block.Size / 4 * 4)]);
         var laid = Array.IndexOf(_layout, block);
         if (laid >= 0 && _images[laid].Length == words.Length)
@@ -160,17 +167,22 @@ internal sealed class UniformMirror
     internal static void Write(GlslPort.Uniform u, ReadOnlySpan<uint> source, Span<uint> words, int start) =>
         Write(u, NotNull(u) ? GlslPort.Shape(u.Type) : default, source, words, start);
 
-    private static void Write(GlslPort.Uniform u, (int Columns, int Rows) shape, ReadOnlySpan<uint> source, Span<uint> words,
+    private static void Write(GlslPort.Uniform u, (int Columns, int Rows) shape, ReadOnlySpan<uint> source,
+        Span<uint> words,
         int start)
     {
         var (columns, rows) = shape;
         if (!Assert(u.Offset >= 0 && u.Offset % 4 == 0) || !Assert(start >= 0) || columns * rows == 0) return;
+
         var element = columns * rows;
-        var packed = columns == 1 ? u.Count == 1 || u.Stride == 4 * rows : rows == 4 && (u.Count == 1 || u.Stride == 16 * columns);
+        var packed = columns == 1
+            ? u.Count == 1 || u.Stride == 4 * rows
+            : rows == 4 && (u.Count == 1 || u.Stride == 16 * columns);
         if (packed)
         {
             var (at, n) = (u.Offset / 4 + start, Math.Min(source.Length, u.Count * element - start));
             if (n > 0 && at < words.Length) source[..Math.Min(n, words.Length - at)].CopyTo(words[at..]);
+
             return;
         }
 
@@ -186,6 +198,7 @@ internal sealed class UniformMirror
             var e = start + i;
             var at = u.Offset / 4 + e * stride;
             if (e >= u.Count || at >= words.Length) break;
+
             words[at] = source[i];
         }
     }
@@ -194,12 +207,14 @@ internal sealed class UniformMirror
     {
         var (columns, rows) = GlslPort.Shape(u.Type);
         if (!Assert(u.Offset >= 0 && u.Offset % 4 == 0) || !Assert(start >= 0) || columns * rows == 0) return;
+
         var element = columns * rows;
         for (var i = 0; i < Math.Min(source.Length, MaxWords); i++)
         {
             var word = start + i;
             var (e, c, r) = (word / element, word % element / rows, word % rows);
             if (e >= u.Count) break;
+
             var at = (u.Offset + e * u.Stride + c * (columns > 1 ? 16 : 0) + r * 4) / 4;
             if (at < words.Length) words[at] = source[i];
         }
@@ -209,6 +224,7 @@ internal sealed class UniformMirror
     private static uint[] Initial(GlslPort.Uniform u)
     {
         if (!NotNull(u) || u.Default is not { } values || !Assert(values.Length <= 16)) return [];
+
         var integer = Integer(u.Type);
         return [.. values.Select(v => integer ? (uint)(int)v : BitConverter.SingleToUInt32Bits(v))];
     }
@@ -216,5 +232,16 @@ internal sealed class UniformMirror
     // A GLSL type OpenGL holds as integers: int, uint, bool and their vectors
     internal static bool Integer(string type) =>
         NotNull(type) &&
-        (type is "int" or "uint" or "bool" || (type.Length == 5 && type[1..4] == "vec" && type[0] is 'i' or 'u' or 'b'));
+               (type is "int" or "uint" or "bool" ||
+                (type.Length == 5 && type[1..4] == "vec" && type[0] is 'i' or 'u' or 'b'));
+
+    // Touched: set since the last draw
+    public sealed class Entry(string name)
+    {
+        public string Name { get; } = name;
+        public uint[] Held { get; set; } = [];
+        public (int Block, GlslPort.Uniform Uniform, (int Columns, int Rows) Shape)[] Places { get; set; } = [];
+        public bool Sampler { get; set; }
+        public bool Touched { get; set; }
+    }
 }

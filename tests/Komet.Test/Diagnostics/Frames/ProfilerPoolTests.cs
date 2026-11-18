@@ -5,7 +5,9 @@ namespace Komet.Test.Diagnostics;
 [NonParallelizable]
 public sealed class ProfilerPoolTests
 {
-    private static readonly string[] InOrder = ["beginrenderstage-Opaque", "a", "b", "beginrenderstage-OIT", "c", "end"];
+    private static readonly string[] InOrder =
+        ["beginrenderstage-Opaque", "a", "b", "beginrenderstage-OIT", "c", "end"];
+
     private FrameProfilerUtil? _before;
 
     [SetUp]
@@ -20,7 +22,11 @@ public sealed class ProfilerPoolTests
     private static ProfileEntryRange Frame(FrameProfilerUtil profiler, params string[] codes)
     {
         profiler.Begin();
-        foreach (var code in codes) profiler.Mark(code);
+        foreach (var code in codes)
+        {
+            profiler.Mark(code);
+        }
+
         profiler.End();
         return profiler.PrevRootEntry;
     }
@@ -40,7 +46,8 @@ public sealed class ProfilerPoolTests
         Assert.Multiple(() =>
         {
             Assert.That(ProfilerPool.Patched && ProfilerPool.Recycling, Is.True);
-            Assert.That(third.Marks.Values.Count(entries.Contains), Is.EqualTo(entries.Count), "frame 1's entries again");
+            Assert.That(third.Marks.Values.Count(entries.Contains), Is.EqualTo(entries.Count),
+                "frame 1's entries again");
             Assert.That(third.Marks, Is.SameAs(first.Marks), "the kept set");
             Assert.That(third.Marks.Keys, Is.EqualTo(InOrder));
             Assert.That(third.Marks.Values.Select(e => e.CallCount), Is.All.EqualTo(1));

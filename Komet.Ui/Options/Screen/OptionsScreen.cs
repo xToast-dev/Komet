@@ -1,55 +1,53 @@
-using Komet.Api;
 using Komet.Core;
 using Komet.Hud;
+using Komet.Ui.Hud;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Options;
 
-// Sodium-style options: sections as tabs (Vintage Story, Komet, KometOptions mods, Help), a page list with a search,
+// Sodium-style options: sections as tabs (Vintage Story, Komet, OptionPages mods, Help), a page list with a search,
 // the scrolling page and the detail of the lit row. Changes stage until Enter (one batch); Escape drops them; buttons
 // and keys act at once.
 internal sealed partial class OptionsScreen : GuiDialog
 {
-    // The footer's chips after the version (the edition, what the update check found) and what a click on them opens
-    public Func<IReadOnlyList<(string Text, Rgba Color)>>? VersionState { get; set; }
-    public Action? OpenVersion { get; set; }
+    private const int MaxPages = 96, MaxStaged = 256, MaxQuery = 64, MaxHits = 4096, PrefetchMs = 5000;
+    private readonly Backdrop _backdrop;
+    private readonly HudCanvas _canvas;
+    private readonly HotkeyCapturer _capturer = new(); // the game's, as its controls tab uses it
+    private readonly HashSet<OptionRow> _failed = [];
+    private readonly HudFonts _fonts = new();
 
-    private const int MaxPages = 48, MaxStaged = 256, MaxQuery = 64, MaxHits = 4096, PrefetchMs = 5000;
 
     private readonly KometPages _komet;
-    private readonly HudSettings _settings;
-    private readonly StyleLibrary _styles;
-    private readonly StyleScene _scene;
-    private readonly Dictionary<OptionRow, double> _staged = [];
-    private readonly HashSet<OptionRow> _failed = [];
-    private readonly HudCanvas _canvas;
-    private readonly Backdrop _backdrop;
-    private readonly HudFonts _fonts = new();
-    private readonly HotkeyCapturer _capturer = new(); // the game's, as its controls tab uses it
-    private readonly Dictionary<OptionRow, double> _widest = []; // a slider's widest value, measured once per font size
-    private readonly HitMap[] _maps = [new(), new(), new(), new()]; // the canvas holds at most three: shown, waiting, painting
-    private HitMap _map = new(); // the one being composed
-    private object? _lastShown; // the map of the picture on screen when the highlight last followed it
-    private OptionPage[] _pages = [];
-    private string _page = "", _query = "";
-    private bool _reviewing; // the footer's change count clicked: the list shows the staged rows
 
-    // A search or the staged changes in place of the page
-    private bool Filtering => _query.Length > 0 || _reviewing;
-    private double _scroll;
-    private bool _dirty = true, _searching, _advanced; // _advanced: HudSettings.ShowAdvanced as the pages were built
-    private int _epoch;
-    private (int Width, int Height) _frame;
+    private readonly HitMap[]
+        _maps = [new(), new(), new(), new()]; // the canvas holds at most three: shown, waiting, painting
+
+    private readonly StyleScene _scene;
+    private readonly HudSettings _settings;
+    private readonly Dictionary<OptionRow, double> _staged = [];
+    private readonly StyleLibrary _styles;
+    private readonly Dictionary<OptionRow, double> _widest = []; // a slider's widest value, measured once per font size
+    private OptionRow? _binding;
     private double _bottom; // where the screen ended when it was last composed
-    private OptionRow? _hover;
+    private bool _dirty = true, _searching, _advanced; // _advanced: HudSettings.ShowAdvanced as the pages were built
     private Hit? _drag;
     private (IGameSettingsHandler Handler, Action<string> Tab)? _embedded;
-    private OptionRow? _binding;
+    private int _epoch;
+    private (int Width, int Height) _frame;
+    private OptionRow? _hover;
+    private object? _lastShown; // the map of the picture on screen when the highlight last followed it
+    private HitMap _map = new(); // the one being composed
+    private string _page = "", _query = "";
+    private OptionPage[] _pages = [];
+    private bool _reviewing; // the footer's change count clicked: the list shows the staged rows
+    private double _scroll;
 
     public OptionsScreen(ICoreClientAPI capi, HudSettings settings, KometActions actions) : base(capi)
     {
-        _canvas = new HudCanvas(capi, background: true); // Cairo paints on a worker, the main thread only records
+        _canvas = new HudCanvas(capi, true); // Cairo paints on a worker, the main thread only records
+        Controls = new MenuControls(_canvas, _fonts);
         _backdrop = new Backdrop(capi);
         _settings = settings;
         _styles = new StyleLibrary(capi);
@@ -60,28 +58,40 @@ internal sealed partial class OptionsScreen : GuiDialog
         _prefetch = capi.Event?.RegisterGameTickListener(Prefetch, PrefetchMs, PrefetchMs) ?? 0;
         Restyle(); // the HUD takes the style before the screen first opens
         capi.Event?.EnqueueMainThreadTask(_backdrop.Prepare, "komet-backdrop"); // where the GL context is
-        _komet = new KometPages(settings, actions) { Styles = _styles, Api = capi };
+        _komet = new KometPages(settings, actions) { Styles = _styles, Api = capi, Navigate = Navigate };
         _komet.StylesReloaded += Reloaded;
         ShaderOverview.Refreshed += Refreshed;
-        KometStyles.Changed += StylesChanged; // static: a named handler, so Dispose can take it off again
+        StyleHub.Changed += StylesChanged; // static: a named handler, so Dispose can take it off again
         settings.Changed += () =>
         {
             _dirty = true;
             StyleAsked();
             if (settings.ShowAdvanced == _advanced) return;
+
             _advanced = settings.ShowAdvanced; // other knobs show or go: the pages again, on the page that is open
             if (_pages.Length > 0) Rebuild(_page);
         };
         if (!NotNull(capi.ChatCommands)) return;
+
         _ = capi.ChatCommands.GetOrCreate("komet").WithDescription(KometText.Translate("cmd-hud"))
             .HandleWith(_ => Open(KometPages.Overview)
                 ? TextCommandResult.Success()
                 : TextCommandResult.Error(KometText.Translate("cmd-hud-open-failed")));
     }
 
+    // The footer's chips after the version (the edition, what the update check found) and what a click on them opens
+    public Func<IReadOnlyList<(string Text, Rgba Color)>>? VersionState { get; set; }
+    public Action? OpenVersion { get; set; }
+
+    // A search or the staged changes in place of the page
+    private bool Filtering => _query.Length > 0 || _reviewing;
+
     public override string? ToggleKeyCombinationCode => null;
     public override double DrawOrder => 0.95; // over the escape menu (0.89)
     public override double InputOrder => -1; // before it (0), so typing into the search reaches the search
+
+    private HitMap OnScreen => _canvas.Shown as HitMap ?? _map;
+
     // every key is the screen's while it is open: arrows, Tab, Q/E, R, Enter and typing into the search, before any hotkey
     public override bool CaptureAllInputs() => true;
 
@@ -92,23 +102,40 @@ internal sealed partial class OptionsScreen : GuiDialog
     public bool Open(string? page = null)
     {
         if (!Assert(page is null || page.Length > 0)) return false;
+
         string? chosen = null;
-        if (page?.IndexOf('#', StringComparison.Ordinal) is > 0 and var at) (page, chosen) = (page[..at], page[(at + 1)..]);
+        if (page?.IndexOf('#', StringComparison.Ordinal) is > 0 and var at)
+        {
+            (page, chosen) = (page[..at], page[(at + 1)..]);
+        }
+
         if (IsOpened() && _embedded is not null) Leave();
+
+        _developer = false;
         Restyle();
         Rebuild(page ?? KometPages.Overview);
         if (chosen is not null && Array.Find(_pages, p => p.Id == _page) is { } shown)
+        {
             for (var i = 0; i < Math.Min(shown.Count, OptionPage.MaxRows); i++)
+            {
                 if (shown[i].Label == chosen) _cursor = shown[i];
+            }
+        }
+
         return IsOpened() || TryOpen();
     }
 
     public void Embed(IGameSettingsHandler handler, Action<string> tab)
     {
         if (!NotNull(handler) || !NotNull(tab)) return;
+
         _embedded = (handler, tab);
-        if (!IsOpened()) Rebuild("vs-general");
+        // The game can open its settings while this dialog is still showing the developer screen. In that case the
+        // dialog is already open, but its page list still contains only developer tools; always rebuild the regular
+        // settings pages before embedding the game's settings.
+        _developer = false;
         Restyle();
+        Rebuild("vs-general");
         _dirty = true;
         _ = IsOpened() || TryOpen();
     }
@@ -117,6 +144,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     public void Leave()
     {
         if (_embedded is not { } embedded || !NotNull(embedded.Handler)) return;
+
         _embedded = null;
         _ = !IsOpened() || TryClose();
     }
@@ -126,6 +154,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     public override bool OnEscapePressed()
     {
         if (_binding is not null) Unbound();
+
         return !Back() && Close();
     }
 
@@ -133,14 +162,22 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void Review()
     {
         if (_staged.Count == 0) return;
+
         (_reviewing, _query, _searching, _scroll, _cursor, _dirty) = (!_reviewing, "", false, 0, null, true);
     }
 
     private bool Back()
     {
         var back = _focus is not null || _query.Length > 0 || _searching || _reviewing;
-        if (_focus is not null) _focus = null;
-        else (_query, _searching, _reviewing) = ("", false, false);
+        if (_focus is not null)
+        {
+            _focus = null;
+        }
+        else
+        {
+            (_query, _searching, _reviewing) = ("", false, false);
+        }
+
         _dirty |= back;
         return back;
     }
@@ -154,6 +191,8 @@ internal sealed partial class OptionsScreen : GuiDialog
 
     public override void OnGuiClosed()
     {
+        _shownTool?.Shown(false);
+        _shownTool = null;
         Unbound();
         (_drag, _hover, _searching, _focus) = (null, null, false, null);
         _motions.Clear();
@@ -161,12 +200,14 @@ internal sealed partial class OptionsScreen : GuiDialog
         _staged.Clear();
         _backdrop.Release();
         _scene.Release();
-        (_dolly, _clock, _slide) = (-1, 0, -1); // the clock starts over: nothing may wait for a time of the last opening
+        (_dolly, _clock, _slide) =
+            (-1, 0, -1); // the clock starts over: nothing may wait for a time of the last opening
         _press.At = -1;
         Restyle(); // a change of style still moving ends here
         _canvas.Drop(); // the next opening waits for its own picture: no old page, scroll or click map
         _dirty = true;
         if (_embedded is not { } embedded || !NotNull(embedded.Handler)) return;
+
         _embedded = null;
         _ = embedded.Handler.OnBackPressed(); // back to the escape menu, as the game's Back button
     }
@@ -174,20 +215,31 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void Rebuild(string page)
     {
         _pages = Pages();
-        _advanced = _komet?.Advanced ?? false;
+        _advanced = _komet.Advanced;
         if (!Assert(_pages.Length > 0)) return;
-        (_page, _scroll, _query, _dirty, _reviewing) = ((Array.Find(_pages, p => p.Id == page) ?? _pages[0]).Id, 0, "", true, false);
+
+        (_page, _scroll, _query, _dirty, _reviewing) =
+            ((Array.Find(_pages, p => p.Id == page) ?? _pages[0]).Id, 0, "", true, false);
         _staged.Clear();
         _widest.Clear();
         _motions.Clear(); // the rows are made anew
         (_focus, _cursor) = (null, null);
     }
 
+    private void Navigate(string id)
+    {
+        if (Array.Find(_pages, p => p.Id == id) is { } page) Select(page);
+    }
+
     private OptionPage[] Pages()
     {
+        if (_developer) return DevPages();
+
         List<OptionPage> pages = [.. EngineOptions.Pages(capi, _embedded is null ? null : OpenTab), .. _komet.Build()];
-        for (var i = 0; i < Math.Min(KometOptions.Count, KometOptions.MaxPages); i++)
-            pages.Add(Features.Placed(KometOptions.At(i)));
+        for (var i = 0; i < Math.Min(OptionPages.Count, OptionPages.MaxPages); i++)
+        {
+            pages.Add(Features.Placed(OptionPages.At(i)));
+        }
         // the in-game docs, last: the Help section, then Modding with its Templates page
         pages.AddRange(KometDocs.With(KometDocs.Pages(capi), _komet.TemplatesPage(KometDocs.ModdingSection)));
         return Assert(pages.Count is > 0 and <= MaxPages) ? [.. pages] : [.. pages.Take(MaxPages)];
@@ -196,6 +248,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void OpenTab(string handler)
     {
         if (_embedded is not { } embedded || !NotNull(handler)) return;
+
         _embedded = null;
         _staged.Clear();
         _ = TryClose();
@@ -207,6 +260,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void Stage(OptionRow row, double value)
     {
         if (!Finite(value)) return;
+
         if (row.Live)
         {
             SetGuarded(row, value);
@@ -215,12 +269,19 @@ internal sealed partial class OptionsScreen : GuiDialog
             return;
         }
 
-        if (Math.Abs(value - row.Get()) < 1e-9) _ = _staged.Remove(row);
-        else if (Assert(_staged.Count < MaxStaged) || _staged.ContainsKey(row)) _staged[row] = value;
+        if (Math.Abs(value - row.Get()) < 1e-9)
+        {
+            _ = _staged.Remove(row);
+        }
+        else if (Assert(_staged.Count < MaxStaged) || _staged.ContainsKey(row))
+        {
+            _staged[row] = value;
+        }
+
         _dirty = true;
     }
 
-    // A setter may be another mod's (KometOptions pages): one that throws must not take the GUI handler and the client
+    // A setter may be another mod's (OptionPages pages): one that throws must not take the GUI handler and the client
     // with it, nor keep the other staged rows from applying
     private void SetGuarded(OptionRow row, double value)
     {
@@ -240,15 +301,19 @@ internal sealed partial class OptionsScreen : GuiDialog
         _staged.Clear();
         EngineOptions.Batch(() =>
         {
-            foreach (var (row, value) in changes.Bounded(MaxStaged)) SetGuarded(row, value);
+            foreach (var (row, value) in changes.Bounded(MaxStaged))
+            {
+                SetGuarded(row, value);
+            }
         });
         _dirty = true;
-        if (changes.Length > 0) KometOptions.RaiseApplied();
+        if (changes.Length > 0) OptionPages.RaiseApplied();
     }
 
     public override void OnMouseDown(MouseEvent args)
     {
         if (!NotNull(args) || !IsOpened()) return;
+
         args.Handled = true; // nothing under the screen takes a click
         if (_binding is not null)
         {
@@ -257,10 +322,17 @@ internal sealed partial class OptionsScreen : GuiDialog
         }
 
         var (x, y) = (args.X - _canvas.X, args.Y - _canvas.Y);
+        if (Tool?.MouseDown(x, y, args.Button) == true)
+        {
+            (_searching, _dirty) = (false, true);
+            return;
+        }
+
         (_searching, _flash) = (false, Flash);
         var hit = At(x, y, false);
         _focus = null; // a slider's click takes it again
         if (hit is null || !Assert(hit.W > 0)) return;
+
         hit.Click((x - hit.X) / hit.W, args.Button == EnumMouseButton.Right);
         Press(hit.X, hit.Y, hit.W, hit.H);
         _drag = hit.Drag ? hit : null;
@@ -270,8 +342,15 @@ internal sealed partial class OptionsScreen : GuiDialog
     public override void OnMouseMove(MouseEvent args)
     {
         if (!NotNull(args) || !IsOpened()) return;
+
         var (x, y) = (args.X - _canvas.X, args.Y - _canvas.Y);
         _mouse = (x, y);
+        if (_drag is null && Tool?.MouseMove(x, y) == true)
+        {
+            (args.Handled, _dirty) = (true, true);
+            return;
+        }
+
         Retarget();
         if (_drag is { } drag && Assert(drag.W > 0))
         {
@@ -282,15 +361,21 @@ internal sealed partial class OptionsScreen : GuiDialog
 
         var hover = At(x, y, true)?.Option;
         if (ReferenceEquals(hover, _hover)) return;
+
         (_hover, _dirty) = (hover, true);
-        if (hover is not null) _cursor = hover; // the light follows the mouse as it does the keys
+        if (hover is not null)
+        {
+            _cursor = hover; // the light follows the mouse as it does the keys
+        }
     }
 
     private Hit? At(double x, double y, bool row)
     {
         if (!Finite(x) || !Finite(y)) return null;
+
         var map = OnScreen;
         if (Under(map.Hits, x, y, row) is { } hit) return hit;
+
         var (vx, vy, vw, vh) = map.View;
         return x >= vx && x < vx + vw && y >= vy && y < vy + vh ? Under(map.Rows, x, y, row) : null;
     }
@@ -299,43 +384,89 @@ internal sealed partial class OptionsScreen : GuiDialog
     private static Hit? Under(List<Hit> hits, double x, double y, bool? row)
     {
         if (!Assert(hits.Count <= MaxHits)) return null;
+
         for (var i = 0; i < Math.Min(hits.Count, MaxHits); i++)
-            if ((row is null || hits[i].Row == row) && hits[i].Covers(x, y))
-                return hits[i];
+        {
+            if ((row is null || hits[i].Row == row) && hits[i].Covers(x, y)) return hits[i];
+        }
+
         return null;
     }
 
     public override void OnMouseUp(MouseEvent args)
     {
-        if (NotNull(args) && IsOpened()) args.Handled = _drag is not null || (_binding is not null && _capturer.OnMouseUp(args, Bound));
+        if (NotNull(args) && IsOpened())
+        {
+            args.Handled = _drag is not null || (_binding is not null && _capturer.OnMouseUp(args, Bound));
+        }
+
+        Tool?.MouseUp();
+
         _drag = null;
     }
 
     public override void OnMouseWheel(MouseWheelEventArgs args)
     {
         if (!NotNull(args) || !IsOpened() || !Finite(args.deltaPrecise)) return;
+
         args.SetHandled();
+        if (Tool?.Wheel(-args.deltaPrecise, _mouse.X) == true)
+        {
+            _dirty = true;
+            return;
+        }
+
         var (sx, sy, sw, sh) = OnScreen.SideView;
         var (mx, my) = _mouse;
-        if (mx >= sx && mx < sx + sw && my >= sy && my < sy + sh) _sideScroll -= args.deltaPrecise * _fonts.BadgeRow * 3;
-        else _scroll -= args.deltaPrecise * _fonts.BadgeRow * 3;
+        if (mx >= sx && mx < sx + sw && my >= sy && my < sy + sh)
+        {
+            _sideScroll -= args.deltaPrecise * _fonts.BadgeRow * 3;
+        }
+        else
+        {
+            _scroll -= args.deltaPrecise * _fonts.BadgeRow * 3;
+        }
+
         _dirty = true;
     }
 
     public override void OnKeyPress(KeyEvent args)
     {
         if (NotNull(args) && _binding is not null) args.Handled = true;
+
+        if (NotNull(args) && !_searching && _binding is null && Tool?.Char(args.KeyChar) == true)
+        {
+            (args.Handled, _dirty) = (true, true);
+            return;
+        }
+
         if (!NotNull(args) || !_searching || !Assert(_query.Length <= MaxQuery)) return;
-        if (!char.IsControl(args.KeyChar) && _query.Length < MaxQuery) (_query, _scroll, _reviewing) = (_query + args.KeyChar, 0, false);
+
+        if (!char.IsControl(args.KeyChar) && _query.Length < MaxQuery)
+        {
+            (_query, _scroll, _reviewing) = (_query + args.KeyChar, 0, false);
+        }
+
         (args.Handled, _dirty) = (true, true);
     }
 
     public override void OnKeyDown(KeyEvent args)
     {
         if (!NotNull(args)) return;
+
         if (_binding is not null)
         {
-            if (_capturer.OnKeyDown(args) && !_capturer.IsCapturing()) Unbound(); // Escape
+            if (_capturer.OnKeyDown(args) && !_capturer.IsCapturing())
+            {
+                Unbound(); // Escape
+            }
+
+            (args.Handled, _dirty) = (true, true);
+            return;
+        }
+
+        if (!_searching && Tool?.Key(args) == true)
+        {
             (args.Handled, _dirty) = (true, true);
             return;
         }
@@ -353,15 +484,27 @@ internal sealed partial class OptionsScreen : GuiDialog
         }
 
         if (!_searching || !Assert(_query.Length <= MaxQuery)) return;
-        if (args.KeyCode == (int)GlKeys.BackSpace && _query.Length > 0) _query = _query[..^1];
-        else if (args.KeyCode is (int)GlKeys.Enter or (int)GlKeys.KeypadEnter) _searching = false;
-        else if (args.KeyCode != (int)GlKeys.Escape) return; // a plain key: its character comes as a key press
+
+        if (args.KeyCode == (int)GlKeys.BackSpace && _query.Length > 0)
+        {
+            _query = _query[..^1];
+        }
+        else if (args.KeyCode is (int)GlKeys.Enter or (int)GlKeys.KeypadEnter)
+        {
+            _searching = false;
+        }
+        else if (args.KeyCode != (int)GlKeys.Escape)
+        {
+            return; // a plain key: its character comes as a key press
+        }
+
         (args.Handled, _dirty) = (true, true);
     }
 
     public override void OnKeyUp(KeyEvent args)
     {
         if (!NotNull(args) || _binding is null) return;
+
         _ = _capturer.OnKeyUp(args, Bound);
         args.Handled = true;
     }
@@ -370,6 +513,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void Binding(OptionRow row)
     {
         if (_binding is not null || !_capturer.BeginCapture()) return;
+
         (_binding, _searching) = (row, false);
     }
 
@@ -377,13 +521,20 @@ internal sealed partial class OptionsScreen : GuiDialog
     private void Bound()
     {
         if (_binding is { } row && !_capturer.WasCancelled && NotNull(_capturer.CapturedKeyComb))
+        {
             EngineOptions.Bind(row.Code, _capturer.CapturedKeyComb);
+        }
+
         (_binding, _dirty) = (null, true);
     }
 
     private void Unbound()
     {
-        if (_capturer.IsCapturing()) _capturer.EndCapture(true); // the game's hotkeys work again
+        if (_capturer.IsCapturing())
+        {
+            _capturer.EndCapture(true); // the game's hotkeys work again
+        }
+
         (_binding, _dirty) = (null, true);
     }
 
@@ -391,18 +542,18 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         base.Dispose();
         ShaderOverview.Refreshed -= Refreshed;
-        KometStyles.Changed -= StylesChanged;
-        Komet.Core.Listeners.Unregister(capi.Event, _prefetch); // still reading when the world closes before the map came
+        StyleHub.Changed -= StylesChanged;
+        Listeners.Unregister(capi.Event, _prefetch); // still reading when the world closes before the map came
         _prefetch = 0;
         Unbound();
         _canvas.Dispose();
         _titleCanvas?.Dispose();
-        _backdrop?.Dispose();
-        _scene?.Dispose();
-        _styles?.Dispose();
-        _white?.Dispose();
-        _globe?.Dispose();
-        _atlas?.Dispose();
+        _backdrop.Dispose();
+        _scene.Dispose();
+        _styles.Dispose();
+        _white.Dispose();
+        _globe.Dispose();
+        _atlas.Dispose();
     }
 
     // The shader packs changed on a click: the pages anew, on the page that is open
@@ -419,30 +570,11 @@ internal sealed partial class OptionsScreen : GuiDialog
         _styles.Reload();
         _style = StyleSheet.Fallback();
         Restyle();
-        if (_pages.Length > 0) Rebuild(_page); // the style choice lists them
+        if (_pages.Length > 0)
+        {
+            Rebuild(_page); // the style choice lists them
+        }
     }
-
-    // The click map that goes with one picture: tabs, page list, keys and search (Hits), the list's rows (counted only
-    // inside View) and the page list's view. Clicks read the map of the picture on screen, which lags the newest
-    // composition.
-    private sealed class HitMap
-    {
-        public readonly List<Hit> Hits = [], Rows = [];
-        public readonly List<Plate> Backs = []; // grounds drawn under the picture (the panels)
-        public (double X, double Y, double W, double H) View, SideView;
-        public StyleSheet? Style; // the style the picture was made in
-        public (double X, double Y, double W, double H) Underline; // the open tab's
-        public readonly Dictionary<string, (double X, double Y, double W, double H)> Caps = []; // the keys' caps by label
-        public readonly List<(double Y, double H)> Bands = []; // the list's items as they show, top to bottom (they slide in)
-        public string Page = ""; // the page the picture shows
-        public (double X, double Y, double W, double H, string Text, double Tracking) Title = (0, 0, 0, 0, "", 0); // the page's
-    }
-
-    // A ground under the picture; Ticks: corner marks of that length
-    private readonly record struct Plate(double X, double Y, double W, double H, Rgba Color, double Ticks = 0, Rgba Tick = default,
-        bool Panel = false);
-
-    private HitMap OnScreen => _canvas.Shown as HitMap ?? _map;
 
     // A map no picture of the canvas holds, emptied for the next composition
     private HitMap FreeMap()
@@ -459,10 +591,54 @@ internal sealed partial class OptionsScreen : GuiDialog
         return free;
     }
 
+    // The click map that goes with one picture: tabs, page list, keys and search (Hits), the list's rows (counted only
+    // inside View) and the page list's view. Clicks read the map of the picture on screen, which lags the newest
+    // composition.
+    private sealed class HitMap
+    {
+        public readonly List<Plate> Backs = []; // grounds drawn under the picture (the panels)
+
+        public readonly List<(double Y, double H)>
+            Bands = []; // the list's items as they show, top to bottom (they slide in)
+
+        public readonly Dictionary<string, (double X, double Y, double W, double H)>
+            Caps = []; // the keys' caps by label
+
+        public readonly List<Hit> Hits = [], Rows = [];
+        public string Page = ""; // the page the picture shows
+        public StyleSheet? Style; // the style the picture was made in
+
+        public (double X, double Y, double W, double H, string Text, double Tracking)
+            Title = (0, 0, 0, 0, "", 0); // the page's
+
+        public (double X, double Y, double W, double H) Underline; // the open tab's
+        public (double X, double Y, double W, double H) View, SideView;
+    }
+
+    // A ground under the picture; Ticks: corner marks of that length
+    private readonly record struct Plate(
+        double X,
+        double Y,
+        double W,
+        double H,
+        Rgba Color,
+        double Ticks = 0,
+        Rgba Tick = default,
+        bool Panel = false);
+
     // Click gets x fraction and right-button; Row boxes only mark hover. Glow: highlight brightness; Group: its glide
     // column
-    private sealed record Hit(double X, double Y, double W, double H, Action<double, bool> Click, bool Drag = false,
-        OptionRow? Option = null, bool Row = false, double Glow = 0, int Group = 0)
+    private sealed record Hit(
+        double X,
+        double Y,
+        double W,
+        double H,
+        Action<double, bool> Click,
+        bool Drag = false,
+        OptionRow? Option = null,
+        bool Row = false,
+        double Glow = 0,
+        int Group = 0)
     {
         public bool Covers(double x, double y) => Finite(x) && Finite(y) && x >= X && x < X + W && y >= Y && y < Y + H;
     }

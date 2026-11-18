@@ -16,7 +16,8 @@ public sealed class DiagnosticsSynth
         var dialogs = Enumerable.Range(0, 20).Select(i => "dialog" + i).ToArray();
         var plain = Enumerable.Range(0, 300).Select(i => "mark" + i).ToArray();
         var entities = Enumerable.Range(0, 30).Select(i => "entity" + i).ToArray();
-        using var regen = new Regen(AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), nameof(FrameProfilerUtil.Mark), [typeof(string)]));
+        using var regen = new Regen(AccessTools.DeclaredMethod(typeof(FrameProfilerUtil),
+            nameof(FrameProfilerUtil.Mark), [typeof(string)]));
         try
         {
             var result = Synth.Run("ProfilerPool", "frame-376-marks", ops =>
@@ -27,7 +28,10 @@ public sealed class DiagnosticsSynth
                     for (var s = 0; s < stages.Length; s++)
                     {
                         SynthCalls.Mark(profiler, "beginrenderstage-", stages[s]);
-                        for (var m = 0; m < 25; m++) SynthCalls.Mark(profiler, plain[s * 25 + m]);
+                        for (var m = 0; m < 25; m++)
+                        {
+                            SynthCalls.Mark(profiler, plain[s * 25 + m]);
+                        }
                     }
 
                     foreach (var dialog in dialogs)
@@ -37,13 +41,21 @@ public sealed class DiagnosticsSynth
                     }
 
                     SynthCalls.Enter(profiler, "behaviors");
-                    foreach (var entity in entities) SynthCalls.Mark(profiler, entity);
+                    foreach (var entity in entities)
+                    {
+                        SynthCalls.Mark(profiler, entity);
+                    }
+
                     SynthCalls.Leave(profiler);
                     SynthCalls.End(profiler);
                 }
             }, 100, () => profiler.PrevRootEntry.Marks.Count, regen.Again);
             using (new FeatureRig("ProfilerPool"))
-                Assert.That(Komet.Diagnostics.ProfilerPool.Patched && Komet.Diagnostics.ProfilerPool.Recycling, Is.True);
+            {
+                Assert.That(Komet.Diagnostics.ProfilerPool.Patched && Komet.Diagnostics.ProfilerPool.Recycling,
+                    Is.True);
+            }
+
             Assert.That(result.Feature, Is.EqualTo("ProfilerPool"));
         }
         finally

@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.API.Server;
@@ -48,6 +49,12 @@ internal static class ChunkPacking
     public static int Max => MaxLevel;
     public static bool Installed { get; private set; }
 
+    // The server scan Scanning skips (prefix returning false)
+    internal static MethodBase?[] Replaced =>
+        AccessTools.TypeByName(ServerCompress) is { } type
+            ? [AccessTools.DeclaredMethod(type, "FindFreeableMemory")]
+            : [];
+
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "chunkDataPool")]
     private static extern ref ClientChunkDataPool? DataPool(ClientWorldMap map);
 
@@ -65,7 +72,11 @@ internal static class ChunkPacking
         Installed = false;
         var type = AccessTools.TypeByName(Compress);
         var tick = type is null ? null : AccessTools.DeclaredMethod(type, "OnSeperateThreadGameTick", [typeof(float)]);
-        if (!NotNull(harmony) || type is null || tick is null || AccessTools.DeclaredField(type, "ttlsByRamMode") is null) return;
+        if (type is null || tick is null ||
+            AccessTools.DeclaredField(type, "ttlsByRamMode") is null)
+        {
+            return;
+        }
         // the patched method itself (its postfix sees _inside), compiled once: no allocation per call
         var (system, dt) = (Expression.Parameter(typeof(object)), Expression.Parameter(typeof(float)));
         _tick = Expression.Lambda<Action<object, float>>(
@@ -82,17 +93,21 @@ internal static class ChunkPacking
 
     public static void Stop() =>
         (_tick, _ttls, _engineTtls, _appliedLevel, _engineSpares, _serverScanned, Installed) =
-        (null, null, null, -1, null, false, false);
+            (null, null, null, -1, null, false, false);
 
     // Level 3: cap the data pool's spare chunk datas, its own caps back below 3; on the main thread
     public static void Spares(ClientMain game)
     {
         if (game.WorldMap is not { } map || DataPool(map) is not { } pool || !Assert(pool.CacheSize >= 0)) return;
+
         if (Installed && Level >= MaxLevel)
         {
             // the engine's caps are 1000 or more: anything above the clamp is a fresh value from its RAM-mode setting
             if (_engineSpares is null || pool.CacheSize > SpareCache || pool.SlowDisposeThreshold > SpareSlowDispose)
+            {
                 _engineSpares = (pool.CacheSize, pool.SlowDisposeThreshold);
+            }
+
             (pool.CacheSize, pool.SlowDisposeThreshold) =
                 (Math.Min(pool.CacheSize, SpareCache), Math.Min(pool.SlowDisposeThreshold, SpareSlowDispose));
         }
@@ -106,13 +121,19 @@ internal static class ChunkPacking
     private static void Ticked(object __instance, float dt)
     {
         if (_inside || !Installed) return;
+
         var level = Math.Clamp(Level, 0, MaxLevel);
         if (level != _appliedLevel) Apply(__instance, level);
+
         if (_tick is not { } tick || level == 0) return;
+
         _inside = true;
         try
         {
-            for (var i = 1; i < Math.Min(PerTick[level], MaxTicks); i++) tick(__instance, dt);
+            for (var i = 1; i < Math.Min(PerTick[level], MaxTicks); i++)
+            {
+                tick(__instance, dt);
+            }
         }
         catch (Exception)
         {
@@ -131,29 +152,39 @@ internal static class ChunkPacking
     // pack does not (level 3's 2 s put back blocks changed after the pack). A server pack waits for the whole queue: a
     // chunk read or written since the scan that queued it stays unpacked, else a far one commits at the far time. Only
     // FreeMemory commits at UncompressedChunkTTL; TryPackAndCommit (8 s, chunk supply) packs right before its commit.
+    // ReSharper disable once InconsistentNaming - Harmony binds the parameter by the engine's name
     private static void Committing(WorldChunk __instance, ref int chunkTTL)
     {
         var level = Installed ? Math.Clamp(Level, 0, MaxLevel) : 0;
         var divided = Divisor[level] > 1 ? Math.Max(MinTtlMs, chunkTTL / Divisor[level]) : chunkTTL;
         if (level == 0 || __instance is not ServerChunk)
+        {
             chunkTTL = Math.Min(chunkTTL, Math.Max(CommitMs + MinTtlMs, divided)); // never above the caller's
-        else if (_serverScanned && chunkTTL == MagicNum.UncompressedChunkTTL && __instance.lastReadOrWrite - _serverScanAt >= 0)
+        }
+        else if (_serverScanned && chunkTTL == MagicNum.UncompressedChunkTTL &&
+                 __instance.lastReadOrWrite - _serverScanAt >= 0)
+        {
             chunkTTL = int.MaxValue;
-        else chunkTTL = Math.Min(divided, FarTtlMs);
+        }
+        else
+        {
+            chunkTTL = Math.Min(divided, FarTtlMs);
+        }
     }
 
     // Times untouched: the engine's divided by the level's divisor
     private static void Apply(object system, int level)
     {
         if (_ttls?.Invoke(system) is not { Length: 3 } ttls) return;
+
         _engineTtls ??= [.. ttls];
-        for (var i = 0; i < Math.Min(ttls.Length, 3); i++) ttls[i] = Math.Max(MinTtlMs, _engineTtls[i] / Divisor[level]);
+        for (var i = 0; i < Math.Min(ttls.Length, 3); i++)
+        {
+            ttls[i] = Math.Max(MinTtlMs, _engineTtls[i] / Divisor[level]);
+        }
+
         _appliedLevel = level;
     }
-
-    // The server scan Scanning skips (prefix returning false)
-    internal static System.Reflection.MethodBase?[] Replaced =>
-        AccessTools.TypeByName(ServerCompress) is { } type ? [AccessTools.DeclaredMethod(type, "FindFreeableMemory")] : [];
 
     private static void InstallServer(Harmony harmony)
     {
@@ -161,11 +192,18 @@ internal static class ChunkPacking
         var type = AccessTools.TypeByName(ServerCompress);
         var scan = type is null ? null : AccessTools.DeclaredMethod(type, "FindFreeableMemory");
         var tick = type is null ? null : AccessTools.DeclaredMethod(type, "OnSeparateThreadTick", []);
-        var (queue, gate) = type is null ? (null, null) :
-            (AccessTools.DeclaredField(type, "compactableChunks"), AccessTools.DeclaredField(type, "compactableChunksLock"));
-        if (!NotNull(harmony) || type is null || scan is null || tick is null || queue is null || gate is null ||
-            !typeof(ServerSystem).IsAssignableFrom(type)) return;
-        (_queue, _queueLock) = (AccessTools.FieldRefAccess<object, Queue<long>>(queue), AccessTools.FieldRefAccess<object, object>(gate));
+        var (queue, gate) = type is null
+            ? (null, null)
+            : (AccessTools.DeclaredField(type, "compactableChunks"),
+                AccessTools.DeclaredField(type, "compactableChunksLock"));
+        if (type is null || scan is null || tick is null || queue is null || gate is null ||
+            !typeof(ServerSystem).IsAssignableFrom(type))
+        {
+            return;
+        }
+
+        (_queue, _queueLock) = (AccessTools.FieldRefAccess<object, Queue<long>>(queue),
+            AccessTools.FieldRefAccess<object, object>(gate));
         var system = Expression.Parameter(typeof(object));
         _serverTick = Expression.Lambda<Action<object>>(
             Expression.Call(Expression.Convert(system, type), tick), system).Compile();
@@ -177,31 +215,49 @@ internal static class ChunkPacking
     private static bool Scanning(object __instance)
     {
         var level = Math.Clamp(Level, 0, MaxLevel);
-        if (level == 0 || __instance is not ServerSystem own || ServerOf(own) is not { } server || Loaded(server) is not { } loaded ||
-            _queue?.Invoke(__instance) is not { } queue || _queueLock?.Invoke(__instance) is not { } gate) return true;
+        if (level == 0 || __instance is not ServerSystem own || ServerOf(own) is not { } server ||
+            Loaded(server) is not { } loaded || _queue?.Invoke(__instance) is not { } queue ||
+            _queueLock?.Invoke(__instance) is not { } gate) return true;
+
         var near = new List<(int X, int Z)>();
-        // ChunkPos's own column math, without its throw for a playing client whose entity is not there yet
         using (var clients = server.Clients.Values.GetEnumerator())
+        {
             for (var i = 0; i < MaxClients && clients.MoveNext(); i++)
+            {
                 if (clients.Current is { State: EnumClientState.Playing, Position: { } at })
+                {
                     near.Add(((int)at.X / 32, (int)at.Z / 32));
-        var ttl = Math.Max(MinTtlMs, MagicNum.UncompressedChunkTTL / Divisor[level]);
-        var now = Environment.TickCount;
-        (_serverScanAt, _serverScanned) = (now, true); // before the queue: Committing judges each pack by it
+                }
+            }
+        }
+
+        var ttl = Math.Max(MinTtlMs, MagicNum.UncompressedChunkTTL / Divisor[level]); var now = Environment.TickCount;
+        (_serverScanAt, _serverScanned) = (now, true);
         lock (gate)
         {
             ref var chunksLock = ref LoadedLock(server);
             chunksLock.AcquireReadLock();
             try
             {
-                using var chunks = loaded.GetEnumerator(); // no copy of 50000 entries every scan
+                using var chunks = loaded.GetEnumerator();
                 for (var i = 0; i < MaxScanned && chunks.MoveNext(); i++)
                 {
                     var (key, chunk) = chunks.Current;
-                    if (chunk is null || chunk.IsPacked() || now - chunk.lastReadOrWrite <= Math.Min(ttl, FarTtlMs)) continue;
+                    if (chunk is null || chunk.IsPacked() ||
+                        now - chunk.lastReadOrWrite <= Math.Min(ttl, FarTtlMs))
+                    {
+                        continue;
+                    }
+
                     var pos = server.WorldMap.ChunkPosFromChunkIndex3D(key);
                     if (!chunk.Empty && pos.Dimension == 0 && Near(near, pos.X, pos.Z, 2)) continue;
-                    if (now - chunk.lastReadOrWrite <= ttl && (pos.Dimension != 0 || Near(near, pos.X, pos.Z, FarColumns))) continue;
+
+                    if (now - chunk.lastReadOrWrite <= ttl &&
+                        (pos.Dimension != 0 || Near(near, pos.X, pos.Z, FarColumns)))
+                    {
+                        continue;
+                    }
+
                     queue.Enqueue(key);
                 }
             }
@@ -211,14 +267,17 @@ internal static class ChunkPacking
             }
         }
 
-        return false; // queued: the engine's own scan would queue again
+        return false;
     }
 
     // Within `columns` of a player's chunk column (no closure: the scan sees every loaded chunk)
     private static bool Near(List<(int X, int Z)> near, int x, int z, int columns)
     {
         for (var j = 0; j < Math.Min(near.Count, MaxClients); j++)
+        {
             if (Math.Abs(near[j].X - x) < columns && Math.Abs(near[j].Z - z) < columns) return true;
+        }
+
         return false;
     }
 
@@ -226,10 +285,14 @@ internal static class ChunkPacking
     {
         var level = Math.Clamp(Level, 0, MaxLevel);
         if (_serverInside || level == 0 || _serverTick is not { } tick) return;
+
         _serverInside = true;
         try
         {
-            for (var i = 1; i < Math.Min(PerTick[level], MaxTicks); i++) tick(__instance);
+            for (var i = 1; i < Math.Min(PerTick[level], MaxTicks); i++)
+            {
+                tick(__instance);
+            }
         }
         finally
         {

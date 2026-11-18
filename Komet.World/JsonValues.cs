@@ -18,13 +18,11 @@ internal static class JsonValues
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
 
-    // Values swapped in the last pass
-    public static int Shared { get; private set; }
-
     public static void Install(ICoreClientAPI? api, ILogger? logger)
     {
         Stop();
         if (!NotNull(api)) return;
+
         (_api, _logger) = (api, logger);
         api.Event.LevelFinalize += Finalized;
         Installed = true;
@@ -33,24 +31,32 @@ internal static class JsonValues
     public static void Stop()
     {
         if (_api is { } api) api.Event.LevelFinalize -= Finalized;
-        (_api, _logger, Installed, Shared) = (null, null, false, 0);
+
+        (_api, _logger, Installed) = (null, null, false);
     }
 
     private static void Finalized()
     {
         if (!Enabled || _api?.World is not { } world) return;
+
         var pass = new Pass();
         try
         {
             foreach (var collectible in world.Collectibles.Bounded(MaxRoots))
             {
+                // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract - null ids
                 pass.Walk(collectible?.Attributes?.Token);
                 if (collectible is not Block block || block.BlockEntityBehaviors is not { } behaviors) continue;
-                foreach (var behavior in behaviors.Bounded(MaxRoots)) pass.Walk(behavior?.properties?.Token);
+
+                foreach (var behavior in behaviors.Bounded(MaxRoots))
+                {
+                    pass.Walk(behavior?.properties?.Token);
+                }
             }
 
             foreach (var type in world.EntityTypes.Bounded(MaxRoots))
             {
+                // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract - mods add nulls
                 pass.Walk(type?.Attributes?.Token);
                 pass.Walk(type?.Client?.BehaviorsAsJsonObj);
                 pass.Walk(type?.Server?.BehaviorsAsJsonObj);
@@ -61,38 +67,49 @@ internal static class JsonValues
             _logger?.Notification("Komet JsonValues: stopped early, {0}", e.Message);
         }
 
-        Shared = pass.Swapped;
         _logger?.Notification("Komet JsonValues: {0} attribute values share an equal one", pass.Swapped);
     }
 
     // One walk's tables; dropped after it, so only values still in use stay alive
     internal sealed class Pass
     {
-        private readonly Dictionary<string, string> _strings = new(StringComparer.Ordinal);
         private readonly Dictionary<long, object> _longs = [], _doubles = [];
         private readonly Stack<JToken> _open = new();
+        private readonly Dictionary<string, string> _strings = new(StringComparer.Ordinal);
         private int _tokens;
 
         public int Swapped { get; private set; }
 
-        public void Walk(JsonObject[]? objects)
+        public void Walk(JsonObject?[]? objects)
         {
             if (objects is null) return;
-            foreach (var item in objects.Bounded(MaxRoots)) Walk(item?.Token);
+
+            foreach (var item in objects.Bounded(MaxRoots))
+            {
+                Walk(item?.Token);
+            }
         }
 
         // Depth first through First/Next, no enumerator allocated per container
         public void Walk(JToken? root)
         {
             if (root is null) return;
+
             _open.Clear();
             _open.Push(root);
             for (var step = 0; step < MaxTokens; step++)
             {
                 if (_tokens >= MaxTokens || !_open.TryPop(out var token)) return;
+
                 _tokens++;
-                if (token is JValue value) Share(value);
-                else if (token is JContainer container) Open(container.First);
+                if (token is JValue value)
+                {
+                    Share(value);
+                }
+                else if (token is JContainer container)
+                {
+                    Open(container.First);
+                }
             }
         }
 
@@ -102,6 +119,7 @@ internal static class JsonValues
             for (var i = 0; i < MaxOpen; i++)
             {
                 if (child is null || _open.Count >= MaxOpen) return;
+
                 _open.Push(child);
                 child = child.Next;
             }
@@ -119,6 +137,7 @@ internal static class JsonValues
                 _ => current
             };
             if (ReferenceEquals(kept, current)) return;
+
             value.Value = kept; // same type: only the reference changes
             Swapped++;
         }
@@ -127,6 +146,7 @@ internal static class JsonValues
             where TKey : notnull
         {
             if (table.TryGetValue(key, out var kept)) return kept;
+
             table[key] = current;
             return current;
         }

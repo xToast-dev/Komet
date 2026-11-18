@@ -23,7 +23,14 @@ internal static class ChunkBudget
     // EngineShape of OnBeforeFrame in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0xC843DFD7A971F8EBUL;
     public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3, CeilingMillis = 6;
-    private const int BoostMillis = 8, BoostAbove = 400, BoostBelow = 100, MaxLookahead = 16, YieldMillis = 6, TypicalShift = 4;
+
+    private const int BoostMillis = 8,
+        BoostAbove = 400,
+        BoostBelow = 100,
+        MaxLookahead = 16,
+        YieldMillis = 6,
+        TypicalShift = 4;
+
     private const string PreMark = "komet-upload-pre", UploadMark = "komet-upload";
     private static long _deadline, _ceiling, _began, _spent, _allowed, _typical;
     private static bool _admitted, _fired, _asked, _cut, _yielded;
@@ -44,7 +51,9 @@ internal static class ChunkBudget
     private static extern ref bool PriorityAsked(ChunkTesselatorManager manager);
 
     internal static MethodBase?[] Seams() =>
-        [AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.OnBeforeFrame))];
+        [
+            AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.OnBeforeFrame))
+        ];
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
@@ -52,8 +61,12 @@ internal static class ChunkBudget
         (_admitted, _fired, _asked, _cut, Boosted, Capped, Ceiled, _yielded) =
             (false, false, false, false, false, false, false, false);
         var frame = Seams()[0];
-        if (!NotNull(harmony) || !NotNull(frame) || !EngineShape.Matches([frame], fingerprint, nameof(ChunkBudget), logger))
+        if (!NotNull(frame) ||
+            !EngineShape.Matches([frame], fingerprint, nameof(ChunkBudget), logger))
+        {
             return;
+        }
+
         _ = harmony.Patch(frame, new HarmonyMethod(Begin), new HarmonyMethod(End), new HarmonyMethod(Rewrite));
     }
 
@@ -73,8 +86,12 @@ internal static class ChunkBudget
         _deadline = own != 0 ? now + own : 0;
         var ceiling = Math.Max(CeilingMillis, millis);
         _ceiling = Assert(ceiling <= MaxCapMillis) ? now + Ticks(ceiling) : 0;
-        (_admitted, _fired, _asked, _cut, _began, _spent, _allowed) = (false, false, false, false, now, 0, Ticks(millis));
-        if (Yielding(now, FrameClock.FrameStart) && _deadline != 0) _deadline = now + 1; // first chunk, then the cap
+        (_admitted, _fired, _asked, _cut, _began, _spent, _allowed) =
+            (false, false, false, false, now, 0, Ticks(millis));
+        if (Yielding(now, FrameClock.FrameStart) && _deadline != 0)
+        {
+            _deadline = now + 1; // first chunk, then the cap
+        }
     }
 
     internal static bool Yielding(long now, long start)
@@ -87,6 +104,7 @@ internal static class ChunkBudget
 
         var (into, slack) = (now - start, Ticks(YieldMillis));
         if (_typical == 0) _typical = Math.Min(into, slack);
+
         var slow = !_yielded && _typical > 0 && into > _typical + slack;
         _typical += (Math.Min(into, _typical + slack) - _typical) >> TypicalShift; // a slow frame moves it by <= slack
         _yielded = slow;
@@ -96,8 +114,13 @@ internal static class ChunkBudget
     // Harmony injects __instance by name
     internal static void End(ChunkTesselatorManager __instance)
     {
-        if (_cut) PriorityAsked(__instance) = true; // engine cleared it: rest goes next frame
+        if (_cut)
+        {
+            PriorityAsked(__instance) = true; // engine cleared it: rest goes next frame
+        }
+
         if (_began > 0) Spent(Stopwatch.GetTimestamp() - _began);
+
         _began = 0;
         ScreenManager.FrameProfiler?.Mark(UploadMark);
     }
@@ -106,12 +129,14 @@ internal static class ChunkBudget
     public static void Spent(long ticks)
     {
         if (!Assert(ticks >= 0)) return;
+
         _spent += ticks;
     }
 
     private static void Book()
     {
         if (!Counting.Hud || _allowed == 0 || _spent <= _allowed) return;
+
         (Over, OverTicks) = (Over + 1, OverTicks + _spent - _allowed);
     }
 
@@ -125,8 +150,10 @@ internal static class ChunkBudget
         }
 
         if (Stopwatch.GetTimestamp() < _ceiling) return count;
+
         _cut = true;
         if (Counting.Hud) PriorityCuts++;
+
         return 0;
     }
 
@@ -153,8 +180,10 @@ internal static class ChunkBudget
         }
 
         if (Stopwatch.GetTimestamp() < _deadline) return budget;
+
         (_deadline, _fired) = (0, true);
         if (Counting.Hud) CapHits++;
+
         return int.MinValue;
     }
 
@@ -163,13 +192,23 @@ internal static class ChunkBudget
     {
         (Capped, Ceiled) = (false, false);
         if (!Assert(Il.Take(instructions, Il.MaxInstructions, out var code))) return code;
+
         var (cap, gate) = (CapSite(code), GateSite(code));
         var (capping, gating) = (AccessTools.Method(typeof(ChunkBudget), nameof(Cap)),
             AccessTools.Method(typeof(ChunkBudget), nameof(Priority)));
         if (!NotNull(capping) || !NotNull(gating)) return code;
-        if (cap >= 0) code.Insert(cap + 1, new CodeInstruction(OpCodes.Call, capping)); // consumes num3, leaves the cap
+
+        if (cap >= 0)
+        {
+            code.Insert(cap + 1, new CodeInstruction(OpCodes.Call, capping)); // consumes num3, leaves the cap
+        }
+
         var gated = gate >= 0 && (cap < 0 || gate < cap); // before the cap: inserting it moved nothing earlier
-        if (gated) code.Insert(gate + 1, new CodeInstruction(OpCodes.Call, gating)); // takes the count, leaves it or 0
+        if (gated)
+        {
+            code.Insert(gate + 1, new CodeInstruction(OpCodes.Call, gating)); // takes the count, leaves it or 0
+        }
+
         (Capped, Ceiled) = (cap >= 0, gated);
         return code;
     }
@@ -182,8 +221,10 @@ internal static class ChunkBudget
             nameof(ClientSettings.ChunkVerticesUploadRateLimiter));
         var sort = AccessTools.Method(typeof(SortableQueue<TesselatedChunk>), nameof(SortableQueue<>.Sort));
         if (!NotNull(limiter) || !NotNull(sort)) return -1;
+
         int read = Il.Single(code, c => c.Calls(limiter)), sorted = Il.Single(code, c => c.Calls(sort));
         if (!Assert(read >= 0) || !Assert(sorted > read)) return -1;
+
         var site = Site(code, sorted, Budget(code, read));
         return Assert(site > sorted) ? site : -1;
     }
@@ -191,7 +232,10 @@ internal static class ChunkBudget
     private static int Budget(List<CodeInstruction> code, int read)
     {
         for (var step = 1; step < Math.Min(code.Count - read, MaxLookahead); step++)
+        {
             if (Il.Local(code[read + step], Il.Uses.Store) is var local and >= 0) return local;
+        }
+
         return -1;
     }
 
@@ -199,6 +243,7 @@ internal static class ChunkBudget
     private static int Site(List<CodeInstruction> code, int sorted, int budget)
     {
         if (budget < 0) return -1;
+
         var site = -1;
         for (var i = sorted + 1; i < Math.Min(code.Count - 1, Il.MaxInstructions); i++)
         {
@@ -206,8 +251,13 @@ internal static class ChunkBudget
             if (Il.Local(code[i], Il.Uses.Load) != budget ||
                 (branch.opcode != OpCodes.Blt && branch.opcode != OpCodes.Blt_S) ||
                 branch.operand is not Label target ||
-                code.FindIndex(sorted, i - sorted, c => c.labels.Contains(target)) < 0) continue;
+                code.FindIndex(sorted, i - sorted, c => c.labels.Contains(target)) < 0)
+            {
+                continue;
+            }
+
             if (site >= 0) return -1;
+
             site = i;
         }
 
@@ -221,6 +271,7 @@ internal static class ChunkBudget
         var count = AccessTools.PropertyGetter(typeof(Queue<TesselatedChunk>), nameof(Queue<>.Count));
         var asked = AccessTools.DeclaredField(typeof(ChunkTesselatorManager), "processPrioQueue");
         if (queue is null || !NotNull(count) || asked?.FieldType != typeof(bool) || asked.IsStatic) return -1;
+
         return Il.CountLoop(code, queue, count);
     }
 }

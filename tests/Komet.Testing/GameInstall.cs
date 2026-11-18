@@ -5,19 +5,21 @@ namespace Komet.Testing;
 // assets calls RequireAssets first, so a machine without an installation skips it instead of failing.
 public static class GameInstall
 {
-    public const string Variable = "VINTAGE_STORY", Fallback = "/opt/vintagestory";
+    private const string Variable = "VINTAGE_STORY", Fallback = "/opt/vintagestory";
 
     private static int _resolving;
 
-    public static string Directory { get; } = Resolve();
+    private static string Directory { get; } = Resolve();
     public static string Assets => Path.Combine(Directory, "assets");
     public static string Lib => Path.Combine(Directory, "Lib");
-    public static string Mods => Path.Combine(Directory, "Mods");
+    private static string Mods => Path.Combine(Directory, "Mods");
 
     public static void RequireAssets()
     {
         if (!System.IO.Directory.Exists(Path.Combine(Assets, "game", "shapes")))
+        {
             Assert.Ignore($"no game assets under {Assets}: this test needs a Vintage Story installation");
+        }
     }
 
     // The game's own dependencies from the installation, where the engine's AssemblyResolver finds them: the game folder, Lib and

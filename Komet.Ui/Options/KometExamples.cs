@@ -1,5 +1,6 @@
 using Komet.Rendering;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Komet.Options;
 
@@ -9,16 +10,17 @@ namespace Komet.Options;
 internal static class KometExamples
 {
     public const string Style = "style", Shader = "shader", Mod = "mod", Vulkan = "vulkan";
+    private const string TemplatePath = "config/komet-templates/";
+    private const int MaxFiles = 32, MaxNames = 100;
 
     // A whole mod made for Komet to copy into the Mods folder: kept apart from the packs and styles Komet reads
     public static string ModFolder => Path.Join(GamePaths.ModConfig, "komet", "mod-template");
-    private const string TemplatePath = "config/komet-templates/";
-    private const int MaxFiles = 32, MaxNames = 100;
 
     // The folder the example went to, or null (no template, or it could not be written; logged)
     public static string? Create(ICoreClientAPI api, string kind)
     {
-        if (!NotNull(api) || !NotNull(kind) || api.Assets is null) return null;
+        if (!NotNull(kind) || api.Assets is null) return null;
+
         var root = kind switch
         {
             Style => StyleLibrary.UserFolder,
@@ -26,7 +28,7 @@ internal static class KometExamples
             _ => ShaderPacks.UserFolder
         };
         var source = TemplatePath + kind + "-example/";
-        var files = api.Assets.GetMany(source, "komet", true);
+        var files = api.Assets.GetMany(source, KometDocs.SdkDomain);
         if (files is not { Count: > 0 })
         {
             api.Logger?.Warning("Komet: the {0} example is missing from Komet's assets", kind);
@@ -40,7 +42,8 @@ internal static class KometExamples
             foreach (var file in files.Bounded(MaxFiles))
             {
                 // C# sources travel as .cs.txt: the game refuses a zipped mod (Komet) with .cs files outside src/
-                var target = Path.Join(folder, file.Location.Path[source.Length..].Replace(".cs.txt", ".cs", StringComparison.Ordinal));
+                var target = Path.Join(folder,
+                    file.Location.Path[source.Length..].Replace(".cs.txt", ".cs", StringComparison.Ordinal));
                 _ = Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.WriteAllBytes(target, file.Data);
             }
@@ -59,13 +62,15 @@ internal static class KometExamples
 
     // A style's id is its folder's name unless style.json sets one, and the template sets "example": a second copy
     // (example-2) takes its folder's name, so it neither replaces the first nor leaves the Style page on an unknown id
-    internal static void Named(string folder)
+    private static void Named(string folder)
     {
         var file = Path.Join(folder, "style.json");
         if (!NotNull(folder) || !File.Exists(file)) return;
+
         var name = Path.GetFileName(folder);
-        var json = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(file));
+        var json = JObject.Parse(File.ReadAllText(file));
         if ((string?)json["id"] == name) return;
+
         json["id"] = name;
         File.WriteAllText(file, json.ToString(Formatting.Indented) + "\n");
     }
@@ -74,7 +79,11 @@ internal static class KometExamples
     internal static string Free(string root, string name = "example")
     {
         var folder = Path.Join(root, name);
-        for (var n = 2; n < MaxNames && Directory.Exists(folder); n++) folder = Path.Join(root, name + "-" + n);
+        for (var n = 2; n < MaxNames && Directory.Exists(folder); n++)
+        {
+            folder = Path.Join(root, name + "-" + n);
+        }
+
         return folder;
     }
 }

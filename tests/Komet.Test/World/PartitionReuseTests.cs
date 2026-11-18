@@ -64,13 +64,25 @@ public sealed class PartitionReuseTests
         PartitionReuse.Install(harmony);
         var (partitioning, entities) = (Partitioning(), World(Ticks));
         Moves(entities, 0);
-        for (var i = 0; i < 4; i++) Partition(partitioning, entities);
+        for (var i = 0; i < 4; i++)
+        {
+            Partition(partitioning, entities);
+        }
+
         var start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 4; i++) Partition(partitioning, entities);
+        for (var i = 0; i < 4; i++)
+        {
+            Partition(partitioning, entities);
+        }
+
         var pooled = GC.GetAllocatedBytesForCurrentThread() - start;
         PartitionReuse.Enabled = false;
         start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 4; i++) Partition(partitioning, entities);
+        for (var i = 0; i < 4; i++)
+        {
+            Partition(partitioning, entities);
+        }
+
         var engine = GC.GetAllocatedBytesForCurrentThread() - start;
         Assert.That(pooled, Is.LessThan(engine / 20), $"pooled {pooled} B, engine {engine} B for four calls");
     }
@@ -98,12 +110,17 @@ public sealed class PartitionReuseTests
         var (partitioning, entities) = (Partitioning(), World(Ticks));
         var (seen, ids) = (new List<string>(), new Dictionary<Entity, int>(ReferenceEqualityComparer.Instance));
         players = [];
-        for (var i = 0; i < entities.Count; i++) ids[entities[i]] = i;
+        for (var i = 0; i < entities.Count; i++)
+        {
+            ids[entities[i]] = i;
+        }
+
         for (var tick = 0; tick < Ticks; tick++)
         {
             Moves(entities, tick);
             Partition(partitioning, tick % 3 == 2 ? [.. entities.Take(entities.Count - tick)] : entities);
             if (tick == 4) partitioning.RePartitionPlayer((EntityPlayer)entities[0]);
+
             seen.Add(Describe(partitioning, ids));
             players.Add(string.Join(",", entities.OfType<EntityPlayer>()
                 .Select(p => p.entityListForPartitioning is { } list ? Ids(list, ids) : "none")));
@@ -115,9 +132,12 @@ public sealed class PartitionReuseTests
     private static EntityPartitioning Partitioning()
     {
         var blocks =
-            Answers.Of<IBlockAccessor>(new() { ["get_MapSizeX"] = _ => MapSize, ["get_MapSizeZ"] = _ => MapSize });
-        var world = Answers.Of<IWorldAccessor>(new() { ["get_BlockAccessor"] = _ => blocks });
-        var api = Answers.Of<ICoreAPI>(new() { ["get_World"] = _ => world });
+            Answers.Of<IBlockAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
+                { ["get_MapSizeX"] = _ => MapSize, ["get_MapSizeZ"] = _ => MapSize });
+        var world = Answers.Of<IWorldAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_BlockAccessor"] = _ => blocks });
+        var api = Answers.Of<ICoreAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_World"] = _ => world });
         var partitioning = new EntityPartitioning();
         AccessTools.Field(typeof(EntityPartitioning), "api").SetValue(partitioning, api);
         return partitioning;
@@ -127,8 +147,16 @@ public sealed class PartitionReuseTests
     private static List<Entity> World(int count)
     {
         var entities = new List<Entity> { new EntityPlayer(), new EntityPlayer() };
-        for (var i = 0; i < 12 * count; i++) entities.Add(i % 3 == 0 ? new EntityItem() : new EntityAgent());
-        for (var i = 0; i < entities.Count; i++) entities[i].touchDistance = i % 7 * 0.25;
+        for (var i = 0; i < 12 * count; i++)
+        {
+            entities.Add(i % 3 == 0 ? new EntityItem() : new EntityAgent());
+        }
+
+        for (var i = 0; i < entities.Count; i++)
+        {
+            entities[i].touchDistance = i % 7 * 0.25;
+        }
+
         return entities;
     }
 
@@ -150,7 +178,7 @@ public sealed class PartitionReuseTests
         return string.Join(" ", chunks) + $" touch {partitioning.LargestTouchDistance}";
     }
 
-    private static string Cells(List<Entity>[] cells, Dictionary<Entity, int> ids) =>
+    private static string Cells(List<Entity>?[] cells, Dictionary<Entity, int> ids) =>
         string.Join(";", cells.Select(list => list is null ? "-" : Ids(list, ids)));
 
     private static string Ids(List<Entity> list, Dictionary<Entity, int> ids) =>

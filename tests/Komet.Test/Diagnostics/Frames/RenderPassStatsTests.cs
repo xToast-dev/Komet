@@ -7,31 +7,34 @@ namespace Komet.Test.Diagnostics;
 // the 79 ms spike" needs the one worst frame kept whole, which is what these tests pin down.
 public sealed class RenderPassStatsTests
 {
-    private static List<(string Key, double Ms)> Shown(RenderPassStats stats)
-    {
-        return
+    private static List<(string Key, double Ms)> Shown(RenderPassStats stats) =>
         [
             .. Enumerable.Range(0, RenderPassStats.Count).Select(place => (stats.Key(place), stats.AverageMs(place)))
         ];
-    }
 
     // A mark carries the time since the previous one, so the ms a pass is meant to get belongs to the mark after its stage begins
-    private static ProfileEntryRange Split(double opaqueMs, double guiMs)
-    {
-        return Frame(10, ("beginrenderstage-Opaque", 0.1), ("rend3D-ret-op", opaqueMs), ("beginrenderstage-Ortho", 0.1),
+    private static ProfileEntryRange Split(double opaqueMs, double guiMs) =>
+        Frame(10, ("beginrenderstage-Opaque", 0.1), ("rend3D-ret-op", opaqueMs), ("beginrenderstage-Ortho", 0.1),
             ("komet-hud", guiMs));
-    }
 
     // The order is redecided every interval: a pass that was the dearest one window is not owed the top row in the next
     [Test]
     public void OrderFollowsTheLatestWindow()
     {
         var stats = new RenderPassStats();
-        for (var i = 0; i < 10; i++) stats.AddFrame(Split(1, 6), true);
+        for (var i = 0; i < 10; i++)
+        {
+            stats.AddFrame(Split(1, 6), true);
+        }
+
         stats.UpdateOrder();
         Assert.That(stats.Key(0), Is.EqualTo("gui"), "the window the GUI pass owned");
         stats.Reset();
-        for (var i = 0; i < 10; i++) stats.AddFrame(Split(6, 1), true);
+        for (var i = 0; i < 10; i++)
+        {
+            stats.AddFrame(Split(6, 1), true);
+        }
+
         stats.UpdateOrder();
         var shown = Shown(stats);
         Assert.Multiple(() =>
@@ -68,7 +71,11 @@ public sealed class RenderPassStatsTests
     {
         ArgumentNullException.ThrowIfNull(frames);
         var stats = new RenderPassStats();
-        foreach (var (frame, steady) in frames) stats.AddFrame(frame, steady);
+        foreach (var (frame, steady) in frames)
+        {
+            stats.AddFrame(frame, steady);
+        }
+
         Assert.Multiple(() =>
         {
             Assert.That(stats.WorstFrameMs, Is.EqualTo(worstMs).Within(0.5));
@@ -94,10 +101,8 @@ public sealed class RenderPassStatsTests
     }
 
     private static FrameRecord Record(double dtMs, ProfileEntryRange? root = null, double outsideMs = 0,
-        double gcMs = 0, double jitMs = 0, double runQueueMs = 0)
-    {
-        return new FrameRecord(0, dtMs, gcMs, outsideMs, jitMs, runQueueMs, root);
-    }
+        double gcMs = 0, double jitMs = 0, double runQueueMs = 0) =>
+        new(0, dtMs, gcMs, outsideMs, jitMs, runQueueMs, root);
 
     private static ProfileEntryRange Range(string code, double ms, params (string Code, double Ms)[] marks)
     {
@@ -180,21 +185,21 @@ public sealed class RenderPassStatsTests
     [Test]
     public void AClickBetweenFramesDoesNotReplaceTheFramesProfile()
     {
-        const int FrameMs = 10, ClickMs = 2;
+        const int frameMs = 10, clickMs = 2;
         var profiler = new FrameProfilerUtil(_ => { }) { Enabled = true };
         Clock.With(true, profiler, () =>
         {
             FrameClock.Begin(); // window_RenderFrame's prefix
             profiler.Begin();
             profiler.Mark("beginrenderstage-Opaque");
-            Busy.Spin(FrameMs);
+            Busy.Spin(frameMs);
             profiler.Mark("rend3D-ret-op");
             profiler.End();
             FrameClock.End(); // window_RenderFrame's postfix
             var frameRoot = profiler.PrevRootEntry;
 
             profiler.Begin("mousedown"); // OpenTK's event processing, between the frames
-            Busy.Spin(ClickMs);
+            Busy.Spin(clickMs);
             profiler.Mark("click");
             profiler.End();
             var clickRoot = profiler.PrevRootEntry;
@@ -209,10 +214,10 @@ public sealed class RenderPassStatsTests
                 Assert.That(clickRoot, Is.Not.SameAs(frameRoot), "the engine did overwrite it");
                 Assert.That(record.Root, Is.SameAs(frameRoot));
                 Assert.That(record.Root!.Marks, Does.ContainKey("rend3D-ret-op").And.Not.ContainKey("click"));
-                Assert.That(record.OutsideMs, Is.GreaterThanOrEqualTo(ClickMs),
+                Assert.That(record.OutsideMs, Is.GreaterThanOrEqualTo(clickMs),
                     "the click's time is between the frames");
                 Assert.That(passes.WorstMarkName(0), Is.EqualTo("rend3D-ret-op"));
-                Assert.That(Shown(passes).Single(row => row.Key == "opaque").Ms, Is.GreaterThanOrEqualTo(FrameMs));
+                Assert.That(Shown(passes).Single(row => row.Key == "opaque").Ms, Is.GreaterThanOrEqualTo(frameMs));
             });
         });
     }
@@ -238,7 +243,11 @@ public sealed class RenderPassStatsTests
     private static SpikeLedger Settled(double ms = 10, int frames = 500)
     {
         var ledger = new SpikeLedger();
-        for (var i = 0; i < frames; i++) _ = ledger.Add(Record(ms), [], true, i);
+        for (var i = 0; i < frames; i++)
+        {
+            _ = ledger.Add(Record(ms), [], true, i);
+        }
+
         return ledger;
     }
 
@@ -290,7 +299,11 @@ public sealed class RenderPassStatsTests
     {
         var ledger = Settled();
         _ = ledger.Add(Record(90), [("esr-afteranim", 70.0)], true, 1);
-        for (var i = 0; i < 4; i++) _ = ledger.Add(Record(40), [("doneMTT", 25.0), ("rend3D-ret-op", 5.0)], true, 2);
+        for (var i = 0; i < 4; i++)
+        {
+            _ = ledger.Add(Record(40), [("doneMTT", 25.0), ("rend3D-ret-op", 5.0)], true, 2);
+        }
+
         ledger.Rank();
         Assert.Multiple(() =>
         {
@@ -347,7 +360,10 @@ public sealed class RenderPassStatsTests
     {
         var ledger = Settled();
         for (var i = 0; i < SpikeLedger.Recent + 3; i++)
+        {
             _ = ledger.Add(Record(30 + i, gcMs: 0.1 * i), [($"mark{i}", 20.0), ("second", 1.0)], true, i);
+        }
+
         Assert.Multiple(() =>
         {
             Assert.That(ledger.Stored, Is.EqualTo(SpikeLedger.Recent));
@@ -370,7 +386,9 @@ public sealed class RenderPassStatsTests
         {
             _ = ledger.Add(Record(40), [($"initbe-{i}", 30.0)], true, 0);
             for (var j = 0; j < 20; j++)
+            {
                 _ = ledger.Add(Record(10), [], true, 0); // isolated hitches, not a slow stretch
+            }
         }
 
         ledger.Rank();

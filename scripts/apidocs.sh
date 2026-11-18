@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The developer site (docs/site): API reference from Komet.Api's XML comments plus the articles, built with DocFX like
-# apidocs.vintagestory.at. Also packs the Vulkan shader template as a download.
+# The developer site (docs/site): API reference from the XML comments of KAPI (Komet.Api) plus the articles, built
+# with DocFX like apidocs.vintagestory.at. Also packs the Vulkan shader template as a download.
 #
 #   scripts/apidocs.sh [--serve]
 #
@@ -26,7 +26,7 @@ fi
 [[ -x $DOCFX ]] || dotnet tool install --tool-path "$TOOLS/docfx" docfx --version "$DOCFX_VERSION" >/dev/null
 
 # The template as a zip, the same files the in-game button writes
-TEMPLATE=Komet/assets/komet/config/komet-templates/vulkan-example
+TEMPLATE=Komet.Sdk/assets/kometsdk/config/komet-templates/vulkan-example
 mkdir -p docs/site/downloads
 rm -f docs/site/downloads/komet-vulkan-template.zip
 python3 - "$TEMPLATE" docs/site/downloads/komet-vulkan-template.zip <<'PY'

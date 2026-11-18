@@ -14,6 +14,7 @@ internal static class Counting
         set
         {
             if (value && !field) Epoch++;
+
             field = value;
             Update();
         }
@@ -29,10 +30,7 @@ internal static class Counting
         }
     }
 
-    private static void Update()
-    {
-        On = Hud || Bench;
-    }
+    private static void Update() => On = Hud || Bench;
 }
 
 // Ever-growing totals without one shared hot cell: each add goes to the cache-line slot of the processor it runs on, a read
@@ -57,6 +55,7 @@ internal sealed class Tally
     public void Add(int counter, long n)
     {
         if (!Index(counter, _width) || !Assert(n >= 0)) return;
+
         var slot = Thread.GetCurrentProcessorId() & (Slots - 1);
         _ = Interlocked.Add(ref _cells[slot * _stride + counter], n);
     }
@@ -64,13 +63,15 @@ internal sealed class Tally
     public long Total(int counter)
     {
         if (!Index(counter, _width)) return 0;
+
         long sum = 0;
-        for (var slot = 0; slot < Slots; slot++) sum += Volatile.Read(ref _cells[slot * _stride + counter]);
+        for (var slot = 0; slot < Slots; slot++)
+        {
+            sum += Volatile.Read(ref _cells[slot * _stride + counter]);
+        }
+
         return sum;
     }
 
-    public void Clear()
-    {
-        Array.Clear(_cells);
-    }
+    public void Clear() => Array.Clear(_cells);
 }

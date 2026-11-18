@@ -18,14 +18,17 @@ internal static class SoundsOnDemand
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
 
-    internal static MethodBase? Target() =>
-        AccessTools.DeclaredMethod(typeof(ScreenManager), nameof(ScreenManager.LoadSoundsSlow), [typeof(ClientMain)]);
+    private static MethodInfo? Target() =>
+        AccessTools.DeclaredMethod(typeof(ScreenManager), nameof(ScreenManager.LoadSoundsSlow),
+            [typeof(ClientMain)]);
 
     public static void Install(Harmony harmony)
     {
         Rewritten = false;
-        if (!NotNull(harmony) || Target() is not MethodInfo load) return;
-        _ = harmony.Patch(load, transpiler: new HarmonyMethod(AccessTools.Method(typeof(SoundsOnDemand), nameof(Rewrite))));
+        if (Target() is not { } load) return;
+
+        _ = harmony.Patch(load,
+            transpiler: new HarmonyMethod(AccessTools.Method(typeof(SoundsOnDemand), nameof(Rewrite))));
     }
 
     // The one ClientSettings.OptimizeRamMode read becomes Mode(); any other count keeps the IL
@@ -33,7 +36,9 @@ internal static class SoundsOnDemand
     {
         var mode = AccessTools.PropertyGetter(typeof(ClientSettings), nameof(ClientSettings.OptimizeRamMode));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(mode)) return code;
-        Rewritten = Il.SubstituteSingle(code, c => c.Calls(mode), AccessTools.Method(typeof(SoundsOnDemand), nameof(Mode)));
+
+        Rewritten = Il.SubstituteSingle(code, c => c.Calls(mode),
+            AccessTools.Method(typeof(SoundsOnDemand), nameof(Mode)));
         return code;
     }
 

@@ -3,8 +3,6 @@ namespace Komet.Test.Synth;
 [Category(Synth.Category)]
 public sealed class ChunksSynth
 {
-    private delegate int[] Combined(byte[] data, ref int[][]? blocks, ref int count, Func<int[]>? make);
-
     private static readonly Combined Unpack =
         AccessTools.Method(typeof(Compression), "DecompressCombined").CreateDelegate<Combined>();
 
@@ -14,9 +12,17 @@ public sealed class ChunksSynth
     {
         var r = new Random(1);
         var palette = new int[16];
-        for (var i = 0; i < palette.Length; i++) palette[i] = r.Next();
+        for (var i = 0; i < palette.Length; i++)
+        {
+            palette[i] = r.Next();
+        }
+
         var planes = new int[4 * 1024];
-        for (var i = 0; i < planes.Length; i++) planes[i] = r.Next();
+        for (var i = 0; i < planes.Length; i++)
+        {
+            planes[i] = r.Next();
+        }
+
         var layer = Compression.CompressAndCombine(planes, palette, 16);
         var slices = Enumerable.Range(0, 15).Select(_ => new int[1024]).ToArray();
         var count = 0;
@@ -29,4 +35,6 @@ public sealed class ChunksSynth
             }
         }, 200, () => slices[3][77]);
     }
+
+    private delegate int[] Combined(byte[] data, ref int[][]? blocks, ref int count, Func<int[]>? make);
 }

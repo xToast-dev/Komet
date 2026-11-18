@@ -28,6 +28,7 @@ internal static class EntityTimes
     public static long Ticks(int part) => Index(part, Parts) ? Totals[part] : 0;
 
     public static double SlowestMs(int part) => Index(part, Parts) ? Worst[part] : 0;
+
     public static string SlowestCode(int part) => Index(part, Parts) ? WorstCodes[part] : "";
 
     public static void ResetPeaks()
@@ -48,7 +49,8 @@ internal static class EntityTimes
         Clear();
         var (tick, frame) = (AccessTools.DeclaredMethod(typeof(ClientSystemEntities), "OnGameTick", [typeof(float)]),
             AccessTools.DeclaredMethod(typeof(SystemRenderEntities), "OnBeforeRender", [typeof(float)]));
-        if (!NotNull(harmony) || !NotNull(tick) || !NotNull(frame)) return;
+        if (!NotNull(tick) || !NotNull(frame)) return;
+
         _ = harmony.Patch(tick, transpiler: new HarmonyMethod(RewriteTick));
         _ = harmony.Patch(frame, transpiler: new HarmonyMethod(RewriteFrame));
     }
@@ -58,9 +60,14 @@ internal static class EntityTimes
     {
         _sites &= ~TickSite;
         if (!Il.Take(instructions, Il.MaxInstructions, out var code)) return code;
+
         var tick = AccessTools.Method(typeof(Entity), nameof(Entity.OnGameTick));
-        if (Il.SubstituteSingle(code, c => c.Calls(tick), AccessTools.DeclaredMethod(typeof(EntityTimes), nameof(Ticked))))
+        if (Il.SubstituteSingle(code, c => c.Calls(tick),
+                AccessTools.DeclaredMethod(typeof(EntityTimes), nameof(Ticked))))
+        {
             _sites |= TickSite;
+        }
+
         return code;
     }
 
@@ -69,13 +76,22 @@ internal static class EntityTimes
     {
         _sites &= ~FrameSites;
         if (!Il.Take(instructions, Il.MaxInstructions, out var code)) return code;
+
         var (animate, before) = (AccessTools.Method(typeof(IAnimationManager), nameof(IAnimationManager.OnClientFrame)),
             AccessTools.Method(typeof(EntityRenderer), nameof(EntityRenderer.BeforeRender)));
         var (a, b) = (Il.Single(code, c => c.Calls(animate)), Il.Single(code, c => c.Calls(before)));
         var self = typeof(EntityTimes);
         if (a < 0 || b < 0 || !Il.Substitute(code, a, AccessTools.DeclaredMethod(self, nameof(Animated)))) return code;
-        if (Il.Substitute(code, b, AccessTools.DeclaredMethod(self, nameof(Prepared)))) _sites |= FrameSites;
-        else (code[a].opcode, code[a].operand) = (OpCodes.Callvirt, animate);
+
+        if (Il.Substitute(code, b, AccessTools.DeclaredMethod(self, nameof(Prepared))))
+        {
+            _sites |= FrameSites;
+        }
+        else
+        {
+            (code[a].opcode, code[a].operand) = (OpCodes.Callvirt, animate);
+        }
+
         return code;
     }
 
@@ -119,11 +135,12 @@ internal static class EntityTimes
     }
 
     // Pause comes from another clock: clamped at zero
-    internal static void Book(int part, long start, TimeSpan pause, Entity? entity)
+    private static void Book(int part, long start, TimeSpan pause, Entity? entity)
     {
         var paused = (long)((GC.GetTotalPauseDuration() - pause).TotalSeconds * Stopwatch.Frequency);
         var spent = Math.Max(0, Stopwatch.GetTimestamp() - start - Math.Max(0, paused));
         if (!Index(part, Parts)) return;
+
         Totals[part] += spent;
         var ms = FrameClock.ToMs(spent);
         if (ms > Worst[part]) (Worst[part], WorstCodes[part]) = (ms, entity?.Code?.ToShortString() ?? "");

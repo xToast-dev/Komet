@@ -15,7 +15,11 @@ public sealed class RenderingSynth
         var game = (ClientMain)RuntimeHelpers.GetUninitializedObject(typeof(ClientMain));
         var events = (ClientEventManager)RuntimeHelpers.GetUninitializedObject(typeof(ClientEventManager));
         var stages = new List<RenderHandler>[Enum.GetValues<EnumRenderStage>().Length];
-        for (var i = 0; i < stages.Length; i++) stages[i] = [];
+        for (var i = 0; i < stages.Length; i++)
+        {
+            stages[i] = [];
+        }
+
         ChunkRig.Set(events, "game", game);
         ChunkRig.Set(events, "renderersByStage", stages);
         var busy = new Busy();
@@ -23,15 +27,24 @@ public sealed class RenderingSynth
         for (var i = 0; i < 1000; i++)
         {
             var renderer = (AnimatableRenderer)RuntimeHelpers.GetUninitializedObject(typeof(AnimatableRenderer));
-            var util = (BlockEntityAnimationUtil)RuntimeHelpers.GetUninitializedObject(typeof(BlockEntityAnimationUtil));
+            var util =
+                (BlockEntityAnimationUtil)RuntimeHelpers.GetUninitializedObject(typeof(BlockEntityAnimationUtil));
             util.animator = (ClientAnimator)RuntimeHelpers.GetUninitializedObject(typeof(ClientAnimator));
             util.renderer = renderer;
             ChunkRig.Set(util, "activeAnimationsByAnimCode", new Dictionary<string, AnimationMetaData>());
             stages[(int)EnumRenderStage.Opaque].Add(new RenderHandler { Renderer = util, ProfilingName = "beanim" });
             foreach (var stage in drawn)
+            {
                 stages[(int)stage].Add(new RenderHandler { Renderer = renderer, ProfilingName = "animatable" });
+            }
+
             if (i % 70 == 0)
-                foreach (var stage in drawn) stages[(int)stage].Add(new RenderHandler { Renderer = busy, ProfilingName = "busy" });
+            {
+                foreach (var stage in drawn)
+                {
+                    stages[(int)stage].Add(new RenderHandler { Renderer = busy, ProfilingName = "busy" });
+                }
+            }
         }
 
         var result = Synth.Run("IdleAnimators", "1000-idle", ops =>
@@ -40,7 +53,10 @@ public sealed class RenderingSynth
             for (var i = 0; i < ops; i++)
             {
                 SynthCalls.Trigger(events, EnumRenderStage.Before);
-                foreach (var stage in drawn) SynthCalls.Trigger(events, stage);
+                foreach (var stage in drawn)
+                {
+                    SynthCalls.Trigger(events, stage);
+                }
             }
         }, 20, () => busy.Calls);
         using (new FeatureRig("IdleAnimators"))
@@ -48,10 +64,15 @@ public sealed class RenderingSynth
             Counting.Hud = true;
             var skipped = Komet.Rendering.IdleAnimators.Skipped;
             SynthCalls.Trigger(events, EnumRenderStage.Before);
-            foreach (var stage in drawn) SynthCalls.Trigger(events, stage);
+            foreach (var stage in drawn)
+            {
+                SynthCalls.Trigger(events, stage);
+            }
+
             Counting.Hud = false;
             Assert.That(Komet.Rendering.IdleAnimators.Skipped - skipped, Is.EqualTo(4000), "every idle entry left out");
         }
+
         Assert.That(result.Feature, Is.EqualTo("IdleAnimators"));
     }
 
@@ -61,7 +82,8 @@ public sealed class RenderingSynth
         var saved = MeshData.Recycler;
         try
         {
-            MeshData.Recycler = new MeshDataRecycler(Answers.Of<IClientWorldAccessor>(new() { ["get_ElapsedMilliseconds"] = _ => 0L }));
+            MeshData.Recycler = new MeshDataRecycler(Answers.Of<IClientWorldAccessor>(
+                new Dictionary<string, System.Func<object?[]?, object?>> { ["get_ElapsedMilliseconds"] = _ => 0L }));
             var source = Terrain(1200, 7);
             using var regen = new Regen(AccessTools.Method(typeof(MeshData), nameof(MeshData.CloneUsingRecycler)),
                 AccessTools.Method(typeof(MeshData), nameof(MeshData.Dispose)));
@@ -91,20 +113,31 @@ public sealed class RenderingSynth
         var mesh = new MeshData(vertices, vertices * 3 / 2);
         for (var i = 0; i < vertices / 4; i++)
         {
-            for (var k = 0; k < 4; k++) mesh.AddVertexWithFlags(r.Next(32), r.Next(32), r.Next(32), 0.5f, 0.5f, r.Next(), r.Next());
+            for (var k = 0; k < 4; k++)
+            {
+                mesh.AddVertexWithFlags(r.Next(32), r.Next(32), r.Next(32), 0.5f, 0.5f, r.Next(), r.Next());
+            }
+
             mesh.AddQuadIndices(4 * i);
         }
 
         var q = vertices / 4;
         (mesh.Normals, mesh.NormalsCount) = ([.. Enumerable.Range(0, vertices).Select(_ => r.Next())], vertices);
+
         byte[] Bytes(int below) => [.. Enumerable.Range(0, q).Select(_ => (byte)r.Next(below))];
+
         (mesh.XyzFaces, mesh.XyzFacesCount, mesh.TextureIndices, mesh.TextureIndicesCount) = (Bytes(6), q, Bytes(4), q);
         mesh.TextureIds = [1, 2];
         (mesh.ClimateColorMapIds, mesh.SeasonColorMapIds, mesh.ColorMapIdsCount) = (Bytes(8), Bytes(8), q);
-        (mesh.RenderPassesAndExtraBits, mesh.RenderPassCount) = ([.. Enumerable.Range(0, q).Select(_ => (short)r.Next(6))], q);
+        (mesh.RenderPassesAndExtraBits, mesh.RenderPassCount) =
+            ([.. Enumerable.Range(0, q).Select(_ => (short)r.Next(6))], q);
         mesh.CustomInts = new CustomMeshDataPartInt(4 * vertices)
             { Count = 2 * vertices, InterleaveStride = 8, InterleaveSizes = [2], InterleaveOffsets = [0] };
-        for (var i = 0; i < mesh.CustomInts.Values.Length; i++) mesh.CustomInts.Values[i] = r.Next();
+        for (var i = 0; i < mesh.CustomInts.Values.Length; i++)
+        {
+            mesh.CustomInts.Values[i] = r.Next();
+        }
+
         mesh.CustomFloats = new CustomMeshDataPartFloat(2 * vertices)
             { Count = vertices, InterleaveStride = 4, InterleaveSizes = [1], InterleaveOffsets = [0] };
         return mesh;
@@ -128,7 +161,11 @@ public sealed class RenderingSynth
                 SynthCalls.Translate(main, -0.5, 2, -3);
             }
         }, 10000, () => main.PMatrix.Top[12] + main.PMatrix.Top[13] + main.PMatrix.Top[14]);
-        using (new FeatureRig("FrameScratch")) Assert.That(Komet.Rendering.FrameScratch.Patched, Is.EqualTo(2));
+        using (new FeatureRig("FrameScratch"))
+        {
+            Assert.That(Komet.Rendering.FrameScratch.Patched, Is.EqualTo(2));
+        }
+
         Assert.That(result.Feature, Is.EqualTo("FrameScratch"));
     }
 

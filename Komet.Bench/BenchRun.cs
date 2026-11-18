@@ -6,16 +6,25 @@ internal readonly record struct BenchChat(double Seconds, string Type, string Te
 
 // What the driver saw of a segment once it ended (frames are in the recorder). NaN cpu: no resource sample.
 internal readonly record struct BenchSegmentLog(
-    bool Ran, double Seconds, double CpuPercent, double SystemCpuPercent, long WorkingSetMb, long ManagedMb);
+    bool Ran,
+    double Seconds,
+    double CpuPercent,
+    double SystemCpuPercent,
+    long WorkingSetMb,
+    long ManagedMb);
 
 internal sealed class BenchRun
 {
-    public const int MaxChat = 64, MaxChatText = 300, MaxInfo = 64;
+    public const int MaxChat = 64, MaxInfo = 64;
+    private const int MaxChatText = 300;
 
     public BenchRun(BenchConfig config, BenchSegment[] segments)
     {
         if (!NotNull(config) || !Assert(segments.Length is > 0 and <= BenchScenario.MaxSegments))
+        {
             segments = [new BenchSegment(BenchKind.Setup, -1, 0, false, false, 1)];
+        }
+
         (Config, Segments, Logs) = (config, segments, new BenchSegmentLog[segments.Length]);
         Array.Fill(Logs, new BenchSegmentLog(false, 0, double.NaN, double.NaN, 0, 0));
     }
@@ -36,6 +45,7 @@ internal sealed class BenchRun
     public void Fail(string error)
     {
         if (!Assert(error.Length > 0) || !Assert(error.Length < 4096)) error = "unknown error";
+
         Error ??= error;
     }
 
@@ -43,6 +53,7 @@ internal sealed class BenchRun
     public void Status(string phase)
     {
         if (!Assert(phase.Length > 0) || !Assert(Config.Status.Length > 0)) return;
+
         try
         {
             var seconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -57,12 +68,14 @@ internal sealed class BenchRun
     public void AddChat(double seconds, string type, string text)
     {
         if (!Finite(seconds) || !NotNull(text) || Chat.Count >= MaxChat) return;
+
         Chat.Add(new BenchChat(seconds, type, text.Length > MaxChatText ? text[..MaxChatText] : text));
     }
 
     public void AddInfo(string key, string? value)
     {
         if (!Assert(key.Length > 0) || !Assert(Info.Count < MaxInfo)) return;
+
         Info.Add(new KeyValuePair<string, string>(key, value ?? ""));
     }
 }

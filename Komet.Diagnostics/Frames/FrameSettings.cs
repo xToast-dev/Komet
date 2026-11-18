@@ -19,6 +19,7 @@ internal static class FrameSettings
     {
         var frame = FrameClock.Frames;
         if (frame == 0 || slot.Frame != frame) slot = (frame, read());
+
         return slot.Value;
     }
 }

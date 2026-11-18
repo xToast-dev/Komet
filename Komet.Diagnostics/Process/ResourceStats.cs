@@ -9,10 +9,10 @@ internal sealed partial class ResourceStats
 {
     private const long Mb = 1024 * 1024;
     private const int ProcBytes = 8192, MaxStatFields = 32, Steal = 8; // /proc/stat cpu: user..steal sum to the total
+    private readonly byte[] _proc = new byte[ProcBytes]; // Sample runs on one thread at a time
 
     private readonly Process _process = Process.GetCurrentProcess();
     private readonly Stopwatch _wall = Stopwatch.StartNew();
-    private readonly byte[] _proc = new byte[ProcBytes]; // Sample runs on one thread at a time
     private bool _failed;
     private long _lastAllocated;
     private ulong _lastBusy, _lastTotal;
@@ -40,6 +40,7 @@ internal sealed partial class ResourceStats
     public void Sample()
     {
         if (_failed) return;
+
         try
         {
             Measure();
@@ -60,33 +61,48 @@ internal sealed partial class ResourceStats
 
         var cpu = Environment.CpuUsage.TotalTime; // getrusage, as Process.TotalProcessorTime reads it for this process
         if (Assert(cpu >= _lastCpu))
+        {
             CpuPercent = (cpu - _lastCpu).TotalSeconds / seconds / Environment.ProcessorCount * 100;
+        }
+
         _lastCpu = cpu;
 
         Gen0PerSec = Rate(GC.CollectionCount(0), ref _lastGen0, seconds);
         Gen2PerSec = Rate(GC.CollectionCount(2), ref _lastGen2, seconds);
         var pause = GC.GetTotalPauseDuration();
         if (Assert(pause >= _lastPause)) GcPausePercent = (pause - _lastPause).TotalSeconds / seconds * 100;
+
         _lastPause = pause;
         var allocated = GC.GetTotalAllocatedBytes();
         if (Assert(allocated >= _lastAllocated))
+        {
             AllocatedMbPerSec = (double)(allocated - _lastAllocated) / Mb / seconds;
+        }
+
         _lastAllocated = allocated;
 
         WorkingSetMb = WorkingSet();
         ManagedUsedMb = GC.GetTotalMemory(false) / Mb;
         ManagedCommittedMb = GC.GetGCMemoryInfo().TotalCommittedBytes / Mb;
         if (!Assert(WorkingSetMb > 0) || !Assert(ManagedCommittedMb > 0)) return;
+
         NativeMb = Math.Max(0, WorkingSetMb - ManagedCommittedMb);
 
-        if (OperatingSystem.IsLinux()) SampleLinux();
-        else if (OperatingSystem.IsWindows()) SampleWindows();
+        if (OperatingSystem.IsLinux())
+        {
+            SampleLinux();
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            SampleWindows();
+        }
     }
 
     // Refresh() parses /proc/self/stat and status into ~27 KB of strings
     private long WorkingSet()
     {
         if (OperatingSystem.IsLinux()) return Kb(Proc("/proc/self/status"), "VmRSS:"u8) / 1024;
+
         _process.Refresh();
         return Assert(_process.WorkingSet64 >= 0) ? _process.WorkingSet64 / Mb : 0;
     }
@@ -103,25 +119,33 @@ internal sealed partial class ResourceStats
     {
         var meminfo = Proc("/proc/meminfo");
         if (Kb(meminfo, "MemTotal:"u8) is var ram and >= 0) TotalRamMb = ram / 1024;
+
         if (Kb(meminfo, "MemAvailable:"u8) is var free and >= 0) AvailableRamMb = free / 1024;
+
         if (!Assert(TotalRamMb > 0) || !Assert(AvailableRamMb <= TotalRamMb)) return;
 
         var stat = Proc("/proc/stat");
         var end = stat.IndexOf((byte)'\n');
         var line = end < 0 ? stat : stat[..end];
         if (!Assert(line.StartsWith("cpu "u8))) return;
+
         line = line[3..];
         var (total, idle, fields) = (0UL, 0UL, 1);
         for (var i = 1; i < MaxStatFields; i++)
         {
             line = line.TrimStart((byte)' ');
             if (line.IsEmpty) break;
+
             var cut = line.IndexOf((byte)' ');
             var field = cut < 0 ? line : line[..cut];
             if (!Assert(Utf8Parser.TryParse(field, out ulong value, out var used) && used == field.Length)) return;
+
             (total, fields) = (i <= Steal ? total + value : total, fields + 1); // guest, guest_nice: in user, nice
             line = line[field.Length..];
-            if (i is 4 or 5) idle += value; // idle and iowait
+            if (i is 4 or 5)
+            {
+                idle += value; // idle and iowait
+            }
         }
 
         if (Assert(fields >= 8)) UpdateSystemCpu(total - idle, total);
@@ -135,6 +159,7 @@ internal sealed partial class ResourceStats
         {
             var n = RandomAccess.Read(file, _proc.AsSpan(got), got);
             if (n <= 0) break;
+
             got += n;
         }
 
@@ -142,29 +167,67 @@ internal sealed partial class ResourceStats
     }
 
     // "MemTotal:       32768000 kB", "VmRSS:\t  102016 kB"; -1 without key
-    internal static long Kb(ReadOnlySpan<byte> text, ReadOnlySpan<byte> key)
+    private static long Kb(ReadOnlySpan<byte> text, ReadOnlySpan<byte> key)
     {
         var at = text.IndexOf(key);
         if (at < 0 || (at > 0 && text[at - 1] != '\n')) return -1;
+
         var value = text[(at + key.Length)..].TrimStart(" \t"u8); // meminfo pads with spaces, status with a tab
         return Assert(Utf8Parser.TryParse(value, out long kb, out _)) && Assert(kb >= 0) ? kb : 0;
     }
 
     private void SampleWindows()
     {
-        var status = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
-        if (GlobalMemoryStatusEx(ref status) && Assert(status.ullTotalPhys > 0) &&
-            Assert(status.ullAvailPhys <= status.ullTotalPhys))
-            (TotalRamMb, AvailableRamMb) = ((long)(status.ullTotalPhys / Mb), (long)(status.ullAvailPhys / Mb));
+        var (available, total) = WindowsMemory();
+        if (total > 0) (TotalRamMb, AvailableRamMb) = ((long)(total / Mb), (long)(available / Mb));
+
         if (GetSystemTimes(out var idle, out var kernel, out var user) && Assert(kernel >= idle))
+        {
             UpdateSystemCpu(kernel + user - idle, kernel + user); // kernel includes idle
+        }
+    }
+
+    internal static (ulong Available, ulong Total) SystemMemory()
+    {
+        if (OperatingSystem.IsWindows()) return WindowsMemory();
+
+        if (!OperatingSystem.IsLinux()) return (0, 0);
+
+        Span<byte> text = stackalloc byte[ProcBytes];
+        try
+        {
+            using var file = File.OpenHandle("/proc/meminfo");
+            var read = RandomAccess.Read(file, text, 0);
+            var total = Kb(text[..read], "MemTotal:"u8);
+            var available = Kb(text[..read], "MemAvailable:"u8);
+            return total > 0 && available >= 0 && Assert(available <= total)
+                ? ((ulong)available << 10, (ulong)total << 10)
+                : (0, 0);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return (0, 0);
+        }
+    }
+
+    private static (ulong Available, ulong Total) WindowsMemory()
+    {
+        var status = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        return GlobalMemoryStatusEx(ref status) && Assert(status.ullTotalPhys > 0) &&
+               Assert(status.ullAvailPhys <= status.ullTotalPhys)
+            ? (status.ullAvailPhys, status.ullTotalPhys)
+            : (0, 0);
     }
 
     private void UpdateSystemCpu(ulong busy, ulong total)
     {
         if (!Assert(busy <= total)) return;
+
         if (Assert(total >= _lastTotal) && Assert(busy >= _lastBusy) && _lastTotal != 0 && total > _lastTotal)
+        {
             SystemCpuPercent = 100.0 * (busy - _lastBusy) / (total - _lastTotal);
+        }
+
         (_lastBusy, _lastTotal) = (busy, total);
     }
 
@@ -183,7 +246,12 @@ internal sealed partial class ResourceStats
     {
         public uint dwLength, dwMemoryLoad;
 
-        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual,
+        public ulong ullTotalPhys,
+            ullAvailPhys,
+            ullTotalPageFile,
+            ullAvailPageFile,
+            ullTotalVirtual,
+            ullAvailVirtual,
             ullAvailExtendedVirtual;
     }
 }

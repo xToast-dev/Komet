@@ -16,55 +16,83 @@ internal static class InventoryShapes
     private const string Creature = "Vintagestory.GameContent.ItemCreature";
     private const string Wearable = "Vintagestory.GameContent.CollectibleBehaviorWearableAttachment";
 
-    [ThreadStatic] private static bool _cloned; // genFullBodyMesh works on a clone of the wearer's shape, not the shape itself
+    [ThreadStatic]
+    private static bool _cloned; // genFullBodyMesh works on a clone of the wearer's shape, not the shape itself
 
     public static bool Enabled { get; set; } = true;
     public static bool Creatures { get; private set; } // the creature item's builder rewritten
     public static bool Wearables { get; private set; }
 
+    // The builders the transpilers rewrite
+    internal static MethodBase?[] Replaced =>
+        [Method(Creature, "CreateOverlaidMeshRef"), Method(Wearable, "genFullBodyMesh")];
+
     public static void Install(Harmony harmony)
     {
         (Creatures, Wearables) = (false, false);
-        if (!NotNull(harmony)) return;
-        if (Method(Creature, "CreateOverlaidMeshRef") is { } creature)
-            _ = harmony.Patch(creature, transpiler: new HarmonyMethod(RewriteCreature));
-        if (Method(Wearable, "genFullBodyMesh") is { } wearable)
-            _ = harmony.Patch(wearable, new HarmonyMethod(Entering), transpiler: new HarmonyMethod(RewriteWearable));
-    }
 
-    // The builders the transpilers rewrite
-    internal static MethodBase?[] Replaced => [Method(Creature, "CreateOverlaidMeshRef"), Method(Wearable, "genFullBodyMesh")];
+        if (Method(Creature, "CreateOverlaidMeshRef") is { } creature)
+        {
+            _ = harmony.Patch(creature, transpiler: new HarmonyMethod(RewriteCreature));
+        }
+
+        if (Method(Wearable, "genFullBodyMesh") is { } wearable)
+        {
+            _ = harmony.Patch(wearable, new HarmonyMethod(Entering), transpiler: new HarmonyMethod(RewriteWearable));
+        }
+    }
 
     internal static MethodInfo? Method(string type, string name) =>
         AccessTools.TypeByName(type) is { } found ? AccessTools.DeclaredMethod(found, name) : null;
 
     // Both IAsset.ToObject<Shape> calls: the creature's shape and each of its overlays
-    internal static List<CodeInstruction> RewriteCreature(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> RewriteCreature(IEnumerable<CodeInstruction> instructions)
     {
         var lean = AccessTools.Method(typeof(InventoryShapes), nameof(Lean));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(lean)) return code;
+
         var done = 0;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
-            if (code[i].operand is MethodInfo { Name: "ToObject", IsGenericMethod: true } m && m.GetGenericArguments()[0] == typeof(Shape) &&
+        {
+            if (code[i].operand is MethodInfo { Name: "ToObject", IsGenericMethod: true } m &&
+                m.GetGenericArguments()[0] == typeof(Shape) &&
                 Il.Substitute(code, i, lean))
+            {
                 done++;
+            }
+        }
+
         Creatures = done == 2;
         return code;
     }
 
     // Every Shape.TryGet (inventory, attached and overlay shapes) and the clone of the wearer's animations
-    internal static List<CodeInstruction> RewriteWearable(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> RewriteWearable(IEnumerable<CodeInstruction> instructions)
     {
         var (tryGet, none) = (AccessTools.Method(typeof(InventoryShapes), nameof(TryGet)),
             AccessTools.Method(typeof(InventoryShapes), nameof(NoAnimations)));
-        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(tryGet) || !NotNull(none)) return code;
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(tryGet) ||
+            !NotNull(none))
+        {
+            return code;
+        }
+
         var (shapes, clones) = (0, 0);
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
             if (code[i].operand is MethodInfo { Name: "TryGet" } get && get.DeclaringType == typeof(Shape) &&
-                get.GetParameters() is [_, { ParameterType: var p }] && p == typeof(AssetLocation) && Il.Substitute(code, i, tryGet))
+                get.GetParameters() is [_, { ParameterType: var p }] && p == typeof(AssetLocation) &&
+                Il.Substitute(code, i, tryGet))
+            {
                 shapes++;
-            else if (code[i].operand is MethodInfo { Name: nameof(Shape.CloneAnimations) } && Il.Substitute(code, i, none))
+            }
+            else if (code[i].operand is MethodInfo { Name: nameof(Shape.CloneAnimations) } &&
+                     Il.Substitute(code, i, none))
+            {
                 clones++;
+            }
+        }
+
         Wearables = shapes >= 2 && clones == 1;
         return code;
     }
@@ -75,7 +103,8 @@ internal static class InventoryShapes
     internal static Shape? Lean(IAsset asset, JsonSerializerSettings? settings)
     {
         if (!Enabled || asset.Data is not { Length: > 0 } data || Utf16(data)) return asset.ToObject<Shape>(settings);
-        var bom = data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+
+        var bom = data is [0xEF, 0xBB, 0xBF, ..] ? 3 : 0;
         var chars = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(data.Length - bom));
         try
         {
@@ -97,57 +126,14 @@ internal static class InventoryShapes
     }
 
     // A UTF-16 byte order mark: left to the engine's own reader, which detects it
-    private static bool Utf16(byte[] data) => data.Length >= 2 && data[0] + data[1] == 0xFF + 0xFE && data[0] is 0xFF or 0xFE;
-
-    // The buffer's text with [Skip.From, Skip.To) read as "null"
-    private sealed class Skipping(char[] chars, int length, (int From, int To) skip) : TextReader
-    {
-        private const string Nothing = "null";
-        private readonly char[] _one = new char[1];
-        private int _at, _null;
-
-        public override int Read(char[] buffer, int index, int count)
-        {
-            if (!NotNull(buffer) || !Assert(index >= 0 && count >= 0 && index + count <= buffer.Length)) return 0;
-            var written = 0;
-            for (var step = 0; step < 4 && written < count; step++) written += Next(buffer.AsSpan(index + written, count - written));
-            return written;
-        }
-
-        public override int Read() => Read(_one, 0, 1) == 1 ? _one[0] : -1;
-
-        public override int Peek()
-        {
-            if (_at == skip.From && _null < Nothing.Length) return Nothing[_null];
-            if (_at == skip.From) _at = skip.To;
-            return _at < length ? chars[_at] : -1;
-        }
-
-        // One run: the text up to the skipped range, the null in its place, or the text after it
-        private int Next(Span<char> into)
-        {
-            if (_at >= length) return 0;
-            if (_at == skip.From && _null < Nothing.Length)
-            {
-                var n = Math.Min(Nothing.Length - _null, into.Length);
-                Nothing.AsSpan(_null, n).CopyTo(into);
-                _null += n;
-                if (_null == Nothing.Length) _at = skip.To;
-                return n;
-            }
-
-            var end = _at < skip.From ? skip.From : length;
-            var count = Math.Min(end - _at, into.Length);
-            chars.AsSpan(_at, count).CopyTo(into);
-            _at += count;
-            return count;
-        }
-    }
+    private static bool Utf16(byte[] data) =>
+        data.Length >= 2 && data[0] + data[1] == 0xFF + 0xFE && data[0] is 0xFF or 0xFE;
 
     // Shape.TryGet; lean only for the wearer's clone (else step parenting merges animations into the wearer's shape)
     internal static Shape? TryGet(ICoreAPI api, AssetLocation path)
     {
-        if (!Enabled || !_cloned || !NotNull(api)) return Shape.TryGet(api, path);
+        if (!Enabled || !_cloned) return Shape.TryGet(api, path);
+
         ShapeElement.locationForLogging = path;
         try
         {
@@ -160,19 +146,28 @@ internal static class InventoryShapes
         }
     }
 
-    internal static Animation[]? NoAnimations(Shape shape) => Enabled || !NotNull(shape) ? null : shape.CloneAnimations();
+    internal static Animation[]? NoAnimations(Shape shape) =>
+        Enabled || !NotNull(shape) ? null : shape.CloneAnimations();
 
     // Where the root's "animations" value lies; strings, escapes and comments skipped as Newtonsoft does
     internal static bool Animations(ReadOnlySpan<char> json, out int from, out int to)
     {
         (from, to) = (0, 0);
         if (!Assert(json.Length <= MaxChars)) return false;
+
         var (depth, i) = (0, 0);
         for (var steps = 0; steps < MaxChars && i < json.Length; steps++)
         {
             var c = json[i];
-            if (c is '"' or '\'' && depth == 1 && Key(json, i, out var value)) return Value(json, value, out from, out to);
-            if (c is '"' or '\'' or '/') i = Skipped(json, i);
+            if (c is '"' or '\'' && depth == 1 && Key(json, i, out var value))
+            {
+                return Value(json, value, out from, out to);
+            }
+
+            if (c is '"' or '\'' or '/')
+            {
+                i = Skipped(json, i);
+            }
             else
             {
                 depth += Nesting(c);
@@ -188,10 +183,15 @@ internal static class InventoryShapes
     {
         var end = Skipped(json, at);
         value = end;
-        if (end - at != "\"animations\"".Length || !json.Slice(at + 1, 10).Equals("animations", StringComparison.OrdinalIgnoreCase))
+        if (end - at != "\"animations\"".Length ||
+            !json.Slice(at + 1, 10).Equals("animations", StringComparison.OrdinalIgnoreCase))
+        {
             return false;
+        }
+
         value = Blank(json, end);
         if (value >= json.Length || json[value] != ':') return false;
+
         value = Blank(json, value + 1);
         return true;
     }
@@ -199,8 +199,17 @@ internal static class InventoryShapes
     private static int Blank(ReadOnlySpan<char> json, int at)
     {
         for (var i = 0; i < Math.Min(json.Length - at, 256) && at < json.Length; i++)
-            if (char.IsWhiteSpace(json[at])) at++;
-            else break;
+        {
+            if (char.IsWhiteSpace(json[at]))
+            {
+                at++;
+            }
+            else
+            {
+                break;
+            }
+        }
+
         return at;
     }
 
@@ -209,6 +218,7 @@ internal static class InventoryShapes
     {
         (from, to) = (start, start);
         if (!Index(start, json.Length) || json[start] is not ('[' or '{')) return false;
+
         var (depth, i) = (0, start);
         for (var steps = 0; steps < MaxChars && i < json.Length; steps++)
         {
@@ -222,6 +232,7 @@ internal static class InventoryShapes
             depth += Nesting(c);
             i++;
             if (depth != 0) continue;
+
             to = i;
             return true;
         }
@@ -243,21 +254,86 @@ internal static class InventoryShapes
         }
 
         if (c is not ('"' or '\'')) return at + 1;
+
         var escaped = false;
         for (var i = at + 1; i < Math.Min(json.Length, MaxChars); i++)
         {
-            if (escaped) escaped = false;
-            else if (json[i] == '\\') escaped = true;
-            else if (json[i] == c) return i + 1;
+            if (escaped)
+            {
+                escaped = false;
+            }
+            else if (json[i] == '\\')
+            {
+                escaped = true;
+            }
+            else if (json[i] == c)
+            {
+                return i + 1;
+            }
         }
 
         return json.Length;
     }
 
-    private static int Nesting(char c) => c switch
+    private static int Nesting(char c) =>
+        c switch
+        {
+            '{' or '[' => 1,
+            '}' or ']' => -1,
+            _ => 0
+        };
+
+    // The buffer's text with [Skip.From, Skip.To) read as "null"
+    private sealed class Skipping(char[] chars, int length, (int From, int To) skip) : TextReader
     {
-        '{' or '[' => 1,
-        '}' or ']' => -1,
-        _ => 0
-    };
+        private const string Nothing = "null";
+        private readonly char[] _one = new char[1];
+        private int _at, _null;
+
+        public override int Read(char[] buffer, int index, int count)
+        {
+            if (!NotNull(buffer) || !Assert(index >= 0 && count >= 0 && index + count <= buffer.Length)) return 0;
+
+            var written = 0;
+            for (var step = 0; step < 4 && written < count; step++)
+            {
+                written += Next(buffer.AsSpan(index + written, count - written));
+            }
+
+            return written;
+        }
+
+        public override int Read() => Read(_one, 0, 1) == 1 ? _one[0] : -1;
+
+        public override int Peek()
+        {
+            if (_at == skip.From && _null < Nothing.Length) return Nothing[_null];
+
+            if (_at == skip.From) _at = skip.To;
+
+            return _at < length ? chars[_at] : -1;
+        }
+
+        // One run: the text up to the skipped range, the null in its place, or the text after it
+        private int Next(Span<char> into)
+        {
+            if (_at >= length) return 0;
+
+            if (_at == skip.From && _null < Nothing.Length)
+            {
+                var n = Math.Min(Nothing.Length - _null, into.Length);
+                Nothing.AsSpan(_null, n).CopyTo(into);
+                _null += n;
+                if (_null == Nothing.Length) _at = skip.To;
+
+                return n;
+            }
+
+            var end = _at < skip.From ? skip.From : length;
+            var count = Math.Min(end - _at, into.Length);
+            chars.AsSpan(_at, count).CopyTo(into);
+            _at += count;
+            return count;
+        }
+    }
 }

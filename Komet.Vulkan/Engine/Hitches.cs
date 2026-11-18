@@ -32,8 +32,15 @@ internal static class Hitches
     {
         var (i, ticks) = ((int)kind, Stopwatch.GetTimestamp() - start);
         if (!Index(i, Kinds + 1) || !Assert(start > 0)) return;
-        if (kind == Kind.FrameWait && ticks < StutterTicks) Bound.Add(0, ticks);
-        else Tallied.Add(kind == Kind.FrameWait ? (int)Kind.GpuWait : i, ticks);
+
+        if (kind == Kind.FrameWait && ticks < StutterTicks)
+        {
+            Bound.Add(0, ticks);
+        }
+        else
+        {
+            Tallied.Add(kind == Kind.FrameWait ? (int)Kind.GpuWait : i, ticks);
+        }
     }
 
     public static string Report() => Tallied.Report("stutters") + Bound.Report("GPU-bound frame waits");
@@ -43,12 +50,17 @@ internal static class Hitches
 internal sealed class KindTimes(string[] names)
 {
     private const int MaxKinds = 8;
-    private readonly long[] _counts = new long[names.Length], _ticks = new long[names.Length], _longest = new long[names.Length];
+
+    private readonly long[] _counts = new long[names.Length],
+        _ticks = new long[names.Length],
+        _longest = new long[names.Length];
 
     public void Add(int kind, long ticks)
     {
         if (!Index(kind, Math.Min(_counts.Length, MaxKinds)) || !Assert(ticks >= 0)) return;
-        (_counts[kind], _ticks[kind], _longest[kind]) = (_counts[kind] + 1, _ticks[kind] + ticks, Math.Max(_longest[kind], ticks));
+
+        (_counts[kind], _ticks[kind], _longest[kind]) =
+            (_counts[kind] + 1, _ticks[kind] + ticks, Math.Max(_longest[kind], ticks));
     }
 
     // "; header: 3 ports 12.0 ms (longest 6.0), ...", empty while nothing came
@@ -56,8 +68,13 @@ internal sealed class KindTimes(string[] names)
     {
         var (ms, seen) = (FrameClock.TickMs, new List<string>(MaxKinds));
         for (var i = 0; i < Math.Min(names.Length, MaxKinds); i++)
+        {
             if (_counts[i] > 0)
+            {
                 seen.Add($"{_counts[i]} {names[i]} {_ticks[i] * ms:0.0} ms (longest {_longest[i] * ms:0.0})");
+            }
+        }
+
         return seen.Count == 0 ? "" : $"; {header}: " + string.Join(", ", seen);
     }
 }

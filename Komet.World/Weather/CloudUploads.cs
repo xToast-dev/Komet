@@ -22,13 +22,14 @@ internal static class CloudUploads
     public static bool Rewritten { get; private set; }
 
     // Uploads left out, a total (main thread)
-    public static long Skipped { get; private set; }
+    private static long Skipped { get; set; }
 
     public static void Install(Harmony harmony)
     {
         Rewritten = false;
         Sent.Clear();
-        if (!NotNull(harmony) || Target() is not { } target) return;
+        if (Target() is not { } target) return;
+
         _ = harmony.Patch(target, transpiler: new HarmonyMethod(Rewrite));
     }
 
@@ -36,24 +37,36 @@ internal static class CloudUploads
         AccessTools.TypeByName(Map) is { } map ? AccessTools.DeclaredMethod(map, "WriteTexture", []) : null;
 
     // Both TexSubImage2D<short> calls go through Upload; any other shape keeps the engine's IL
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         var upload = AccessTools.Method(typeof(CloudUploads), nameof(Upload));
         if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(upload)) return code;
+
         var sites = new List<int>();
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
             if (code[i].operand is MethodInfo { Name: nameof(GL.TexSubImage2D), IsGenericMethod: true } m &&
                 m.DeclaringType == typeof(GL) && m.GetGenericArguments() is [var t] && t == typeof(short))
+            {
                 sites.Add(i);
+            }
+        }
+
         if (sites.Count != Sites) return code;
+
         var done = 0;
-        foreach (var at in sites.Bounded(Sites)) done += Il.Substitute(code, at, upload) ? 1 : 0; // same call: both or none
+        foreach (var at in sites.Bounded(Sites))
+        {
+            done += Il.Substitute(code, at, upload) ? 1 : 0; // same call: both or none
+        }
+
         Rewritten = done == Sites;
         return code;
     }
 
-    internal static void Upload(TextureTarget target, int level, int x, int y, int width, int height, PixelFormat format,
-        PixelType type, short[] pixels)
+    internal static void Upload(TextureTarget target, int level, int x, int y, int width, int height,
+        PixelFormat format,
+        PixelType type, short[]? pixels)
     {
         if (Enabled && pixels is not null)
         {

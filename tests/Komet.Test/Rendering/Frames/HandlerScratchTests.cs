@@ -18,11 +18,11 @@ public sealed class HandlerScratchTests
 
         var events = (EventManager)RuntimeHelpers.GetUninitializedObject(typeof(ClientEventManager));
         var calls = new List<int>();
-        events.OnGetWindSpeed += (Vec3d _, ref Vec3d _) => calls.Add(1);
+        events.OnGetWindSpeed += (_, ref _) => calls.Add(1);
         var wind = new Vec3d();
         events.TriggerOnGetWindSpeed(new Vec3d(), ref wind);
         events.TriggerOnGetWindSpeed(new Vec3d(), ref wind);
-        events.OnGetWindSpeed += (Vec3d _, ref Vec3d _) => calls.Add(2);
+        events.OnGetWindSpeed += (_, ref _) => calls.Add(2);
         events.TriggerOnGetWindSpeed(new Vec3d(), ref wind);
         Assert.That(calls, Is.EqualTo(Called));
 

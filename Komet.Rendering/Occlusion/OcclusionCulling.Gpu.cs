@@ -8,7 +8,9 @@ internal static partial class OcclusionCulling
 {
     private const int Ring = 4, StatUints = 8, CommandBytes = 20, RangeBytes = 32, Group = 64;
     private const int ParamsBinding = 14, RangesBinding = 4, CountersBinding = 5, VerdictsBinding = 6;
+
     private const int CommandsBinding = 7, StartsBinding = 8;
+
     // stats, then counts of pass 0, pass 1, shadow draws (from MaxDraws on)
     private const int CounterUints = StatUints + 3 * MaxDraws;
     private const int ShadowBase = 2 * MaxRanges; // shadow commands, after the camera's
@@ -20,19 +22,16 @@ internal static partial class OcclusionCulling
     private static readonly float[] ViewProjection = new float[16], Previous = new float[16];
     private static int _program, _ranges, _verdicts, _starts, _commands, _params, _frame, _frameRanges, _frameDraws;
     private static int _surfaceRanges, _surfaceDraws;
-    private static bool _detected, _supported, _captured, _builtThisFrame, _previousReady, _counting, _late, _compared;
+    private static bool _captured, _builtThisFrame, _previousReady, _counting, _late, _compared;
     private static double _px, _py, _pz;
 
     private static IGpuBackend? _gpu;
 
     private static IGpuBackend Gpu => _gpu ?? GpuBackends.Current;
 
-    public static bool Detected => _detected;
-    public static bool Supported => _supported;
+    public static bool Detected { get; private set; }
 
-    // Oldest frame: 0 ranges, 1 hidden, 2 triangles, 3 hidden; 4..7 pass 1 (surfaces); NaN before the first read
-    public static double Stat(int at) =>
-        _counting && Index(at, StatUints) ? Stats[at] : double.NaN;
+    public static bool Supported { get; private set; }
 
     // Triangles finally not drawn, as share of the frustum's; and ranges pass 1 drew late
     public static double CulledPercent => Stat(2) > 0 ? 100 * CulledTriangles / Stat(2) : double.NaN;
@@ -43,12 +42,21 @@ internal static partial class OcclusionCulling
 
     public static double LateTriangles => Stat(6) - Stat(7);
 
+    // Oldest frame: 0 ranges, 1 hidden, 2 triangles, 3 hidden; 4..7 pass 1 (surfaces); NaN before the first read
+    public static double Stat(int at) => _counting && Index(at, StatUints) ? Stats[at] : double.NaN;
+
     private static bool Ready()
     {
-        if (_detected && !ReferenceEquals(_gpu, GpuBackends.Current)) Release(); // backend switched
-        if (_detected) return _supported;
-        (_detected, _gpu) = (true, GpuBackends.Current);
+        if (Detected && !ReferenceEquals(_gpu, GpuBackends.Current))
+        {
+            Release(); // backend switched
+        }
+
+        if (Detected) return Supported;
+
+        (Detected, _gpu) = (true, GpuBackends.Current);
         if (_logger is null || !Gpu.Supported() || !Depth.Ready(_logger)) return false;
+
         _program = Gpu.Program(GpuShaders.Cull, _logger);
         (_ranges, _verdicts, _starts, _commands, _params) =
             (Gpu.Buffer(), Gpu.Buffer(), Gpu.Buffer(), Gpu.Buffer(), Gpu.Buffer());
@@ -65,9 +73,10 @@ internal static partial class OcclusionCulling
             Gpu.Readable(ReadBuffers[slot], 4 * StatUints);
         }
 
-        _supported = _program != 0;
-        if (_supported) ReadyRows();
-        return Assert(CounterBuffers[Ring - 1] != 0) && _supported;
+        Supported = _program != 0;
+        if (Supported) ReadyRows();
+
+        return Assert(CounterBuffers[Ring - 1] != 0) && Supported;
     }
 
     private static bool Room(int ranges, int draws) =>
@@ -77,14 +86,16 @@ internal static partial class OcclusionCulling
     private static bool Capture()
     {
         if (_captured) return Finite(ViewProjection[15]);
+
         _captured = _api?.Render is { } render && Occlusion.Capture(render, ViewProjection);
         return _captured;
     }
 
     private static void BeginFrame(bool engineless = false)
     {
-        (_frameRanges, _frameDraws, _surfaceRanges, _surfaceDraws, _builtThisFrame, _captured) = (0, 0, 0, 0, false, false);
-        (_camera, _view, _late, _compared) = (null, default, false, false);
+        (_frameRanges, _frameDraws, _surfaceRanges, _surfaceDraws, _builtThisFrame, _captured) =
+            (0, 0, 0, 0, false, false);
+        (_camera, _view, _late, _compared) = (null, (0d, 0d, 0d), false, false);
         ClearBindings();
         BeginBatch();
         BeginRows(engineless);
@@ -103,6 +114,7 @@ internal static partial class OcclusionCulling
     private static FrameBufferRef? DepthBuffer()
     {
         if (!NotNull(_api)) return null;
+
         return _api.Render.FrameBuffers is { Count: > 0 } buffers && buffers[0] is { Width: > 0, Height: > 0 } primary
             ? primary
             : null;
@@ -112,36 +124,67 @@ internal static partial class OcclusionCulling
         (FrustumCulling Culler, Vec3d Camera)? rows = null, bool staged = false)
     {
         if ((rows is null && ranges.Count == 0) || !Assert(draws.Count is > 0 and <= MaxDraws) ||
-            !Assert(ranges.First + ranges.Count <= MaxRanges)) return;
+            !Assert(ranges.First + ranges.Count <= MaxRanges))
+        {
+            return;
+        }
+
         var counters = CounterBuffers[_frame % Ring];
-        if (rows is { } row) UploadRows(draws, row.Culler, row.Camera, (0, _backFaces));
+        if (rows is { } row)
+        {
+            UploadRows(draws, row.Culler, row.Camera, (0, _backFaces));
+        }
         else if (!staged)
-            Gpu.UploadAt<Occlusion.Range>(_ranges, ranges.First * RangeBytes, Ranges.AsSpan(ranges.First, ranges.Count));
-        Prime(draws, counters, both: true);
-        if (rows is null) Bind(counters);
-        else BindRows(counters);
+        {
+            Gpu.UploadAt(_ranges, ranges.First * RangeBytes, _unstagedRanges.AsSpan(ranges.First, ranges.Count));
+        }
+
+        Prime(draws, counters, true);
+        if (rows is null)
+        {
+            Bind(counters);
+        }
+        else
+        {
+            BindRows(counters);
+        }
+
         var shift = _surface && _camera is { } camera ? (camera.X - _px, camera.Y - _py, camera.Z - _pz) : (0, 0, 0);
         var test = _previousReady ? Test : Keep;
         var now = _builtThisFrame ? Test : Keep; // later passes: this frame's pyramid, if built
         var (matrix, flags) = _surface ? (Previous, (0, test, StatUints, 0)) : (ViewProjection, (1, now, StatUints, 0));
-        if (rows is null) Pass(matrix, shift, flags, (ranges, draws));
-        else RowsPass(matrix, shift, flags, draws, _callMaxRows);
+        if (rows is null)
+        {
+            Pass(matrix, shift, flags, (ranges, draws));
+        }
+        else
+        {
+            RowsPass(matrix, shift, flags, draws, _callMaxRows);
+        }
         // the surfaces blend: far topsoil and opaque texels with alpha between alphaTest and 1 (mip edges) would change with
         // the order every frame, and flickered when sorted
         var sorted = rows is not null && !_surface && Orderless() && Sorted(draws);
-        if (_surface)
-        {
-            (_late, _compared) = (true, _previousReady);
-            (_surfaceRanges, _surfaceDraws) = (ranges.First + ranges.Count, draws.First + draws.Count);
-            if (rows is not null)
-                (_surfaceMaxRows, _surfaceRows, _surfaceBackFaces) =
-                    (Math.Max(_surfaceMaxRows, _callMaxRows), true, _surfaceBackFaces && _backFaces);
-        }
+        if (_surface) Blend(ranges, draws, rows);
 
         Issue(draws, (0, StatUints), counters, sorted);
         if (_surface) Remember(draws);
+
         (_frameRanges, _frameDraws) = (ranges.First + ranges.Count, draws.First + draws.Count);
         Gpu.Texture(DepthPyramid.Unit, 0);
+    }
+
+    // The surfaces blend: far topsoil and opaque texels with alpha between alphaTest and 1 (mip edges) would change with
+    // the order every frame, and flickered when sorted
+    private static void Blend((int First, int Count) ranges, (int First, int Count) draws,
+        (FrustumCulling Culler, Vec3d Camera)? rows)
+    {
+        (_late, _compared) = (true, _previousReady);
+        (_surfaceRanges, _surfaceDraws) = (ranges.First + ranges.Count, draws.First + draws.Count);
+        if (rows is not null)
+        {
+            (_surfaceMaxRows, _surfaceRows, _surfaceBackFaces) =
+                (Math.Max(_surfaceMaxRows, _callMaxRows), true, _surfaceBackFaces && _backFaces);
+        }
     }
 
     private static void FinishSurfaces()
@@ -153,6 +196,7 @@ internal static partial class OcclusionCulling
         // a pyramid the frame could not build (its depth not readable, no segment) hides nothing: tested against, its
         // zeros or stale depth hid all the terrain, frame after frame, the water (never culled) left alone
         if (texture > 0 && !Depth.Built) texture = 0;
+
         _builtThisFrame = texture > 0; // without it the later passes stay the engine's
         if (_builtThisFrame && _camera is { } camera && Assert(_captured))
         {
@@ -164,10 +208,14 @@ internal static partial class OcclusionCulling
         if (!_compared || _surfaceRanges == 0)
         {
             if (_builtThisFrame) CullLater(counters);
+
             return;
         }
 
-        if (_surfaceRows) LateRows(counters, texture != 0);
+        if (_surfaceRows)
+        {
+            LateRows(counters, texture != 0);
+        }
         else
         {
             Bind(counters);
@@ -175,7 +223,11 @@ internal static partial class OcclusionCulling
                 ((0, _surfaceRanges), (0, _surfaceDraws)));
         }
 
-        if (_builtThisFrame) CullLater(counters); // in the same break, before the late draws begin rendering again
+        if (_builtThisFrame)
+        {
+            CullLater(counters); // in the same break, before the late draws begin rendering again
+        }
+
         IssueLate(counters);
         Gpu.Texture(DepthPyramid.Unit, 0);
     }
@@ -184,14 +236,17 @@ internal static partial class OcclusionCulling
     private static void Prime((int First, int Count) draws, int counters, bool both)
     {
         if (!Assert(counters != 0)) return;
-        Gpu.UploadAt<uint>(_starts, draws.First * 4, Starts.AsSpan(draws.First, draws.Count));
+
+        Gpu.UploadAt(_starts, draws.First * 4, Starts.AsSpan(draws.First, draws.Count));
         if (both) Gpu.Zero(counters, StatUints + draws.First, draws.Count);
+
         Gpu.Zero(counters, StatUints + MaxDraws + draws.First, draws.Count);
     }
 
     private static void Bind(int counters)
     {
         if (!Assert(counters != 0) || !Assert(_ranges != 0)) return;
+
         Gpu.Storage(RangesBinding, _ranges);
         Gpu.Storage(CountersBinding, counters);
         Gpu.Storage(VerdictsBinding, _verdicts);
@@ -204,13 +259,15 @@ internal static partial class OcclusionCulling
         Dispatch(_program, (matrix, shift, flags), over, ((over.Ranges.Count + Group - 1) / Group, 1));
 
     // The test's parameters, the depth pyramid, one dispatch of program and the barrier its draws and counters need
-    private static void Dispatch(int program, (float[] Matrix, (double X, double Y, double Z) Shift, (int, int, int, int) Flags) test,
+    private static void Dispatch(int program,
+        (float[] Matrix, (double X, double Y, double Z) Shift, (int, int, int, int) Flags) test,
         ((int First, int Count) Ranges, (int First, int Count) Draws) over, (int X, int Y) groups)
     {
         var (ranges, draws) = over;
         Span<float> p = stackalloc float[ShaderParams.TestFloats];
-        ShaderParams.Test(p, test.Matrix, test.Shift, Depth, ranges, test.Flags, (draws.First, draws.First + draws.Count));
-        Gpu.Upload<float>(_params, p);
+        ShaderParams.Test(p, test.Matrix, test.Shift, Depth, ranges, test.Flags,
+            (draws.First, draws.First + draws.Count));
+        Gpu.Upload(_params, p);
         Gpu.Uniforms(ParamsBinding, _params);
         Gpu.Texture(DepthPyramid.Unit, Depth.Texture);
         Gpu.Dispatch(program, groups.X, groups.Y);
@@ -220,7 +277,8 @@ internal static partial class OcclusionCulling
     // Once per HUD interval while the occlusion panel shows: oldest ring frame
     public static void Sample()
     {
-        if (!Active || !_supported || _frame < Ring) return;
+        if (!Active || !Supported || _frame < Ring) return;
+
         Gpu.Read(ReadBuffers[(_frame + 1) % Ring], 0, Stats);
         _counting = true;
     }
@@ -242,8 +300,8 @@ internal static partial class OcclusionCulling
         }
 
         Array.Clear(Stats);
-        Ranges = [];
-        (_detected, _supported, _captured, _builtThisFrame, _previousReady, _counting) =
+        _unstagedRanges = [];
+        (Detected, Supported, _captured, _builtThisFrame, _previousReady, _counting) =
             (false, false, false, false, false, false);
         _gpu = null;
         (_frame, _frameRanges, _frameDraws, _surfaceRanges, _surfaceDraws, _late) = (0, 0, 0, 0, 0, false);
@@ -255,6 +313,7 @@ internal static partial class OcclusionCulling
         (double X, double Y, double Z) camera, ReadOnlySpan<int> split = default)
     {
         if (!Assert(ranges.Length is > 0 and <= MaxRanges) || !Assert(viewProjection.Length == 16) || !Ready()) return;
+
         BeginFrame();
         viewProjection.CopyTo(ViewProjection, 0);
         (_captured, _camera, _surface) = (true, new Vec3d(camera.X, camera.Y, camera.Z), true);

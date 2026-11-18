@@ -3,13 +3,12 @@ namespace Komet.Rendering;
 // Handles are the backend's own numbers; 0 is none.
 internal interface IGpuBackend
 {
+    // Work dropped so far, its result missing (a frame without a segment or upload memory); OpenGL drops none
+    long Refused => 0;
     bool Supported();
 
     // Doubles in compute (rows.comp's exact frustum test)
     bool Doubles() => true;
-
-    // Work dropped so far, its result missing (a frame without a segment or upload memory); OpenGL drops none
-    long Refused => 0;
 
     // A program from one of GpuShaders' files; 0, with the log written, when it does not build
     int Program(string shader, ILogger logger);
@@ -89,8 +88,10 @@ internal static class GpuShaders
     public static string? Source(string name)
     {
         if (!NotNull(name) || !Assert(Array.IndexOf(All, name) >= 0)) return null;
+
         using var stream = typeof(GpuShaders).Assembly.GetManifestResourceStream(Prefix + name);
         if (!NotNull(stream)) return null;
+
         using var reader = new StreamReader(stream);
         var text = reader.ReadToEnd();
         return Assert(text.StartsWith("#version 460", StringComparison.Ordinal)) ? text : null;

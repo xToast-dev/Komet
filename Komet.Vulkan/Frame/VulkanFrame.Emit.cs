@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Komet.Vulkan;
 
 // The recording thread only
@@ -15,6 +17,7 @@ internal sealed unsafe partial class VulkanFrame
 
         var commands = _recording;
         if (!Assert(commands != IntPtr.Zero)) return;
+
         switch (op.Kind)
         {
             case OpKind.EndRendering:
@@ -26,13 +29,8 @@ internal sealed unsafe partial class VulkanFrame
             case OpKind.BeginRendering when op.Ref is Rendering rendering:
                 Begun(commands, rendering);
                 break;
-            case OpKind.Viewport:
-                var viewport = new Vk.Viewport { X = op.X, Y = op.Y, Width = op.Width, Height = op.Height, MaxDepth = 1 };
-                VkApi.CmdSetViewport(commands, 0, 1, &viewport);
-                break;
-            case OpKind.Scissor:
-                var rect = new Vk.Rect { X = (int)op.X, Y = (int)op.Y, Width = (uint)op.Width, Height = (uint)op.Height };
-                VkApi.CmdSetScissor(commands, 0, 1, &rect);
+            case OpKind.Viewport or OpKind.Scissor:
+                Bounded(commands, ref op);
                 break;
             case OpKind.Draw:
                 Drew(commands, ref op);
@@ -62,6 +60,20 @@ internal sealed unsafe partial class VulkanFrame
                 Framed(commands, ref op);
                 break;
         }
+    }
+
+    // The viewport or the scissor the op carries
+    private static void Bounded(IntPtr commands, ref Op op)
+    {
+        if (op.Kind == OpKind.Viewport)
+        {
+            var viewport = new Vk.ViewportBox { X = op.X, Y = op.Y, Width = op.Width, Height = op.Height, MaxDepth = 1 };
+            VkApi.CmdSetViewport(commands, 0, 1, &viewport);
+            return;
+        }
+
+        var rect = new Vk.Rect { X = (int)op.X, Y = (int)op.Y, Width = (uint)op.Width, Height = (uint)op.Height };
+        VkApi.CmdSetScissor(commands, 0, 1, &rect);
     }
 
     // The frame's own, posted without a closure (CopyRaw's copy, Show's blit, Close's submission and what runs after
@@ -96,8 +108,14 @@ internal sealed unsafe partial class VulkanFrame
             VkApi.CmdFillBuffer(commands, op.Indirect, op.IndirectOffset, op.CountOffset, 0);
             VulkanBackend.Ordered(commands); // ordered before what follows, as a GL buffer clear is
         }
-        else if (op.Kind == OpKind.Blit) Blitting(commands, ref op);
-        else Copied(commands, (op.Index, op.IndexOffset), (op.Indirect, op.IndirectOffset), op.CountOffset);
+        else if (op.Kind == OpKind.Blit)
+        {
+            Blitting(commands, ref op);
+        }
+        else
+        {
+            Copied(commands, (op.Index, op.IndexOffset), (op.Indirect, op.IndirectOffset), op.CountOffset);
+        }
     }
 
     private void Queued(ref Op op)
@@ -106,7 +124,11 @@ internal sealed unsafe partial class VulkanFrame
         {
             case OpKind.Begin when op.Ref is Segment segment:
                 _recording = segment.Commands;
-                if (!VulkanDevice.Begin(segment.Commands) && Fault.Length == 0) Fault = "no command buffer for a segment";
+                if (!VulkanDevice.Begin(segment.Commands) && Fault.Length == 0)
+                {
+                    Fault = "no command buffer for a segment";
+                }
+
                 TerrainDraw.Forget(); // nothing bound in it
                 break;
             case OpKind.Queue when op.Ref is Action queued:
@@ -119,11 +141,13 @@ internal sealed unsafe partial class VulkanFrame
     {
         var (images, count) = (moves.Images, moves.Count);
         if (!Assert(count <= MaxImages && count <= images.Length)) return;
+
         Moved(commands, images.AsSpan(0, count));
     }
 
     // One image's move, made as Moves' are without a Moves for it
-    private static void Moved(IntPtr commands, (ulong Image, uint Aspect, int Levels, int Layers, int From, int To) move) =>
+    private static void Moved(IntPtr commands,
+        (ulong Image, uint Aspect, int Levels, int Layers, int From, int To) move) =>
         Moved(commands, new ReadOnlySpan<(ulong, uint, int, int, int, int)>(in move));
 
     private static void Moved(IntPtr commands,
@@ -146,21 +170,27 @@ internal sealed unsafe partial class VulkanFrame
     {
         var rect = new Vk.ClearRect { Rect = clearing.Rect, Layers = Math.Max(clearing.Layers, 1) };
         fixed (Vk.ClearAttachment* attachments = clearing.Attachments)
+        {
             VkApi.CmdClearAttachments(commands, (uint)clearing.Count, attachments, 1, &rect);
+        }
     }
 
     private static void Begun(IntPtr commands, Rendering rendering)
     {
-        var colors = stackalloc Vk.Attachment[MaxColors];
+        var colors = stackalloc Vk.RenderingAttachment[MaxColors];
         for (var i = 0; i < Math.Min(rendering.Count, MaxColors); i++)
+        {
             colors[i] = rendering.Colors[i] != 0
                 ? Kept(rendering.Colors[i], Vk.LayoutColorAttachment)
-                : new Vk.Attachment { SType = Vk.RenderingAttachmentInfo }; // no view: the output writes nothing
+                : new Vk.RenderingAttachment { SType = Vk.RenderingAttachmentInfo }; // no view: the output writes nothing
+        }
+
         var depth = rendering.Depth != 0 ? Kept(rendering.Depth, rendering.DepthLayout) : default;
         var area = new Vk.Rect { Width = rendering.Width, Height = rendering.Height };
         var info = new Vk.RenderingInfo
         {
-            SType = Vk.RenderingInfoType, Area = area, Layers = Math.Max(rendering.Layers, 1), ColorCount = (uint)rendering.Count,
+            SType = Vk.RenderingInfoType, Area = area, Layers = Math.Max(rendering.Layers, 1),
+            ColorCount = (uint)rendering.Count,
             Colors = colors, Depth = rendering.Depth == 0 ? null : &depth,
             Stencil = rendering.Depth != 0 && rendering.Stencil ? &depth : null // the same view and layout
         };
@@ -168,10 +198,11 @@ internal sealed unsafe partial class VulkanFrame
         VkApi.CmdSetScissor(commands, 0, 1, &area);
     }
 
-    [System.Runtime.CompilerServices.SkipLocalsInit]
+    [SkipLocalsInit]
     private void Drew(IntPtr commands, ref Op op)
     {
         if (!Assert(op.DescriptorCount is >= 0 and <= MaxEmitted) || !Assert(op.VertexCount is >= 0 and <= 16)) return;
+
         var writes = stackalloc Vk.WriteInfo[Math.Max(op.DescriptorCount, 1)];
         var buffers = stackalloc Vk.BufferDescriptor[Math.Max(op.DescriptorCount, 1)];
         var images = stackalloc Vk.ImageDescriptor[Math.Max(op.DescriptorCount, 1)];
@@ -181,28 +212,47 @@ internal sealed unsafe partial class VulkanFrame
             (buffers[i], images[i]) = (d.Buffer, d.Image);
             writes[i] = new Vk.WriteInfo
             {
-                SType = Vk.WriteDescriptorSet, Binding = d.Binding, Count = 1, Type = (int)d.Type, Buffers = buffers + i,
+                SType = Vk.WriteDescriptorSet, Binding = d.Binding, Count = 1, Type = (int)d.Type,
+                Buffers = buffers + i,
                 Images = images + i
             };
         }
 
-        if (op.DescriptorCount > 0) TerrainDraw.Pushed(commands, op.Layout, writes, op.DescriptorCount); // Komet's clear has none
+        if (op.DescriptorCount > 0)
+        {
+            TerrainDraw.Pushed(commands, op.Layout, writes, op.DescriptorCount); // Komet's clear has none
+        }
+
         TerrainDraw.Bind(commands, op.Pipeline);
         if (op.PushBytes > 0)
+        {
             fixed (uint* words = &_push[op.Push])
+            {
                 VkApi.CmdPushConstants(commands, op.Layout, Vk.StageVertex | Vk.StageFragment, 0, (uint)op.PushBytes,
                     words);
+            }
+        }
+
         TerrainDraw.BindVertices(commands, _vertexBindings.AsSpan(op.Vertices, op.VertexCount));
         if (op.Draw is not (DrawKind.Direct or DrawKind.Indirect or DrawKind.IndirectCount))
+        {
             TerrainDraw.BindIndex(commands, (op.Index, op.IndexOffset, op.IndexType));
+        }
+
+        Issued(commands, ref op);
+    }
+
+    // The draw call of the op's kind
+    private static void Issued(IntPtr commands, ref Op op)
+    {
         switch (op.Draw)
         {
             case DrawKind.Indirect:
                 VkApi.CmdDrawIndirect(commands, op.Indirect, op.IndirectOffset, op.Count, op.First);
                 break;
             case DrawKind.IndirectCount:
-                VkApi.CmdDrawIndirectCount(commands, op.Indirect, op.IndirectOffset, op.CountBuffer, op.CountOffset, op.Count,
-                    op.First);
+                VkApi.CmdDrawIndirectCount(commands, op.Indirect, op.IndirectOffset, op.CountBuffer, op.CountOffset,
+                    op.Count, op.First);
                 break;
             case DrawKind.IndexedIndirect:
                 VkApi.CmdDrawIndexedIndirect(commands, op.Indirect, op.IndirectOffset, op.Count, op.First);

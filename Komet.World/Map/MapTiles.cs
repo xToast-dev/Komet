@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using OpenTK.Graphics.OpenGL;
 using Vintagestory.API.MathTools;
 
@@ -19,9 +19,12 @@ internal static class MapTileCulling
 
     private const string Component = "Vintagestory.GameContent.MultiChunkMapComponent",
         Map = "Vintagestory.GameContent.GuiElementMap";
+
     private const double Slack = 1;
 
-    private static readonly SeamGuard Guard = new(nameof(MapTileCulling), PatchKinds.Replacing, [typeof(MapTileCulling)]);
+    private static readonly SeamGuard Guard = new(nameof(MapTileCulling), KapiPatchKinds.Replacing,
+        [typeof(MapTileCulling)]);
+
     private static AccessTools.FieldRef<object, Cuboidd>? _view;
     private static AccessTools.FieldRef<object, float>? _zoom;
 
@@ -37,8 +40,12 @@ internal static class MapTileCulling
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
         var seams = Guard.Reset(Seams(), logger);
-        if (!NotNull(harmony) || seams[0] is null ||
-            AccessTools.TypeByName(Map) is not { } map || !Guard.Match(seams, fingerprint)) return;
+        if (seams[0] is null ||
+            AccessTools.TypeByName(Map) is not { } map || !Guard.Match(seams, fingerprint))
+        {
+            return;
+        }
+
         (_view, _zoom) = (AccessTools.FieldRefAccess<Cuboidd>(map, "CurrentBlockViewBounds"),
             AccessTools.FieldRefAccess<float>(map, "ZoomLevel"));
         _ = harmony.Patch(seams[0], new HarmonyMethod(Render));
@@ -53,12 +60,21 @@ internal static class MapTileCulling
         return seams;
     }
 
-    internal static bool Render(GuiElement map, LoadedTexture? ___Texture, Vec3d? ___worldPos)
+    internal static bool Render(GuiElement? map, LoadedTexture? ___Texture, Vec3d? ___worldPos)
     {
         if (!Enabled || Blocked || _view is null || _zoom is null || ___Texture is null || ___worldPos is null ||
-            map?.Bounds is not { } bounds || _view(map) is not { } view) return true;
+            map?.Bounds is not { } bounds || _view(map) is not { } view)
+        {
+            return true;
+        }
+
         var (width, height, zoom) = (view.X2 - view.X1, view.Z2 - view.Z1, _zoom(map));
-        if (!double.IsFinite(width + height + zoom + bounds.renderX + bounds.renderY) || !(width > 0 && height > 0)) return true;
+        if (!double.IsFinite(width + height + zoom + bounds.renderX + bounds.renderY) ||
+            !(width > 0 && height > 0))
+        {
+            return true;
+        }
+
         var x = (int)(bounds.renderX + (float)((___worldPos.X - view.X1) / width * bounds.InnerWidth));
         var y = (int)(bounds.renderY + (float)((___worldPos.Z - view.Z1) / height * bounds.InnerHeight));
         var (right, bottom) = (x + (int)(___Texture.Width * zoom), y + (int)(___Texture.Height * zoom));
@@ -84,7 +100,7 @@ internal static class MapTileUpload
     private const string Component = "Vintagestory.GameContent.MultiChunkMapComponent";
     private const int Side = 32, Cells = 3, Tile = Side * Cells, Opaque = unchecked((int)0xFF000000);
 
-    private static readonly SeamGuard Guard = new(nameof(MapTileUpload), PatchKinds.Replacing, [typeof(MapTileUpload)]);
+    private static readonly SeamGuard Guard = new(nameof(MapTileUpload), KapiPatchKinds.Replacing, [typeof(MapTileUpload)]);
 
     public static bool Enabled { get; set; } = true;
 
@@ -98,7 +114,8 @@ internal static class MapTileUpload
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
         var seams = Guard.Reset(Seams(), logger);
-        if (!NotNull(harmony) || seams[0] is null || !Guard.Match(seams, fingerprint)) return;
+        if (seams[0] is null || !Guard.Match(seams, fingerprint)) return;
+
         _ = harmony.Patch(seams[0], new HarmonyMethod(Finish));
         Recheck();
     }
@@ -113,25 +130,39 @@ internal static class MapTileUpload
     internal static bool Finish(ref LoadedTexture? ___Texture, ref int[]?[]? ___pixelsToSet, int[]? ___emptyPixels,
         ICoreClientAPI? ___capi)
     {
-        if (!Enabled || Blocked || ___pixelsToSet is not { Length: Cells * Cells } pieces || ___capi?.Render is not { } render ||
-            !Uploadable(pieces)) return true;
+        if (!Enabled || Blocked || ___pixelsToSet is not { Length: Cells * Cells } pieces ||
+            ___capi?.Render is not { } render ||
+            !Uploadable(pieces))
+        {
+            return true;
+        }
+
         if (___Texture is null || ___Texture.Disposed)
         {
             if (___emptyPixels is null) return true;
+
             ___Texture = Blank(___capi);
             render.LoadOrUpdateTextureFromRgba(___emptyPixels, false, 0, ref ___Texture);
         }
 
         if (!Assert(___Texture.Width == Tile) || !Assert(___Texture.Height == Tile)) return true;
+
         render.BindTexture2d(___Texture.TextureId);
         for (var i = 0; i < Cells * Cells; i++)
+        {
             if (pieces[i] is { } pixels)
             {
                 GL.TexSubImage2D(TextureTarget.Texture2D, 0, Side * (i % Cells), Side * (i / Cells), Side, Side,
                     PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
             }
+        }
+
         render.GlGenerateTex2DMipmaps();
-        for (var i = 0; i < Cells * Cells; i++) MapPixels.Release(pieces[i]); // copied by GL: the upload's hold ends
+        for (var i = 0; i < Cells * Cells; i++)
+        {
+            MapPixels.Release(pieces[i]); // copied by GL: the upload's hold ends
+        }
+
         ___pixelsToSet = null;
         return false;
     }
@@ -141,10 +172,13 @@ internal static class MapTileUpload
         for (var i = 0; i < Math.Min(pieces.Length, Cells * Cells); i++)
         {
             if (pieces[i] is not { } pixels) continue;
+
             if (pixels.Length != Side * Side) return false;
+
             for (var p = 0; p < Side * Side; p++)
-                if ((pixels[p] & Opaque) != Opaque)
-                    return false;
+            {
+                if ((pixels[p] & Opaque) != Opaque) return false;
+            }
         }
 
         return true;

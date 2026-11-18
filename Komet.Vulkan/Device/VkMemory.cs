@@ -11,15 +11,20 @@ internal static class VkMemory
     private static readonly Dictionary<string, ulong> ByOwner = new(StringComparer.Ordinal);
 
     public static ulong Bytes { get; private set; }
-    public static long Made { get; private set; }
+    private static long Made { get; set; }
 
     public static void Allocated(ulong memory, ulong bytes, string file)
     {
         if (!Assert(memory != 0)) return;
+
         var owner = Path.GetFileNameWithoutExtension(file);
         lock (Gate)
         {
-            if (Live.Count >= MaxLive) return; // past this the report is wrong anyway: the guard has long fired
+            if (Live.Count >= MaxLive)
+            {
+                return; // past this the report is wrong anyway: the guard has long fired
+            }
+
             Forgotten(memory); // a handle a closed device leaked, its value given again by the next device: counted once
             Live[memory] = (owner, bytes);
             ByOwner[owner] = ByOwner.GetValueOrDefault(owner) + bytes;
@@ -30,13 +35,18 @@ internal static class VkMemory
     public static void Freed(ulong memory)
     {
         if (!Assert(memory != 0)) return;
-        lock (Gate) Forgotten(memory);
+
+        lock (Gate)
+        {
+            Forgotten(memory);
+        }
     }
 
     // Under Gate
     private static void Forgotten(ulong memory)
     {
         if (!Live.Remove(memory, out var was)) return;
+
         ByOwner[was.Owner] = ByOwner.GetValueOrDefault(was.Owner) - was.Bytes;
         Bytes -= was.Bytes;
     }
@@ -53,14 +63,18 @@ internal static class VkMemory
     }
 
     // Alive after the last full collection: unlike the managed figure, excludes garbage made since
-    internal static string Survived()
+    private static string Survived()
     {
         var (full, background) = (GC.GetGCMemoryInfo(GCKind.FullBlocking), GC.GetGCMemoryInfo(GCKind.Background));
         var last = full.Index >= background.Index ? full : background;
         if (last.Index == 0 || !Assert(last.Generation <= 2)) return "no full collection yet";
+
         var live = 0L;
         foreach (var generation in last.GenerationInfo.Bounded(8))
+        {
             live += generation.SizeAfterBytes - generation.FragmentationAfterBytes;
+        }
+
         return $"{live >> 20} MB alive after full collection {GC.CollectionCount(2)}";
     }
 }
@@ -78,6 +92,7 @@ internal sealed class Retired<T>(int max, Action<T> free)
     public bool Add(T item, long frame)
     {
         if (_items.Count >= Math.Min(max, MaxItems)) return false;
+
         _items.Add((item, frame));
         return Assert(frame >= -VulkanFrame.Slots);
     }
@@ -86,11 +101,18 @@ internal sealed class Retired<T>(int max, Action<T> free)
     public void Collect(long done)
     {
         if (_items.Count == 0 || !Assert(done >= -VulkanFrame.Slots)) return;
+
         var kept = 0;
         for (var i = 0; i < Math.Min(_items.Count, MaxItems); i++)
         {
-            if (_items[i].Frame <= done) free(_items[i].Item);
-            else _items[kept++] = _items[i];
+            if (_items[i].Frame <= done)
+            {
+                free(_items[i].Item);
+            }
+            else
+            {
+                _items[kept++] = _items[i];
+            }
         }
 
         _items.RemoveRange(kept, _items.Count - kept);
@@ -100,8 +122,13 @@ internal sealed class Retired<T>(int max, Action<T> free)
     public void Clear(bool freed = true)
     {
         if (freed)
+        {
             foreach (var (item, _) in _items.Bounded(MaxItems))
+            {
                 free(item);
+            }
+        }
+
         _items.Clear();
     }
 }

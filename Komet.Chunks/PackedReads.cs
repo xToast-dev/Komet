@@ -28,13 +28,20 @@ internal static class PackedReads
     public static void Install(Harmony harmony)
     {
         Installed = false;
-        var block = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.UnpackAndReadBlock), [typeof(int), typeof(int)]);
-        var light = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight), [typeof(int)]);
+        var block = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.UnpackAndReadBlock),
+            [typeof(int), typeof(int)]);
+        var light = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight),
+            [typeof(int)]);
         var (i, sat) = (typeof(int), typeof(int).MakeByRefType());
-        var saturated = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight), [i, sat]);
-        if (!NotNull(harmony) || block is null || light is null || saturated is null ||
+        var saturated =
+            AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.Unpack_AndReadLight), [i, sat]);
+        if (block is null || light is null || saturated is null ||
             AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [i])?.ReturnType != typeof(ushort) ||
-            AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [i, sat])?.ReturnType != typeof(ushort)) return;
+            AccessTools.DeclaredMethod(typeof(ChunkData), "ReadLight", [i, sat])?.ReturnType != typeof(ushort))
+        {
+            return;
+        }
+
         _ = harmony.Patch(block, new HarmonyMethod(typeof(PackedReads), nameof(Block)));
         _ = harmony.Patch(light, new HarmonyMethod(typeof(PackedReads), nameof(Light)));
         _ = harmony.Patch(saturated, new HarmonyMethod(typeof(PackedReads), nameof(SaturatedLight)));
@@ -45,6 +52,7 @@ internal static class PackedReads
     private static bool Block(WorldChunk __instance, int index, int layer, ref int __result)
     {
         if (View(__instance) is not { } view || !Index(index, Cells)) return true;
+
         __result = view.GetBlockId(index, layer);
         return false;
     }
@@ -53,6 +61,7 @@ internal static class PackedReads
     private static bool Light(WorldChunk __instance, int index, ref ushort __result)
     {
         if (View(__instance) is not { } view || !Index(index, Cells)) return true;
+
         __result = ReadLight(view, index);
         return false;
     }
@@ -61,6 +70,7 @@ internal static class PackedReads
     private static bool SaturatedLight(WorldChunk __instance, int index, ref int lightSat, ref ushort __result)
     {
         if (View(__instance) is not { } view || !Index(index, Cells)) return true;
+
         __result = ReadLight(view, index, out lightSat);
         return false;
     }
@@ -69,8 +79,10 @@ internal static class PackedReads
     private static ChunkData? View(WorldChunk chunk)
     {
         if (!ChunkViews.Enabled || !chunk.IsPacked()) return null;
+
         var now = Environment.TickCount;
         if (now - _windowStart > WindowMs) (_windowStart, _windowDecoded) = (now, ChunkViews.ThreadDecoded);
+
         return ChunkViews.ThreadDecoded - _windowDecoded > MaxDecodes ? null : ChunkViews.Open(chunk);
     }
 }

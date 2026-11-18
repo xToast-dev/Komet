@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Komet.Core;
+using Komet.Api;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
@@ -34,8 +36,9 @@ internal static class ShaderEdits
             catch (MissingFieldException e)
             {
                 _hasIncludes = false;
-                _api?.Logger.Warning("Komet ShaderEdits: ShaderRegistry.includes not found ({0}); point lights and distant " +
-                                     "shadows stand down", e.Message);
+                _api?.Logger.Warning(
+                    "Komet ShaderEdits: ShaderRegistry.includes not found ({0}); point lights and distant " +
+                    "shadows stand down", e.Message);
             }
         }
 
@@ -47,7 +50,8 @@ internal static class ShaderEdits
         (_api, Patched) = (api, false);
         var (load, edit) = (AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
             [typeof(ShaderProgram), typeof(bool)]), AccessTools.DeclaredMethod(typeof(ShaderEdits), nameof(Edit)));
-        if (!NotNull(harmony) || !NotNull(load) || !NotNull(edit)) return;
+        if (!NotNull(load) || !NotNull(edit)) return;
+
         Patched = harmony.Patch(load, postfix: new HarmonyMethod(edit)) is not null;
     }
 
@@ -57,11 +61,12 @@ internal static class ShaderEdits
     internal static void Edit(ShaderProgram program)
     {
         if (!NotNull(program) || !Assert(program.VertexShader is null || NotNull(program.VertexShader.Code))) return;
+
         LeanVaryings.Edit(program);
         SharpUpscale.Edit(program);
         LeanGodRays.Edit(program);
         LeanPost.Edit(program);
-        ModShaders.Edit(program); // other mods' defines and edits (KometShaders), after Komet's own
+        ModShaders.Edit(program); // other mods' defines and edits (ShaderHub), after Komet's own
         Mark(program);
     }
 
@@ -69,16 +74,23 @@ internal static class ShaderEdits
     // path for the game alone and a tuned one for Komet in the same file
     private static void Mark(ShaderProgram program)
     {
-        var defines = Komet.Api.KometShaders.Renderer == Komet.Api.KometRenderer.Vulkan ? "#define KOMET 1\r\n#define KOMET_VULKAN 1\r\n" : "#define KOMET 1\r\n";
+        var defines = ShaderHub.Renderer == KapiRenderer.Vulkan
+            ? "#define KOMET 1\r\n#define KOMET_VULKAN 1\r\n"
+            : "#define KOMET 1\r\n";
         Shader?[] stages = [program.VertexShader, program.FragmentShader, program.GeometryShader];
-        foreach (var shader in stages.Where(s => s is not null && !(s.PrefixCode ?? "").Contains("#define KOMET 1", StringComparison.Ordinal)).Bounded(3))
+        foreach (var shader in stages.Where(s =>
+                         s is not null && !(s.PrefixCode ?? "").Contains("#define KOMET 1", StringComparison.Ordinal))
+                     .Bounded(3))
+        {
             shader!.PrefixCode += defines;
+        }
     }
 
     public static void Reload()
     {
         if (_api?.World is null || !NotNull(_api.World.Logger) || !NotNull(_api.Shader)) return;
-        Links.ReloadShaders(_api);
+
+        Links.ShaderUi.ReloadShaders(_api);
     }
 }
 
@@ -98,6 +110,7 @@ internal static class LeanGodRays
         set
         {
             if (field == value) return;
+
             field = value;
             if (ClientSettings.GodRayQuality > 0) ShaderEdits.Reload();
         }
@@ -106,7 +119,12 @@ internal static class LeanGodRays
     internal static void Edit(ShaderProgram program)
     {
         if (!Enabled || program.PassName != "godrays" ||
-            program.FragmentShader is not { Code: { } code } shader || !code.Contains(Step, StringComparison.Ordinal)) return;
+            program.FragmentShader is not { Code: { } code } shader ||
+            !code.Contains(Step, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         shader.Code = code.Replace(Step, LeanStep, StringComparison.Ordinal);
     }
 }
@@ -119,6 +137,29 @@ internal static class LeanGodRays
 // edge, which a falling drop does not show. Each edit needs every line it changes, else that shader stays the engine's.
 internal static class LeanPost
 {
+    // Before main in particlesquad.fsh, after its includes: getBrightnessFromShadowMap with one read per cascade
+    private const string ParticleShadow = """
+
+                                          float kometParticleShadow() {
+                                          #if SHADOWQUALITY > 0
+                                          	float b = 1.0;
+                                          	if (shadowCoordsFar.w > 0) b -= shadowIntensity * (1.0 - texture(shadowMapFar, vec3(shadowCoordsFar.xy, shadowCoordsFar.z - 0.0009))) * shadowCoordsFar.w * 0.5;
+                                          #if SHADOWQUALITY > 1
+                                          	if (shadowCoordsNear.w > 0) b -= shadowIntensity * (1.0 - texture(shadowMapNear, vec3(shadowCoordsNear.xy, shadowCoordsNear.z - 0.0005))) * shadowCoordsNear.w * 0.5;
+                                          #endif
+                                          	return clamp(b + blockBrightness, 0, 1);
+                                          #else
+                                          	return 1.0;
+                                          #endif
+                                          }
+
+                                          vec4 kometParticleFogAndShadow(vec4 rgbaPixel, float fogWeight) {
+                                          	float b = kometParticleShadow();
+                                          	return applyFog(rgbaPixel * vec4(b, b, b, 1), fogWeight);
+                                          }
+
+                                          """;
+
     private static readonly (string From, string To)[] GodRays =
     [
         ("float weight = intensity / 23.0 / 1.5;", "float weight = intensity / 23.0 / 1.5 * 2.0;"),
@@ -130,33 +171,13 @@ internal static class LeanPost
         ("weight *= decay;", "weight *= decay * decay;")
     ];
 
-    // Before main in particlesquad.fsh, after its includes: getBrightnessFromShadowMap with one read per cascade
-    private const string ParticleShadow = """
-
-        float kometParticleShadow() {
-        #if SHADOWQUALITY > 0
-        	float b = 1.0;
-        	if (shadowCoordsFar.w > 0) b -= shadowIntensity * (1.0 - texture(shadowMapFar, vec3(shadowCoordsFar.xy, shadowCoordsFar.z - 0.0009))) * shadowCoordsFar.w * 0.5;
-        #if SHADOWQUALITY > 1
-        	if (shadowCoordsNear.w > 0) b -= shadowIntensity * (1.0 - texture(shadowMapNear, vec3(shadowCoordsNear.xy, shadowCoordsNear.z - 0.0005))) * shadowCoordsNear.w * 0.5;
-        #endif
-        	return clamp(b + blockBrightness, 0, 1);
-        #else
-        	return 1.0;
-        #endif
-        }
-
-        vec4 kometParticleFogAndShadow(vec4 rgbaPixel, float fogWeight) {
-        	float b = kometParticleShadow();
-        	return applyFog(rgbaPixel * vec4(b, b, b, 1), fogWeight);
-        }
-
-        """;
-
     // What ParticleShadow reads from fogandlight.fsh: a mod's own include without them keeps the engine's particles
     private static readonly string[] ParticleNeeds =
-        ["in vec4 shadowCoordsFar;", "sampler2DShadow shadowMapFar;", "in vec4 shadowCoordsNear;", "sampler2DShadow shadowMapNear;",
-            "in float blockBrightness;", "uniform float shadowIntensity", "vec4 applyFog(vec4 rgbaPixel, float fogWeight)"];
+    [
+        "in vec4 shadowCoordsFar;", "sampler2DShadow shadowMapFar;", "in vec4 shadowCoordsNear;",
+        "sampler2DShadow shadowMapNear;",
+        "in float blockBrightness;", "uniform float shadowIntensity", "vec4 applyFog(vec4 rgbaPixel, float fogWeight)"
+    ];
 
     private static readonly int[] Taps = [0, 1, 9, 10];
     private static readonly string[] TapWeights = ["0.003456", "0.015715", "0.015715", "0.003456"];
@@ -168,6 +189,7 @@ internal static class LeanPost
         set
         {
             if (field == value) return;
+
             field = value;
             ShaderEdits.Reload();
         }
@@ -176,6 +198,7 @@ internal static class LeanPost
     internal static void Edit(ShaderProgram program)
     {
         if (!Enabled || program.FragmentShader is not { Code: { } code } shader) return;
+
         if (program.PassName == "particlesquad")
         {
             Particles(shader, code);
@@ -189,7 +212,12 @@ internal static class LeanPost
             _ => null
         };
         if (edits is null || !Array.TrueForAll(edits, e => code.Contains(e.From, StringComparison.Ordinal))) return;
-        foreach (var (from, to) in edits.Bounded(16)) code = code.Replace(from, to, StringComparison.Ordinal);
+
+        foreach (var (from, to) in edits.Bounded(16))
+        {
+            code = code.Replace(from, to, StringComparison.Ordinal);
+        }
+
         shader.Code = code;
     }
 
@@ -198,12 +226,16 @@ internal static class LeanPost
     // looked for in the code before main.
     private static void Particles(Shader shader, string code)
     {
-        const string Call = "applyFogAndShadow(color, ";
+        const string call = "applyFogAndShadow(color, ";
         var main = code.IndexOf("void main", StringComparison.Ordinal);
-        if (main < 0 || code.IndexOf(Call, main, StringComparison.Ordinal) < 0 ||
-            !Array.TrueForAll(ParticleNeeds, n => code.IndexOf(n, 0, main, StringComparison.Ordinal) >= 0)) return;
+        if (main < 0 || code.IndexOf(call, main, StringComparison.Ordinal) < 0 ||
+            !Array.TrueForAll(ParticleNeeds, n => code.IndexOf(n, 0, main, StringComparison.Ordinal) >= 0))
+        {
+            return;
+        }
+
         shader.Code = code[..main] + ParticleShadow +
-                      code[main..].Replace(Call, "kometParticleFogAndShadow(color, ", StringComparison.Ordinal);
+                      code[main..].Replace(call, "kometParticleFogAndShadow(color, ", StringComparison.Ordinal);
     }
 
     // Taps 0, 1, 9 and 10: weight 0 without the depth read, their colour read gone
@@ -213,7 +245,8 @@ internal static class LeanPost
         for (var i = 0; i < Taps.Length; i++)
         {
             var (n, weight) = (Taps[i], TapWeights[i]);
-            edits.Add(($"float w{n} = (1 - clamp(abs(texture(depthTexture, texCoords[{n}]).r - refDepth) * fac, 0, 1)) * {weight};",
+            edits.Add((
+                $"float w{n} = (1 - clamp(abs(texture(depthTexture, texCoords[{n}]).r - refDepth) * fac, 0, 1)) * {weight};",
                 $"float w{n} = 0.0;"));
             edits.Add(($"out_colour += texture(inputTexture, texCoords[{n}]) * w{n};", ""));
         }

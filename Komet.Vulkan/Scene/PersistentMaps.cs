@@ -9,30 +9,53 @@ namespace Komet.Vulkan;
 internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
 {
     private const int MaxMaps = 1 << 14, MaxVaos = 1 << 15, MaxRetired = 1 << 14, Slots = TerrainPools.Slots;
-
-    private sealed class Mapped(HostBuffer host, long size)
-    {
-        public HostBuffer Host { get; } = host;
-        public ulong Buffer => Host.Buffer;
-        public nint Pointer { get; } = (nint)host.Pointer(0);
-        public long Size { get; } = size;
-        public nint Gl { get; set; } // OpenGL's own mapping, for the way back
-    }
+    private readonly HashSet<uint> _filled = []; // given contents by glBufferStorage: copied in from OpenGL's mapping
 
     private readonly Dictionary<uint, Mapped> _maps = [];
-    private readonly HashSet<uint> _filled = []; // given contents by glBufferStorage: copied in from OpenGL's mapping
     private readonly List<WeakReference<VAO>> _vaos = [];
-    private Retired<Mapped>? _retiredList;
-    private Retired<Mapped> Retiring => _retiredList ??= new Retired<Mapped>(MaxRetired, map => Freed(map, false));
+    private Retired<Mapped> Retiring => field ??= new Retired<Mapped>(MaxRetired, map => Freed(map, false));
 
     public int Count => _maps.Count;
     public long Bytes { get; private set; }
     public long Leaked { get; private set; } // mappings no vertex array named as Vulkan let go
 
+    // Contents into OpenGL's mappings, vertex arrays pointed back; then the memory goes, except mappings no array named
+    public void Dispose()
+    {
+        _ = device.WaitIdle();
+        var back = new Dictionary<nint, nint>(_maps.Count);
+        foreach (var map in _maps.Values.Bounded(MaxMaps))
+        {
+            if (map.Gl != 0) Buffer.MemoryCopy((void*)map.Pointer, (void*)map.Gl, map.Size, map.Size);
+
+            if (map.Gl != 0) back[map.Pointer] = map.Gl;
+        }
+
+        var named = PointedBack(back);
+        foreach (var map in _maps.Values.Bounded(MaxMaps))
+        {
+            if (named.Contains(map.Pointer))
+            {
+                Freed(map, false);
+            }
+            else
+            {
+                Leaked++;
+            }
+        }
+
+        _maps.Clear();
+        Retiring.Clear();
+        _vaos.Clear();
+        _filled.Clear();
+        Bytes = 0;
+    }
+
     // GlTap.Mapping: whole buffer mapped for good; returns OpenGL's pointer where no Vulkan one can be had
     public nint Map(uint buffer, long size, nint gl)
     {
         if (!Assert(size > 0) || !Assert(gl != 0)) return gl;
+
         if (_maps.TryGetValue(buffer, out var known))
         {
             known.Gl = gl; // mapped again
@@ -40,8 +63,10 @@ internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
         }
 
         if (_maps.Count >= MaxMaps || Allocated(size) is not { } made) return gl;
+
         made.Gl = gl;
-        if (_filled.Remove(buffer)) System.Buffer.MemoryCopy((void*)gl, (void*)made.Pointer, size, size);
+        if (_filled.Remove(buffer)) Buffer.MemoryCopy((void*)gl, (void*)made.Pointer, size, size);
+
         _maps[buffer] = made;
         Bytes += size;
         return made.Pointer;
@@ -57,6 +82,7 @@ internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
     public void Specified(uint buffer, bool filled)
     {
         if (!Assert(buffer > 0)) return;
+
         _ = filled && _filled.Count < MaxMaps ? _filled.Add(buffer) : _filled.Remove(buffer);
     }
 
@@ -77,20 +103,20 @@ internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
         {
             _ = _filled.Remove(buffer);
             if (!_maps.Remove(buffer, out var gone)) continue;
+
             Bytes -= gone.Size;
             if (!Retiring.Add(gone, frame)) Freed(gone, true);
         }
     }
 
-    public void Collect(long done)
-    {
-        Retiring.Collect(done);
-    }
+    public void Collect(long done) => Retiring.Collect(done);
 
     private void Freed(Mapped map, bool wait)
     {
         if (!Assert(device.Handle != IntPtr.Zero)) return;
+
         if (wait) _ = device.WaitIdle();
+
         map.Host.Dispose(); // unmapped with it
     }
 
@@ -98,30 +124,10 @@ internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
     public void Register(VAO vao)
     {
         if (!NotNull(vao)) return;
+
         if (_vaos.Count >= MaxVaos) _ = _vaos.RemoveAll(static w => !w.TryGetTarget(out _));
+
         if (_vaos.Count < MaxVaos) _vaos.Add(new WeakReference<VAO>(vao));
-    }
-
-    // Contents into OpenGL's mappings, vertex arrays pointed back; then the memory goes, except mappings no array named
-    public void Dispose()
-    {
-        _ = device.WaitIdle();
-        var back = new Dictionary<nint, nint>(_maps.Count);
-        foreach (var map in _maps.Values.Bounded(MaxMaps))
-        {
-            if (map.Gl != 0) System.Buffer.MemoryCopy((void*)map.Pointer, (void*)map.Gl, map.Size, map.Size);
-            if (map.Gl != 0) back[map.Pointer] = map.Gl;
-        }
-
-        var named = PointedBack(back);
-        foreach (var map in _maps.Values.Bounded(MaxMaps))
-            if (named.Contains(map.Pointer)) Freed(map, false);
-            else Leaked++;
-        _maps.Clear();
-        Retiring.Clear();
-        _vaos.Clear();
-        _filled.Clear();
-        Bytes = 0;
     }
 
     private HashSet<nint> PointedBack(Dictionary<nint, nint> back)
@@ -130,15 +136,26 @@ internal sealed unsafe class PersistentMaps(VulkanDevice device) : IDisposable
         foreach (var weak in _vaos.Bounded(MaxVaos))
         {
             if (!weak.TryGetTarget(out var vao)) continue;
+
             for (var slot = 0; slot < Slots; slot++)
             {
                 ref var pointer = ref TerrainPools.Pointer(vao, slot);
                 if (pointer == 0 || !back.TryGetValue(pointer, out var gl)) continue;
+
                 _ = named.Add(pointer);
                 pointer = gl;
             }
         }
 
         return named;
+    }
+
+    private sealed class Mapped(HostBuffer host, long size)
+    {
+        public HostBuffer Host { get; } = host;
+        public ulong Buffer => Host.Buffer;
+        public nint Pointer { get; } = (nint)host.Pointer(0);
+        public long Size { get; } = size;
+        public nint Gl { get; set; } // OpenGL's own mapping, for the way back
     }
 }

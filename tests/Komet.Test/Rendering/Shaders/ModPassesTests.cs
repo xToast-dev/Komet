@@ -1,3 +1,4 @@
+using Komet.Core;
 using Komet.Api;
 using Komet.Rendering;
 
@@ -11,13 +12,26 @@ public sealed class ModPassesTests
     public void Clear() => ModShaders.Clear();
 
     [Test]
+    public void PassEditsTargetTheirOwnerAndRunInRegistrationOrder()
+    {
+        var pass = new KapiPass("grade", "original");
+        var first = ShaderHub.EditPass("addon", "sheydermod", "grade", source => source + " first");
+        using var second = ShaderHub.EditPass("addon", "sheydermod", "grade", source => source + " second");
+        Assert.That(ModPasses.Source("shaderpack:sheydermod", pass), Does.EndWith("original first second"));
+        Assert.That(ModPasses.Source("other", new KapiPass("grade", "other")),
+            Does.EndWith("other"));
+        first.Dispose();
+        Assert.That(ModPasses.Source("shaderpack:sheydermod", pass), Does.EndWith("original second"));
+    }
+
+    [Test]
     public void APassGetsKometsMarksAndItsModsDefines()
     {
-        using var own = KometShaders.Define("myshaders", "MYSHADERS_CODE", () => "1", "pass:haze");
-        using var everywhere = KometShaders.Define("shaderpack:myshaders", "MYSHADERS_QUALITY", () => "1");
-        using var other = KometShaders.Define("othermod", "OTHER", () => "1");
-        var haze = ModPasses.Source(new KometPass("shaderpack:myshaders", "haze", KometPassStage.Final, "void main() {}"));
-        var grade = ModPasses.Source(new KometPass("shaderpack:myshaders", "grade", KometPassStage.Final, "void main() {}"));
+        using var own = ShaderHub.Define("myshaders", "MYSHADERS_CODE", () => "1", "pass:haze");
+        using var everywhere = ShaderHub.Define("shaderpack:myshaders", "MYSHADERS_QUALITY", () => "1");
+        using var other = ShaderHub.Define("othermod", "OTHER", () => "1");
+        var haze = ModPasses.Source("shaderpack:myshaders", new KapiPass("haze", "void main() {}"));
+        var grade = ModPasses.Source("shaderpack:myshaders", new KapiPass("grade", "void main() {}"));
         Assert.Multiple(() =>
         {
             Assert.That(haze, Does.StartWith("#version 330 core\n#define KOMET 1\n"));

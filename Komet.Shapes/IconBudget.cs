@@ -15,7 +15,7 @@ namespace Komet.Shapes;
 // took LearnMs or more (mods' classes are learnt; never the plain Item and Block classes).
 internal static class IconBudget
 {
-    public const double BudgetMs = 6;
+    private const double BudgetMs = 6;
     private const double LearnMs = 3;
     private const int MaxDepth = 16;
     private const string Creative = "creative";
@@ -29,14 +29,19 @@ internal static class IconBudget
     public static bool Enabled { get; set; } = true;
     public static bool Patched { get; private set; }
 
-    internal static MethodInfo? Target() => AccessTools.Method(typeof(InventoryItemRenderer), nameof(InventoryItemRenderer.RenderItemstackToGui),
-        [typeof(ItemSlot), typeof(double), typeof(double), typeof(double), typeof(float), typeof(int), typeof(float), typeof(bool), typeof(bool),
-            typeof(bool)]);
+    internal static MethodInfo? Target() =>
+        AccessTools.Method(typeof(InventoryItemRenderer), nameof(InventoryItemRenderer.RenderItemstackToGui),
+        [
+            typeof(ItemSlot), typeof(double), typeof(double), typeof(double), typeof(float), typeof(int), typeof(float),
+            typeof(bool), typeof(bool),
+            typeof(bool)
+        ]);
 
     public static void Install(Harmony harmony)
     {
         Patched = false;
-        if (!NotNull(harmony) || Target() is not { } target) return;
+        if (Target() is not { } target) return;
+
         _ = harmony.Patch(target, new HarmonyMethod(Drawing), new HarmonyMethod(Done));
         Patched = true;
     }
@@ -45,13 +50,19 @@ internal static class IconBudget
     // before) build whole-body meshes from their shapes at the first draw; other classes as learnt
     internal static bool Heavy(CollectibleObject collectible) =>
         Classes.GetOrAdd(collectible.GetType(), static type => Named(type, typeof(CollectibleObject))) ||
-        Wearable(collectible);
+               Wearable(collectible);
 
     private static bool Wearable(CollectibleObject collectible)
     {
         foreach (var behavior in (collectible.CollectibleBehaviors ?? []).Bounded(MaxDepth * 4))
-            if (behavior is not null && Behaviors.GetOrAdd(behavior.GetType(), static type => Named(type, typeof(CollectibleBehavior))))
+        {
+            if (behavior is not null && Behaviors.GetOrAdd(behavior.GetType(),
+                    static type => Named(type, typeof(CollectibleBehavior))))
+            {
                 return true;
+            }
+        }
+
         return false;
     }
 
@@ -61,34 +72,55 @@ internal static class IconBudget
     {
         var t = type;
         for (var depth = 0; depth < MaxDepth && t is not null && t != root; depth++, t = t.BaseType)
-            if (t.Name is "ItemCreature" or "ItemWearable" or "CollectibleBehaviorWearable" or "CollectibleBehaviorWearableAttachment")
+        {
+            if (t.Name is "ItemCreature" or "ItemWearable" or "CollectibleBehaviorWearable"
+                or "CollectibleBehaviorWearableAttachment")
+            {
                 return true;
+            }
+        }
+
         return false;
     }
 
     // False skips the draw this frame: an expensive creative first draw once the frame's budget is spent
-    private static bool Drawing(ItemSlot inSlot, out long __state)
+    private static bool Drawing(ItemSlot? inSlot, out long __state)
     {
         __state = 0;
         if (!Enabled || FrameClock.Frames == 0 || inSlot?.Inventory?.ClassName != Creative ||
-            inSlot.Itemstack?.Collectible is not { } collectible) return true;
-        if (Drawn.TryGetValue(collectible, out _)) return true; // drawn before: its mesh is kept
+            inSlot.Itemstack?.Collectible is not { } collectible)
+        {
+            return true;
+        }
+
+        if (Drawn.TryGetValue(collectible, out _))
+        {
+            return true; // drawn before: its mesh is kept
+        }
+
         if (FrameClock.Frames != _frame) // not Completed: it stands still without the HUD
+        {
             (_frame, _spent, _budget) = (FrameClock.Frames, 0, (long)(BudgetMs * Stopwatch.Frequency / 1000));
+        }
+
         if (Heavy(collectible) && _spent >= _budget) return false;
 
         __state = Stopwatch.GetTimestamp();
         return true;
     }
 
-    private static void Done(ItemSlot inSlot, long __state)
+    private static void Done(ItemSlot? inSlot, long __state)
     {
         if (__state == 0 || inSlot?.Itemstack?.Collectible is not { } collectible) return;
+
         var ticks = Stopwatch.GetTimestamp() - __state;
         _spent += ticks;
         var ms = ticks * 1000.0 / Stopwatch.Frequency;
         Drawn.AddOrUpdate(collectible, Seen);
         // its class's next collectibles wait their turn (a slow first item or block alone teaches nothing)
-        if (ms >= LearnMs && collectible.GetType() is var type && type != typeof(Item) && type != typeof(Block)) Classes[type] = true;
+        if (ms >= LearnMs && collectible.GetType() is var type && type != typeof(Item) && type != typeof(Block))
+        {
+            Classes[type] = true;
+        }
     }
 }

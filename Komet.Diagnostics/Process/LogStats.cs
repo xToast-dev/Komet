@@ -3,7 +3,13 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Komet.Diagnostics;
 
-internal enum LogLevel { Info, Debug, Warning, Error }
+internal enum LogLevel
+{
+    Info,
+    Debug,
+    Warning,
+    Error
+}
 
 // Text has the lines that followed (a stack trace) joined on
 internal readonly record struct LogEntry(string Time, string Source, LogLevel Level, string Text);
@@ -14,12 +20,12 @@ internal sealed class LogStats(string fileName)
     public const int KeepEntries = 200;
     private const int MaxEntryChars = 1200;
     private const int TailBytes = 64 * 1024;
+    private readonly Lock _gate = new(); // opening the Log tab samples beside SampleSlow, and both fill _tail
     private readonly string _path = Assert(fileName.Length > 0) ? Path.Join(GamePaths.Logs, fileName) : "";
 
     private LogEntry[] _entries = []; // Replaced wholesale: readers never see a half snapshot
-    private readonly Lock _gate = new(); // opening the Log tab samples beside SampleSlow, and both fill _tail
-    private byte[]? _tail;
     private (long Length, DateTime Written) _parsed = (-1, default);
+    private byte[]? _tail;
 
     // Grows with each new snapshot, so readers can drop what they derived from the previous one
     public int Version { get; private set; }
@@ -34,20 +40,29 @@ internal sealed class LogStats(string fileName)
     public void Sample()
     {
         if (!Assert(_path.Length > 0)) return;
+
         lock (_gate)
         {
             try
             {
-                using var file = File.OpenHandle(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var file = File.OpenHandle(_path, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
                 var stamp = (Length: RandomAccess.GetLength(file), Written: File.GetLastWriteTimeUtc(file));
                 if (stamp == _parsed) return;
+
                 var (size, tail) = ((int)Math.Min(TailBytes, stamp.Length), _tail ??= new byte[TailBytes]);
                 if (!Read(file, tail.AsSpan(0, size), stamp.Length - size)) return;
+
                 var raw = Encoding.UTF8.GetString(tail, 0, size)
                     .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var entries = new List<LogEntry>();
-                for (var i = stamp.Length > size ? 1 : 0; i < Math.Min(raw.Length, TailBytes); i++) // a cut first line is no entry
+                for (var i = stamp.Length > size ? 1 : 0;
+                     i < Math.Min(raw.Length, TailBytes);
+                     i++) // a cut first line is no entry
+                {
                     Parse(raw[i], entries);
+                }
+
                 (_entries, _parsed) = ([.. entries.TakeLast(KeepEntries)], stamp);
                 Version++;
             }
@@ -65,6 +80,7 @@ internal sealed class LogStats(string fileName)
         {
             var n = RandomAccess.Read(file, into[got..], offset + got);
             if (n <= 0) return false;
+
             got += n;
         }
 
@@ -78,7 +94,11 @@ internal sealed class LogStats(string fileName)
         var end = line.IndexOf("] ", StringComparison.Ordinal);
         if (start <= 0 || end < start || !char.IsDigit(line[0]))
         {
-            if (into.Count > 0 && into[^1].Text.Length < MaxEntryChars) into[^1] = into[^1] with { Text = Clip(into[^1].Text + "  " + line) };
+            if (into.Count > 0 && into[^1].Text.Length < MaxEntryChars)
+            {
+                into[^1] = into[^1] with { Text = Clip(into[^1].Text + "  " + line) };
+            }
+
             return;
         }
 
@@ -93,14 +113,19 @@ internal sealed class LogStats(string fileName)
         };
         var (rest, source) = (line[(end + 2)..], "");
         if (rest.StartsWith('[') && rest.IndexOf("] ", StringComparison.Ordinal) is var close and > 1)
+        {
             (source, rest) = (rest[1..close], rest[(close + 2)..]);
+        }
+
         if (source == "komet" && rest.StartsWith("Komet: ", StringComparison.Ordinal)) rest = rest[7..];
+
         into.Add(new LogEntry(time, source, level, Clip(rest)));
     }
 
     private static string Clip(string text)
     {
         if (text.Length <= MaxEntryChars) return text;
+
         return text[..MaxEntryChars] + "…";
     }
 }

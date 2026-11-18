@@ -15,63 +15,28 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     // MaxSegments only bounds a slot's command buffers, far past any frame's: a frame can always be shown. MaxLoose:
     // transfers outside any segment (Alone); MaxImages: handed with each segment (the targets' 80 and more); MaxHeld: the
     // images a segment holds, which is the frame's.
-    public const int Slots = 3, MaxSegments = 1024, MaxLoose = 32, MaxImages = 1152, MaxHeld = 4096;
-    private const ulong GpuTimeoutNs = 5_000_000_000; // a GPU that takes longer is hung, or waits on OpenGL that waits on it
+    public const int Slots = 3, MaxHeld = 4096;
+    private const int MaxSegments = 1024, MaxLoose = 32, MaxImages = 1152;
+
+    private const ulong
+        GpuTimeoutNs = 5_000_000_000; // a GPU that takes longer is hung, or waits on OpenGL that waits on it
+
     private const ulong UploadBytes = 32UL << 20;
     private const int MaxClosers = 64;
 
     private readonly VulkanDevice _device;
     private readonly List<Slot> _slots = [];
-    private Slot? _slot;
-    private Segment? _open;
-    private int _next;
-    private bool _made; // the recording thread's: the last segment's submission went through
+    private bool _beginning; // Next runs for Early: what it ends (Ending) must not begin a frame again
 
     // Frame ended, next not begun: work in between (GUI, Before's first renderers) begins the next frame on its first
     // segment, so nothing records into a shown slot and Start finds it begun (Fresh)
     private bool _ended;
-    private bool _beginning; // Next runs for Early: what it ends (Ending) must not begin a frame again
+    private bool _made; // the recording thread's: the last segment's submission went through
+    private int _next;
+    private Segment? _open;
+    private Slot? _slot;
 
-    private sealed class Segment(IntPtr commands, IntPtr setup)
-    {
-        public IntPtr Commands { get; } = commands; // the recording thread's: the draws
-        public Handoff.Image[] Released { get; set; } = [];
-        public IntPtr Setup { get; } = setup; // transfers that run before the segment's draws
-    }
-
-    private sealed class Slot(HostBuffer uploads, HostBuffer staging, ulong fence)
-    {
-        public HostBuffer Uploads { get; } = uploads;
-        public HostBuffer Staging { get; } = staging; // bulk: only copied from
-        public ulong Fence { get; } = fence;
-        public List<Segment> Segments { get; } = [];
-        public int Used { get; set; } // segments begun this frame
-        public bool InFlight { get; set; } // the recording thread's, once it reached Signalled
-        public long Signalled { get; set; } // the ops posted up to the fence's submission
-        public Action? Signal { get; set; }
-
-        // Transfers outside any segment (Alone)
-        public List<IntPtr> Loose { get; } = [];
-        public List<Action> LooseSubmits { get; } = []; // each loose buffer's submission, beside it
-        public int LooseUsed { get; set; }
-
-        public int Index { get; init; }
-        public List<int> Stamps { get; } = []; // each timestamp's section, in query order
-        public bool Timed { get; set; } // the frame begun in it writes timestamps (TimedFrame)
-
-        // Pipeline statistics: the frame is counted, its queries were reset, how many it began
-        public bool Sampled { get; set; }
-        public bool Reset { get; set; }
-        public int Queries { get; set; }
-    }
-
-    // An image held by a segment: at rest between segments in its resting layout
-    public readonly record struct Shared(SharedImage Image, int Resting);
-
-    private VulkanFrame(VulkanDevice device)
-    {
-        _device = device;
-    }
+    private VulkanFrame(VulkanDevice device) => _device = device;
 
     public Func<IReadOnlyList<Shared>> Images { get; set; } = () => [];
 
@@ -101,17 +66,42 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
 
     public Dictionary<string, long> Closers { get; } = new(StringComparer.Ordinal);
 
-    public bool EarlyBegun { get; private set; }
+    private bool EarlyBegun { get; set; }
 
     // Frames begun this way: from inside an OpenGL call (a draw between frames), the GPU wait for the slot included
     public long EarlyBegins { get; private set; }
+
+    public void Dispose()
+    {
+        _ = _device.WaitIdle();
+        if (_device.CatchUp == CaughtUp) _device.CatchUp = null;
+
+        StopWorker(); // after the GPU is done with the command buffers its pool frees
+        if (_stamps != 0) VkApi.DestroyQueryPool(_device.Handle, _stamps, null);
+
+        if (_statistics != 0) VkApi.DestroyQueryPool(_device.Handle, _statistics, null);
+
+        (_stamps, _statistics) = (0, 0);
+        (_open, _slot) = (null, null);
+        foreach (var slot in _slots.Bounded(Slots))
+        {
+            slot.Uploads.Dispose();
+            slot.Staging.Dispose();
+            _device.DestroyFence(slot.Fence);
+        }
+
+        _slots.Clear();
+    }
 
     public static VulkanFrame? Create(VulkanDevice device, out string why)
     {
         why = "";
         if (!NotNull(device)) return null;
-        var frame = Owned.Kept(new VulkanFrame(device), device, static (frame, device) => frame.Slotted(device), out why);
+
+        var frame = Owned.Kept(new VulkanFrame(device), device, static (frame, device) => frame.Slotted(device),
+            out why);
         if (frame is null) return null;
+
         frame.StartWorker();
         device.CatchUp = frame.CaughtUp;
         return frame;
@@ -127,7 +117,7 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
             try
             {
                 (uploads, fence) = (HostBuffer.Create(device, UploadBytes), device.Fence(false));
-                staging = HostBuffer.Create(device, UploadBytes, bulk: true);
+                staging = HostBuffer.Create(device, UploadBytes, true);
             }
             catch
             {
@@ -153,7 +143,11 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     public void Next()
     {
         Close("the frame's end", endsFrame: true);
-        if (_slot is not null) Ending?.Invoke(); // before the first frame there is nothing to end
+        if (_slot is not null)
+        {
+            Ending?.Invoke(); // before the first frame there is nothing to end
+        }
+
         if (_slot is { } used && used.Used + used.LooseUsed > 0) // loose transfers too: their buffers are begun again
         {
             var (device, fence) = (_device, used.Fence);
@@ -169,6 +163,7 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
         VulkanWatch.Mark("frame end: waiting for the GPU to finish the slot's last frame", Number);
         var finished = Fault.Length == 0 && Await(slot); // a hung GPU (Pace found it) is not waited for twice
         if (!finished) Hung(Number - Slots);
+
         Timed(slot, finished);
         CountedFrame(slot, finished);
         VulkanWatch.Mark("frame begun", Number);
@@ -185,9 +180,16 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     public void Pace()
     {
         if (_slot is null || _open is not null || EarlyBegun || Fault.Length > 0) return;
+
         var slot = _slots[_next];
-        if (Await(slot)) slot.InFlight = false;
-        else Hung(Number + 1 - Slots);
+        if (Await(slot))
+        {
+            slot.InFlight = false;
+        }
+        else
+        {
+            Hung(Number + 1 - Slots);
+        }
     }
 
     // The slot's last frame done on the GPU (false: not within GpuTimeoutNs)
@@ -195,6 +197,7 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     {
         Reach(slot.Signalled); // frames ago: made long since
         if (!slot.InFlight) return true;
+
         var start = Hitches.Now;
         var finished = _device.Wait(slot.Fence, GpuTimeoutNs);
         Hitches.Since(Hitches.Kind.FrameWait, start);
@@ -210,11 +213,20 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     {
         why = Fault;
         if (Fault.Length > 0) return false;
+
         if (_open is not null) return true;
 
-        if (_slot is null) Next();
-        else Early();
+        if (_slot is null)
+        {
+            Next();
+        }
+        else
+        {
+            Early();
+        }
+
         if (!NotNull(_slot)) return false;
+
         var slot = _slot;
         if (slot.Used >= MaxSegments)
         {
@@ -227,6 +239,7 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
         if (segment is null || !VulkanDevice.Begin(segment.Setup))
         {
             if (why.Length == 0) why = "no command buffer";
+
             return false;
         }
 
@@ -263,12 +276,19 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     // for the submit only, not after (a present may wait for the display). A failed submission faults the frame.
     public void Close(string why, Action? after = null, bool endsFrame = false)
     {
-        if (endsFrame && _slot is not null) _ended = true; // with no segment open too
+        if (endsFrame && _slot is not null)
+        {
+            _ended = true; // with no segment open too
+        }
+
         if (_open is not { } segment || _slot is not { } slot || !NotNull(why)) return;
-        ref var closed = ref Closers.Count < MaxClosers // one lookup a segment; past MaxClosers only those already counted
-            ? ref CollectionsMarshal.GetValueRefOrAddDefault(Closers, why, out _)
-            : ref CollectionsMarshal.GetValueRefOrNullRef(Closers, why);
+
+        ref var closed =
+            ref Closers.Count < MaxClosers // one lookup a segment; past MaxClosers only those already counted
+                ? ref CollectionsMarshal.GetValueRefOrAddDefault(Closers, why, out _)
+                : ref CollectionsMarshal.GetValueRefOrNullRef(Closers, why);
         if (!Unsafe.IsNullRef(ref closed)) closed++;
+
         EndRendering();
         Release(segment);
         Transfers(segment.Setup, false);
@@ -278,6 +298,7 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
         _showing = 0;
         Post(new Op { Kind = OpKind.Submit, Ref = segment, Indirect = showing, Count = setupEnded ? 1u : 0u });
         if (after is not null) Post(new Op { Kind = OpKind.After, Ref = after });
+
         (_open, _counting) = (null, -1); // a query is ended before the rendering is, unless the frame faulted
         Shown = showing != 0 && Fault.Length == 0;
         slot.Used++; // the command buffers were begun: the slot's fence covers them either way
@@ -289,9 +310,9 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     {
         _made = false;
         var start = Stopwatch.GetTimestamp();
-        ReadOnlySpan<ulong> signals = signal == 0 ? [] : new ReadOnlySpan<ulong>(in signal);
+        var signals = signal == 0 ? [] : new ReadOnlySpan<ulong>(in signal);
         _made = setupEnded && Fault.Length == 0 && device.Submit([buffers.Setup, buffers.Commands], signals, 0,
-            ended: 1);
+            1);
         SubmitTicks += Stopwatch.GetTimestamp() - start;
         if (!_made && Fault.Length == 0) Fault = "a segment's submission failed (the device is lost?)";
     }
@@ -305,16 +326,21 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     public bool Alone(Action<IntPtr> record)
     {
         if (!NotNull(record) || !Assert(_open is null)) return false;
+
         if (_slot is not { } slot || slot.LooseUsed >= MaxLoose || Fault.Length > 0) return false;
+
         if (slot.LooseUsed == slot.Loose.Count) Allocated(slot);
+
         var at = slot.LooseUsed;
         var commands = slot.Loose[at];
         if (commands == IntPtr.Zero || !VulkanDevice.Begin(commands)) return false;
+
         Transfers(commands, true);
         record(commands);
         Transfers(commands, false);
         slot.LooseUsed++;
         if (!VulkanDevice.End(commands)) return false;
+
         Enqueue(new Op { Kind = OpKind.Queue, Ref = slot.LooseSubmits[at] }); // the frame's fence covers it
         return true;
     }
@@ -331,18 +357,21 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     private void Loose(VulkanDevice device, IntPtr commands)
     {
         if (Fault.Length > 0) return;
-        if (!device.Submit([commands], [], 0, ended: 1))
-            Fault = "a transfer's submission failed (the device is lost?)";
+
+        if (!device.Submit([commands], [], 0, 1)) Fault = "a transfer's submission failed (the device is lost?)";
     }
 
     private static void Transfers(IntPtr commands, bool before)
     {
         if (!Assert(VkApi.CmdPipelineBarrier != null)) return;
+
         var memory = new Vk.GlobalBarrier
         {
             SType = Vk.MemoryBarrier,
             SrcAccess = before ? Vk.AccessMemoryRead | Vk.AccessMemoryWrite : Vk.AccessTransferWrite,
-            DstAccess = before ? Vk.AccessTransferWrite | Vk.AccessTransferRead : Vk.AccessMemoryRead | Vk.AccessMemoryWrite
+            DstAccess = before
+                ? Vk.AccessTransferWrite | Vk.AccessTransferRead
+                : Vk.AccessMemoryRead | Vk.AccessMemoryWrite
         };
         var (from, to) = before ? (Vk.StageAll, Vk.StageTransfer) : (Vk.StageTransfer, Vk.StageAll);
         VkApi.CmdPipelineBarrier(commands, from, to, 0, 1, &memory, 0, null, 0, null);
@@ -357,13 +386,20 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     // The renderer's Start: the next frame, unless work before it began it already
     public void Fresh()
     {
-        if (EarlyBegun) EarlyBegun = false;
-        else Next();
+        if (EarlyBegun)
+        {
+            EarlyBegun = false;
+        }
+        else
+        {
+            Next();
+        }
     }
 
     private void Early()
     {
         if (!_ended || _beginning || Fault.Length > 0) return;
+
         _beginning = true;
         try
         {
@@ -381,29 +417,47 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
     private static void Ordered(IntPtr commands)
     {
         if (!Assert(VkApi.CmdPipelineBarrier != null)) return;
+
         const uint all = Vk.AccessMemoryRead | Vk.AccessMemoryWrite;
         var memory = new Vk.GlobalBarrier { SType = Vk.MemoryBarrier, SrcAccess = all, DstAccess = all };
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 1, &memory, 0, null, 0, null);
     }
 
-    public void Dispose()
+    private sealed class Segment(IntPtr commands, IntPtr setup)
     {
-        _ = _device.WaitIdle();
-        if (_device.CatchUp == CaughtUp) _device.CatchUp = null;
-        StopWorker(); // after the GPU is done with the command buffers its pool frees
-        if (_stamps != 0) VkApi.DestroyQueryPool(_device.Handle, _stamps, null);
-        if (_statistics != 0) VkApi.DestroyQueryPool(_device.Handle, _statistics, null);
-        (_stamps, _statistics) = (0, 0);
-        (_open, _slot) = (null, null);
-        foreach (var slot in _slots.Bounded(Slots))
-        {
-            slot.Uploads.Dispose();
-            slot.Staging.Dispose();
-            _device.DestroyFence(slot.Fence);
-        }
-
-        _slots.Clear();
+        public IntPtr Commands { get; } = commands; // the recording thread's: the draws
+        public Handoff.Image[] Released { get; set; } = [];
+        public IntPtr Setup { get; } = setup; // transfers that run before the segment's draws
     }
+
+    private sealed class Slot(HostBuffer uploads, HostBuffer staging, ulong fence)
+    {
+        public HostBuffer Uploads { get; } = uploads;
+        public HostBuffer Staging { get; } = staging; // bulk: only copied from
+        public ulong Fence { get; } = fence;
+        public List<Segment> Segments { get; } = [];
+        public int Used { get; set; } // segments begun this frame
+        public bool InFlight { get; set; } // the recording thread's, once it reached Signalled
+        public long Signalled { get; set; } // the ops posted up to the fence's submission
+        public Action? Signal { get; set; }
+
+        // Transfers outside any segment (Alone)
+        public List<IntPtr> Loose { get; } = [];
+        public List<Action> LooseSubmits { get; } = []; // each loose buffer's submission, beside it
+        public int LooseUsed { get; set; }
+
+        public int Index { get; init; }
+        public List<int> Stamps { get; } = []; // each timestamp's section, in query order
+        public bool Timed { get; set; } // the frame begun in it writes timestamps (TimedFrame)
+
+        // Pipeline statistics: the frame is counted, its queries were reset, how many it began
+        public bool Sampled { get; set; }
+        public bool Reset { get; set; }
+        public int Queries { get; set; }
+    }
+
+    // An image held by a segment: at rest between segments in its resting layout
+    public readonly record struct Shared(SharedImage Image, int Resting);
 }
 
 // Vulkan-only's exact copies: texels between same-format images at any level/layer (glCopyImageSubData, a draw's
@@ -415,8 +469,13 @@ internal sealed unsafe partial class VulkanFrame
     public bool CopyImage(SharedImage from, SharedImage to, Vk.ImageCopy[] regions)
     {
         if (!NotNull(regions) || regions.Length == 0) return regions is { Length: 0 };
-        if (_open is null || !Holds(from) || !Holds(to) || from == to || !Assert(from.Format.Aspect == to.Format.Aspect))
+
+        if (_open is null || !Holds(from) || !Holds(to) || from == to ||
+            !Assert(from.Format.Aspect == to.Format.Aspect))
+        {
             return false;
+        }
+
         ForTransfer((from, Vk.LayoutTransferSrc), (to, Vk.LayoutTransferDst));
         var (source, target) = (from.Image, to.Image);
         Post(commands => ImageCopied(commands, (source, target), regions));
@@ -426,14 +485,19 @@ internal sealed unsafe partial class VulkanFrame
     private static void ImageCopied(IntPtr commands, (ulong From, ulong To) images, Vk.ImageCopy[] regions)
     {
         if (!Assert(images.From != 0 && images.To != 0)) return;
+
         fixed (Vk.ImageCopy* at = regions)
-            VkApi.CmdCopyImage(commands, images.From, Vk.LayoutTransferSrc, images.To, Vk.LayoutTransferDst, (uint)regions.Length, at);
+        {
+            VkApi.CmdCopyImage(commands, images.From, Vk.LayoutTransferSrc, images.To, Vk.LayoutTransferDst,
+                (uint)regions.Length, at);
+        }
     }
 
     // What drew into the image comes first; the host reads the buffer once the segment's submission is done
     public bool CopyOut(SharedImage image, Vk.BufferImageCopy region, ulong buffer)
     {
         if (_open is null || !Holds(image) || !Assert(buffer != 0)) return false;
+
         ForTransfer((image, Vk.LayoutTransferSrc));
         var source = image.Image;
         Post(commands => CopiedOut(commands, source, region, buffer));
@@ -447,12 +511,14 @@ internal sealed unsafe partial class VulkanFrame
         _moves.Clear();
         Want(first.Image, first.Layout);
         if (second is { } other) Want(other.Image, other.Layout);
+
         Barrier();
     }
 
     private static void CopiedOut(IntPtr commands, ulong image, Vk.BufferImageCopy region, ulong buffer)
     {
         if (!Assert(image != 0 && buffer != 0)) return;
+
         VkApi.CmdCopyImageToBuffer(commands, image, Vk.LayoutTransferSrc, buffer, 1, &region);
         HostReadable(commands);
     }
@@ -462,6 +528,7 @@ internal sealed unsafe partial class VulkanFrame
     public bool CopyRaw(SharedImage from, ulong into)
     {
         if (_open is null || !Holds(from) || !Assert(into != 0) || !Assert(from.Image != into)) return false;
+
         ForTransfer((from, Vk.LayoutTransferSrc));
         Post(new Op
         {
@@ -471,13 +538,16 @@ internal sealed unsafe partial class VulkanFrame
         return true;
     }
 
-    private static void RawCopied(IntPtr commands, (ulong From, ulong Into) images, uint aspect, (int Width, int Height) size)
+    private static void RawCopied(IntPtr commands, (ulong From, ulong Into) images, uint aspect,
+        (int Width, int Height) size)
     {
-        if (!Assert(size.Width > 0 && size.Height > 0)) return;
+        if (!Assert(size is { Width: > 0, Height: > 0 })) return;
+
         var barrier = Vk.ImageBarrier.Full(images.Into, (Vk.LayoutGeneral, Vk.LayoutTransferDst), aspect);
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, 1, &barrier);
-        var layers = new Vk.Layers { Aspect = aspect, Count = 1 };
-        var region = new Vk.ImageCopy { Source = layers, Target = layers, Width = (uint)size.Width, Height = (uint)size.Height, Depth = 1 };
+        var layers = new Vk.SubresourceLayers { Aspect = aspect, Count = 1 };
+        var region = new Vk.ImageCopy
+            { Source = layers, Target = layers, Width = (uint)size.Width, Height = (uint)size.Height, Depth = 1 };
         VkApi.CmdCopyImage(commands, images.From, Vk.LayoutTransferSrc, images.Into, Vk.LayoutTransferDst, 1, &region);
         (barrier.OldLayout, barrier.NewLayout) = (Vk.LayoutTransferDst, Vk.LayoutGeneral);
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, 1, &barrier);
@@ -487,7 +557,9 @@ internal sealed unsafe partial class VulkanFrame
     internal static void HostReadable(IntPtr commands)
     {
         if (!Assert(commands != IntPtr.Zero)) return;
-        var host = new Vk.GlobalBarrier { SType = Vk.MemoryBarrier, SrcAccess = Vk.AccessTransferWrite, DstAccess = Vk.AccessHostRead };
+
+        var host = new Vk.GlobalBarrier
+            { SType = Vk.MemoryBarrier, SrcAccess = Vk.AccessTransferWrite, DstAccess = Vk.AccessHostRead };
         VkApi.CmdPipelineBarrier(commands, Vk.StageTransfer, Vk.StageHost, 0, 1, &host, 0, null, 0, null);
     }
 
@@ -495,7 +567,8 @@ internal sealed unsafe partial class VulkanFrame
     public bool ClearImage(SharedImage image, Vk.ColorRange range, (float R, float G, float B, float A) color,
         Vk.DepthStencilValue depth)
     {
-        if (_open is null || !Holds(image) || !Assert(range.Levels > 0 && range.Layers > 0)) return false;
+        if (_open is null || !Holds(image) || !Assert(range is { Levels: > 0, Layers: > 0 })) return false;
+
         ForTransfer((image, Vk.LayoutTransferDst));
         var (handle, colored) = (image.Image, (image.Format.Aspect & Vk.AspectColor) != 0);
         Post(commands => ImageCleared(commands, (handle, colored), range, (color, depth)));
@@ -506,6 +579,7 @@ internal sealed unsafe partial class VulkanFrame
         ((float R, float G, float B, float A) Color, Vk.DepthStencilValue Depth) value)
     {
         if (!Assert(image.Image != 0)) return;
+
         if (!image.Color)
         {
             var depth = value.Depth;

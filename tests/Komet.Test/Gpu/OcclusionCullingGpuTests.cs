@@ -13,11 +13,13 @@ public sealed class OcclusionCullingGpuTests
         new(-1, -1, -6, 600, 1, 1, -4, 300) // in front of it
     ];
 
-    private static ICoreClientAPI Client(FrameBufferRef depth) => Answers.Of<ICoreClientAPI>(new()
-    {
-        ["get_Render"] = _ =>
-            Answers.Of<IRenderAPI>(new() { ["get_FrameBuffers"] = _ => new List<FrameBufferRef> { depth } })
-    });
+    private static ICoreClientAPI Client(FrameBufferRef depth) =>
+        Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+        {
+            ["get_Render"] = _ =>
+                Answers.Of<IRenderAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+                    { ["get_FrameBuffers"] = _ => new List<FrameBufferRef> { depth } })
+        });
 
     // counters: pass 0's ranges, hidden, triangles, hidden; pass 1's the same; the draw's two counts. Commands: count, instances,
     // first index, base vertex, base instance
@@ -39,7 +41,7 @@ public sealed class OcclusionCullingGpuTests
     {
         using var rig = GpuRig.Open(backend);
         var projection = GlContext.Projection();
-        var size = GlContext.Size;
+        const int size = GlContext.Size;
         var depth = wall ? GlContext.Depth(projection, GlContext.WallDistance) : 1;
         var framebuffer = new FrameBufferRef { DepthTextureId = rig.Depth(depth, size), Width = size, Height = size };
         using var harmony = new TestHarmony("komet-test-culling-gpu");
@@ -57,54 +59,70 @@ public sealed class OcclusionCullingGpuTests
 
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
-    public void BehindTheWallIsLeftOutAndDrawnLateOnceTheWallIsGone(string backend) => Run(backend, true,
-        (rig, wall, projection) =>
-        {
-            var first = Frame(projection); // no pyramid yet: both kept
-            var second = Frame(projection); // the wall hides the far range, in pass 0 and again in pass 1
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-            // the wall is gone: pass 0 still hides it, pass 1 draws it
-            wall.DepthTextureId = rig.Depth(1, GlContext.Size);
-            var opened = Frame(projection);
-            Assert.Multiple(() =>
+    public void BehindTheWallIsLeftOutAndDrawnLateOnceTheWallIsGone(string backend)
+    {
+        Run(backend, true,
+            (rig, wall, projection) =>
             {
-                Assert.That(OcclusionCulling.Supported, Is.True, "cull.comp builds");
-                Assert.That((first.Count, first.Late), Is.EqualTo((2u, 0u)), "first frame");
-                Assert.That((second.Count, second.Late), Is.EqualTo((1u, 0u)), "second frame");
-                Assert.That(second.Counters, Is.EqualTo(new uint[] { 2, 1, 300, 100, 1, 1, 100, 100 }), "second frame");
-                Assert.That(second.First[..5], Is.EqualTo(new uint[] { 600, 1, 300, 0, 0 }), "the range in front");
-                Assert.That((opened.Count, opened.Late), Is.EqualTo((1u, 1u)), "the wall gone");
-                Assert.That(opened.Second[..5], Is.EqualTo(new uint[] { 300, 1, 0, 0, 0 }), "the range behind, late");
+                var first = Frame(projection); // no pyramid yet: both kept
+                var second = Frame(projection); // the wall hides the far range, in pass 0 and again in pass 1
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                // the wall is gone: pass 0 still hides it, pass 1 draws it
+                wall.DepthTextureId = rig.Depth(1, GlContext.Size);
+                var opened = Frame(projection);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(OcclusionCulling.Supported, Is.True, "cull.comp builds");
+                    Assert.That((first.Count, first.Late), Is.EqualTo((2u, 0u)), "first frame");
+                    Assert.That((second.Count, second.Late), Is.EqualTo((1u, 0u)), "second frame");
+                    Assert.That(second.Counters, Is.EqualTo(new uint[] { 2, 1, 300, 100, 1, 1, 100, 100 }),
+                        "second frame");
+                    Assert.That(second.First[..5], Is.EqualTo(new uint[] { 600, 1, 300, 0, 0 }), "the range in front");
+                    Assert.That((opened.Count, opened.Late), Is.EqualTo((1u, 1u)), "the wall gone");
+                    Assert.That(opened.Second[..5], Is.EqualTo(new uint[] { 300, 1, 0, 0, 0 }),
+                        "the range behind, late");
+                });
             });
-        });
+    }
 
     // Pool draws without ranges between those with: each range still lands in its own draw's count and region
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
-    public void EachRangeFindsItsDrawAmongEmptyOnes(string backend) => Run(backend, false, (_, _, projection) =>
-    {
-        OcclusionCulling.RunFrame(Ranges, projection, (0, 0, 0), [0, 1, 0, 0, 1, 0]);
-        var counters = new uint[8 + 2 * OcclusionCulling.MaxDraws];
-        var (first, late) = (new uint[Commands], new uint[Commands]);
-        CullingState.Frame(counters, first, late);
-        Assert.Multiple(() =>
+    public void EachRangeFindsItsDrawAmongEmptyOnes(string backend) =>
+        Run(backend, false, (_, _, projection) =>
         {
-            Assert.That(counters[8..14], Is.EqualTo(new uint[] { 0, 1, 0, 0, 1, 0 }), "a range per draw with ranges");
-            Assert.That(first[..5], Is.EqualTo(new uint[] { 300, 1, 0, 0, 0 }), "the first range, at its draw's start");
-            Assert.That(first[5..], Is.EqualTo(new uint[] { 600, 1, 300, 0, 0 }), "the second, at its draw's start");
+            OcclusionCulling.RunFrame(Ranges, projection, (0, 0, 0), [0, 1, 0, 0, 1, 0]);
+            var counters = new uint[8 + 2 * OcclusionCulling.MaxDraws];
+            var (first, late) = (new uint[Commands], new uint[Commands]);
+            CullingState.Frame(counters, first, late);
+            Assert.Multiple(() =>
+            {
+                Assert.That(counters[8..14], Is.EqualTo(new uint[] { 0, 1, 0, 0, 1, 0 }),
+                    "a range per draw with ranges");
+                Assert.That(first[..5], Is.EqualTo(new uint[] { 300, 1, 0, 0, 0 }),
+                    "the first range, at its draw's start");
+                Assert.That(first[5..], Is.EqualTo(new uint[] { 600, 1, 300, 0, 0 }),
+                    "the second, at its draw's start");
+            });
         });
-    });
 
     // What the HUD reads: the readable copy of the oldest frame of the ring, the same counts as the frame's own buffer
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
-    public void TheHudReadsTheOldestFramesCopy(string backend) => Run(backend, true, (_, _, projection) =>
+    public void TheHudReadsTheOldestFramesCopy(string backend)
     {
-        var frames = new List<uint[]>();
-        for (var i = 0; i < 5; i++) frames.Add(Frame(projection).Counters);
-        OcclusionCulling.Enabled = true;
-        OcclusionCulling.Sample(); // five frames done: the ring's oldest is the third
-        var read = Enumerable.Range(0, 8).Select(i => (uint)OcclusionCulling.Stat(i)).ToArray();
-        Assert.That(read, Is.EqualTo(frames[2]));
-    });
+        Run(backend, true, (_, _, projection) =>
+        {
+            var frames = new List<uint[]>();
+            for (var i = 0; i < 5; i++)
+            {
+                frames.Add(Frame(projection).Counters);
+            }
+
+            OcclusionCulling.Enabled = true;
+            OcclusionCulling.Sample(); // five frames done: the ring's oldest is the third
+            var read = Enumerable.Range(0, 8).Select(i => (uint)OcclusionCulling.Stat(i)).ToArray();
+            Assert.That(read, Is.EqualTo(frames[2]));
+        });
+    }
 }

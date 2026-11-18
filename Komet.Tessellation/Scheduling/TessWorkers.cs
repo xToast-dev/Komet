@@ -61,8 +61,12 @@ internal static class TessWorkers
             i);
         // Private engine fields, typed (missing: throws on a game thread): game here, started via TessSchedule
         var game = AccessTools.DeclaredField(typeof(ChunkTesselator), "game");
-        if (!NotNull(harmony) || !NotNull(pass) || !NotNull(atlas) || !TessSafety.Installed ||
-            !TessSchedule.Installed || !Assert(game?.FieldType == typeof(ClientMain))) return;
+        if (!NotNull(pass) || !NotNull(atlas) || !TessSafety.Installed ||
+            !TessSchedule.Installed || !Assert(game?.FieldType == typeof(ClientMain)))
+        {
+            return;
+        }
+
         _sites = 0;
         _ = harmony.Patch(pass, transpiler: new HarmonyMethod(ThreadTesselatorIl));
         if (!Assert(Volatile.Read(ref _sites) == TesselatorSites))
@@ -80,6 +84,7 @@ internal static class TessWorkers
     public static void Stop()
     {
         if (ReferenceEquals(WorkerPool.Background, Job)) WorkerPool.Background = null;
+
         (Installed, _game, _manager, Failed, Boosted, Broken) = (false, null, null, false, false, false);
         WorkerPool.BackgroundLimit = 0;
         TessGovernor.Reset();
@@ -94,10 +99,14 @@ internal static class TessWorkers
         var field = AccessTools.DeclaredField(typeof(ClientMain), nameof(ClientMain.TerrainChunkTesselator));
         var mine = AccessTools.Method(typeof(TessWorkers), nameof(Tesselator));
         if (!Assert(Il.Take(instructions, Il.MaxInstructions, out var code)) || !NotNull(field) || !NotNull(mine))
+        {
             return code;
+        }
+
         var substituted = Il.SubstituteSingle(code, c => c.opcode == OpCodes.Ldfld && Equals(c.operand, field), mine);
         Volatile.Write(ref _sites, substituted ? TesselatorSites : 0);
         if (!substituted && Installed) Broken = true;
+
         return code;
     }
 
@@ -111,23 +120,30 @@ internal static class TessWorkers
     private static void Forward(ChunkTesselator __instance, int textureId)
     {
         if (!Assert(textureId >= 0)) return;
+
         var game = TessSeams.Game(__instance);
         // A pool thread's __instance: this loop's call
         if (game is null || !ReferenceEquals(game.TerrainChunkTesselator, __instance)) return;
         // BlockTextureAtlasManager.RuntimeCreateNewAtlas
         _ = Assert(Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId);
         foreach (var made in Made.Bounded(WorkerPool.MaxThreads))
+        {
             if (made is not null && ReferenceEquals(TessSeams.Game(made), game) && TessSeams.Started(made))
+            {
                 _ = made.RuntimeCreateNewBlockTextureAtlas(textureId);
+            }
+        }
     }
 
     // Pool thread cap: one at priority 1 to all running at 100; a backlog lifts it to half, to all from priority 50
-    internal static int Ceiling(int threads, int priority, bool boosted)
+    private static int Ceiling(int threads, int priority, bool boosted)
     {
         if (!Assert(threads is >= 0 and <= WorkerPool.MaxThreads) || threads == 0 || priority <= 0) return 0;
+
         var share = 1 + (int)Math.Round((threads - 1) * (double)Math.Min(priority, MaxPriority) / MaxPriority);
         var boost = priority >= MaxPriority / 2 ? threads : (threads + 1) / 2;
         if (!boosted) boost = 0;
+
         return Math.Clamp(Math.Max(share, boost), 1, threads);
     }
 
@@ -135,6 +151,7 @@ internal static class TessWorkers
     internal static void Steer(ClientMain game, ChunkTesselatorManager manager, bool active)
     {
         if (!Installed || !NotNull(game) || !NotNull(manager)) return;
+
         if (!ReferenceEquals(game, _game)) // a new world: the old one's instances are no one's any more
         {
             Array.Clear(Made);
@@ -150,7 +167,10 @@ internal static class TessWorkers
         (TessGovernor.Ceiling, TessGovernor.Scale) = (ceiling, 0.5 + 2.0 * priority / MaxPriority);
         WorkerPool.BackgroundLimit = on ? TessGovernor.Limit(ceiling) : 0;
         _ = Assert(WorkerPool.Current < 0); // the engine's thread, never a pool thread
-        if (on) TessSafety.Open(true);
+        if (on)
+        {
+            TessSafety.Open(true);
+        }
         else if (TessSafety.Parallel && !Passing)
         {
             TessSafety.Open(false);
@@ -167,7 +187,11 @@ internal static class TessWorkers
     {
         var (game, manager) = (_game, _manager);
         if (!Installed || Failed || game is null || manager is null || !game.ShouldTesselateTerrain ||
-            ThreadTesselator(game) is null) return false;
+            ThreadTesselator(game) is null)
+        {
+            return false;
+        }
+
         _ = Interlocked.Increment(ref _passing); // counted in before Parallel is read (the class comment)
         try
         {
@@ -189,8 +213,10 @@ internal static class TessWorkers
     {
         var mine = _threadTesselator;
         if (mine is not null && ReferenceEquals(TessSeams.Game(mine), game)) return mine;
+
         var slot = WorkerPool.Current;
         if (!Index(slot, Made.Length)) return null;
+
         if (Volatile.Read(ref Made[slot]) is { } made && ReferenceEquals(TessSeams.Game(made), game) &&
             TessSeams.Started(made))
         {
@@ -199,6 +225,7 @@ internal static class TessWorkers
         }
 
         if (Interlocked.Exchange(ref Asked[slot], 1) == 0) Ask(game, slot);
+
         return null;
     }
 
@@ -209,6 +236,7 @@ internal static class TessWorkers
     private static void Make(ClientMain game, int slot)
     {
         if (!ReferenceEquals(game, _game) || game.threadsShouldExit) return;
+
         try
         {
             var tesselator = new ChunkTesselator(game);
@@ -230,6 +258,7 @@ internal static class TessWorkers
     {
         // An unclean exit, as the engine's own threads report it
         if (game.threadsShouldExit || Failed) return;
+
         Failed = true;
         game.Logger.Error("Komet: a tessellation pass on a worker thread failed, the engine's thread goes on alone " +
                           "for this world: {0}", e);

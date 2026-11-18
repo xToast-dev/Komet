@@ -13,7 +13,11 @@ public sealed class Ascii85EncodeTests
         {
             var bytes = new byte[n % 67];
             random.NextBytes(bytes);
-            if (n % 3 == 0) Array.Clear(bytes, 0, Math.Min(bytes.Length, 8)); // zero groups
+            if (n % 3 == 0)
+            {
+                Array.Clear(bytes, 0, Math.Min(bytes.Length, 8)); // zero groups
+            }
+
             Assert.That(Ascii85Encode.Encode(bytes), Is.EqualTo(Ascii85.Encode(bytes)), $"{bytes.Length} bytes");
         }
     }

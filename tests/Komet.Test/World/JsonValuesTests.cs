@@ -1,4 +1,5 @@
 using Komet.World;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.World;
@@ -20,6 +21,6 @@ public sealed class JsonValuesTests
         Assert.That(((JValue)b["d"]!).Value, Is.SameAs(((JValue)a["d"]!).Value));
         Assert.That(((JValue)b["i"]!).Type, Is.EqualTo(JTokenType.Float), "3.0 stays a double");
         Assert.That(pass.Swapped, Is.Positive);
-        Assert.That(b.ToString(Newtonsoft.Json.Formatting.None), Is.EqualTo("""{"s":"stone","n":3,"d":0.5,"i":3.0}"""));
+        Assert.That(b.ToString(Formatting.None), Is.EqualTo("""{"s":"stone","n":3,"d":0.5,"i":3.0}"""));
     }
 }

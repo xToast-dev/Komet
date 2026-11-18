@@ -30,100 +30,78 @@ internal sealed unsafe class FrameBridge : IDisposable
     private const uint SlotUsage = Vk.Sampled | Vk.TransferDst, OutputUsage = Vk.Storage | Vk.Sampled | Vk.TransferSrc;
 
     private const string Source = """
-        #version 450
-        layout(local_size_x = 16, local_size_y = 16) in;
-        layout(binding = 0) uniform sampler2D scene;
-        layout(binding = 1) uniform sampler2D final;
-        layout(binding = 2) uniform sampler2D depth;
-        layout(binding = 3, rgba8) uniform writeonly image2D target;
-        layout(push_constant) uniform Warp { mat4 rotation; vec4 lens; vec4 depthLens; } warp;
+                                  #version 450
+                                  layout(local_size_x = 16, local_size_y = 16) in;
+                                  layout(binding = 0) uniform sampler2D scene;
+                                  layout(binding = 1) uniform sampler2D final;
+                                  layout(binding = 2) uniform sampler2D depth;
+                                  layout(binding = 3, rgba8) uniform writeonly image2D target;
+                                  layout(push_constant) uniform Warp { mat4 rotation; vec4 lens; vec4 depthLens; } warp;
 
-        // The eye's distance at uv from the scene's depth (GL's [0, 1]); far when the frame has no depth copy
-        float eye(vec2 uv)
-        {
-            if (warp.depthLens.w == 0.0) return 1e9;
-            return warp.depthLens.y / (texture(depth, uv).r * 2.0 - 1.0 + warp.depthLens.x);
-        }
+                                  // The eye's distance at uv from the scene's depth (GL's [0, 1]); far when the frame has no depth copy
+                                  float eye(vec2 uv)
+                                  {
+                                      if (warp.depthLens.w == 0.0) return 1e9;
+                                      return warp.depthLens.y / (texture(depth, uv).r * 2.0 - 1.0 + warp.depthLens.x);
+                                  }
 
-        void main()
-        {
-            ivec2 size = imageSize(target);
-            ivec2 at = ivec2(gl_GlobalInvocationID.xy);
-            if (at.x >= size.x || at.y >= size.y) return;
-            vec2 uv = (vec2(at) + 0.5) / vec2(size);
-            vec4 over = texelFetch(final, at, 0);
-            if (any(greaterThan(abs(over - texelFetch(scene, at, 0)), vec4(0.001))) || eye(uv) < warp.depthLens.z)
-            {
-                imageStore(target, at, over); // the GUI, or what turns with the camera: as the engine drew it
-                return;
-            }
+                                  void main()
+                                  {
+                                      ivec2 size = imageSize(target);
+                                      ivec2 at = ivec2(gl_GlobalInvocationID.xy);
+                                      if (at.x >= size.x || at.y >= size.y) return;
+                                      vec2 uv = (vec2(at) + 0.5) / vec2(size);
+                                      vec4 over = texelFetch(final, at, 0);
+                                      if (any(greaterThan(abs(over - texelFetch(scene, at, 0)), vec4(0.001))) || eye(uv) < warp.depthLens.z)
+                                      {
+                                          imageStore(target, at, over); // the GUI, or what turns with the camera: as the engine drew it
+                                          return;
+                                      }
 
-            vec2 ndc = uv * 2.0 - 1.0;
-            vec3 look = mat3(warp.rotation) * vec3((ndc.x + warp.lens.z) / warp.lens.x, (ndc.y + warp.lens.w) / warp.lens.y, -1.0);
-            if (look.z > -1e-4)
-            {
-                imageStore(target, at, over);
-                return;
-            }
+                                      vec2 ndc = uv * 2.0 - 1.0;
+                                      vec3 look = mat3(warp.rotation) * vec3((ndc.x + warp.lens.z) / warp.lens.x, (ndc.y + warp.lens.w) / warp.lens.y, -1.0);
+                                      if (look.z > -1e-4)
+                                      {
+                                          imageStore(target, at, over);
+                                          return;
+                                      }
 
-            vec2 from = vec2(warp.lens.x * look.x + warp.lens.z * look.z, warp.lens.y * look.y + warp.lens.w * look.z) / -look.z;
-            from = from * 0.5 + 0.5;
-            if (eye(from) < warp.depthLens.z) from = uv; // the hand stood there: what lies behind it is not known
-            imageStore(target, at, vec4(texture(scene, from).rgb, 1.0));
-        }
-        """;
+                                      vec2 from = vec2(warp.lens.x * look.x + warp.lens.z * look.z, warp.lens.y * look.y + warp.lens.w * look.z) / -look.z;
+                                      from = from * 0.5 + 0.5;
+                                      if (eye(from) < warp.depthLens.z) from = uv; // the hand stood there: what lies behind it is not known
+                                      imageStore(target, at, vec4(texture(scene, from).rgb, 1.0));
+                                  }
+                                  """;
 
-    // A frame as published: its slot, the view's rotation (world to view), the projection's terms and when it was taken
-    // At: when its camera was read; ShownAt: when the engine presented it (the lag between is what a bridged frame keeps)
-    public readonly record struct Shot(int Slot, Matrix4x4 View, Vector4 Lens, Vector4 DepthLens, long At, long Presents,
-        long ShownAt = 0);
-
-    private sealed class Slot(SharedImage scene, SharedImage final, SharedImage? depth) : IDisposable
-    {
-        public SharedImage Scene { get; } = scene;
-        public SharedImage Final { get; } = final;
-        public SharedImage? Depth { get; } = depth;
-
-        public void Dispose()
-        {
-            Scene.Dispose();
-            Final.Dispose();
-            Depth?.Dispose();
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Push
-    {
-        public Matrix4x4 Rotation; // its sixteen floats in GLSL's column order
-        public Vector4 Lens, DepthLens;
-    }
+    private readonly WindowSwapchain _chain;
 
     private readonly VulkanDevice _device;
-    private readonly WindowSwapchain _chain;
-    private double _period; // ms between the monitor's refreshes; Retuned from the engine thread
-    private readonly Slot?[] _slots = new Slot?[Slots];
     private readonly Lock _gate = new(); // _last, _previous, _leased, _pending
-    private readonly Lock _work = new(); // a bridged frame being made, against the engine thread remaking the images it reads
-    private readonly ManualResetEventSlim _wake = new(false);
-    private readonly System.Func<(ulong Image, int Width, int Height, ulong Rendered), bool> _record;
-    private SharedImage? _output;
-    private ulong _pipeline, _layout, _setLayout, _linear, _nearest, _pool, _done, _acquired;
-    private IntPtr _commands;
-    private Thread? _thread;
-    private volatile bool _stop;
-    private Shot? _last, _previous;
-    private int _leased = -1;
-    private int _pending; // a bit per slot copied into for a frame whose present has not published it yet
-    private (int Width, int Height, SharedFormat Format)? _unmade; // the size the device last gave no copies for
-    private readonly ILogger? _logger;
-    private long _due; // Stopwatch ticks when the next bridged frame is due unless the engine presents first
     private readonly double[] _intervals = new double[Usual]; // the engine's last present intervals (ms), a ring
+    private readonly ILogger? _logger;
+    private readonly System.Func<(ulong Image, int Width, int Height, ulong Rendered), bool> _record;
+    private readonly Slot?[] _slots = new Slot?[Slots];
+    private readonly ManualResetEventSlim _wake = new(false);
+
+    private readonly Lock
+        _work = new(); // a bridged frame being made, against the engine thread remaking the images it reads
+
+    private IntPtr _commands;
+    private long _due; // Stopwatch ticks when the next bridged frame is due unless the engine presents first
     private int _interval;
+    private Shot? _last, _previous;
     private long _lastReal;
+    private int _leased = -1;
+    private SharedImage? _output;
+    private int _pending; // a bit per slot copied into for a frame whose present has not published it yet
+    private double _period; // ms between the monitor's refreshes; Retuned from the engine thread
+    private ulong _pipeline, _layout, _setLayout, _linear, _nearest, _pool, _done, _acquired;
     private Push _push;
-    private int _slot; // the slot the bridged frame being recorded reads
     private float _shownYaw = float.NaN, _shownStep;
+    private int _slot; // the slot the bridged frame being recorded reads
+    private volatile bool _stop;
+    private Thread? _thread;
+    private (int Width, int Height, SharedFormat Format)? _unmade; // the size the device last gave no copies for
 
     private FrameBridge(VulkanDevice device, WindowSwapchain chain, double periodMs, ILogger? logger)
     {
@@ -139,10 +117,49 @@ internal sealed unsafe class FrameBridge : IDisposable
 
     private double PeriodMs => Volatile.Read(ref _period);
 
+    // The thread stopped first, then the device idle before anything it used goes
+    public void Dispose()
+    {
+        _ = Assert(Thread.CurrentThread != _thread); // its own join would wait for itself
+        _stop = true;
+        _wake.Set();
+        if (_thread is { } thread && !Assert(thread.Join(1000)))
+        {
+            return; // leaked: nothing goes under a thread still bridging
+        }
+
+        _ = _device.WaitIdle();
+        var handle = _device.Handle;
+        foreach (var slot in _slots.Bounded(Slots))
+        {
+            slot?.Dispose();
+        }
+
+        Array.Clear(_slots);
+        _output?.Dispose();
+        if (_pipeline != 0) VkApi.DestroyPipeline(handle, _pipeline, null);
+
+        if (_layout != 0) VkApi.DestroyPipelineLayout(handle, _layout, null);
+
+        if (_setLayout != 0) VkApi.DestroySetLayout(handle, _setLayout, null);
+
+        foreach (var sampler in (ReadOnlySpan<ulong>)[_linear, _nearest])
+        {
+            if (sampler != 0) VkApi.DestroySampler(handle, sampler, null);
+        }
+
+        _device.DestroyFence(_done);
+        _device.DestroyFence(_acquired);
+        _device.DestroyPool(_pool);
+        (_output, _pipeline, _layout, _setLayout, _thread) = (null, 0, 0, 0, null);
+        _wake.Dispose();
+    }
+
     // The window's monitor runs at another rate now (moved to another monitor, mode changed)
     public void Retuned(int refreshHz)
     {
         if (!Assert(refreshHz > 0) || _stop) return;
+
         Volatile.Write(ref _period, Period(refreshHz));
         _wake.Set();
     }
@@ -150,9 +167,11 @@ internal sealed unsafe class FrameBridge : IDisposable
     private static double Period(int refreshHz) => 1000.0 / Math.Clamp(refreshHz <= 0 ? 60 : refreshHz, 24, 1000);
 
     // The bridge for a monitor of refreshHz, its thread started; null where the device cannot make it
-    public static FrameBridge? Create(VulkanDevice device, WindowSwapchain chain, int refreshHz, ILogger? logger, out string why)
+    public static FrameBridge? Create(VulkanDevice device, WindowSwapchain chain, int refreshHz, ILogger? logger,
+        out string why)
     {
         if (VkApi.CmdPushDescriptors == null) return Refused(out why, "no push descriptors");
+
         var bridge = Owned.Kept(new FrameBridge(device, chain, Period(refreshHz), logger), 0,
             static (bridge, _) => bridge.Made(out var why) ? null : why, out why); // a refusal always says why
         return bridge?.Started();
@@ -167,7 +186,8 @@ internal sealed unsafe class FrameBridge : IDisposable
     private FrameBridge Started()
     {
         _due = long.MaxValue; // none before the engine's first present
-        _thread = new Thread(Run) { IsBackground = true, Name = "komet-frame-bridge", Priority = ThreadPriority.AboveNormal };
+        _thread = new Thread(Run)
+            { IsBackground = true, Name = "komet-frame-bridge", Priority = ThreadPriority.AboveNormal };
         _thread.Start();
         return this;
     }
@@ -177,47 +197,78 @@ internal sealed unsafe class FrameBridge : IDisposable
         why = "";
         var words = Shaderc.Compile(Source, Shaderc.Compute, "frame-bridge", out var error);
         if (words is null) return Failed(out why, $"the bridge's shader does not compile: {error}");
+
         var handle = _device.Handle;
-        var bindings = stackalloc Vk.LayoutBinding[4];
-        for (var i = 0; i < 4; i++)
-            bindings[i] = new Vk.LayoutBinding
-            {
-                Binding = (uint)i, Type = i == 3 ? Spirv.StorageImage : Spirv.CombinedSampler, Count = 1, Stages = Vk.StageCompute
-            };
-        var set = new Vk.SetLayoutInfo
-        {
-            SType = Vk.SetLayoutCreateInfo, Flags = Vk.PushDescriptorLayout, BindingCount = 4, Bindings = bindings
-        };
-        ulong setLayout, layout, module, pipeline;
-        if (VkApi.CreateSetLayout(handle, &set, null, &setLayout) != Vk.Success) return Failed(out why, "no descriptor layout");
-        _setLayout = setLayout;
-        var range = new Vk.PushRange { Stages = Vk.StageCompute, Size = PushBytes };
-        var info = new Vk.PipelineLayoutInfo
-        {
-            SType = Vk.PipelineLayoutCreateInfo, SetLayoutCount = 1, SetLayouts = &setLayout, PushRangeCount = 1, PushRanges = &range
-        };
-        if (VkApi.CreatePipelineLayout(handle, &info, null, &layout) != Vk.Success) return Failed(out why, "no pipeline layout");
-        _layout = layout;
+        if (!Layouts(handle, out why)) return false;
+
+        ulong module, pipeline;
         fixed (uint* code = words)
         {
-            var moduleInfo = new Vk.ModuleInfo { SType = Vk.ShaderModuleCreateInfo, CodeSize = (nuint)(4 * words.Length), Code = code };
-            if (VkApi.CreateShaderModule(handle, &moduleInfo, null, &module) != Vk.Success) return Failed(out why, "no shader module");
+            var moduleInfo = new Vk.ModuleInfo
+                { SType = Vk.ShaderModuleCreateInfo, CodeSize = (nuint)(4 * words.Length), Code = code };
+            if (VkApi.CreateShaderModule(handle, &moduleInfo, null, &module) != Vk.Success)
+            {
+                return Failed(out why, "no shader module");
+            }
         }
 
         var main = stackalloc byte[] { (byte)'m', (byte)'a', (byte)'i', (byte)'n', 0 };
         var compute = new Vk.ComputeInfo
         {
-            SType = Vk.ComputePipelineCreateInfo, Layout = layout,
-            Stage = new Vk.StageInfo { SType = Vk.StageCreateInfo, Stage = Vk.StageCompute, Module = module, Name = main }
+            SType = Vk.ComputePipelineCreateInfo, Layout = _layout,
+            Stage = new Vk.StageInfo
+                { SType = Vk.StageCreateInfo, Stage = Vk.StageCompute, Module = module, Name = main }
         };
-        var made = VkApi.CreateComputePipelines(handle, _device.PipelineCache, 1, &compute, null, &pipeline) == Vk.Success;
+        var made = VkApi.CreateComputePipelines(handle, _device.PipelineCache, 1, &compute, null, &pipeline) ==
+                   Vk.Success;
         VkApi.DestroyShaderModule(handle, module, null);
         if (!made) return Failed(out why, "no compute pipeline");
+
         (_pipeline, _linear, _nearest) = (pipeline, Sampler(1), Sampler(0));
         (_pool, _done, _acquired) = (_device.CommandPool(), _device.Fence(true), _device.Fence(false));
         _commands = _pool == 0 ? IntPtr.Zero : _device.Allocate(_pool);
-        return _linear != 0 && _nearest != 0 && _commands != IntPtr.Zero && _done != 0 && _acquired != 0 ||
+        return (_linear != 0 && _nearest != 0 && _commands != IntPtr.Zero && _done != 0 && _acquired != 0) ||
                Failed(out why, "no sampler, command buffer or fence");
+    }
+
+    // The push-descriptor set layout and the pipeline layout the compute pipeline uses
+    private bool Layouts(IntPtr handle, out string why)
+    {
+        why = "";
+        var bindings = stackalloc Vk.LayoutBinding[4];
+        for (var i = 0; i < 4; i++)
+        {
+            bindings[i] = new Vk.LayoutBinding
+            {
+                Binding = (uint)i, Type = i == 3 ? Spirv.StorageImage : Spirv.CombinedSampler, Count = 1,
+                Stages = Vk.StageCompute
+            };
+        }
+
+        var set = new Vk.SetLayoutInfo
+        {
+            SType = Vk.SetLayoutCreateInfo, Flags = Vk.PushDescriptorLayout, BindingCount = 4, Bindings = bindings
+        };
+        ulong setLayout, layout;
+        if (VkApi.CreateSetLayout(handle, &set, null, &setLayout) != Vk.Success)
+        {
+            return Failed(out why, "no descriptor layout");
+        }
+
+        _setLayout = setLayout;
+        var range = new Vk.PushRange { Stages = Vk.StageCompute, Size = PushBytes };
+        var info = new Vk.PipelineLayoutInfo
+        {
+            SType = Vk.PipelineLayoutCreateInfo, SetLayoutCount = 1, SetLayouts = &setLayout, PushRangeCount = 1,
+            PushRanges = &range
+        };
+        if (VkApi.CreatePipelineLayout(handle, &info, null, &layout) != Vk.Success)
+        {
+            return Failed(out why, "no pipeline layout");
+        }
+
+        _layout = layout;
+        return true;
     }
 
     // filter 1: linear (the warp), 0: nearest (depth); clamped to the edge
@@ -225,7 +276,8 @@ internal sealed unsafe class FrameBridge : IDisposable
     {
         var info = new Vk.SamplerInfo
         {
-            SType = Vk.SamplerCreateInfo, MagFilter = filter, MinFilter = filter, AddressU = 2, AddressV = 2, AddressW = 2
+            SType = Vk.SamplerCreateInfo, MagFilter = filter, MinFilter = filter, AddressU = 2, AddressV = 2,
+            AddressW = 2
         };
         ulong sampler;
         return VkApi.CreateSampler(_device.Handle, &info, null, &sampler) == Vk.Success ? sampler : 0;
@@ -243,20 +295,29 @@ internal sealed unsafe class FrameBridge : IDisposable
     public int Take(SharedImage window, SharedImage? depth)
     {
         if (_stop) return -1;
+
         var wanted = depth is { } d && d.Format == SharedFormat.Depth32F ? d : null;
-        if (_unmade == (window.Width, window.Height, window.Format)) return -1; // no copies at this size: no wait again
+        if (_unmade == (window.Width, window.Height, window.Format))
+        {
+            return -1; // no copies at this size: no wait again
+        }
+
         int at;
         lock (_gate)
         {
             at = -1;
             for (var i = 0; i < Slots && at < 0; i++)
-                if (i != _last?.Slot && i != _leased && (_pending & (1 << i)) == 0)
-                    at = i;
+            {
+                if (i != _last?.SlotIndex && i != _leased && (_pending & (1 << i)) == 0) at = i;
+            }
+
             if (at >= 0) _pending |= 1 << at;
         }
 
         if (at < 0) return -1;
+
         if (_slots[at] is { } held && Fits(held.Scene, window) && DepthFits(held.Depth, wanted)) return at;
+
         lock (_work) // the bridge thread makes no frame meanwhile
         {
             try
@@ -275,8 +336,10 @@ internal sealed unsafe class FrameBridge : IDisposable
         }
 
         if (_slots[at] is not null) return at;
+
         _unmade = (window.Width, window.Height, window.Format);
-        _logger?.Warning("Komet: Vulkan has no memory for the frame bridge's copies at {0}x{1}: no frames bridged at this size",
+        _logger?.Warning(
+            "Komet: Vulkan has no memory for the frame bridge's copies at {0}x{1}: no frames bridged at this size",
             window.Width, window.Height);
         Dropped(at);
         return -1;
@@ -286,12 +349,16 @@ internal sealed unsafe class FrameBridge : IDisposable
     public void Dropped(int at)
     {
         if (!Index(at, Slots)) return;
-        lock (_gate) _pending &= ~(1 << at);
+
+        lock (_gate)
+        {
+            _pending &= ~(1 << at);
+        }
     }
 
     private static bool Fits(SharedImage made, SharedImage like) =>
         made.Width == like.Width && made.Height == like.Height &&
-        made.Format == like.Format;
+               made.Format == like.Format;
 
     // A depth copy for wanted, or none for none
     private static bool DepthFits(SharedImage? made, SharedImage? wanted) =>
@@ -305,7 +372,10 @@ internal sealed unsafe class FrameBridge : IDisposable
         {
             scene = Rested(SharedImage.Private(_device, size, window.Format, SlotUsage, out _));
             final = Rested(SharedImage.Private(_device, size, window.Format, SlotUsage, out _));
-            depths = depth is null ? null : Rested(SharedImage.Private(_device, (depth.Width, depth.Height, 1, 1), depth.Format, SlotUsage, out _));
+            depths = depth is null
+                ? null
+                : Rested(
+                    SharedImage.Private(_device, (depth.Width, depth.Height, 1, 1), depth.Format, SlotUsage, out _));
         }
         catch
         {
@@ -326,6 +396,7 @@ internal sealed unsafe class FrameBridge : IDisposable
         }
 
         if (_output is not null) return new Slot(scene, final, depths);
+
         Owned.DropAll([scene, final, depths]);
         return null;
     }
@@ -334,19 +405,28 @@ internal sealed unsafe class FrameBridge : IDisposable
     private SharedImage? Rested(SharedImage? image)
     {
         if (image is null || image.Rest(_device, Vk.LayoutUndefined, Vk.LayoutGeneral)) return image;
+
         image.Dispose();
         return null;
     }
 
     public ulong Scene(int slot) => Index(slot, Slots) && _slots[slot] is { } s ? s.Scene.Image : 0;
+
     public ulong Final(int slot) => Index(slot, Slots) && _slots[slot] is { } s ? s.Final.Image : 0;
+
     public ulong Depth(int slot) => Index(slot, Slots) && _slots[slot] is { Depth: { } d } ? d.Image : 0;
 
     // Engine thread: the camera of the frame being drawn (view: world to view, column-major; the perspective projection)
     public static Shot Shoot(int slot, float[] view, double[] projection, bool depth, float kept)
     {
-        if (!NotNull(view) || !NotNull(projection) || view.Length < 16 || projection.Length < 16 || !Finite(kept)) return default;
-        var rotation = new Matrix4x4(view[0], view[4], view[8], 0, view[1], view[5], view[9], 0, view[2], view[6], view[10], 0,
+        if (!NotNull(view) || !NotNull(projection) || view.Length < 16 || projection.Length < 16 ||
+            !Finite(kept))
+        {
+            return default;
+        }
+
+        var rotation = new Matrix4x4(view[0], view[4], view[8], 0, view[1], view[5], view[9], 0, view[2], view[6],
+            view[10], 0,
             0, 0, 0, 1);
         var lens = new Vector4((float)projection[0], (float)projection[5], (float)projection[8], (float)projection[9]);
         var depthLens = new Vector4((float)projection[10], (float)projection[14], kept, depth ? 1 : 0);
@@ -361,15 +441,20 @@ internal sealed unsafe class FrameBridge : IDisposable
         int count;
         lock (_gate) // one section: the shot, the interval and the ring's copy for the median
         {
-            if (shown is { } published && Index(published.Slot, Slots)) _pending &= ~(1 << published.Slot);
-            if (shown is { } s && Index(s.Slot, Slots) && _slots[s.Slot] is not null)
+            if (shown is { } published && Index(published.SlotIndex, Slots)) _pending &= ~(1 << published.SlotIndex);
+
+            if (shown is { } s && Index(s.SlotIndex, Slots) && _slots[s.SlotIndex] is not null)
             {
                 (_previous, _last) = (_last, s with { Presents = presents, ShownAt = now });
                 Showed(s.View);
             }
-            else (_previous, _last) = (null, null); // nothing to bridge from until two frames came with copies
+            else
+            {
+                (_previous, _last) = (null, null); // nothing to bridge from until two frames came with copies
+            }
 
             if (_lastReal > 0) _intervals[_interval++ % Usual] = (now - _lastReal) * 1000.0 / Stopwatch.Frequency;
+
             _lastReal = now;
             count = Math.Min(_interval, Usual);
             _intervals.AsSpan(0, count).CopyTo(sorted);
@@ -384,6 +469,7 @@ internal sealed unsafe class FrameBridge : IDisposable
     private static double UsualMs(Span<double> sorted, int count)
     {
         if (count < Usual / 2) return 0;
+
         sorted[..count].Sort();
         return sorted[count / 2];
     }
@@ -397,6 +483,7 @@ internal sealed unsafe class FrameBridge : IDisposable
             if (MathF.Abs(step) > 1e-4f)
             {
                 if (MathF.Abs(_shownStep) > 1.7e-3f && MathF.Sign(step) != MathF.Sign(_shownStep)) Reversed++;
+
                 _shownStep = step;
             }
         }
@@ -414,8 +501,18 @@ internal sealed unsafe class FrameBridge : IDisposable
                 var due = Volatile.Read(ref _due);
                 var waitMs = (due - Stopwatch.GetTimestamp()) / tick;
                 if (waitMs <= 0.2 && VulkanRenderer.Bridging && Bridge())
-                    Volatile.Write(ref _due, Stopwatch.GetTimestamp() + (long)(PeriodMs * tick)); // the next a refresh on
-                else _ = _wake.Wait(TimeSpan.FromMilliseconds(waitMs > 0.2 ? Math.Min(waitMs, PeriodMs) : PeriodMs)); // or a publish
+                {
+                    Volatile.Write(ref _due,
+                        Stopwatch.GetTimestamp() + (long)(PeriodMs * tick)); // the next a refresh on
+                }
+                else
+                {
+                    _ = _wake.Wait(
+                        TimeSpan.FromMilliseconds(waitMs > 0.2
+                            ? Math.Min(waitMs, PeriodMs)
+                            : PeriodMs)); // or a publish
+                }
+
                 _wake.Reset();
             }
         }
@@ -436,7 +533,8 @@ internal sealed unsafe class FrameBridge : IDisposable
         lock (_gate)
         {
             if (_last is not { } l || _previous is not { } p || _output is null) return false;
-            (last, previous, _leased) = (l, p, l.Slot);
+
+            (last, previous, _leased) = (l, p, l.SlotIndex);
         }
 
         try
@@ -446,24 +544,44 @@ internal sealed unsafe class FrameBridge : IDisposable
             var lag = Math.Max(0, last.ShownAt - previous.ShownAt);
             var target = Math.Min(Stopwatch.GetTimestamp() - lag, last.ShownAt);
             var turned = Extrapolated(previous, last, (long)(Math.Max(0, target - previous.ShownAt) * Damping));
-            if (Angle(Matrix4x4.Multiply(turned, Matrix4x4.Transpose(last.View))) < Still) return false; // the screen shows it
-            var warp = Matrix4x4.Multiply(last.View, Matrix4x4.Transpose(turned)); // the new view's directions into last's
-            _push = new Push { Rotation = Matrix4x4.Transpose(warp), Lens = last.Lens, DepthLens = last.DepthLens }; // GLSL's columns
+            if (Angle(Matrix4x4.Multiply(turned, Matrix4x4.Transpose(last.View))) < Still)
+            {
+                return false; // the screen shows it
+            }
+
+            var warp = Matrix4x4.Multiply(last.View,
+                Matrix4x4.Transpose(turned)); // the new view's directions into last's
+            _push = new Push
+            {
+                Rotation = Matrix4x4.Transpose(warp), Lens = last.Lens, DepthLens = last.DepthLens
+            }; // GLSL's columns
             var done = _done;
             lock (_work)
             {
                 // the last bridged frame's commands are done with (reset only as the next is submitted)
                 if (VkApi.WaitForFences(_device.Handle, 1, &done, 1, 50_000_000) != Vk.Success) return false;
-                _slot = last.Slot;
+
+                _slot = last.SlotIndex;
                 var shown = _chain.Bridge(_acquired, last.Presents, _record);
                 if (shown) Bridged++;
-                if (shown) lock (_gate) Showed(turned);
+
+                if (shown)
+                {
+                    lock (_gate)
+                    {
+                        Showed(turned);
+                    }
+                }
+
                 return shown;
             }
         }
         finally
         {
-            lock (_gate) _leased = -1;
+            lock (_gate)
+            {
+                _leased = -1;
+            }
         }
     }
 
@@ -473,6 +591,7 @@ internal sealed unsafe class FrameBridge : IDisposable
     {
         var span = last.At - previous.At;
         if (span <= 0) return last.View;
+
         ahead = Math.Min(ahead, (long)(MaxAheadMs * Stopwatch.Frequency / 1000));
         var stretch = Math.Clamp((double)ahead / span, 0, MaxStretch);
         var turn = Matrix4x4.Multiply(last.View, Matrix4x4.Transpose(previous.View)); // previous's view to last's
@@ -487,8 +606,10 @@ internal sealed unsafe class FrameBridge : IDisposable
     {
         var angle = Angle(r);
         if (angle < Still || !Finite(f)) return Matrix4x4.Identity;
+
         var axis = Vector3.Normalize(new Vector3(r.M32 - r.M23, r.M13 - r.M31, r.M21 - r.M12));
         if (!float.IsFinite(axis.X)) return Matrix4x4.Identity;
+
         var (s, c) = MathF.SinCos(angle * f);
         var k = new Matrix4x4(0, -axis.Z, axis.Y, 0, axis.Z, 0, -axis.X, 0, -axis.Y, axis.X, 0, 0, 0, 0, 0, 0);
         var k2 = Matrix4x4.Multiply(k, k);
@@ -500,38 +621,33 @@ internal sealed unsafe class FrameBridge : IDisposable
     // Into the acquired image: the warp, then the output blitted upright (the window's rows are GL's, bottom first)
     private bool Recorded((ulong Image, int Width, int Height, ulong Rendered) into)
     {
-        if (_slots[_slot] is not { } slot || _output is not { } output || !Assert(into.Image != 0) || !VulkanDevice.Begin(_commands))
+        if (_slots[_slot] is not { } slot || _output is not { } output || !Assert(into.Image != 0) ||
+            !VulkanDevice.Begin(_commands))
+        {
             return false;
+        }
+
         var commands = _commands;
         const uint all = Vk.AccessMemoryRead | Vk.AccessMemoryWrite;
         var memory = new Vk.GlobalBarrier { SType = Vk.MemoryBarrier, SrcAccess = all, DstAccess = all };
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 1, &memory, 0, null, 0, null);
         VkApi.CmdBindPipeline(commands, Vk.BindCompute, _pipeline);
-        var images = stackalloc Vk.ImageDescriptor[4];
-        images[0] = new Vk.ImageDescriptor { Sampler = _linear, View = slot.Scene.View, Layout = Vk.LayoutGeneral };
-        images[1] = new Vk.ImageDescriptor { Sampler = _nearest, View = slot.Final.View, Layout = Vk.LayoutGeneral };
-        images[2] = new Vk.ImageDescriptor { Sampler = _nearest, View = (slot.Depth ?? slot.Scene).Sampled, Layout = Vk.LayoutGeneral };
-        images[3] = new Vk.ImageDescriptor { View = output.View, Layout = Vk.LayoutGeneral };
-        var writes = stackalloc Vk.WriteInfo[4];
-        for (var i = 0; i < 4; i++)
-            writes[i] = new Vk.WriteInfo
-            {
-                SType = Vk.WriteDescriptorSet, Binding = (uint)i, Count = 1, Type = i == 3 ? Spirv.StorageImage : Spirv.CombinedSampler,
-                Images = images + i
-            };
-        VkApi.CmdPushDescriptors(commands, Vk.BindCompute, _layout, 0, 4, writes);
+        PushImages(commands, slot, output);
         var push = _push;
         if (slot.Depth is null) push.DepthLens.W = 0;
+
         VkApi.CmdPushConstants(commands, _layout, Vk.StageCompute, 0, PushBytes, &push);
-        VkApi.CmdDispatch(commands, (uint)((output.Width + Group - 1) / Group), (uint)((output.Height + Group - 1) / Group), 1);
+        VkApi.CmdDispatch(commands, (uint)((output.Width + Group - 1) / Group),
+            (uint)((output.Height + Group - 1) / Group), 1);
         var barriers = stackalloc Vk.ImageBarrier[2];
         barriers[0] = output.Barrier((Vk.LayoutGeneral, Vk.LayoutTransferSrc));
         barriers[1] = Swapped(into.Image, (Vk.LayoutUndefined, Vk.LayoutTransferDst));
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, 2, barriers);
-        var layer = new Vk.Layers { Aspect = Vk.AspectColor, Count = 1 };
+        var layer = new Vk.SubresourceLayers { Aspect = Vk.AspectColor, Count = 1 };
         var blit = new Vk.ImageBlit
         {
-            Source = layer, SourceX1 = output.Width, SourceY1 = output.Height, SourceZ1 = 1, Target = layer, TargetY0 = into.Height,
+            Source = layer, SourceX1 = output.Width, SourceY1 = output.Height, SourceZ1 = 1, Target = layer,
+            TargetY0 = into.Height,
             TargetX1 = into.Width, TargetZ1 = 1
         };
         var linear = (output.Width, output.Height) != (into.Width, into.Height);
@@ -542,9 +658,34 @@ internal sealed unsafe class FrameBridge : IDisposable
         VkApi.CmdPipelineBarrier(commands, Vk.StageAll, Vk.StageAll, 0, 0, null, 0, null, 2, barriers);
         var done = _done;
         if (VkApi.ResetFences(_device.Handle, 1, &done) != Vk.Success) return false;
+
         if (_device.SubmitAlone(commands, into.Rendered, done)) return true;
+
         Unsubmitted();
         return false;
+    }
+
+    // The warp's four images: scene and final sampled linear and nearest, depth (else the scene), the output
+    private void PushImages(IntPtr commands, Slot slot, SharedImage output)
+    {
+        var images = stackalloc Vk.ImageDescriptor[4];
+        images[0] = new Vk.ImageDescriptor { Sampler = _linear, View = slot.Scene.View, Layout = Vk.LayoutGeneral };
+        images[1] = new Vk.ImageDescriptor { Sampler = _nearest, View = slot.Final.View, Layout = Vk.LayoutGeneral };
+        images[2] = new Vk.ImageDescriptor
+            { Sampler = _nearest, View = (slot.Depth ?? slot.Scene).Sampled, Layout = Vk.LayoutGeneral };
+        images[3] = new Vk.ImageDescriptor { View = output.View, Layout = Vk.LayoutGeneral };
+        var writes = stackalloc Vk.WriteInfo[4];
+        for (var i = 0; i < 4; i++)
+        {
+            writes[i] = new Vk.WriteInfo
+            {
+                SType = Vk.WriteDescriptorSet, Binding = (uint)i, Count = 1,
+                Type = i == 3 ? Spirv.StorageImage : Spirv.CombinedSampler,
+                Images = images + i
+            };
+        }
+
+        VkApi.CmdPushDescriptors(commands, Vk.BindCompute, _layout, 0, 4, writes);
     }
 
     // A failed submit leaves _done reset with nothing to signal it: every later Bridge would wait 50 ms on it under _work and
@@ -566,27 +707,35 @@ internal sealed unsafe class FrameBridge : IDisposable
     private static Vk.ImageBarrier Swapped(ulong image, (int From, int To) layouts) =>
         Vk.ImageBarrier.Full(image, layouts, Vk.AspectColor);
 
-    // The thread stopped first, then the device idle before anything it used goes
-    public void Dispose()
+    // A frame as published: its slot, the view's rotation (world to view), the projection's terms and when it was taken
+    // At: when its camera was read; ShownAt: when the engine presented it (the lag between is what a bridged frame keeps)
+    public readonly record struct Shot(
+        int SlotIndex,
+        Matrix4x4 View,
+        Vector4 Lens,
+        Vector4 DepthLens,
+        long At,
+        long Presents,
+        long ShownAt = 0);
+
+    private sealed class Slot(SharedImage scene, SharedImage final, SharedImage? depth) : IDisposable
     {
-        _ = Assert(Thread.CurrentThread != _thread); // its own join would wait for itself
-        _stop = true;
-        _wake.Set();
-        if (_thread is { } thread && !Assert(thread.Join(1000))) return; // leaked: nothing goes under a thread still bridging
-        _ = _device.WaitIdle();
-        var handle = _device.Handle;
-        foreach (var slot in _slots.Bounded(Slots)) slot?.Dispose();
-        Array.Clear(_slots);
-        _output?.Dispose();
-        if (_pipeline != 0) VkApi.DestroyPipeline(handle, _pipeline, null);
-        if (_layout != 0) VkApi.DestroyPipelineLayout(handle, _layout, null);
-        if (_setLayout != 0) VkApi.DestroySetLayout(handle, _setLayout, null);
-        foreach (var sampler in (ReadOnlySpan<ulong>)[_linear, _nearest])
-            if (sampler != 0) VkApi.DestroySampler(handle, sampler, null);
-        _device.DestroyFence(_done);
-        _device.DestroyFence(_acquired);
-        _device.DestroyPool(_pool);
-        (_output, _pipeline, _layout, _setLayout, _thread) = (null, 0, 0, 0, null);
-        _wake.Dispose();
+        public SharedImage Scene { get; } = scene;
+        public SharedImage Final { get; } = final;
+        public SharedImage? Depth { get; } = depth;
+
+        public void Dispose()
+        {
+            Scene.Dispose();
+            Final.Dispose();
+            Depth?.Dispose();
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Push
+    {
+        public Matrix4x4 Rotation; // its sixteen floats in GLSL's column order
+        public Vector4 Lens, DepthLens;
     }
 }

@@ -14,13 +14,13 @@ internal static class Parity
             var shader = GL.CreateShader(type);
             GL.ShaderSource(shader, source);
             GL.CompileShader(shader);
-            GL.GetShader(shader, ShaderParameter.CompileStatus, out int ok);
+            GL.GetShader(shader, ShaderParameter.CompileStatus, out var ok);
             Assert.That(ok, Is.EqualTo(1), GL.GetShaderInfoLog(shader));
             GL.AttachShader(program, shader);
         }
 
         GL.LinkProgram(program);
-        GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int linked);
+        GL.GetProgram(program, GetProgramParameterName.LinkStatus, out var linked);
         Assert.That(linked, Is.EqualTo(1), GL.GetProgramInfoLog(program));
         return program;
     }

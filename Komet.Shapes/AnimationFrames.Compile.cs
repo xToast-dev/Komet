@@ -30,17 +30,31 @@ internal static partial class AnimationFrames
         Dictionary<int, AnimationJoint>? jointsById, bool recursive = true)
     {
         if (roots is null || jointsById is null || roots.Length > ElementWalk.MaxElements) return false;
+
         var keys = animation.KeyFrames;
         var q = animation.QuantityFrames;
         if (keys is null || keys.Length is 0 or > MaxKeys || q is <= 0 or > MaxFrames) return false;
-        if (jointsById.Count >= GlobalConstants.MaxAnimatedElements) return false; // the engine throws with advice
-        if (JointsDone(animation) is null) return false; // GenerateAllFrames clears it once per keyframe
+
+        if (jointsById.Count >= GlobalConstants.MaxAnimatedElements)
+        {
+            return false; // the engine throws with advice
+        }
+
+        if (JointsDone(animation) is null)
+        {
+            return false; // GenerateAllFrames clears it once per keyframe
+        }
+
         var tables = Tables(keys, q);
         if (tables is null || !Flatten(roots, recursive, out var order, out var parent)) return false;
+
         if (!Rows(tables, order, out var slotAt, out var rows) || !Sets(rows, keys.Length, out var sets)) return false;
         // Elements are known non-null here, so this throws only where the engine's first statement would
         for (var i = 0; i < Math.Min(roots.Length, ElementWalk.MaxElements); i++)
+        {
             roots[i].CacheInverseTransformMatrixRecursive();
+        }
+
         var frames = Poses(keys, order, parent, slotAt, rows, sets, q);
         Volatile.Write(ref animation.PrevNextKeyFrameByFrame, Pairs(frames, q)); // published whole, unlike the engine's
         return true;
@@ -48,14 +62,16 @@ internal static partial class AnimationFrames
 
     // Each keyframe's resolved table; null declines (frame past QuantityFrames, unresolved, not Resolve's table)
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static ResolvedTable[]? Tables(AnimationKeyFrame[] keys, int q)
+    private static ResolvedTable[]? Tables(AnimationKeyFrame?[] keys, int q)
     {
         var tables = new ResolvedTable[keys.Length];
         for (var ki = 0; ki < Math.Min(keys.Length, MaxKeys); ki++)
         {
             var key = keys[ki];
             if (key is null || key.Frame >= q) return null;
+
             if (Resolved(key) is not ResolvedTable table || table.Count > MaxPairs) return null;
+
             tables[ki] = table;
         }
 
@@ -84,8 +100,12 @@ internal static partial class AnimationFrames
             // the unread model-matrix walk still runs for every parent GenerateFrame visits, and throws on these
             if (recursive && element.Children is not null &&
                 (element.From is not { Length: >= 3 } || element.RotationOrigin is { Length: < 3 }))
+            {
                 return false;
+            }
+
             if (!recursive && walk.Depth > 0) continue;
+
             elements.Add(element);
             owners.Add(walk.Parent);
         }
@@ -104,19 +124,24 @@ internal static partial class AnimationFrames
         for (var i = 0; i < Math.Min(order.Length, ElementWalk.MaxElements); i++)
         {
             if (!slotOf.TryGetValue(order[i], out var slot)) slotOf[order[i]] = slot = slotOf.Count;
+
             slotAt[i] = slot;
         }
 
         var k = tables.Length;
         rows = new AnimationKeyFrameElement?[slotOf.Count][];
         for (var ki = 0; ki < Math.Min(k, MaxKeys); ki++)
+        {
             foreach (var (element, value) in tables[ki].Bounded(MaxPairs))
             {
                 if (element is null || !slotOf.TryGetValue(element, out var slot)) continue;
+
                 if (value is null) return false;
+
                 var row = rows[slot] ??= new AnimationKeyFrameElement?[k];
                 row[ki] ??= value;
             }
+        }
 
         return true;
     }
@@ -131,6 +156,7 @@ internal static partial class AnimationFrames
         {
             var row = rows[slot];
             if (row is null) continue;
+
             for (var flag = 0; flag < Flags; flag++)
             {
                 var n = 0;
@@ -138,7 +164,9 @@ internal static partial class AnimationFrames
                 {
                     var element = row[ki];
                     if (element is null || !IsSet(element, flag)) continue;
+
                     if (!Complete(element, flag)) return false;
+
                     scratch[n++] = ki;
                 }
 
@@ -158,9 +186,9 @@ internal static partial class AnimationFrames
     private static bool Complete(AnimationKeyFrameElement element, int flag) =>
         flag switch
         {
-            0 => element.OffsetX.HasValue && element.OffsetY.HasValue && element.OffsetZ.HasValue,
-            1 => element.RotationX.HasValue && element.RotationY.HasValue && element.RotationZ.HasValue,
-            _ => element.StretchX.HasValue && element.StretchY.HasValue && element.StretchZ.HasValue
+            0 => element is { OffsetX: not null, OffsetY: not null, OffsetZ: not null },
+            1 => element is { RotationX: not null, RotationY: not null, RotationZ: not null },
+            _ => element is { StretchX: not null, StretchY: not null, StretchZ: not null }
         };
 
     // GenerateFrame per keyframe, flattened; pre-order adds each pose to its parent in the engine's Add order
@@ -178,6 +206,7 @@ internal static partial class AnimationFrames
                 var pose = poses[i] = new ElementPose { ForElement = order[i] };
                 var slot = slotAt[i];
                 if (rows[slot] is { } row) Pose(pose, row, sets, slot * Flags, keys, frame.FrameNumber, q);
+
                 (parent[i] < 0 ? frame.RootElementTransforms : poses[parent[i]].ChildElementPoses).Add(pose);
             }
         }
@@ -199,6 +228,7 @@ internal static partial class AnimationFrames
             for (var j = 0; j < Math.Min(set.Length, MaxKeys); j++)
             {
                 if (keys[set[j]].Frame <= frameNumber) continue;
+
                 right = j;
                 break;
             }
@@ -218,8 +248,10 @@ internal static partial class AnimationFrames
     private static float Progress(AnimationKeyFrameElement prev, AnimationKeyFrameElement next, int frameNumber, int q)
     {
         if (ReferenceEquals(prev, next)) return 0f;
+
         int left = At(prev), right = At(next);
         if (right >= left) return (float)(frameNumber - left) / (right - left);
+
         return (float)GameMath.Mod(frameNumber - left, q) / (right + (q - left));
     }
 
@@ -259,7 +291,8 @@ internal static partial class AnimationFrames
         Array.Fill(latest, -1);
         for (var i = 0; i < Math.Min(k, MaxKeys); i++)
         {
-            var at = Math.Max(frames[i].FrameNumber, 0); // a negative frame is at most every frame; Tables declines >= q
+            var at = Math.Max(frames[i].FrameNumber,
+                0); // a negative frame is at most every frame; Tables declines >= q
             if (at < q) latest[at] = i;
         }
 
@@ -307,8 +340,11 @@ internal static partial class AnimationFrames
     // The bodies reproduced: the seams and the table lookup GetKeyFrameElement delegates to
     internal static MethodBase?[] Shaped()
     {
-        MethodBase?[] shaped = [.. Seams(), AccessTools.Method(typeof(ResolvedTable), "TryGetValue",
-            [typeof(ShapeElement), typeof(AnimationKeyFrameElement).MakeByRefType()])];
+        MethodBase?[] shaped =
+        [
+            .. Seams(), AccessTools.Method(typeof(ResolvedTable), "TryGetValue",
+                [typeof(ShapeElement), typeof(AnimationKeyFrameElement).MakeByRefType()])
+        ];
         return shaped;
     }
 
@@ -318,10 +354,18 @@ internal static partial class AnimationFrames
         var (parent, child) = WarmTree();
         var byName = new Dictionary<string, ShapeElement> { ["komet-parent"] = parent, ["komet-child"] = child };
         var animation = new Animation
-        { Code = "komet-warmup", QuantityFrames = 4, KeyFrames = [WarmKey(0, 10), WarmKey(2, -10)] };
-        foreach (var key in animation.KeyFrames.Bounded(MaxKeys)) key.Resolve(byName);
+            { Code = "komet-warmup", QuantityFrames = 4, KeyFrames = [WarmKey(0, 10), WarmKey(2, -10)] };
+        foreach (var key in animation.KeyFrames.Bounded(MaxKeys))
+        {
+            key.Resolve(byName);
+        }
+
         var compiled = true;
-        for (var i = 0; i < WarmUps; i++) compiled &= Compile(animation, [parent], []);
+        for (var i = 0; i < WarmUps; i++)
+        {
+            compiled &= Compile(animation, [parent], []);
+        }
+
         return Assert(compiled) && NotNull(animation.PrevNextKeyFrameByFrame) &&
                Assert(animation.PrevNextKeyFrameByFrame.Length == 4);
     }
@@ -330,29 +374,25 @@ internal static partial class AnimationFrames
     internal static (ShapeElement Parent, ShapeElement Child) WarmTree()
     {
         var child = new ShapeElement
-        { Name = "komet-child", From = [1, 0, 0], To = [2, 1, 1], RotationOrigin = [1, 0, 0] };
+            { Name = "komet-child", From = [1, 0, 0], To = [2, 1, 1], RotationOrigin = [1, 0, 0] };
         var parent = new ShapeElement
-        { Name = "komet-parent", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0], Children = [child] };
+            { Name = "komet-parent", From = [0, 0, 0], To = [1, 1, 1], RotationOrigin = [0, 0, 0], Children = [child] };
         child.ParentElement = parent;
         return (parent, child);
     }
 
-    private static AnimationKeyFrame WarmKey(int frame, double degrees)
-    {
-        return new AnimationKeyFrame
+    private static AnimationKeyFrame WarmKey(int frame, double degrees) =>
+        new()
         {
             Frame = frame,
             Elements = new Dictionary<string, AnimationKeyFrameElement>
-            { ["komet-parent"] = Moved(degrees), ["komet-child"] = Moved(-degrees) }
+                { ["komet-parent"] = Moved(degrees), ["komet-child"] = Moved(-degrees) }
         };
-    }
 
-    private static AnimationKeyFrameElement Moved(double degrees)
-    {
-        return new AnimationKeyFrameElement
+    private static AnimationKeyFrameElement Moved(double degrees) =>
+        new()
         {
             OffsetX = 0, OffsetY = degrees / 10, OffsetZ = 0, RotationX = degrees, RotationY = 0, RotationZ = -degrees,
             StretchX = 1, StretchY = 1, StretchZ = 1, RotShortestDistanceY = true
         };
-    }
 }

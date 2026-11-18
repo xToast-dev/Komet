@@ -26,6 +26,7 @@ public sealed class VulkanRendererGpuTests
     public void AReportBeforeAnyCullingStatisticsLeavesThemOut()
     {
         if (!double.IsNaN(OcclusionCulling.Stat(0))) Assert.Ignore("OcclusionCulling counts already in this run");
+
         var logger = new CapturingLogger();
         Contracts.Attach(logger);
         try
@@ -45,6 +46,7 @@ public sealed class VulkanRendererGpuTests
         GameInstall.RequireAssets();
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
+
         if (!Shaderc.Load()) Assert.Ignore("libshaderc is not installed");
         // in the renderer's order: the liquid depth, the shadow map, the two opaque, the two transparent programs
         ShaderProgramBase?[] programs = [null, null, Program("chunkopaque"), Program("chunktopsoil"), null, null];
@@ -59,12 +61,15 @@ public sealed class VulkanRendererGpuTests
             var opaque = programs[2]!.ProgramId;
             Assert.Multiple(() =>
             {
-                Assert.That(VulkanRenderer.PassOf(opaque, EnumRenderStage.Opaque), Is.EqualTo(VulkanRenderer.Pass.Opaque));
+                Assert.That(VulkanRenderer.PassOf(opaque, EnumRenderStage.Opaque),
+                    Is.EqualTo(VulkanRenderer.Pass.Opaque));
                 Assert.That(VulkanRenderer.PassOf(opaque, EnumRenderStage.AfterOIT),
-                    Is.EqualTo(VulkanRenderer.Pass.WaterPlants), "after the transparent pass it draws the water plants");
+                    Is.EqualTo(VulkanRenderer.Pass.WaterPlants),
+                    "after the transparent pass it draws the water plants");
                 Assert.That(VulkanRenderer.PassOf(programs[3]!.ProgramId, EnumRenderStage.AfterOIT),
                     Is.EqualTo(VulkanRenderer.Pass.None), "only the opaque program draws them");
-                Assert.That(VulkanRenderer.PassOf(opaque + 1000, EnumRenderStage.Opaque), Is.EqualTo(VulkanRenderer.Pass.None));
+                Assert.That(VulkanRenderer.PassOf(opaque + 1000, EnumRenderStage.Opaque),
+                    Is.EqualTo(VulkanRenderer.Pass.None));
             });
             Updated(programs);
             Assert.That(Port("chunkopaque"), Is.SameAs(first), "the same build: no new port");
@@ -74,14 +79,18 @@ public sealed class VulkanRendererGpuTests
             VulkanRenderer.Update(programs, null);
             Assert.That(Builds.Started, Is.EqualTo(started + 1), "ported on a builder");
             Assert.That(VulkanRenderer.PassOf(programs[2]!.ProgramId, EnumRenderStage.Opaque),
-                Is.EqualTo(VulkanRenderer.Pass.Opaque), "awaited: a pass without its port would be missing from the picture");
+                Is.EqualTo(VulkanRenderer.Pass.Opaque),
+                "awaited: a pass without its port would be missing from the picture");
             Updated(programs);
             Assert.That(Port("chunkopaque"), Is.Not.SameAs(first).And.Not.Null, "the engine rebuilt it: ported anew");
         }
         finally
         {
             VulkanRenderer.Stop();
-            foreach (var program in programs) Delete(program);
+            foreach (var program in programs)
+            {
+                Delete(program);
+            }
         }
     }
 
@@ -122,6 +131,7 @@ public sealed class VulkanRendererGpuTests
     private static void Delete(ShaderProgramBase? program)
     {
         if (program is null) return;
+
         GL.DeleteShader(program.VertexShader.ShaderId);
         GL.DeleteShader(program.FragmentShader.ShaderId);
         GL.DeleteProgram(program.ProgramId);

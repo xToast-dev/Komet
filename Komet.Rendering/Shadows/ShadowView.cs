@@ -41,28 +41,29 @@ internal static class ShadowView
     public static void Install(Harmony harmony, ICoreClientAPI api, ILogger logger)
     {
         Clear();
-        var shadow = AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]);
-        var opaque = AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderOpaque), [typeof(float)]);
-        if (!NotNull(harmony) || !NotNull(api) || !NotNull(shadow) || !NotNull(opaque)) return;
+        var shadow =
+            AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]);
+        var opaque =
+            AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderOpaque), [typeof(float)]);
+        if (!NotNull(shadow) || !NotNull(opaque)) return;
+
         (_api, _logger) = (api, logger);
         _ = harmony.Patch(shadow, new HarmonyMethod(Opening) { priority = Priority.First },
             new HarmonyMethod(Closing));
         _ = harmony.Patch(opaque, new HarmonyMethod(Checked) { priority = Priority.First });
     }
 
-    public static void Clear()
-    {
+    public static void Clear() =>
         (_api, _logger, _castFrame, Casting, Differed, _passed) = (null, null, false, false, false, false);
-    }
 
     // RenderShadow's start. DistantShadows draws what the engine maps leave out, for every view.
-    internal static void Opening()
+    private static void Opening()
     {
         Casting = !Differed && !DistantShadows.Drawing && Unwarped(_api) && Viewed();
         _castFrame |= Casting;
     }
 
-    internal static void Closing() => (_passed, Casting) = (Casting, false);
+    private static void Closing() => (_passed, Casting) = (Casting, false);
 
     public static bool Take()
     {
@@ -75,49 +76,69 @@ internal static class ShadowView
     // Before)
     private static bool Viewed()
     {
-        if (_api?.World is not ClientMain { PMatrix: { Count: >= 2 } projections, MainCamera.CameraMatrix: { Length: 16 } camera })
+        if (_api?.World is not ClientMain
+            {
+                PMatrix: { Count: >= 2 } projections, MainCamera.CameraMatrix: { Length: 16 } camera
+            })
+        {
             return false;
+        }
+
         var projection = Matrices(projections)[projections.Count - 2];
         if (!NotNull(projection) || projection.Length != 16) return false;
+
         _ = Mat4d.Multiply(ViewMatrix, projection, camera);
         Equations(View, ViewMatrix);
         return true;
     }
 
     // RenderOpaque's start: a frame with view-culled casters checks the view was the engine's
-    internal static void Checked()
+    private static void Checked()
     {
         if (!_castFrame || _api?.World is not ClientMain { frustumCuller: { } culler }) return;
+
         _castFrame = false;
         var (engine, view) = (Planes(culler), Planes(View));
         if (!NotNull(engine) || engine.Length < 6) return;
-        for (var p = 0; p < MaxCasters && !Differed; p++) Differed = !Same(engine[p], view[p]);
+
+        for (var p = 0; p < MaxCasters && !Differed; p++)
+        {
+            Differed = !Same(engine[p], view[p]);
+        }
+
         if (Differed)
-            _logger?.Warning("Komet: the view worked out before the shadow passes was not the engine's; shadow casters are " +
-                             "no longer culled by it");
+        {
+            _logger?.Warning(
+                "Komet: the view worked out before the shadow passes was not the engine's; shadow casters are " +
+                "no longer culled by it");
+        }
     }
 
-    private static bool Same(Plane a, Plane b) => Bits(a.normalX) == Bits(b.normalX) && Bits(a.normalY) == Bits(b.normalY) &&
-                                                  Bits(a.normalZ) == Bits(b.normalZ) && Bits(a.D) == Bits(b.D);
+    private static bool Same(Plane a, Plane b) =>
+        Bits(a.normalX) == Bits(b.normalX) && Bits(a.normalY) == Bits(b.normalY) &&
+               Bits(a.normalZ) == Bits(b.normalZ) && Bits(a.D) == Bits(b.D);
 
     private static long Bits(double value) => BitConverter.DoubleToInt64Bits(value);
 
     // Shadow pass moves no vertex far (wind only): no world warp or perception effect
-    internal static bool Unwarped(ICoreClientAPI? api) => api?.Render?.ShaderUniforms is { } u && u.GlitchWaviness <= 0 &&
-                                                          u.GlobalWorldWarp <= 0 &&
-                                                          (u.PerceptionEffectId == 1 || u.PerceptionEffectIntensity <= 0);
+    internal static bool Unwarped(ICoreClientAPI? api) =>
+        api?.Render?.ShaderUniforms is { GlitchWaviness: <= 0, GlobalWorldWarp: <= 0 } u &&
+               (u.PerceptionEffectId == 1 || u.PerceptionEffectIntensity <= 0);
 
     // light: the shadow pass's near plane, facing along it. Returns planes written.
     public static int Casters(Plane light, Span<Plane> into)
     {
         var planes = Planes(View);
         if (!Assert(into.Length >= MaxCasters)) return 0;
+
         var count = 0;
         for (var p = 0; p < MaxCasters; p++)
         {
             var v = planes[p];
             if (v.normalX * light.normalX + v.normalY * light.normalY + v.normalZ * light.normalZ > 0) continue;
-            into[count++] = new Plane { normalX = v.normalX, normalY = v.normalY, normalZ = v.normalZ, D = v.D + Reach };
+
+            into[count++] = new Plane
+                { normalX = v.normalX, normalY = v.normalY, normalZ = v.normalZ, D = v.D + Reach };
         }
 
         return count;
@@ -128,15 +149,19 @@ internal static class ShadowView
     {
         var planes = Planes(View);
         if (!Assert(into.Length >= 4 * MaxCasters)) return;
+
         for (var p = 0; p < MaxCasters; p++)
+        {
             (into[4 * p], into[4 * p + 1], into[4 * p + 2], into[4 * p + 3]) =
                 (planes[p].normalX, planes[p].normalY, planes[p].normalZ, planes[p].D + Reach);
+        }
     }
 
     // Tests: the given view (null: none), as a pass start would make it
     internal static void Use(FrustumCulling? view)
     {
         if (view is not null) Planes(view).AsSpan(0, 6).CopyTo(Planes(View));
+
         Casting = view is not null;
     }
 }

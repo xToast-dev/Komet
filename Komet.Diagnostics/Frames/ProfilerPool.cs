@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Komet.Core;
@@ -20,7 +22,7 @@ internal static class ProfilerPool
 {
     private const int MaxCodes = 4096, MaxChildren = 64, MaxNames = 8192, MaxInstructions = 512;
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Code, object Param), string> Names = new();
+    private static readonly ConcurrentDictionary<(string Code, object Param), string> Names = new();
 
     private static readonly Kept[] Sets = [new(), new()];
     private static readonly Stack<ProfileEntry> Spare = new();
@@ -40,39 +42,64 @@ internal static class ProfilerPool
     public static void Install(Harmony harmony)
     {
         Patched = false;
-        var begin = AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), nameof(FrameProfilerUtil.Begin), [typeof(string), typeof(object[])]);
-        if (!NotNull(harmony) || !NotNull(begin) ||
-            !Assert(Il.Binds(begin, AccessTools.Method(typeof(ProfilerPool), nameof(Began))))) return;
+        var begin = AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), nameof(FrameProfilerUtil.Begin),
+            [typeof(string), typeof(object[])]);
+        if (!NotNull(begin) ||
+            !Assert(Il.Binds(begin, AccessTools.Method(typeof(ProfilerPool), nameof(Began)))))
+        {
+            return;
+        }
+
         Patched = NotNull(harmony.Patch(begin, postfix: new HarmonyMethod(Began)));
-        var mark = AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), nameof(FrameProfilerUtil.Mark), [typeof(string), typeof(object)]);
-        if (Patched && NotNull(mark)) _ = harmony.Patch(mark, new HarmonyMethod(AccessTools.Method(typeof(ProfilerPool), nameof(Marked))));
+        var mark = AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), nameof(FrameProfilerUtil.Mark),
+            [typeof(string), typeof(object)]);
+        if (Patched && NotNull(mark))
+        {
+            _ = harmony.Patch(mark, new HarmonyMethod(AccessTools.Method(typeof(ProfilerPool), nameof(Marked))));
+        }
+
         Recycling = false;
         var markInternal = AccessTools.DeclaredMethod(typeof(FrameProfilerUtil), "MarkInternal", [typeof(string)]);
         if (Patched && NotNull(markInternal)) _ = harmony.Patch(markInternal, transpiler: new HarmonyMethod(Rewrite));
     }
 
     // The one `new ProfileEntry()` becomes Entry(); any other shape of the body is left as it is
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
-        var (ctor, mine) = (AccessTools.Constructor(typeof(ProfileEntry), []), AccessTools.Method(typeof(ProfilerPool), nameof(Entry)));
-        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor) || !NotNull(mine)) return code;
-        Recycling = Il.SubstituteSingle(code, c => c.opcode == System.Reflection.Emit.OpCodes.Newobj && ReferenceEquals(c.operand, ctor), mine);
+        var (ctor, mine) = (AccessTools.Constructor(typeof(ProfileEntry), []),
+            AccessTools.Method(typeof(ProfilerPool), nameof(Entry)));
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor) ||
+            !NotNull(mine))
+        {
+            return code;
+        }
+
+        Recycling = Il.SubstituteSingle(code, c => c.opcode == OpCodes.Newobj && ReferenceEquals(c.operand, ctor),
+            mine);
         return code;
     }
 
     // A spare entry, zeroed, on the client frame's thread; a new one elsewhere or with none spare
     internal static ProfileEntry Entry()
     {
-        if (!Enabled || Environment.CurrentManagedThreadId != _owner || !Spare.TryPop(out var entry)) return new ProfileEntry();
+        if (!Enabled || Environment.CurrentManagedThreadId != _owner || !Spare.TryPop(out var entry))
+        {
+            return new ProfileEntry();
+        }
+
         (entry.ElapsedTicks, entry.CallCount) = (0, 0);
         return entry;
     }
 
     // Prefix on Mark(code, param): a string param's joined name from the table; the engine throws for a null code
-    private static bool Marked(FrameProfilerUtil __instance, string code, object param)
+    private static bool Marked(FrameProfilerUtil __instance, string? code, object param)
     {
-        if (!Enabled || param is not (string or Enum or Type) || code is null || __instance is null ||
-            !(__instance.Enabled || __instance.PrintSlowTicks)) return true;
+        if (!Enabled || param is not (string or Enum or Type) || code is null ||
+            !(__instance.Enabled || __instance.PrintSlowTicks))
+        {
+            return true;
+        }
+
         if (!Names.TryGetValue((code, param), out var joined))
         {
             joined = code + param;
@@ -88,20 +115,34 @@ internal static class ProfilerPool
     // next frame emptied the set of the frame the HUD still reads at Ortho.
     private static void Began(FrameProfilerUtil __instance, string? beginText)
     {
-        if (!Enabled || !Patched || beginText is not null || !ReferenceEquals(__instance, ScreenManager.FrameProfiler) ||
-            !__instance.Enabled || Current(__instance) is not { } root) return;
-        if (root.Marks is not null || root.ChildRanges is not null) return; // not the fresh root Begin makes
+        if (!Enabled || !Patched || beginText is not null ||
+            !ReferenceEquals(__instance, ScreenManager.FrameProfiler) ||
+            !__instance.Enabled || Current(__instance) is not { } root)
+        {
+            return;
+        }
+
+        if (root.Marks is not null || root.ChildRanges is not null)
+        {
+            return; // not the fresh root Begin makes
+        }
+
         var turn = (int)(++_frames & 1);
         var set = Sets[turn];
         if (set.Marks.Count > MaxCodes || set.Children.Count > MaxChildren)
         {
-            Sets[turn] = new Kept(); // a flood of codes: this frame the engine's way, the next of this turn pooled again
+            Sets[turn] =
+                new Kept(); // a flood of codes: this frame the engine's way, the next of this turn pooled again
             return;
         }
 
         _owner = Environment.CurrentManagedThreadId;
         Emptied(set.Marks);
-        foreach (var child in set.Children.Values.Bounded(MaxChildren)) Rewound(child, root);
+        foreach (var child in set.Children.Values.Bounded(MaxChildren))
+        {
+            Rewound(child, root);
+        }
+
         (root.Marks, root.ChildRanges) = (set.Marks, set.Children);
     }
 
@@ -109,9 +150,12 @@ internal static class ProfilerPool
     private static void Emptied(Dictionary<string, ProfileEntry>? marks)
     {
         if (marks is null) return;
+
         foreach (var entry in marks.Values.Bounded(MaxCodes))
-            if (Spare.Count < MaxCodes && entry is not null)
-                Spare.Push(entry);
+        {
+            if (Spare.Count < MaxCodes && entry is not null) Spare.Push(entry);
+        }
+
         marks.Clear();
     }
 
@@ -122,6 +166,7 @@ internal static class ProfilerPool
         (child.ParentRange, child.ElapsedTicks, child.CallCount) = (parent, 0, 0);
         Emptied(child.Marks);
         if (child.ChildRanges is not { } children) return;
+
         foreach (var grandchild in children.Values.Bounded(MaxChildren))
         {
             (grandchild.ParentRange, grandchild.ElapsedTicks, grandchild.CallCount) = (child, 0, 0);

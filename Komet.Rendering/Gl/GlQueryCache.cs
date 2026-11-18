@@ -14,13 +14,13 @@ internal static unsafe class GlQueryCache
     private const uint Framebuffer = 0x8D40, Read = 0x8CA8, Draw = 0x8CA9;
     private const uint DrawBinding = 0x8CA6, ReadBinding = 0x8CAA, Viewport = 0x0BA2;
 
+    private const int GetAt = 0, BindAt = 1, BindExtAt = 2, DeleteAt = 3, DeleteExtAt = 4, ViewportAt = 5;
+
     private static readonly string[] Names =
     [
         "glGetIntegerv", "glBindFramebuffer", "glBindFramebufferEXT", "glDeleteFramebuffers", "glDeleteFramebuffersEXT",
         "glViewport", "glViewportIndexedf", "glViewportIndexedfv", "glViewportArrayv"
     ];
-
-    private const int GetAt = 0, BindAt = 1, BindExtAt = 2, DeleteAt = 3, DeleteExtAt = 4, ViewportAt = 5;
 
     private static readonly IntPtr[] Next = new IntPtr[Names.Length];
     private static readonly int[] Slots = new int[Names.Length];
@@ -35,9 +35,11 @@ internal static unsafe class GlQueryCache
     public static void Install()
     {
         if (_table is not null) return;
+
         var table = AccessTools.Field(typeof(GL), "EntryPoints")?.GetValue(null) as IntPtr[];
         var names = AccessTools.Field(typeof(GL), "EntryPointNames")?.GetValue(null) as string[];
         if (table is null || names is null || !Assert(table.Length == names.Length)) return;
+
         for (var i = 0; i < Names.Length; i++)
         {
             Slots[i] = Array.IndexOf(names, Names[i]);
@@ -46,12 +48,18 @@ internal static unsafe class GlQueryCache
 
         // Without the query, a binding or the viewport call there is nothing to answer or follow
         if (Next[GetAt] == IntPtr.Zero || Next[BindAt] == IntPtr.Zero || Next[DeleteAt] == IntPtr.Zero ||
-            Next[ViewportAt] == IntPtr.Zero) return;
+            Next[ViewportAt] == IntPtr.Zero)
+        {
+            return;
+        }
+
         IntPtr[] mine =
         [
             (IntPtr)(delegate* unmanaged<uint, int*, void>)&GetIntegerv,
-            (IntPtr)(delegate* unmanaged<uint, uint, void>)&Bind, (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindExt,
-            (IntPtr)(delegate* unmanaged<int, uint*, void>)&Delete, (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteExt,
+            (IntPtr)(delegate* unmanaged<uint, uint, void>)&Bind,
+            (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindExt,
+            (IntPtr)(delegate* unmanaged<int, uint*, void>)&Delete,
+            (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteExt,
             (IntPtr)(delegate* unmanaged<int, int, int, int, void>)&SetViewport,
             (IntPtr)(delegate* unmanaged<uint, float, float, float, float, void>)&ViewportIndexed,
             (IntPtr)(delegate* unmanaged<uint, float*, void>)&ViewportIndexedv,
@@ -59,8 +67,10 @@ internal static unsafe class GlQueryCache
         ];
         Forget();
         for (var i = 0; i < Names.Length; i++)
-            if (Slots[i] >= 0 && Next[i] != IntPtr.Zero)
-                table[Slots[i]] = mine[i];
+        {
+            if (Slots[i] >= 0 && Next[i] != IntPtr.Zero) table[Slots[i]] = mine[i];
+        }
+
         _table = table;
     }
 
@@ -70,6 +80,7 @@ internal static unsafe class GlQueryCache
     private static void GetIntegerv(uint name, int* data)
     {
         if (Enabled && data != null && _table is not null)
+        {
             switch (name)
             {
                 case DrawBinding when _drawKnown:
@@ -82,9 +93,11 @@ internal static unsafe class GlQueryCache
                     (data[0], data[1], data[2], data[3]) = _viewport;
                     return;
             }
+        }
 
         ((delegate* unmanaged<uint, int*, void>)Next[GetAt])(name, data);
         if (data == null) return;
+
         switch (name)
         {
             case DrawBinding:
@@ -116,7 +129,9 @@ internal static unsafe class GlQueryCache
     private static void Bound(uint target, uint framebuffer)
     {
         if (target is Framebuffer or Draw) (_draw, _drawKnown) = (framebuffer, true);
+
         if (target is Framebuffer or Read) (_read, _readKnown) = (framebuffer, true);
+
         if (target is not (Framebuffer or Draw or Read)) Forget();
     }
 
@@ -138,10 +153,13 @@ internal static unsafe class GlQueryCache
     private static void Deleted(int count, uint* framebuffers)
     {
         if (framebuffers == null || count <= 0) return;
+
         for (var i = 0; i < Math.Min(count, 1 << 16); i++)
         {
             if (framebuffers[i] == 0) continue;
+
             if (framebuffers[i] == _draw) _draw = 0;
+
             if (framebuffers[i] == _read) _read = 0;
         }
     }
@@ -151,6 +169,7 @@ internal static unsafe class GlQueryCache
     {
         // A negative size is an error that leaves the viewport as it was
         if (width >= 0 && height >= 0) (_viewport, _viewportKnown) = ((x, y, width, height), true);
+
         ((delegate* unmanaged<int, int, int, int, void>)Next[ViewportAt])(x, y, width, height);
     }
 

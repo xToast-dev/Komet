@@ -27,6 +27,7 @@ internal static class JsonEmit
         {
             var height = Volatile.Read(ref _atlasHeight);
             if (height > 0) return height;
+
             height = ClientSettings.MaxTextureAtlasHeight; // unset (0) asks again, as every read did
             Volatile.Write(ref _atlasHeight, height);
             return height;
@@ -44,6 +45,7 @@ internal static class JsonEmit
         {
             ref readonly var face = ref faces[l];
             if (face.Boundary && (at.DrawFaces & (1 << face.Facing)) == 0) continue;
+
             var pool = passes[face.Pass >= 0 ? face.Pass : at.Pass][face.Atlas];
             var value = ColorMapData.FromValues(face.Season, face.Climate, at.Temperature, at.Rainfall,
                 face.Frost < 0 ? at.Frostable : face.Frost != 0, at.Extra);
@@ -53,23 +55,35 @@ internal static class JsonEmit
 
     // Face l's vertices, custom data, indices: at once where four fit, else one by one with engine growth
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Face(TCTCache vars, JsonMesh table, MeshData source, int l, in JsonMesh.Face face, MeshData pool,
+    private static void Face(TCTCache vars, JsonMesh table, MeshData source, int l, in JsonMesh.Face face,
+        MeshData pool,
         int value, ref State at)
     {
         var (x0, z0) = face.Fixed ? (at.FixedX, at.FixedZ) : (at.X, at.Z);
         var lt = Light(in face, at.Lit, out var rt, out var lb, out var rb, out var even);
-        var shift = face.Facing >= 0 && Math.Abs(at.VOffset) > 0f && ((1 << face.Facing) & at.AltFaces) == 0 ? at.VScaled : 0f;
+        var shift = face.Facing >= 0 && Math.Abs(at.VOffset) > 0f && ((1 << face.Facing) & at.AltFaces) == 0
+            ? at.VScaled
+            : 0f;
         var first = pool.VerticesCount;
         var corner = new Corner(x0, at.Y, z0, shift, lt, rt, lb, rb, even, at.VertexFlags, at.Fluid);
-        if (first + Corners <= pool.VerticesMax) Fast(vars, table, source, l, pool, value, face.Custom, in corner);
-        else Slow(vars, table, source, l, pool, value, face.Custom, in corner);
+        if (first + Corners <= pool.VerticesMax)
+        {
+            Fast(vars, table, source, l, pool, value, face.Custom, in corner);
+        }
+        else
+        {
+            Slow(vars, table, source, l, pool, value, face.Custom, in corner);
+        }
+
         if (face.Custom == JsonMesh.Ints) Ints(pool.CustomInts, value);
+
         Indices(pool, table.Relative, l, first);
     }
 
     // Four vertices as the arrays stand (Pools checked VerticesMax; only GrowVertexBuffer raises it), bounds in locals
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Fast(TCTCache vars, JsonMesh table, MeshData source, int l, MeshData pool, int value, int custom,
+    private static void Fast(TCTCache vars, JsonMesh table, MeshData source, int l, MeshData pool, int value,
+        int custom,
         in Corner c)
     {
         var n = pool.VerticesCount;
@@ -86,15 +100,37 @@ internal static class JsonEmit
         {
             var (x, y, z) = (sxyz[3 * k] + c.X, sxyz[3 * k + 1] + c.Y, sxyz[3 * k + 2] + c.Z);
             (xyz[3 * k], xyz[3 * k + 1], xyz[3 * k + 2]) = (x, y, z);
-            if (x < xMin) xMin = x;
-            else if (x > xMax) xMax = x;
-            if (y < yMin) yMin = y;
-            else if (y > yMax) yMax = y;
-            if (z < zMin) zMin = z;
-            else if (z > zMax) zMax = z;
+            if (x < xMin)
+            {
+                xMin = x;
+            }
+            else if (x > xMax)
+            {
+                xMax = x;
+            }
+
+            if (y < yMin)
+            {
+                yMin = y;
+            }
+            else if (y > yMax)
+            {
+                yMax = y;
+            }
+
+            if (z < zMin)
+            {
+                zMin = z;
+            }
+            else if (z > zMax)
+            {
+                zMax = z;
+            }
+
             (uv[2 * k], uv[2 * k + 1]) = (suv[2 * k], suv[2 * k + 1] + c.Shift);
             var color = c.Even ? c.Lt : GameMath.BiLerpRgbaColor(lerp[2 * k], lerp[2 * k + 1], c.Lt, c.Rt, c.Lb, c.Rb);
             if (custom != JsonMesh.Ints) Custom(pool, source, custom, Corners * l + k, value);
+
             BinaryPrimitives.WriteInt32LittleEndian(rgba.Slice(4 * k, 4), color);
             flags[k] = Wind(c.Flags | sflags[k], sflags[k], c.Fluid);
         }
@@ -105,7 +141,8 @@ internal static class JsonEmit
 
     // Four vertices one by one, growing the arrays as the engine's per-vertex calls do
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void Slow(TCTCache vars, JsonMesh table, MeshData source, int l, MeshData pool, int value, int custom,
+    private static void Slow(TCTCache vars, JsonMesh table, MeshData source, int l, MeshData pool, int value,
+        int custom,
         in Corner c)
     {
         var (sxyz, suv, sflags, lerp) = (source.xyz, source.Uv, source.Flags, table.Lerp);
@@ -128,6 +165,7 @@ internal static class JsonEmit
             (uv[2 * n], uv[2 * n + 1]) = (suv[2 * v], suv[2 * v + 1] + c.Shift);
             var color = c.Even ? c.Lt : GameMath.BiLerpRgbaColor(lerp[2 * v], lerp[2 * v + 1], c.Lt, c.Rt, c.Lb, c.Rb);
             if (custom != JsonMesh.Ints) Custom(pool, source, custom, v, value);
+
             BinaryPrimitives.WriteInt32LittleEndian(rgba.AsSpan(4 * n, 4), color);
             flags[n] = Wind(c.Flags | sflags[v], sflags[v], c.Fluid);
             n++;
@@ -159,7 +197,9 @@ internal static class JsonEmit
     private static int Wind(int flags, int source, int wind)
     {
         if (wind == Calm) return flags;
+
         if (wind == Walled) return flags & VertexFlags.ClearWindModeBitsMask;
+
         var mode = source & VertexFlags.WindModeBitsMask;
         return mode is WeakWind or LeavesWind ? (flags | WaveSet) & WaveMask : flags;
     }
@@ -196,7 +236,11 @@ internal static class JsonEmit
         var (values, count) = (ints.Values, ints.Count);
         if (values is null || count < 0 || count + Corners > values.Length)
         {
-            for (var k = 0; k < Corners; k++) ints.Add(value);
+            for (var k = 0; k < Corners; k++)
+            {
+                ints.Add(value);
+            }
+
             return;
         }
 
@@ -218,13 +262,27 @@ internal static class JsonEmit
         }
 
         var six = indices.AsSpan(count, JsonMesh.Indices);
-        for (var k = 0; k < JsonMesh.Indices; k++) six[k] = first + r[k];
+        for (var k = 0; k < JsonMesh.Indices; k++)
+        {
+            six[k] = first + r[k];
+        }
+
         pool.IndicesCount = count + JsonMesh.Indices;
     }
 
     // What every vertex of a face adds or takes: the offset, the texture's v shift, the corner light and the flags
-    private readonly record struct Corner(float X, float Y, float Z, float Shift, int Lt, int Rt, int Lb, int Rb, bool Even,
-        int Flags, int Fluid);
+    private readonly record struct Corner(
+        float X,
+        float Y,
+        float Z,
+        float Shift,
+        int Lt,
+        int Rt,
+        int Lb,
+        int Rb,
+        bool Even,
+        int Flags,
+        int Fluid);
 
     // What AddJsonModelDataToMesh reads from the block's state at its start, the same for each mesh of the block
     internal readonly struct State

@@ -25,9 +25,13 @@ public sealed class ShaderEditsTests
         };
         SharpUpscale.Edit(program);
         if (Environment.GetEnvironmentVariable("KOMET_SHADER_DUMP") is { Length: > 0 } dump)
+        {
             File.WriteAllText(Path.Combine(dump, "blit.frag"), program.FragmentShader.Code);
+        }
+
         Assert.That(program.FragmentShader.Code, Does.Contain("kometEasu(scene"));
-        Assert.That(GlslPort.Build("blit", program.VertexShader.Code, program.FragmentShader.Code, null, out var error), Is.Not.Null,
+        Assert.That(GlslPort.Build("blit", program.VertexShader.Code, program.FragmentShader.Code, null, out var error),
+            Is.Not.Null,
             error);
     }
 
@@ -43,7 +47,8 @@ public sealed class ShaderEditsTests
         };
         LeanGodRays.Edit(program);
         Assert.That(program.FragmentShader.Code, Does.Contain("if (kometGlow != 0.0)"));
-        Assert.That(GlslPort.Build("godrays", program.VertexShader.Code, program.FragmentShader.Code, null, out var error),
+        Assert.That(
+            GlslPort.Build("godrays", program.VertexShader.Code, program.FragmentShader.Code, null, out var error),
             Is.Not.Null, error);
     }
 

@@ -11,12 +11,11 @@ namespace Komet.Rendering;
 // and those switches; runs in next frame's Before stage, after pool writes flushed and before any pool is written.
 internal static class TerrainRebuild
 {
-    public const double Order = 0.5; // after VulkanRenderer's StartingThen (0.01), before its Preparing (0.993)
+    private const double Order = 0.5; // after VulkanRenderer's StartingThen (0.01), before its Preparing (0.993)
     private static ICoreClientAPI? _api;
     private static Hook? _hook;
     private static bool _asked, _ready;
 
-    public static long Rebuilds { get; private set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "chunks")]
     private static extern ref Dictionary<long, ClientChunk>? Chunks(ClientWorldMap map);
@@ -26,7 +25,8 @@ internal static class TerrainRebuild
 
     public static void Install(ICoreClientAPI api)
     {
-        if (!NotNull(api) || _hook is not null) return;
+        if (_hook is not null) return;
+
         (_api, _asked, _ready) = (api, false, false);
         _hook = new Hook();
         api.Event.RegisterRenderer(_hook, EnumRenderStage.Before, "komet-rebuild");
@@ -49,6 +49,12 @@ internal static class TerrainRebuild
         if (_ready && _api is not null) _asked = true;
     }
 
+    // A failed renderer may hand back shortened pools, even during the first frame of a world.
+    internal static void Recover()
+    {
+        if (_api is not null) _asked = true;
+    }
+
     internal static void Run()
     {
         if (!_ready)
@@ -60,32 +66,39 @@ internal static class TerrainRebuild
         if (_api?.World is ClientMain world && !_asked)
         {
             PoolTrim.Run(_api, world);
-            Links.SpareChunks(world);
+            Links.Loading.SpareChunks(world);
         }
 
         if (!_asked || _api?.World is not ClientMain game || TerrainOf(game) is not { } old) return;
+
         _asked = false;
         var started = Environment.TickCount64;
-        Links.Rebuilding();
+        Links.Vulkan.Rebuilding();
         var chunks = Forgotten(game);
         Unhook(_api, old);
         old.Dispose();
-        TerrainOf(game) = new ChunkRenderer([.. game.BlockAtlasManager.AtlasTextures.Select(static t => t.TextureId)], game);
+        TerrainOf(game) =
+            new ChunkRenderer([.. game.BlockAtlasManager.AtlasTextures.Select(static t => t.TextureId)], game);
         OcclusionCulling.Renewed();
         FrustumSweep.Renewed();
         FaceSorting.Clear();
         FarShadowReuse.Clear();
         NearShadowReuse.Clear();
         game.RedrawAllBlocks();
-        Rebuilds++;
-        game.Logger.Notification("Komet: the terrain is made anew: {0} chunks tessellated again into new pools ({1} ms)", chunks,
+        game.Logger.Notification(
+            "Komet: the terrain is made anew: {0} chunks tessellated again into new pools ({1} ms)", chunks,
             Environment.TickCount64 - started);
     }
 
     // Loaded and packed chunks (protocol, main thread)
     internal static (int Packed, int Total) Census(ClientMain game)
     {
-        if (!NotNull(game) || game.WorldMap is not { } map || Chunks(map) is not { } all || ChunksLock(map) is not { } gate) return (0, 0);
+        if (!NotNull(game) || game.WorldMap is not { } map || Chunks(map) is not { } all ||
+            ChunksLock(map) is not { } gate)
+        {
+            return (0, 0);
+        }
+
         var (packed, total) = (0, 0);
         lock (gate)
         {
@@ -105,6 +118,7 @@ internal static class TerrainRebuild
     {
         var map = game.WorldMap;
         if (!NotNull(map) || Chunks(map) is not { } all || ChunksLock(map) is not { } gate) return 0;
+
         var count = 0;
         lock (gate)
         {
@@ -112,6 +126,7 @@ internal static class TerrainRebuild
             for (var i = 0; i < 1 << 22 && chunks.MoveNext(); i++)
             {
                 if (chunks.Current is not { } chunk) continue;
+
                 (Center(chunk), Edge(chunk)) = (null, null);
                 count++;
             }
@@ -126,11 +141,16 @@ internal static class TerrainRebuild
     {
         if (AccessTools.DeclaredMethod(typeof(ChunkRenderer), "Eventapi_ReloadShader", []) is { } reload &&
             reload.ReturnType == typeof(bool))
+        {
             api.Event.ReloadShader -= reload.CreateDelegate<ActionBoolReturn>(old);
+        }
+
         if (AccessTools.DeclaredField(typeof(ChunkRenderer), "culler")?.GetValue(old) is ChunkCuller culler &&
             AccessTools.DeclaredMethod(typeof(ChunkCuller), "genShellVectors", [typeof(int)]) is { } shell &&
             shell.ReturnType == typeof(void))
+        {
             _ = ClientSettings.Inst.RemoveWatcher("viewDistance", shell.CreateDelegate<OnSettingsChanged<int>>(culler));
+        }
     }
 
     private sealed class Hook : IRenderer

@@ -26,6 +26,7 @@ internal static class Contracts
     public static bool Assert(bool condition, [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (condition) return true;
+
         Report("", file, line);
         return false;
     }
@@ -35,6 +36,7 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "") where T : class
     {
         if (value is not null) return true;
+
         Report("null", file, line);
         return false;
     }
@@ -43,6 +45,7 @@ internal static class Contracts
     public static bool Finite(double value, [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (double.IsFinite(value)) return true;
+
         Report("not finite", file, line);
         return false;
     }
@@ -51,6 +54,7 @@ internal static class Contracts
     public static bool Index(int value, int count, [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if ((uint)value < (uint)count) return true;
+
         Report("out of range", file, line);
         return false;
     }
@@ -60,6 +64,7 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Count > max) Over(max, file, line);
+
         return CollectionsMarshal.AsSpan(items)[..Math.Min(items.Count, max)];
     }
 
@@ -67,6 +72,7 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Length > max) Over(max, file, line);
+
         return items.AsSpan(0, Math.Min(items.Length, max));
     }
 
@@ -74,6 +80,7 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Length > max) Over(max, file, line);
+
         return items[..Math.Min(items.Length, max)];
     }
 
@@ -83,7 +90,11 @@ internal static class Contracts
         using var e = items.GetEnumerator();
         for (var i = 0; i < max; i++)
         {
-            if (!e.MoveNext()) yield break;
+            if (!e.MoveNext())
+            {
+                yield break;
+            }
+
             yield return e.Current;
         }
 
@@ -95,6 +106,7 @@ internal static class Contracts
         int max, [CallerLineNumber] int line = 0, [CallerFilePath] string file = "") where TKey : notnull
     {
         if (items.Count > max) Over(max, file, line);
+
         return new BoundedValues<TKey, TValue>(items, Math.Min(items.Count, max));
     }
 
@@ -103,6 +115,7 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "") where TKey : notnull
     {
         if (items.Count > max) Over(max, file, line);
+
         return new BoundedPairs<TKey, TValue>(items, Math.Min(items.Count, max));
     }
 
@@ -111,7 +124,41 @@ internal static class Contracts
         [CallerLineNumber] int line = 0, [CallerFilePath] string file = "")
     {
         if (items.Count > max) Over(max, file, line);
+
         return new BoundedSet<T>(items, Math.Min(items.Count, max));
+    }
+
+    // File and line find the check in the source; its text is not kept (thousands of call sites, half a megabyte of DLL)
+    private static void Report(string what, string file, int line)
+    {
+        if (First(file, line)) Log(what, file, line);
+    }
+
+    // A cap that stays exceeded in frame code is asked every frame: the text is built only for the first report
+    private static void Over(int max, string file, int line)
+    {
+        if (First(file, line)) Log($"more than {max}", file, line);
+    }
+
+    private static bool First(string file, int line)
+    {
+        lock (Gate)
+        {
+            return Reported.Add((file, line));
+        }
+    }
+
+    private static void Log(string what, string file, int line)
+    {
+        var site = file.Replace('\\', '/').Replace("/_/", "", StringComparison.Ordinal) + ":" + line;
+        if (_logger is null)
+        {
+            Console.Error.WriteLine($"Komet: check failed at {site} {what}");
+        }
+        else
+        {
+            _logger.Error("Komet: check failed at {0} {1}", site, what);
+        }
     }
 
     public readonly struct BoundedPairs<TKey, TValue>(Dictionary<TKey, TValue> items, int max) where TKey : notnull
@@ -128,6 +175,7 @@ internal static class Contracts
             public bool MoveNext()
             {
                 if (_left <= 0) return false;
+
                 _left--;
                 return _inner.MoveNext();
             }
@@ -148,6 +196,7 @@ internal static class Contracts
             public bool MoveNext()
             {
                 if (_left <= 0) return false;
+
                 _left--;
                 return _inner.MoveNext();
             }
@@ -169,33 +218,10 @@ internal static class Contracts
             public bool MoveNext()
             {
                 if (_left <= 0) return false;
+
                 _left--;
                 return _inner.MoveNext();
             }
         }
-    }
-
-    // File and line find the check in the source; its text is not kept (thousands of call sites, half a megabyte of DLL)
-    private static void Report(string what, string file, int line)
-    {
-        if (First(file, line)) Log(what, file, line);
-    }
-
-    // A cap that stays exceeded in frame code is asked every frame: the text is built only for the first report
-    private static void Over(int max, string file, int line)
-    {
-        if (First(file, line)) Log($"more than {max}", file, line);
-    }
-
-    private static bool First(string file, int line)
-    {
-        lock (Gate) return Reported.Add((file, line));
-    }
-
-    private static void Log(string what, string file, int line)
-    {
-        var site = file.Replace('\\', '/').Replace("/_/", "", StringComparison.Ordinal) + ":" + line;
-        if (_logger is null) Console.Error.WriteLine($"Komet: check failed at {site} {what}");
-        else _logger.Error("Komet: check failed at {0} {1}", site, what);
     }
 }

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Vintagestory.Client.NoObf;
@@ -28,10 +29,6 @@ internal static class DirectChunks
 
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
-    public static long Sent => Interlocked.Read(ref _sent);
-
-    private static long _sent;
-
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "network")]
     private static extern ref DummyNetwork? Network(DummyNetConnection connection);
 
@@ -53,17 +50,20 @@ internal static class DirectChunks
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "packet")]
     private static extern ref Packet_Server? TaskPacket(ProcessPacketTask task);
 
-    internal static System.Reflection.MethodInfo? Send() =>
-        AccessTools.DeclaredMethod(typeof(ServerMain), nameof(ServerMain.SendPacket), [typeof(int), typeof(Packet_Server)]);
+    private static MethodInfo? Send() =>
+        AccessTools.DeclaredMethod(typeof(ServerMain), nameof(ServerMain.SendPacket),
+            [typeof(int), typeof(Packet_Server)]);
 
-    internal static System.Reflection.MethodInfo? Read() =>
-        AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), nameof(SystemNetworkProcess.TryReadPacket), [typeof(byte[]), typeof(int)]);
+    private static MethodInfo? Read() =>
+        AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), nameof(SystemNetworkProcess.TryReadPacket),
+            [typeof(byte[]), typeof(int)]);
 
     public static void Install(Harmony harmony)
     {
         Installed = false;
         var (send, read) = (Send(), Read());
-        if (!NotNull(harmony) || send is null || read is null || !Present()) return;
+        if (send is null || read is null || !Present()) return;
+
         _ = harmony.Patch(read, new HarmonyMethod(typeof(DirectChunks), nameof(Reading)));
         _ = harmony.Patch(send, new HarmonyMethod(typeof(DirectChunks), nameof(Sending)));
         Installed = true;
@@ -72,31 +72,50 @@ internal static class DirectChunks
     // Every member the accessors expect, typed: a missing one would throw at its first use on a game thread
     private static bool Present() =>
         AccessTools.DeclaredField(typeof(DummyNetConnection), "network")?.FieldType == typeof(DummyNetwork) &&
-        AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBuffer")?.FieldType == typeof(Queue<object>) &&
-        AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBufferLock")?.FieldType == typeof(MonitorObject) &&
-        AccessTools.DeclaredField(typeof(ClientSystem), "game")?.FieldType == typeof(ClientMain) &&
-        AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), "ProcessInBackground", [typeof(Packet_Server)])?.ReturnType == typeof(bool) &&
-        AccessTools.DeclaredField(typeof(ProcessPacketTask), "game")?.FieldType == typeof(ClientMain) &&
-        AccessTools.DeclaredField(typeof(ProcessPacketTask), "packet")?.FieldType == typeof(Packet_Server);
+               AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBuffer")?.FieldType ==
+               typeof(Queue<object>) &&
+               AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBufferLock")?.FieldType ==
+               typeof(MonitorObject) &&
+               AccessTools.DeclaredField(typeof(ClientSystem), "game")?.FieldType == typeof(ClientMain) &&
+               AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), "ProcessInBackground", [typeof(Packet_Server)])
+                   ?.ReturnType == typeof(bool) &&
+               AccessTools.DeclaredField(typeof(ProcessPacketTask), "game")?.FieldType == typeof(ClientMain) &&
+               AccessTools.DeclaredField(typeof(ProcessPacketTask), "packet")?.FieldType == typeof(Packet_Server);
 
     // ServerMain.SendPacket(int, Packet_Server) prefix: false when the token went in its place
     private static bool Sending(ServerMain __instance, int clientId, Packet_Server packet)
     {
-        if (!Enabled || !Installed || packet is not { Id: ChunksId or MapChunkId or SetBlockId or ExchangeBlockId } || __instance.Clients is not { } clients ||
-            !clients.TryGetValue(clientId, out var client) || client is not { IsSinglePlayerClient: true, Socket: DummyNetConnection dummy } ||
-            Network(dummy) is not { } network || Buffer(network) is not { } queue || BufferLock(network) is not { } gate) return true;
+        if (!Enabled || !Installed || packet is not { Id: ChunksId or MapChunkId or SetBlockId or ExchangeBlockId } ||
+            __instance.Clients is not { } clients ||
+            !clients.TryGetValue(clientId, out var client) || client is not
+                { IsSinglePlayerClient: true, Socket: DummyNetConnection dummy } ||
+            Network(dummy) is not { } network || Buffer(network) is not { } queue ||
+            BufferLock(network) is not { } gate)
+        {
+            return true;
+        }
+
         if (packet.Id == ChunksId && !Copied(packet)) return true;
+
         var token = new byte[1];
         Handed.AddOrUpdate(token, packet);
-        lock (gate) queue.Enqueue(new DummyNetworkPacket { Data = token, Length = token.Length });
-        _ = Interlocked.Increment(ref _sent);
+        lock (gate)
+        {
+            queue.Enqueue(new DummyNetworkPacket { Data = token, Length = token.Length });
+        }
+
         return false;
     }
 
     // The chunk list in an array of its own: ServerSystemSendChunks fills the same array every tick
     private static bool Copied(Packet_Server packet)
     {
-        if (packet.Chunks is not { Chunks: { } chunks } list || list.ChunksCount < 0 || list.ChunksCount > chunks.Length) return false;
+        if (packet.Chunks is not { Chunks: { } chunks } list || list.ChunksCount < 0 ||
+            list.ChunksCount > chunks.Length)
+        {
+            return false;
+        }
+
         var own = new Packet_ServerChunk[list.ChunksCount];
         Array.Copy(chunks, own, own.Length);
         list.SetChunks(own, own.Length, own.Length);
@@ -105,13 +124,22 @@ internal static class DirectChunks
 
     // SystemNetworkProcess.TryReadPacket prefix: a token's packet handled as the engine's read does (chunks in the
     // background, blocks queued for the main thread), else the engine
-    private static bool Reading(SystemNetworkProcess __instance, byte[] data, int dataLength)
+    private static bool Reading(SystemNetworkProcess __instance, byte[]? data, int dataLength)
     {
         if (dataLength != 1 || data is null || !Handed.TryGetValue(data, out var packet)) return true;
+
         _ = Handed.Remove(data);
         if (Game(__instance) is not { disposed: false } game) return false;
-        if (packet.Id is SetBlockId or ExchangeBlockId) Queued(game, packet);
-        else _ = Background(__instance, packet); // true for chunks and map chunks: nothing for the main thread
+
+        if (packet.Id is SetBlockId or ExchangeBlockId)
+        {
+            Queued(game, packet);
+        }
+        else
+        {
+            _ = Background(__instance, packet); // true for chunks and map chunks: nothing for the main thread
+        }
+
         game.LastReceivedMilliseconds = game.Platform.EllapsedMs;
         return false;
     }

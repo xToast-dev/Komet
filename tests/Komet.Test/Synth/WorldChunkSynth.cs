@@ -1,5 +1,5 @@
-using Vintagestory.Server;
 using Vintagestory.GameContent;
+using Vintagestory.Server;
 
 namespace Komet.Test.Synth;
 
@@ -16,10 +16,17 @@ public sealed class WorldChunkSynth
     {
         LightWorld? world = null;
         IEnumerator<int>? steps = null;
-        using (new FeatureRig("LightScratch")) Assert.That(global::Komet.World.LightScratch.Rewritten, Is.True);
+        using (new FeatureRig("LightScratch"))
+        {
+            Assert.That(Komet.World.LightScratch.Rewritten, Is.True);
+        }
+
         _ = Synth.Run("LightScratch", "script", ops =>
         {
-            for (var i = 0; i < ops; i++) _ = steps!.MoveNext();
+            for (var i = 0; i < ops; i++)
+            {
+                _ = steps!.MoveNext();
+            }
         }, 200, () => world!.Hash(), () =>
         {
             world = new LightWorld(LightWorld.MakeBlocks(), 1) { Recording = false };
@@ -41,14 +48,21 @@ public sealed class WorldChunkSynth
                 .Select(y => world.GetChunk(c % LightWorld.ChunksX, y, c / LightWorld.ChunksX)).ToArray()).ToArray();
         var top = LightWorld.ChunksY - 1;
         using (new FeatureRig("WorldGenScratch"))
-            Assert.That(global::Komet.World.WorldGenScratch.Rewritten & 1, Is.EqualTo(1), "SpreadSunLightInColumn");
+        {
+            Assert.That(Komet.World.WorldGenScratch.Rewritten & 1, Is.EqualTo(1), "SpreadSunLightInColumn");
+        }
+
         _ = Synth.Run("WorldGenScratch", "sunColumn", ops =>
         {
             for (var i = 0; i < ops; i++)
             {
                 var c = i % columns.Length;
                 var chunks = columns[c];
-                foreach (var chunk in chunks) chunk.Lighting.ClearAllSunlight();
+                foreach (var chunk in chunks)
+                {
+                    chunk.Lighting.ClearAllSunlight();
+                }
+
                 world.Illuminator.Sunlight(chunks, c % LightWorld.ChunksX, top, c / LightWorld.ChunksX, 0);
                 world.Illuminator.SunlightFlood(chunks, c % LightWorld.ChunksX, top, c / LightWorld.ChunksX);
             }
@@ -73,15 +87,22 @@ public sealed class WorldChunkSynth
             for (var x = 0; x < 2; x++)
             {
                 for (var z = 0; z < 2; z++)
+                {
                     _ = rig.Put(1 + x, 1, 1 + z, (_, y, _) => y < 8 ? ChunkRig.Stone : ChunkRig.Air);
+                }
             }
 
             var accessor = new BlockAccessorReadLockfree(map, rig.Game);
             var random = new Random(4);
-            var swarm = Enumerable.Range(0, 300).Select(_ => (X: 58 + random.Next(12), Y: 44 + random.Next(12), Z: 58 + random.Next(12)))
+            var swarm = Enumerable.Range(0, 300)
+                .Select(_ => (X: 58 + random.Next(12), Y: 44 + random.Next(12), Z: 58 + random.Next(12)))
                 .ToArray();
             long sum = 0;
-            using (new FeatureRig("ParticleLight")) Assert.That(global::Komet.World.ParticleLight.Installed, Is.True);
+            using (new FeatureRig("ParticleLight"))
+            {
+                Assert.That(Komet.World.ParticleLight.Installed, Is.True);
+            }
+
             _ = Synth.Run("ParticleLight", "swarm300", ops =>
             {
                 for (var i = 0; i < ops; i++)
@@ -92,7 +113,7 @@ public sealed class WorldChunkSynth
             }, 3000, () => sum, () =>
             {
                 sum = 0;
-                global::Komet.World.ParticleLight.Forget();
+                Komet.World.ParticleLight.Forget();
             });
         }
         finally
@@ -135,14 +156,17 @@ public sealed class WorldChunkSynth
         AccessTools.Field(typeof(ServerMain), "seaLevel").SetValue(server, 110);
         server.rand = new ThreadLocal<Random>(() => new Random(6));
         var worldMap = (ServerWorldMap)RuntimeHelpers.GetUninitializedObject(typeof(ServerWorldMap));
-        AccessTools.Field(typeof(ServerWorldMap), "mapsize").SetValue(worldMap, new Vec3i(1 << 20, height * 32, 1 << 20));
+        AccessTools.Field(typeof(ServerWorldMap), "mapsize")
+            .SetValue(worldMap, new Vec3i(1 << 20, height * 32, 1 << 20));
         worldMap.RelaxedBlockAccess = new BlockAccessorRelaxed(worldMap, server, false, false);
         server.WorldMap = worldMap;
         var sapi = (ServerCoreAPI)RuntimeHelpers.GetUninitializedObject(typeof(ServerCoreAPI));
         AccessTools.Field(typeof(ServerCoreAPI), "server").SetValue(sapi, server);
         var weather = (WeatherSystemServer)RuntimeHelpers.GetUninitializedObject(typeof(WeatherSystemServer));
-        weather.GeneralConfig = new WeatherSystemConfig { SnowLayerBlocks = new() { [blocks[5]] = 0 } };
-        var snow = (WeatherSimulationSnowAccum)RuntimeHelpers.GetUninitializedObject(typeof(WeatherSimulationSnowAccum));
+        weather.GeneralConfig = new WeatherSystemConfig
+            { SnowLayerBlocks = new Vintagestory.API.Datastructures.OrderedDictionary<Block, int> { [blocks[5]] = 0 } };
+        var snow =
+            (WeatherSimulationSnowAccum)RuntimeHelpers.GetUninitializedObject(typeof(WeatherSimulationSnowAccum));
         AccessTools.Field(typeof(WeatherSimulationSnowAccum), "sapi").SetValue(snow, sapi);
         AccessTools.Field(typeof(WeatherSimulationSnowAccum), "ws").SetValue(snow, weather);
         AccessTools.Field(typeof(WeatherSimulationSnowAccum), "regionsize").SetValue(snow, 512);
@@ -152,16 +176,22 @@ public sealed class WorldChunkSynth
         map.RainHeightMap = surface;
         var pos = new Vec2i(16000, 16000);
         var set = 0;
-        using (new FeatureRig("SnowPeek")) Assert.That(global::Komet.World.SnowPeek.Rewritten, Is.True);
+        using (new FeatureRig("SnowPeek"))
+        {
+            Assert.That(Komet.World.SnowPeek.Rewritten, Is.True);
+        }
+
         _ = Synth.Run("SnowPeek", "packedColumn", ops =>
         {
             for (var i = 0; i < ops; i++)
             {
-                var column = columns[i % columns.Length];
+                IWorldChunk[] column = [.. columns[i % columns.Length]];
                 set += snow.UpdateSnowLayer(snapshot, true, map, pos, column)?.SetBlocks.Count ?? -1;
                 foreach (var chunk in column)
-                    if (!chunk.IsPacked())
-                        chunk.TryPackAndCommit(0);
+                {
+                    var packedChunk = (WorldChunk)chunk;
+                    if (!packedChunk.IsPacked()) packedChunk.TryPackAndCommit(0);
+                }
             }
         }, 8, () => set, () => set = 0);
         Assert.That(columns.SelectMany(c => c).All(c => c.IsPacked()), Is.True);
@@ -175,12 +205,14 @@ public sealed class WorldChunkSynth
     {
         using var rig = new ChunkRig();
         var random = new Random(7);
-        var heights = Enumerable.Range(0, 4).Select(_ => Enumerable.Range(0, 1024).Select(_ => (ushort)(36 + random.Next(20))).ToArray())
+        var heights = Enumerable.Range(0, 4)
+            .Select(_ => Enumerable.Range(0, 1024).Select(_ => (ushort)(36 + random.Next(20))).ToArray())
             .ToArray();
         var mapChunks = heights.Select(h =>
         {
             var mapChunk = (ClientMapChunk)RuntimeHelpers.GetUninitializedObject(typeof(ClientMapChunk));
-            AccessTools.Field(typeof(ClientMapChunk), "rainheightmap").SetValue(mapChunk, h); // read per pixel: the engine's own
+            AccessTools.Field(typeof(ClientMapChunk), "rainheightmap")
+                .SetValue(mapChunk, h); // read per pixel: the engine's own
             return (IMapChunk)mapChunk;
         }).ToArray();
         for (var c = 0; c < 4; c++)
@@ -193,24 +225,33 @@ public sealed class WorldChunkSynth
             }
         }
 
-        var accessor = Answers.Of<IBlockAccessor>(new()
+        var accessor = Answers.Of<IBlockAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
+            // ReSharper disable once AccessToDisposedClosure - asked only inside Synth.Run below
             ["GetChunk"] = args => args!.Length == 3 ? rig.At((int)args[0]!, (int)args[1]!, (int)args[2]!) : null,
-            ["GetMapChunk"] = args => (int)args![1]! == 1 && (int)args[0]! is >= 0 and < 4 ? mapChunks[(int)args[0]!] : null,
+            ["GetMapChunk"] = args =>
+                (int)args![1]! == 1 && (int)args[0]! is >= 0 and < 4 ? mapChunks[(int)args[0]!] : null,
             ["get_MapSizeY"] = _ => ChunkRig.ChunksY * 32
         });
-        var world = Answers.Of<IClientWorldAccessor>(new() { ["get_BlockAccessor"] = _ => accessor });
-        var capi = Answers.Of<ICoreClientAPI>(new() { ["get_World"] = _ => world });
+        var world = Answers.Of<IClientWorldAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_BlockAccessor"] = _ => accessor });
+        var capi = Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_World"] = _ => world });
         var layer = (ChunkMapLayer)RuntimeHelpers.GetUninitializedObject(typeof(ChunkMapLayer));
         AccessTools.Field(typeof(ChunkMapLayer), "capi").SetValue(layer, capi);
         var core = (ClientCoreAPI)RuntimeHelpers.GetUninitializedObject(typeof(ClientCoreAPI));
-        AccessTools.Field(typeof(ClientCoreAPI), "game").SetValue(core, rig.Game); // api.World.Blocks per pixel: the game's own list
+        AccessTools.Field(typeof(ClientCoreAPI), "game")
+            .SetValue(core, rig.Game); // api.World.Blocks per pixel: the game's own list
         AccessTools.Field(typeof(ChunkMapLayer), "api").SetValue(layer, core);
         AccessTools.Field(typeof(ChunkMapLayer), "chunksTmp").SetValue(layer, new IWorldChunk[ChunkRig.ChunksY]);
         AccessTools.Field(typeof(ChunkMapLayer), "colors").SetValue(layer, Colors);
         layer.block2Color = [.. Enumerable.Range(0, rig.Blocks.Length).Select(id => (byte)(id % 3))];
         long sum = 0;
-        using (new FeatureRig("MapPixels")) Assert.That(global::Komet.World.MapPixels.Rewritten, Is.True);
+        using (new FeatureRig("MapPixels"))
+        {
+            Assert.That(Komet.World.MapPixels.Rewritten, Is.True);
+        }
+
         _ = Synth.Run("MapPixels", "piece", ops =>
         {
             for (var i = 0; i < ops; i++)
@@ -218,8 +259,8 @@ public sealed class WorldChunkSynth
                 var c = i & 3;
                 var pixels = layer.GenerateChunkImage(new FastVec2i(c, 1), mapChunks[c]);
                 sum += pixels[i & 1023];
-                global::Komet.World.MapPixels.Release(pixels); // saved
-                global::Komet.World.MapPixels.Release(pixels); // uploaded
+                Komet.World.MapPixels.Release(pixels); // saved
+                Komet.World.MapPixels.Release(pixels); // uploaded
             }
         }, 200, () => sum, () => sum = 0);
     }
@@ -234,7 +275,9 @@ public sealed class WorldChunkSynth
         for (var x = 0; x < ChunkRig.ChunksX; x++)
         {
             for (var z = 0; z < ChunkRig.ChunksZ; z++)
+            {
                 _ = rig.Put(x, 1, z, (_, y, _) => y < 10 ? ChunkRig.Stone : ChunkRig.Air);
+            }
         }
 
         var game = rig.Game;
@@ -254,16 +297,22 @@ public sealed class WorldChunkSynth
         var random = new Random(8);
         var tasks = Enumerable.Range(0, 256).Select(_ => new UpdateLightingTask
         {
-            pos = new BlockPos(random.Next(128), 32 + 9, random.Next(128), 0), oldBlockId = ChunkRig.Stone, newBlockId = ChunkRig.Granite
+            pos = new BlockPos(random.Next(128), 32 + 9, random.Next(128), 0), oldBlockId = ChunkRig.Stone,
+            newBlockId = ChunkRig.Granite
         }).ToArray();
         var dirty = 0;
-        using (new FeatureRig("RelightRedraws")) Assert.That(global::Komet.World.RelightRedraws.Installed, Is.True);
+        using (new FeatureRig("RelightRedraws"))
+        {
+            Assert.That(Komet.World.RelightRedraws.Installed, Is.True);
+        }
+
         _ = Synth.Run("RelightRedraws", "lightlessChange", ops =>
         {
             for (var i = 0; i < ops; i++)
             {
                 process(null, tasks[i & 255]);
                 if ((i & 63) != 63) continue;
+
                 dirty += queue.Count;
                 queue.Clear(); // the tesselator took them
             }
@@ -278,6 +327,7 @@ public sealed class WorldChunkSynth
     private static int Surface(int y, int height)
     {
         if (y < height) return ChunkRig.Stone;
+
         return y == height ? ChunkRig.Granite : ChunkRig.Air;
     }
 

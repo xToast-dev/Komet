@@ -9,15 +9,19 @@ namespace Komet.Vulkan;
 internal static unsafe class TextureUploads
 {
     private const uint Depth = DepthComponent, Rev8888 = UnsignedInt8888Rev;
-    private const uint Rgba8 = Vk.FormatRgba8, Rgba16F = Vk.FormatRgba16F, Rgba16 = Vk.FormatRgba16, Rgba32F = Vk.FormatRgba32F;
+
+    private const uint Rgba8 = Vk.FormatRgba8,
+        Rgba16F = Vk.FormatRgba16F,
+        Rgba16 = Vk.FormatRgba16,
+        Rgba32F = Vk.FormatRgba32F;
+
     private const uint Srgba8 = Vk.FormatSrgba8, R8 = Vk.FormatR8, Rg8 = Vk.FormatRg8, R16F = Vk.FormatR16F;
     private const uint Rg16F = Vk.FormatRg16F, R32F = Vk.FormatR32F, D32F = Vk.FormatD32F;
     private const int MaxSide = 16384, MaxValues = MaxSide * 4;
 
     // Bytes a texel takes in the upload and in the image; (0, 0) for a pair Vulkan does not convert
-    public static (int Source, int Target) Bytes(uint target, (uint Format, uint Type) data)
-    {
-        return (target, data) switch
+    public static (int Source, int Target) Bytes(uint target, (uint Format, uint Type) data) =>
+        (target, data) switch
         {
             (Rgba8 or Srgba8, (Rgba or Bgra, UnsignedByte or Rev8888)) => (4, 4),
             (Rgba8 or Srgba8, (Rgb or Bgr, UnsignedByte)) => (3, 4),
@@ -39,14 +43,19 @@ internal static unsafe class TextureUploads
             (D32F, (Depth, UnsignedShort)) => (2, 4),
             _ => (0, 0)
         };
-    }
 
-    public static void Convert(uint target, (uint Format, uint Type) data, byte* source, (int Width, int Height, int Stride) rows,
+    public static void Convert(uint target, (uint Format, uint Type) data, byte* source,
+        (int Width, int Height, int Stride) rows,
         Span<byte> into)
     {
         var (sourceBytes, targetBytes) = Bytes(target, data);
         if (sourceBytes == 0 || source == null || !Assert(rows.Width is > 0 and <= MaxSide) ||
-            !Assert(rows.Height is > 0 and <= MaxSide) || !Assert(into.Length >= rows.Width * rows.Height * targetBytes)) return;
+            !Assert(rows.Height is > 0 and <= MaxSide) ||
+            !Assert(into.Length >= rows.Width * rows.Height * targetBytes))
+        {
+            return;
+        }
+
         for (var y = 0; y < Math.Min(rows.Height, MaxSide); y++)
         {
             var row = new ReadOnlySpan<byte>(source + (long)y * rows.Stride, rows.Width * sourceBytes);
@@ -97,22 +106,30 @@ internal static unsafe class TextureUploads
     {
         var n = Math.Min(bgr.Length / 3, rgba.Length / 4);
         for (var i = 0; i < Math.Min(n, MaxValues); i++)
-            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) = (bgr[3 * i + 2], bgr[3 * i + 1], bgr[3 * i], 255);
+        {
+            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) =
+                (bgr[3 * i + 2], bgr[3 * i + 1], bgr[3 * i], 255);
+        }
     }
 
     private static void OpaqueHalves(ReadOnlySpan<float> rgb, Span<Half> rgba)
     {
         var n = Math.Min(rgb.Length / 3, rgba.Length / 4);
         for (var i = 0; i < Math.Min(n, MaxValues); i++)
+        {
             (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) =
                 ((Half)rgb[3 * i], (Half)rgb[3 * i + 1], (Half)rgb[3 * i + 2], Half.One);
+        }
     }
 
-    internal static void OpaqueOf<T>(ReadOnlySpan<T> rgb, Span<T> rgba, T one) where T : unmanaged
+    private static void OpaqueOf<T>(ReadOnlySpan<T> rgb, Span<T> rgba, T one) where T : unmanaged
     {
         var n = Math.Min(rgb.Length / 3, rgba.Length / 4);
         for (var i = 0; i < Math.Min(n, MaxValues); i++)
-            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) = (rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], one);
+        {
+            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) =
+                (rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], one);
+        }
     }
 
     // Normalized depths (GL_UNSIGNED_INT or SHORT) as DEPTH_COMPONENT32F floats
@@ -122,7 +139,9 @@ internal static unsafe class TextureUploads
         var wide = MemoryMarshal.Cast<byte, uint>(source);
         var narrow = MemoryMarshal.Cast<byte, ushort>(source);
         for (var i = 0; i < Math.Min(n, MaxValues); i++)
+        {
             into[i] = shorts ? narrow[i] / 65535f : (float)(wide[i] / 4294967295.0);
+        }
     }
 
     internal static void Swapped(ReadOnlySpan<uint> bgra, Span<uint> rgba)
@@ -148,7 +167,10 @@ internal static unsafe class TextureUploads
     {
         var n = Math.Min(rgb.Length / 3, rgba.Length / 4);
         for (var i = 0; i < Math.Min(n, MaxValues); i++)
-            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) = (rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 255);
+        {
+            (rgba[4 * i], rgba[4 * i + 1], rgba[4 * i + 2], rgba[4 * i + 3]) =
+                (rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 255);
+        }
     }
 
     // Clamped to [0, 1], * 65535 round-to-even: for s in [0, 32767] that is 2s + (s >= 16384): integer lanes, no
@@ -164,7 +186,10 @@ internal static unsafe class TextureUploads
             (clamped + clamped + Vector256.ShiftRightLogical(clamped, 14)).CopyTo(into[at..]);
         }
 
-        for (var i = vectors * Vector256<short>.Count; i < Math.Min(n, MaxValues); i++) into[i] = Unorm(source[i]);
+        for (var i = vectors * Vector256<short>.Count; i < Math.Min(n, MaxValues); i++)
+        {
+            into[i] = Unorm(source[i]);
+        }
     }
 
     internal static ushort Unorm(short value)
@@ -176,7 +201,10 @@ internal static unsafe class TextureUploads
     private static void Halves(ReadOnlySpan<float> source, Span<Half> into)
     {
         var n = Math.Min(source.Length, into.Length);
-        for (var i = 0; i < Math.Min(n, MaxValues); i++) into[i] = (Half)source[i];
+        for (var i = 0; i < Math.Min(n, MaxValues); i++)
+        {
+            into[i] = (Half)source[i];
+        }
     }
 }
 

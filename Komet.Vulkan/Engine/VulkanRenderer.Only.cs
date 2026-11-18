@@ -1,3 +1,8 @@
+using Komet.Core;
+using Komet.Diagnostics;
+using Komet.Rendering;
+using OpenTK.Graphics.OpenGL;
+using OpenTK.Windowing.GraphicsLibraryFramework;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Vulkan;
@@ -23,37 +28,35 @@ namespace Komet.Vulkan;
 // masked clears, points, line loops, 8-bit indices, instance divisors, indirect draws, layered framebuffers.
 internal static partial class VulkanRenderer
 {
-    private static bool _only, _held;
-    private static float _kept = FrameBridge.HandBlocks; // OrthoBegins' bridge distance, read by its static lambda
+    // The renderer for a player who never chose one: Vulkan-only only where it ran cleanly on this GPU before with room in
+    // video memory (unknown memory counts as too little), OpenGL for good where it failed, else Komet's default
+    private const int SuggestedVramGb = 6;
+    private static bool _held;
+    internal static string SafetyReason { get; private set; } = "";
+    public static bool Requested { get; private set; }
 
     // Off: GL draws again from its next call (GlTap.Resting), the renderer goes at the next frame (Paused). Lean's
     // holdings go back first; if that fails with the device alive, Vulkan-only stays on (held) until the world is left.
     // The device starts with it too.
     public static bool Only
     {
-        get => _only;
+        get => Requested && SafetyReason.Length == 0;
         set
         {
-            if (!value && _only && Strands("was switched off", holds: true) && _held) return;
-            var changed = value != _only;
-            _only = value;
+            if (!value && Only && Strands("was switched off", true) && _held) return;
+
+            var wasOnly = Only;
+            Requested = value;
+            if (value && _api is not null && !_ran) CheckSafety();
+
+            var changed = Only != wasOnly;
             // in the world the pools are made anew in the format the new renderer draws: lean and packed for Vulkan-only,
             // whole in the engine's for OpenGL (a restored lean pool may hold less than OpenGL reads: far terrain missing)
-            if (changed) Komet.Rendering.TerrainRebuild.Request();
+            if (changed) TerrainRebuild.Request();
+
             if (!value) GlTap.Resting = false;
         }
     }
-
-    // The renderer for a player who never chose one: Vulkan-only only where it ran cleanly on this GPU before with room in
-    // video memory (unknown memory counts as too little), OpenGL for good where it failed, else Komet's default
-    internal const int SuggestedVramGb = 6;
-
-    internal static int? Suggested(Komet.Core.HardwareProfile.Facts hw) => hw.Vulkan switch
-    {
-        Komet.Core.VulkanRecord.Run.Failed => 0,
-        Komet.Core.VulkanRecord.Run.Ran when hw.VramGb >= SuggestedVramGb => 1,
-        _ => null
-    };
 
     // VulkanOnlyLean: GL gets no copy of the world's large textures and buffers (GlTap.Lean), saving that second copy and
     // its uploads, given back from Vulkan's when Vulkan-only lets go (Strands). On by default: only a device fault, which
@@ -62,27 +65,71 @@ internal static partial class VulkanRenderer
 
     private static bool LeanOn => Lean && Only;
 
+    // In the world GL runs no Komet GPU work: timer queries (RenderCost, GpuStats), options blur stay off
+    public static bool GlIdle => State == Phase.Running && Only && _renderer is not null;
+
+    internal static string StartupSafety(VulkanRecord.Run previous, ulong available, ulong total)
+    {
+        if (previous == VulkanRecord.Run.Failed) return "Vulkan failed previously on this GPU";
+
+        if (previous == VulkanRecord.Run.Pending) return "the previous Vulkan session ended without a clean shutdown";
+
+        if (total > 0 && available < Math.Max(total / 12, 2UL << 30))
+        {
+            return $"only {available >> 20} MB of system RAM available before loading the world";
+        }
+
+        return "";
+    }
+
+    private static void CheckSafety()
+    {
+        if (SafetyReason.Length > 0) return;
+
+        var (available, total) = ResourceStats.SystemMemory();
+        SafetyReason = StartupSafety(VulkanRecord.Current(), available, total);
+        if (SafetyReason.Length == 0) return;
+
+        Status = SafetyReason;
+        _logger?.Warning("Komet: OpenGL safety mode for this world: {0}", SafetyReason);
+    }
+
+    internal static void DeviceUnavailable(string why) => Fail(why.Length == 0 ? "Vulkan device unavailable" : why);
+
+    internal static int? Suggested(HardwareProfile.Facts hw) =>
+        hw.Vulkan switch
+        {
+            VulkanRecord.Run.Failed => 0,
+            VulkanRecord.Run.Ran when hw.VramGb >= SuggestedVramGb => 1,
+            _ => null
+        };
+
     // Give back what lean withheld from Vulkan's holdings (false: GL can take over). Only a faulted device gives
     // nothing: GL rests for good (GlTap.Strand) until the world is left, drawing only the GUI over a cleared frame
     // (Overlaid). holds: Vulkan-only may stay on instead (_held)
     private static bool Strands(string why, bool holds = false)
     {
         if (GlTap.Leaned == 0 || !GlTap.Tapped) return false;
+
         if (GlTap.Stranded) return true;
+
         GlTap.Lean = false; // from now on OpenGL gets every texture and buffer whole
         if (Restored(why)) return false;
-        if (holds && _renderer is { } renderer && renderer.Frame.Fault.Length == 0)
+
+        if (holds && _renderer is { Frame.Fault.Length: 0 })
         {
             _held = true;
-            _logger?.Error("Komet: Vulkan-only {0}, but OpenGL could not be given back the {1} large textures and buffers lean " +
-                           "kept from it: Vulkan-only stays on until the world is left", why, GlTap.Leaned);
+            _logger?.Error(
+                "Komet: Vulkan-only {0}, but OpenGL could not be given back the {1} large textures and buffers lean " +
+                "kept from it: Vulkan-only stays on until the world is left", why, GlTap.Leaned);
             return true;
         }
 
         GlTap.Strand();
-        _logger?.Error("Komet: Vulkan-only {0}, and with VulkanOnlyLean OpenGL holds none of the world's large textures and " +
-                       "buffers ({1} MB), which the failed device cannot give back: OpenGL shows only the GUI. Leave the " +
-                       "world and join it again.", why, GlTap.LeanBytes >> 20);
+        _logger?.Error(
+            "Komet: Vulkan-only {0}, and with VulkanOnlyLean OpenGL holds none of the world's large textures and " +
+            "buffers ({1} MB), which the failed device cannot give back: OpenGL shows only the GUI. Leave the " +
+            "world and join it again.", why, GlTap.LeanBytes >> 20);
         return Assert(GlTap.Stranded);
     }
 
@@ -90,17 +137,21 @@ internal static partial class VulkanRenderer
     private static bool Restored(string why)
     {
         if (_renderer is not { } renderer) return false;
+
         try
         {
             if (renderer.Restore(_scene?.Mirrors) is not var (whole, blank, buffers, bytes)) return false;
+
             _logger?.Notification("Komet: Vulkan-only {0}: OpenGL got lean's {1} textures ({2} blank: none of their " +
-                                  "contents in a format read exactly) and {3} buffers ({4} MB) back at their full size", why,
+                                  "contents in a format read exactly) and {3} buffers ({4} MB) back at their full size",
+                why,
                 whole + blank, blank, buffers, bytes >> 20);
             return true;
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            _logger?.Warning("Komet: Vulkan-only could not give OpenGL its lean textures and buffers back: {0}", e.Message);
+            _logger?.Warning("Komet: Vulkan-only could not give OpenGL its lean textures and buffers back: {0}",
+                e.Message);
             return false;
         }
     }
@@ -109,18 +160,25 @@ internal static partial class VulkanRenderer
     private static void Overlaid()
     {
         if (!GlTap.Stranded || _renderer is not null || !Assert(!GlTap.Resting) || !Assert(GlTap.Tapped)) return;
+
         using var quiet = GlTap.Quietly();
-        OpenTK.Graphics.OpenGL.GL.ClearNamedFramebuffer(0, OpenTK.Graphics.OpenGL.ClearBuffer.Color, 0, [0f, 0f, 0f, 1f]);
-        OpenTK.Graphics.OpenGL.GL.ClearNamedFramebuffer(0, OpenTK.Graphics.OpenGL.ClearBufferCombined.DepthStencil, 0, 1f, 0);
+        GL.ClearNamedFramebuffer(0, ClearBuffer.Color, 0, [0f, 0f, 0f, 1f]);
+        GL.ClearNamedFramebuffer(0, ClearBufferCombined.DepthStencil, 0, 1f, 0);
     }
 
     // The Ortho stage (the GUI): textures made in it reach OpenGL whole; stranded, OpenGL draws it
     private static void OrthoBegins()
     {
         GlTap.GuiStage = true;
-        if (!Bridging || State != Phase.Running || _renderer is null || _api?.Render is not { } render) return;
-        _kept = Kept(_api);
-        Guarded(static r => _renderer?.BridgeScene(r.CameraMatrixOriginf, r.PerspectiveProjectionMat, _kept), render);
+        if (!Bridging || State != Phase.Running || _renderer is not { } renderer ||
+            _api?.Render is not { } render)
+        {
+            return;
+        }
+
+        Guarded(
+            static s => s.Renderer.BridgeScene(s.Render.CameraMatrixOriginf, s.Render.PerspectiveProjectionMat, s.Kept),
+            (Renderer: renderer, Render: render, Kept: Kept(_api)));
     }
 
     // How near the camera the bridge shows pixels as drawn: what turns with the camera is the hand in first person, the
@@ -128,41 +186,35 @@ internal static partial class VulkanRenderer
     private static float Kept(ICoreClientAPI api)
     {
         if (api.Render.CameraType == EnumCameraMode.FirstPerson || api.World?.Player?.Entity is not { } self)
+        {
             return FrameBridge.HandBlocks;
+        }
+
         var (eye, camera) = (self.LocalEyePos, self.CameraPos);
-        var (dx, dy, dz) = (camera.X - self.Pos.X - eye.X, camera.Y - self.Pos.InternalY - eye.Y, camera.Z - self.Pos.Z - eye.Z);
+        var (dx, dy, dz) = (camera.X - self.Pos.X - eye.X, camera.Y - self.Pos.InternalY - eye.Y,
+            camera.Z - self.Pos.Z - eye.Z);
         var away = Math.Sqrt(dx * dx + dy * dy + dz * dz);
         return Finite(away) ? (float)away + FrameBridge.BodyBlocks : FrameBridge.HandBlocks;
     }
 
-    private static void OrthoEnds()
-    {
-        GlTap.GuiStage = false;
-    }
+    private static void OrthoEnds() => GlTap.GuiStage = false;
 
     // Cairo's textures (dialogs, text) are the GUI's, made outside the Ortho stage too
-    private static void CairoMaking()
-    {
-        GlTap.Gui++;
-    }
+    private static void CairoMaking() => GlTap.Gui++;
 
-    private static void CairoMade()
-    {
-        GlTap.Gui = Math.Max(GlTap.Gui - 1, 0);
-    }
-
-    // In the world GL runs no Komet GPU work: timer queries (RenderCost, GpuStats), options blur stay off
-    public static bool GlIdle => State == Phase.Running && Only && _renderer is not null;
+    private static void CairoMade() => GlTap.Gui = Math.Max(GlTap.Gui - 1, 0);
 
     // Tapped at mod start, before the engine compiles shaders and fills pools: the record hears them made
     private static void Recorded()
     {
         if (!Only || !Assert(!GlTap.Tapped)) return;
+
         if (!Current())
         {
             // The record's seed and the device pick would ask GL with no context: the first frame taps instead, and
             // earlier links/uploads are read back from GL on first use
-            _logger?.Warning("Komet: no OpenGL context is current as the mod starts: Vulkan-only begins with the first frame");
+            _logger?.Warning(
+                "Komet: no OpenGL context is current as the mod starts: Vulkan-only begins with the first frame");
             return;
         }
 
@@ -175,26 +227,31 @@ internal static partial class VulkanRenderer
         Guarded(Started);
     }
 
-    private static unsafe bool Current() => OpenTK.Windowing.GraphicsLibraryFramework.GLFW.GetCurrentContext() != null;
+    private static unsafe bool Current() => GLFW.GetCurrentContext() != null;
 
     // Device and renderer from mod start, the scene hearing every write: uploads as the world joins go to Vulkan
     // directly (before the first frame TextureImages batches them on the device)
     private static void Started()
     {
         if (!VulkanCore.Enabled) return;
+
         VulkanCore.Start();
         if (VulkanCore.Device is not { } device || Made(device) is not { } renderer) return;
+
         _renderer = renderer;
         _scene ??= SceneRenderer.Create(renderer, _logger);
         if (_scene is not { } scene) return;
+
         (GlTap.Writes, GlTap.ProgramGone, GlTap.Linking) = (scene, Deleted, Linked);
         GlTap.Lean = LeanOn; // from now on, as Vulkan holds every upload
         Decide(device); // the passes taken: pools made before the first frame are adopted as they are made
         // programs linked before this (the sky, particles, entities: 30 ports of up to 27 ms on the engine's thread at
         // their first draw otherwise) begin their ports now, off the engine's thread
         foreach (var (id, name) in ProgramPorts.Linked().Bounded(1 << 10))
-            if (Array.FindIndex(Programs, p => p.Name == name) < 0)
-                scene.Prewarm(id, name);
+        {
+            if (Array.FindIndex(Programs, p => p.Name == name) < 0) scene.Prewarm(id, name);
+        }
+
         _logger?.Notification("Komet: Vulkan-only takes the world's uploads from the start on {0}", device.Name);
     }
 
@@ -203,13 +260,19 @@ internal static partial class VulkanRenderer
     private static void HandBack(TerrainRenderer renderer)
     {
         if (GlTap.Stranded) return;
+
         try
         {
             var (count, bytes, left) = renderer.HandBack();
             if (count + left > 0)
-                _logger?.Notification("Komet: Vulkan-only hands the world to OpenGL: {0} textures only Vulkan drew ({1} MB) " +
-                                      "written back into OpenGL's{2}", count, bytes >> 20,
-                    left > 0 ? $", {left} left as OpenGL last had them (too many, too large, or of a format read inexactly)" : "");
+            {
+                _logger?.Notification(
+                    "Komet: Vulkan-only hands the world to OpenGL: {0} textures only Vulkan drew ({1} MB) " +
+                    "written back into OpenGL's{2}", count, bytes >> 20,
+                    left > 0
+                        ? $", {left} left as OpenGL last had them (too many, too large, or of a format read inexactly)"
+                        : "");
+            }
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -221,7 +284,9 @@ internal static partial class VulkanRenderer
     private static void Remade()
     {
         if (_renderer is not { } renderer || !Assert(renderer.RecordTaps <= GlTap.Taps)) return;
+
         if (renderer.RecordTaps == GlTap.Taps) return;
+
         _logger?.Notification("Komet: Vulkan makes its renderer anew: the record has a gap");
         Release();
     }
@@ -232,7 +297,12 @@ internal static partial class VulkanRenderer
     // begins its port now; Started replaces this hook with Linked
     private static void EarlyLinked(uint program)
     {
-        if (!Only || _scene is not null || !Assert(program is > 0 and < int.MaxValue) || !ShadercFetch.Loadable()) return;
+        if (!Only || _scene is not null || !Assert(program is > 0 and < int.MaxValue) ||
+            !ShadercFetch.Loadable())
+        {
+            return;
+        }
+
         var name = ProgramPorts.Name((int)program);
         var terrain = Array.FindIndex(Programs, p => p.Name == name) >= 0;
         ProgramPorts.Prestart((int)program, name, terrain ? Hot : null);
@@ -241,13 +311,16 @@ internal static partial class VulkanRenderer
     private static void Linked(uint program)
     {
         if (!Only || _scene is not { } scene || !Assert(program is > 0 and < int.MaxValue)) return;
+
         var name = ProgramPorts.Name((int)program);
         for (var i = 0; i < Programs.Length; i++)
+        {
             if (Programs[i].Name == name)
             {
                 Port(i, (int)program, _renderer);
                 return;
             }
+        }
 
         scene.Prewarm((int)program, name);
     }
@@ -255,7 +328,6 @@ internal static partial class VulkanRenderer
     // AllocateEmptyMesh's postfix: mesh written via persistent maps, pointers back to GL's as Vulkan-only ends
     private static void MeshAllocated(MeshRef __result)
     {
-        if (__result is VAO { Persistent: true } vao && _renderer?.Maps is { } maps)
-            maps.Register(vao);
+        if (__result is VAO { Persistent: true } vao && _renderer?.Maps is { } maps) maps.Register(vao);
     }
 }

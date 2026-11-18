@@ -1,8 +1,10 @@
-using Komet.Chunks;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Komet.Chunks;
+using OpenTK.Graphics.OpenGL;
+using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Vulkan;
@@ -16,98 +18,15 @@ internal sealed partial class TerrainRenderer : IDisposable
 {
     private const string AdoptMark = "komet-adopt";
     private const int MaxPipelines = 4096, MaxTargets = 64, MaxPrograms = 256, MaxShared = 32;
+    private readonly ILogger? _logger;
 
     private readonly PipelineSet<PipelineKey> _pipelines;
-    private readonly Dictionary<(int Fbo, ulong Buffers, bool ReadOnly), VulkanFrame.Target> _targets = [];
     private readonly Dictionary<int, Program> _programs = []; // by GL program
-    private readonly ILogger? _logger;
     private readonly HashSet<int> _refusedSwaps = [];
+    private readonly Dictionary<(int Fbo, ulong Buffers, bool ReadOnly), VulkanFrame.Target> _targets = [];
+    private VulkanBackend? _compute;
     private List<VulkanFrame.Shared>? _handed;
     private long _handedAt = -1;
-    private VulkanBackend? _compute;
-
-    private readonly record struct PipelineKey(int Program, string Layout, string Formats, GlTap.Fixed State);
-
-    public sealed class Program(string name, int id, GlslPort.Ported ported)
-    {
-        public string Name { get; } = name;
-        public int Id { get; } = id;
-        public GlslPort.Ported Ported { get; } = ported;
-        public UniformMirror Mirror { get; } = new();
-
-        // ShaderCache key of its pipelines (PipelineRecipes), "" for none
-        public string Sources { get; set; } = "";
-
-        private readonly Dictionary<TextureSet, TerrainDraw.Program> _sets = [];
-        private UniformMirror.Entry?[]? _units;
-
-        // The texture unit of the program's sampler at, without a name lookup: Lay made the entries, the mirror never replaces one
-        public int Unit(int at)
-        {
-            _units ??= [.. Ported.Samplers.Select(s => Mirror.EntryOf(s.Name))];
-            return Index(at, _units.Length) && _units[at] is { Held.Length: > 0 } entry ? (int)entry.Held[0] : 0;
-        }
-
-        // Cached per texture set: textures are re-resolved on any OpenGL state change, nearly every pool draw
-        public TerrainDraw.Program Recorded(ReadOnlySpan<TerrainDraw.Texture> textures)
-        {
-            var set = textures.Length <= TextureSet.Max ? TextureSet.From(textures) : (TextureSet?)null;
-            if (set is { } known && _sets.TryGetValue(known, out var seen)) return seen;
-            var named = new Dictionary<string, TerrainDraw.Texture>(StringComparer.Ordinal);
-            for (var i = 0; i < Math.Min(textures.Length, MaxSamplers); i++) named[Ported.Samplers[i].Name] = textures[i];
-            var made = new TerrainDraw.Program(Ported, Mirror, named);
-            if (set is not { } fresh) return made;
-            if (_sets.Count >= MaxSets) _sets.Clear();
-            _sets[fresh] = made;
-            return made;
-        }
-    }
-
-    // Four fields were too few for the chunk shaders: every draw built a dictionary and descriptors (~2 MB/s while
-    // flying)
-    public readonly struct TextureSet : IEquatable<TextureSet>
-    {
-        public const int Max = 8;
-        private readonly int _count;
-        private readonly Textures _items;
-
-        private TextureSet(ReadOnlySpan<TerrainDraw.Texture> textures)
-        {
-            var items = new Textures();
-            for (var i = 0; i < Math.Min(textures.Length, Max); i++) items[i] = textures[i];
-            (_count, _items) = (textures.Length, items);
-        }
-
-        public static TextureSet From(ReadOnlySpan<TerrainDraw.Texture> textures) => new(textures);
-
-        public bool Equals(TextureSet other)
-        {
-            if (_count != other._count) return false;
-            for (var i = 0; i < Math.Min(_count, Max); i++)
-                if (_items[i] != other._items[i]) return false;
-            return true;
-        }
-
-        public override bool Equals(object? obj) => obj is TextureSet other && Equals(other);
-
-        public override int GetHashCode()
-        {
-            var hash = new HashCode();
-            hash.Add(_count);
-            for (var i = 0; i < Math.Min(_count, Max); i++) hash.Add(_items[i]);
-            return hash.ToHashCode();
-        }
-
-        public static bool operator ==(TextureSet left, TextureSet right) => left.Equals(right);
-
-        public static bool operator !=(TextureSet left, TextureSet right) => !left.Equals(right);
-
-        [System.Runtime.CompilerServices.InlineArray(Max)]
-        private struct Textures
-        {
-            private TerrainDraw.Texture _first;
-        }
-    }
 
     private TerrainRenderer(VulkanDevice device, (HostBuffer Quads, VulkanFrame Frame) made, ILogger? logger)
     {
@@ -126,9 +45,9 @@ internal sealed partial class TerrainRenderer : IDisposable
     }
 
     public VulkanDevice Device { get; }
-    public HostBuffer Quads { get; private set; }
+    private HostBuffer Quads { get; set; }
     public VulkanFrame Frame { get; }
-    public TerrainDraw Recorder { get; private set; }
+    private TerrainDraw Recorder { get; set; }
     public TerrainPools Pools { get; }
     public TerrainTargets Targets { get; }
     public Samplers Sampling { get; }
@@ -145,14 +64,51 @@ internal sealed partial class TerrainRenderer : IDisposable
 
     public long Draws { get; private set; }
 
+    public void Dispose()
+    {
+        if (GlTap.Deleting == Deleted) GlTap.Deleting = null;
+
+        if (GlTap.FramebufferGone == Unattached) GlTap.FramebufferGone = null;
+
+        (GlTap.Mapping, GlTap.FramebufferChanged, GlTap.Unmapping) = (null, null, null);
+        Unwindowed(); // the real window again before anything else goes
+        Frame.Close("Vulkan let go");
+        using var quiet = GlTap.Quietly(); // handing the pools and framebuffers back is Komet's own OpenGL work
+        _ = Device.WaitIdle();
+        _compute?.Dispose(); // what the passes still hold goes with it; their handles name nothing any more
+        _compute = null;
+        foreach (var program in _programs.Keys.ToArray().Bounded(MaxPrograms))
+        {
+            GlTap.Unwatch(program);
+        }
+
+        _programs.Clear();
+        Frame.Dispose();
+        Targets.Dispose();
+        Pools.Dispose();
+        Maps.Dispose(); // after the pools: what OpenGL draws from again, the engine's pointers pointed back
+        Images.Dispose();
+        CollectSnapshots(true);
+        _poolStaging?.Dispose();
+        Sampling.Dispose();
+        _blank?.Dispose();
+        _pipelines.Dispose();
+        Quads.Dispose();
+    }
+
     // Map tile framebuffers are made and deleted per tile; a reused name must not keep the old tile's state
     private void Unattached(uint framebuffer)
     {
         var fbo = (int)framebuffer;
         if (!_attached.Remove(fbo)) return;
+
         var targeted = _lastTarget.Fbo == fbo;
         using var targets = _targets.Keys.GetEnumerator();
-        for (var i = 0; i < MaxTargets && !targeted && targets.MoveNext(); i++) targeted = targets.Current.Fbo == fbo;
+        for (var i = 0; i < MaxTargets && !targeted && targets.MoveNext(); i++)
+        {
+            targeted = targets.Current.Fbo == fbo;
+        }
+
         if (targeted) ForgetTargets();
     }
 
@@ -160,6 +116,7 @@ internal sealed partial class TerrainRenderer : IDisposable
     private List<VulkanFrame.Shared> Handed()
     {
         if (Targets.Version == _handedAt && _handed is { } known) return known;
+
         _handed = [.. Targets.Resting];
         _handedAt = Targets.Version;
         return _handed;
@@ -182,6 +139,7 @@ internal sealed partial class TerrainRenderer : IDisposable
     {
         why = "";
         if (!NotNull(device) || !Assert(quads > 0)) return null;
+
         var pattern = TerrainDraw.Quads(device, quads);
         if (pattern is null)
         {
@@ -190,9 +148,9 @@ internal sealed partial class TerrainRenderer : IDisposable
         }
 
         VulkanFrame? frame = null;
-        var kept = Owned.Kept(pattern, device, (_, device) =>
+        var kept = Owned.Kept(pattern, device, (_, made) =>
         {
-            frame = VulkanFrame.Create(device, out var refused);
+            frame = VulkanFrame.Create(made, out var refused);
             return frame is null ? $"no frame: {refused}" : null;
         }, out why);
         return kept is null || frame is null ? null : new TerrainRenderer(device, (kept, frame), logger);
@@ -204,17 +162,16 @@ internal sealed partial class TerrainRenderer : IDisposable
     {
         Forget(program);
         if (_programs.Count >= MaxPrograms) return null;
-        var made = new Program(name, program, ported);
-        made.Mirror.Measuring = measuring;
+
+        var made = new Program(name, program, ported) { Mirror = { Measuring = measuring } };
         made.Mirror.Lay(ported.VertexUniforms, ported.FragmentUniforms, ported.HotUniforms,
-            ported.Samplers.Select(s => s.Name));
+            [.. ported.Samplers.Select(s => s.Name)]);
         _programs[program] = made;
         GlTap.Watch(program, ported, made.Mirror);
         return made;
     }
 
-    public bool Ours(int fbo) =>
-        fbo > 0 && Targets.Of(fbo) is { } framebuffer && Targets.Swapped(framebuffer);
+    private bool Ours(int fbo) => fbo > 0 && Targets.Of(fbo) is { } framebuffer && Targets.Swapped(framebuffer);
 
     // Engine framebuffers on Vulkan's images, plus (while the scene hears every OpenGL call) unlisted ones such as
     // Komet's distant shadow map via their textures' images; never an engine framebuffer left out
@@ -226,26 +183,32 @@ internal sealed partial class TerrainRenderer : IDisposable
     public void Forget(int program)
     {
         if (!Assert(program >= 0) || !_programs.Remove(program)) return;
+
         GlTap.Unwatch(program);
         _context = null;
-        _pipelines.Forget(key => key.Program == program); // once no frame in flight uses them: no handoff, no wait
+        _pipelines.Forget(key => key.ProgramId == program); // once no frame in flight uses them: no handoff, no wait
     }
 
     // Unheard, the engine may have deleted a texture and reused its name
     public void Rewatch()
     {
         foreach (var image in Targets.Images.ToArray().Bounded(MaxShared * 4))
-            if (Stale(image.Texture, image))
-                Unshared(image.Texture);
+        {
+            if (Stale(image.Texture, image)) Unshared(image.Texture);
+        }
+
         ForgetTargets();
         foreach (var program in _programs.Values.ToArray().Bounded(MaxPrograms))
+        {
             GlTap.Watch(program.Id, program.Ported, program.Mirror);
+        }
     }
 
     public bool Start(IReadOnlyList<FrameBufferRef> framebuffers, ReadOnlySpan<int> shared, out string why)
     {
         why = "";
         if (!NotNull(framebuffers)) return false;
+
         Images.Started(); // a world's uploads before its first frame
         Frame.Fresh();
         CollectSnapshots(false);
@@ -259,12 +222,18 @@ internal sealed partial class TerrainRenderer : IDisposable
             // Size from its textures (the engine leaves Width/Height 0 in some, e.g. BlurVerticalLowRes)
             if (at >= framebuffers.Count || framebuffers[at] is not { FboId: > 0 } framebuffer ||
                 Targets.Swapped(framebuffer) || (framebuffer.ColorTextureIds is not { Length: > 0 } &&
-                                                 framebuffer.DepthTextureId <= 0)) continue;
+                                                 framebuffer.DepthTextureId <= 0))
+            {
+                continue;
+            }
+
             var version = Targets.Version;
             var swapped = Targets.Swap(framebuffer, out var refused);
             // a refusal is retried every frame and mostly changes nothing: the targets and their attachment queries stay
             if (swapped || Targets.Version != version) ForgetTargets();
+
             if (swapped) continue;
+
             if (i == 0)
             {
                 why = refused;
@@ -272,11 +241,17 @@ internal sealed partial class TerrainRenderer : IDisposable
             }
 
             if (_refusedSwaps.Add(framebuffer.FboId))
-                _logger?.Notification("Komet: Vulkan leaves framebuffer {0} to OpenGL: {1}", framebuffer.FboId, refused);
+            {
+                _logger?.Notification("Komet: Vulkan leaves framebuffer {0} to OpenGL: {1}", framebuffer.FboId,
+                    refused);
+            }
         }
 
         if (Targets.Replaced.Count > 0)
+        {
             _logger?.Notification("Komet: Vulkan stands for {0}", string.Join("; ", Targets.Replaced));
+        }
+
         Targets.Replaced.Clear();
         return Assert(Frame.Number > 0);
     }
@@ -285,10 +260,12 @@ internal sealed partial class TerrainRenderer : IDisposable
     public void Prepare(List<(VAO Vao, bool Classic)> pools)
     {
         if (!NotNull(pools)) return;
+
         using var quiet = GlTap.Quietly();
         var start = Stopwatch.GetTimestamp();
         if (Pools.Adopt(pools, out var why) > 0) ChunkBudget.Spent(Stopwatch.GetTimestamp() - start);
-        Vintagestory.Client.ScreenManager.FrameProfiler?.Mark(AdoptMark);
+
+        ScreenManager.FrameProfiler?.Mark(AdoptMark);
         if (why.Length > 0) _ = Leave(why);
     }
 
@@ -296,13 +273,15 @@ internal sealed partial class TerrainRenderer : IDisposable
     public bool Born(VAO vao, bool classic)
     {
         if (!NotNull(vao) || !Assert(vao.VaoId > 0)) return false;
+
         using var quiet = GlTap.Quietly();
-        return Pools.Adopt(vao, classic, out _, fresh: true) is not null;
+        return Pools.Adopt(vao, classic, out _, true) is not null;
     }
 
     private static bool Stale(int texture, SharedImage image)
     {
         if (!GlTexture.Exists(texture)) return true;
+
         var now = GlTexture.Of(texture);
         return now.Width != image.Width || now.Height != image.Height;
     }
@@ -310,6 +289,7 @@ internal sealed partial class TerrainRenderer : IDisposable
     private void Unshared(int texture)
     {
         if (Targets.Find(texture) is null) return;
+
         Frame.Close("a shared texture deleted");
         ForgetTargets();
         _ = Device.WaitIdle(); // a frame in flight may still use it
@@ -320,6 +300,7 @@ internal sealed partial class TerrainRenderer : IDisposable
     public void Release(VAO vao)
     {
         if (!NotNull(vao) || Pools.Find(vao) is not { } pool) return;
+
         _ = _poolCopies.RemoveAll(c => ReferenceEquals(c.To, pool.Faces) || ReferenceEquals(c.To, pool.Indices) ||
                                        Array.IndexOf(pool.Vertices, c.To) >= 0); // nothing more is copied into them
         _context = null;
@@ -330,6 +311,7 @@ internal sealed partial class TerrainRenderer : IDisposable
     public void Release(FrameBufferRef framebuffer)
     {
         if (!NotNull(framebuffer)) return;
+
         Frame.Close("a framebuffer disposed");
         ForgetTargets();
         using var quiet = GlTap.Quietly();
@@ -341,7 +323,7 @@ internal sealed partial class TerrainRenderer : IDisposable
         _targets.Clear();
         _attached.Clear();
         _formats.Clear();
-        (_context, _lastTarget) = (null, default);
+        (_context, _lastTarget) = (null, (0, 0L, false, null));
     }
 
     // Vulkan mappings of deleted buffers go once the frame being drawn is done
@@ -361,7 +343,9 @@ internal sealed partial class TerrainRenderer : IDisposable
     public void Requads(int quads)
     {
         if (!Assert(quads > 0) || (ulong)quads * 24 <= Quads.Size || quads > 1 << 26) return;
+
         if (TerrainDraw.Quads(Device, quads) is not { } grown) return;
+
         Frame.Close("the quad pattern grows");
         _ = Device.WaitIdle();
         var old = Quads;
@@ -369,30 +353,105 @@ internal sealed partial class TerrainRenderer : IDisposable
         old.Dispose();
     }
 
-    public void Dispose()
+    private readonly record struct PipelineKey(int ProgramId, string Layout, string Formats, GlTap.Fixed State);
+
+    public sealed class Program(string name, int id, GlslPort.Ported ported)
     {
-        if (GlTap.Deleting == Deleted) GlTap.Deleting = null;
-        if (GlTap.FramebufferGone == Unattached) GlTap.FramebufferGone = null;
-        (GlTap.Mapping, GlTap.FramebufferChanged, GlTap.Unmapping) = (null, null, null);
-        Unwindowed(); // the real window again before anything else goes
-        Frame.Close("Vulkan let go");
-        using var quiet = GlTap.Quietly(); // handing the pools and framebuffers back is Komet's own OpenGL work
-        _ = Device.WaitIdle();
-        _compute?.Dispose(); // what the passes still hold goes with it; their handles name nothing any more
-        _compute = null;
-        foreach (var program in _programs.Keys.ToArray().Bounded(MaxPrograms)) GlTap.Unwatch(program);
-        _programs.Clear();
-        Frame.Dispose();
-        Targets.Dispose();
-        Pools.Dispose();
-        Maps.Dispose(); // after the pools: what OpenGL draws from again, the engine's pointers pointed back
-        Images.Dispose();
-        CollectSnapshots(true);
-        _poolStaging?.Dispose();
-        Sampling.Dispose();
-        _blank?.Dispose();
-        _pipelines.Dispose();
-        Quads.Dispose();
+        private readonly Dictionary<TextureSet, TerrainDraw.Program> _sets = [];
+        private UniformMirror.Entry?[]? _units;
+        public string Name { get; } = name;
+        public int Id { get; } = id;
+        public GlslPort.Ported Ported { get; } = ported;
+        public UniformMirror Mirror { get; } = new();
+
+        // ShaderCache key of its pipelines (PipelineRecipes), "" for none
+        public string Sources { get; set; } = "";
+
+        // The texture unit of the program's sampler at, without a name lookup: Lay made the entries, the mirror never replaces one
+        public int Unit(int at)
+        {
+            _units ??= [.. Ported.Samplers.Select(s => Mirror.EntryOf(s.Name))];
+            return Index(at, _units.Length) && _units[at] is { Held.Length: > 0 } entry ? (int)entry.Held[0] : 0;
+        }
+
+        // Cached per texture set: textures are re-resolved on any OpenGL state change, nearly every pool draw
+        public TerrainDraw.Program Recorded(ReadOnlySpan<TerrainDraw.Texture> textures)
+        {
+            var set = textures.Length <= TextureSet.Max ? TextureSet.From(textures) : (TextureSet?)null;
+            if (set is { } known && _sets.TryGetValue(known, out var seen)) return seen;
+
+            var named = new Dictionary<string, TerrainDraw.Texture>(StringComparer.Ordinal);
+            for (var i = 0; i < Math.Min(textures.Length, MaxSamplers); i++)
+            {
+                named[Ported.Samplers[i].Name] = textures[i];
+            }
+
+            var made = new TerrainDraw.Program(Ported, Mirror, named);
+            if (set is not { } fresh) return made;
+
+            if (_sets.Count >= MaxSets) _sets.Clear();
+
+            _sets[fresh] = made;
+            return made;
+        }
+    }
+
+    // Four fields were too few for the chunk shaders: every draw built a dictionary and descriptors (~2 MB/s while
+    // flying)
+    public readonly struct TextureSet : IEquatable<TextureSet>
+    {
+        public const int Max = 8;
+        private readonly int _count;
+        private readonly Textures _items;
+
+        private TextureSet(ReadOnlySpan<TerrainDraw.Texture> textures)
+        {
+            var items = new Textures();
+            for (var i = 0; i < Math.Min(textures.Length, Max); i++)
+            {
+                items[i] = textures[i];
+            }
+
+            (_count, _items) = (textures.Length, items);
+        }
+
+        public static TextureSet From(ReadOnlySpan<TerrainDraw.Texture> textures) => new(textures);
+
+        public bool Equals(TextureSet other)
+        {
+            if (_count != other._count) return false;
+
+            for (var i = 0; i < Math.Min(_count, Max); i++)
+            {
+                if (_items[i] != other._items[i]) return false;
+            }
+
+            return true;
+        }
+
+        public override bool Equals(object? obj) => obj is TextureSet other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            var hash = new HashCode();
+            hash.Add(_count);
+            for (var i = 0; i < Math.Min(_count, Max); i++)
+            {
+                hash.Add(_items[i]);
+            }
+
+            return hash.ToHashCode();
+        }
+
+        public static bool operator ==(TextureSet left, TextureSet right) => left.Equals(right);
+
+        public static bool operator !=(TextureSet left, TextureSet right) => !left.Equals(right);
+
+        [InlineArray(Max)]
+        private struct Textures
+        {
+            private TerrainDraw.Texture _first;
+        }
     }
 }
 
@@ -417,6 +476,7 @@ internal sealed partial class TerrainRenderer
     public void Miss(string what)
     {
         if (!NotNull(what) || what.Length == 0) return;
+
         Missed++;
         ref var count = ref CollectionsMarshal.GetValueRefOrNullRef(_missing, what);
         if (!Unsafe.IsNullRef(ref count))
@@ -435,18 +495,21 @@ internal sealed partial class TerrainRenderer
     public static string Reason(string format, string a)
     {
         if (Cached((format, a, "", ""), out var made)) return made;
+
         return Kept((format, a, "", ""), string.Format(CultureInfo.InvariantCulture, format, a));
     }
 
     public static string Reason(string format, string a, string b)
     {
         if (Cached((format, a, b, ""), out var made)) return made;
+
         return Kept((format, a, b, ""), string.Format(CultureInfo.InvariantCulture, format, a, b));
     }
 
     public static string Reason(string format, string a, string b, string c)
     {
         if (Cached((format, a, b, c), out var made)) return made;
+
         return Kept((format, a, b, c), string.Format(CultureInfo.InvariantCulture, format, a, b, c));
     }
 
@@ -455,12 +518,14 @@ internal sealed partial class TerrainRenderer
     {
         made = "";
         if (!NotNull(key.Item1) || !NotNull(key.Item2) || !NotNull(key.Item3) || !NotNull(key.Item4)) return true;
+
         return Reasons.TryGetValue(key, out made!);
     }
 
     private static string Kept((string, string, string, string) key, string made)
     {
         if (Reasons.Count < MaxReasons) Reasons[key] = made;
+
         return made;
     }
 
@@ -472,6 +537,7 @@ internal sealed partial class TerrainRenderer
     public string[] MissedTop(int most)
     {
         if (_missing.Count == 0 || !Assert(most > 0)) return [];
+
         return [.. _missing.OrderByDescending(static m => m.Value).Take(most).Select(static m => $"{m.Key} {m.Value}")];
     }
 }
@@ -498,18 +564,28 @@ internal sealed unsafe partial class TerrainRenderer
     {
         var images = Images;
         if (Frame.Fault.Length > 0) return null;
+
         if (Frame.Open) Frame.Close("the lean textures and buffers given back to OpenGL");
+
         Ending(); // what waits for a segment (uploads, pool writes, mirror writes) lands before anything is read
         mirrors?.Ending();
         if (!Device.WaitIdle() || Frame.Fault.Length > 0) return null;
+
         var (whole, blank, buffers, bytes) = (0, 0, 0, 0L);
         using var quiet = GlTap.Quietly(); // Komet's own OpenGL work: not lean, not heard as the engine's
         foreach (var texture in GlTap.LeanTextureNames().Bounded(MaxLeanObjects))
         {
             // target images rest per RestingOf, textures sampled
             var image = Targets.Find((int)texture) ?? images.Held((int)texture);
-            if (images.Restored((int)texture, image, Targets.RestingOf((int)texture))) whole++;
-            else blank++;
+            if (images.Restored((int)texture, image, Targets.RestingOf((int)texture)))
+            {
+                whole++;
+            }
+            else
+            {
+                blank++;
+            }
+
             _ = _restored.Add((int)texture);
         }
 
@@ -528,12 +604,17 @@ internal sealed unsafe partial class TerrainRenderer
     private long Restored(uint buffer, (long Size, uint Usage) spec, (ulong Buffer, ulong Offset, long Size)? from)
     {
         if (!Assert(buffer > 0) || !Assert(spec.Size > 0)) return 0;
+
         var copied = from is { } f ? Math.Min(f.Size, spec.Size) : 0;
-        using var host = copied > 0 && spec.Size <= int.MaxValue ? HostBuffer.Create(Device, (ulong)spec.Size, bulk: true) : null;
-        var read = host is not null && host.Take((int)spec.Size, out _, 16) == 0 && Read(from!.Value, host.Buffer, copied);
+        using var host = copied > 0 && spec.Size <= int.MaxValue
+            ? HostBuffer.Create(Device, (ulong)spec.Size, true)
+            : null;
+        var read = host is not null && host.Take((int)spec.Size, out _, 16) == 0 &&
+                   Read(from!.Value, host.Buffer, copied);
         if (read && copied < spec.Size) new Span<byte>(host!.Pointer(copied), (int)(spec.Size - copied)).Clear();
-        OpenTK.Graphics.OpenGL.GL.NamedBufferData((int)buffer, (int)Math.Min(spec.Size, int.MaxValue),
-            read ? (IntPtr)host!.Pointer(0) : IntPtr.Zero, (OpenTK.Graphics.OpenGL.BufferUsageHint)spec.Usage);
+
+        GL.NamedBufferData((int)buffer, (int)Math.Min(spec.Size, int.MaxValue),
+            read ? (IntPtr)host!.Pointer(0) : IntPtr.Zero, (BufferUsageHint)spec.Usage);
         if (!read) copied = 0;
 
         GlTap.Restored(buffer, false);
@@ -543,6 +624,7 @@ internal sealed unsafe partial class TerrainRenderer
     private bool Read((ulong Buffer, ulong Offset, long Size) from, ulong into, long size)
     {
         if (!Assert(from.Buffer != 0) || !Assert(size > 0)) return false;
+
         return Device.Run(commands =>
         {
             var region = new Vk.BufferCopy { SourceOffset = from.Offset, Size = (ulong)size };

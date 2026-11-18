@@ -10,6 +10,7 @@
     <Project Path="Komet.Vulkan/Komet.Vulkan.csproj"/>
     <Project Path="Komet.Ui/Komet.Ui.csproj"/>
     <Project Path="Komet.Bench/Komet.Bench.csproj"/>
+    <Project Path="Komet.Sdk/Komet.Sdk.csproj"/>
     <Folder Name="/tests/">
         <Project Path="tests/Komet.Portable/Komet.Portable.csproj"/>
         <Project Path="tests/Komet.Test/Komet.Test.csproj"/>

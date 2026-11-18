@@ -31,6 +31,7 @@ internal static class VulkanRecord
         var name = renderer ?? "";
         var details = name.IndexOf('(', StringComparison.Ordinal);
         if (details > 0) name = name[..details];
+
         var key = $"{vendor?.Trim()} {name.Trim()}".Trim().Replace('\t', ' ').Replace('\n', ' ');
         return key.Length > MaxKey ? key[..MaxKey] : key;
     }
@@ -38,8 +39,10 @@ internal static class VulkanRecord
     public static Run Read(string? vendor, string? renderer)
     {
         Gpu = Key(vendor, renderer);
-        return Gpu.Length > 0 && Lines().TryGetValue(Gpu, out var run) ? run : Run.Unknown;
+        return Current();
     }
+
+    internal static Run Current() => Gpu.Length > 0 && Lines().TryGetValue(Gpu, out var run) ? run : Run.Unknown;
 
     // A world's first Vulkan-only frame; a failure stays
     public static void Began() => Mark(Run.Pending);
@@ -51,10 +54,12 @@ internal static class VulkanRecord
     private static void Mark(Run run)
     {
         if (Gpu.Length == 0 || File() is not { } file) return;
+
         lock (Gate)
         {
             var lines = Lines();
             if (lines.TryGetValue(Gpu, out var was) && (was == run || was == Run.Failed)) return;
+
             lines[Gpu] = run;
             try
             {
@@ -73,9 +78,14 @@ internal static class VulkanRecord
         try
         {
             if (File() is not { } file || !System.IO.File.Exists(file)) return lines;
+
             foreach (var line in System.IO.File.ReadLines(file).Bounded(MaxLines))
+            {
                 if (line.Split('\t') is [var key, var value] && Enum.TryParse<Run>(value, out var run))
+                {
                     lines[key] = run;
+                }
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

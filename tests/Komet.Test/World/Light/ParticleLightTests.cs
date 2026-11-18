@@ -46,7 +46,8 @@ public sealed class ParticleLightTests
             Assert.That(Monitor.IsEntered(chunk.Gate), Is.False, "released by the finalizer");
             Assert.That(OtherThreadCanEnter(chunk.Gate), Is.True);
             Assert.That(ParticleLight.Reads - _reads, Is.EqualTo(1));
-            Assert.That(ParticleLight.Held(5, 6, 7, out var held) && held == Light, Is.True, "the block answers without the lock");
+            Assert.That(ParticleLight.Held(5, 6, 7, out var held) && held == Light, Is.True,
+                "the block answers without the lock");
             Assert.That(ParticleLight.Held(5, 6, 8, out _), Is.False, "another block reads again");
         });
         ParticleLight.Forget();
@@ -85,12 +86,12 @@ public sealed class ParticleLightTests
         }
 
         result = 0;
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.False, "still backing off");
             Assert.That((result, state), Is.EqualTo((Light, (WorldChunk?)null)));
             Assert.That(ParticleLight.Busy - _busy, Is.EqualTo(2));
-        });
+        }
         _ = SpinWait.SpinUntil(() => false, ParticleLight.BackoffMs + 30); // let the backoff run out
         Assert.That(ParticleLight.Enter(chunk, ref result, out var taken), Is.True, "tried again after the backoff");
         _ = ParticleLight.Finalizer(null, taken, Light, 0, 0, 0);
@@ -182,15 +183,17 @@ public sealed class ParticleLightTests
         _ = ParticleLight.Finalizer(null, state, light, 0, 0, 0);
     }
 
-    private static bool OtherThreadCanEnter(object gate) => Task.Run(() =>
-    {
-        if (!Monitor.TryEnter(gate)) return false;
-        Monitor.Exit(gate);
-        return true;
-    }).Result;
+    private static bool OtherThreadCanEnter(object gate) =>
+        Task.Run(() =>
+        {
+            if (!Monitor.TryEnter(gate)) return false;
+
+            Monitor.Exit(gate);
+            return true;
+        }).Result;
 
     // The chunk's lock held by another thread until disposed, the way the visibility calculation or the compressor holds it
-    private static Holder HoldElsewhere(TestChunk chunk) => new Holder(chunk.Gate);
+    private static Holder HoldElsewhere(TestChunk chunk) => new(chunk.Gate);
 
     private sealed class Holder : IDisposable
     {

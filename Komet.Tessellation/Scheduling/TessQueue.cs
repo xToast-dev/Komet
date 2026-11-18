@@ -30,10 +30,10 @@ internal sealed class TessQueue
     // Blocked: pending while in flight, pushed again by Done
     private readonly HashSet<long> _inFlight = [], _blocked = [];
 
-    private readonly Dictionary<long, Entry> _pending = [];
-
     // Rebuild's nodes, kept for the next one
     private readonly List<((long Index, long Version) Node, long Priority)> _nodes = [];
+
+    private readonly Dictionary<long, Entry> _pending = [];
     private int _count;
     private List<long> _deferred = [], _returning = [];
     private long _seq, _version, _mulX = 1, _mulZ = 1;
@@ -45,7 +45,11 @@ internal sealed class TessQueue
     public void Map(long mulX, long mulZ)
     {
         if (!Assert(mulX > 0) || !Assert(mulZ > 0)) return;
-        lock (_gate) (_mulX, _mulZ) = (mulX, mulZ);
+
+        lock (_gate)
+        {
+            (_mulX, _mulZ) = (mulX, mulZ);
+        }
     }
 
     public void AddRange(ReadOnlySpan<long> raws)
@@ -53,7 +57,11 @@ internal sealed class TessQueue
         _ = Assert(raws.Length <= MaxPending);
         lock (_gate)
         {
-            for (var i = 0; i < Math.Min(raws.Length, MaxPending); i++) Add(raws[i]);
+            for (var i = 0; i < Math.Min(raws.Length, MaxPending); i++)
+            {
+                Add(raws[i]);
+            }
+
             Publish();
         }
     }
@@ -68,7 +76,10 @@ internal sealed class TessQueue
             for (var i = 0; i < Math.Min(nodes, MaxPending + MaxStale) && _heap.TryDequeue(out var node, out _); i++)
             {
                 if (!_pending.TryGetValue(node.Index, out var entry) || entry.Version != node.Version)
+                {
                     continue; // superseded
+                }
+
                 if (_inFlight.Contains(node.Index))
                 {
                     _ = _blocked.Add(node.Index);
@@ -90,6 +101,7 @@ internal sealed class TessQueue
     public bool TryBegin(long index)
     {
         if (!Assert(index >= 0)) return false;
+
         lock (_gate)
         {
             var begun = _inFlight.Add(index);
@@ -100,7 +112,10 @@ internal sealed class TessQueue
     // A taken or begun chunk's pass ended; a mark that arrived meanwhile becomes takeable (no-op after a Clear)
     public void Done(long index)
     {
-        lock (_gate) _ = Release(index);
+        lock (_gate)
+        {
+            _ = Release(index);
+        }
     }
 
     // A worker's retry: done, then the tessellation thread's (RetryTesselationException fixes queue only from there)
@@ -108,8 +123,13 @@ internal sealed class TessQueue
     {
         lock (_gate)
         {
-            if (!Release(raw & long.MaxValue)) return; // another world since
+            if (!Release(raw & long.MaxValue))
+            {
+                return; // another world since
+            }
+
             if (Assert(_home.Count < MaxPending)) _home.Add(raw);
+
             Publish();
         }
     }
@@ -123,6 +143,7 @@ internal sealed class TessQueue
             for (var i = 0; i < Math.Min(_home.Count, MaxPending); i++)
             {
                 if (!_inFlight.Add(_home[i] & long.MaxValue)) continue;
+
                 raw = _home[i];
                 _home.RemoveAt(i);
                 Publish();
@@ -139,6 +160,7 @@ internal sealed class TessQueue
         lock (_gate)
         {
             if (Assert(_deferred.Count < MaxPending)) _deferred.Add(raw);
+
             Publish();
         }
     }
@@ -148,7 +170,11 @@ internal sealed class TessQueue
         lock (_gate)
         {
             (_deferred, _returning) = (_returning, _deferred);
-            foreach (var raw in _returning.Bounded(MaxPending)) Add(raw);
+            foreach (var raw in _returning.Bounded(MaxPending))
+            {
+                Add(raw);
+            }
+
             _returning.Clear();
             Publish();
         }
@@ -157,6 +183,7 @@ internal sealed class TessQueue
     public void Aim(TessView view)
     {
         if (!Finite(view.Fx) || !Finite(view.Fz)) return;
+
         lock (_gate)
         {
             _view = view;
@@ -168,13 +195,25 @@ internal sealed class TessQueue
     public void Drain(UniqueQueue<long> into)
     {
         if (!NotNull(into)) return;
+
         lock (_gate)
         {
             using var entries = _pending.GetEnumerator();
             for (var i = 0; i < MaxPending && entries.MoveNext(); i++)
+            {
                 into.Enqueue(Raw(entries.Current.Key, entries.Current.Value));
-            foreach (var raw in _deferred.Bounded(MaxPending)) into.Enqueue(raw);
-            foreach (var raw in _home.Bounded(MaxPending)) into.Enqueue(raw);
+            }
+
+            foreach (var raw in _deferred.Bounded(MaxPending))
+            {
+                into.Enqueue(raw);
+            }
+
+            foreach (var raw in _home.Bounded(MaxPending))
+            {
+                into.Enqueue(raw);
+            }
+
             Empty(false);
         }
     }
@@ -182,6 +221,7 @@ internal sealed class TessQueue
     public int Near(TessView view, int radius)
     {
         if (!Assert(radius >= 0)) return 0;
+
         var n = 0;
         lock (_gate)
         {
@@ -201,12 +241,16 @@ internal sealed class TessQueue
 
     public void Clear()
     {
-        lock (_gate) Empty(true);
+        lock (_gate)
+        {
+            Empty(true);
+        }
     }
 
     public static bool Within(long index, TessView view, int radius, long mulX, long mulZ)
     {
         if (!Assert(index >= 0) || !Assert(mulX > 0 && mulZ > 0)) return false;
+
         int x = (int)(index % mulX), z = (int)(index / mulX % mulZ);
         return Math.Abs(x - view.X) <= radius && Math.Abs(z - view.Z) <= radius;
     }
@@ -215,8 +259,10 @@ internal sealed class TessQueue
     public static long Score(int dx, int dy, int dz, double fx, double fz)
     {
         if (!Finite(fx) || !Finite(fz)) return long.MaxValue >> SeqBits;
+
         var d2 = (long)dx * dx + (long)dy * dy + (long)dz * dz;
         if (!Assert(d2 >= 0) || d2 <= NearChunks * NearChunks) return d2;
+
         var h = Math.Sqrt((double)dx * dx + (double)dz * dz);
         var cos = h > 0 ? Math.Clamp((dx * fx + dz * fz) / h, -1, 1) : 1;
         return (long)(d2 * (2 - cos));
@@ -226,6 +272,7 @@ internal sealed class TessQueue
     public static (double Fx, double Fz) Facing(double yaw)
     {
         if (!Finite(yaw)) return (1, 0);
+
         return (Math.Cos(yaw), -Math.Sin(yaw));
     }
 
@@ -234,12 +281,23 @@ internal sealed class TessQueue
     {
         var (index, full) = (raw & long.MaxValue, raw >= 0);
         if (!Assert(_pending.Count < MaxPending)) return;
+
         var known = _pending.TryGetValue(index, out var entry);
-        if (known && (!full || entry.Full)) return; // the waiting pass covers it
+        if (known && (!full || entry.Full))
+        {
+            return; // the waiting pass covers it
+        }
+
         entry = known ? entry with { Full = true, Version = ++_version } : new Entry(full, ++_version, NextSeq());
         _pending[index] = entry;
-        if (_inFlight.Contains(index)) _ = _blocked.Add(index); // takeable once the pass running on it is done
-        else Push(index, entry.Version, entry.Seq);
+        if (_inFlight.Contains(index))
+        {
+            _ = _blocked.Add(index); // takeable once the pass running on it is done
+        }
+        else
+        {
+            Push(index, entry.Version, entry.Seq);
+        }
     }
 
     // Priority keeps SeqBits of the arrival order: at the wrap (16.7M marks in a world) the pending are renumbered by
@@ -248,13 +306,20 @@ internal sealed class TessQueue
     {
         _seq++;
         if ((_seq & SeqMask) != 0) return _seq;
+
         var order = new List<(long Seq, long Index)>(_pending.Count); // once per wrap: not kept
         using var entries = _pending.GetEnumerator();
         for (var i = 0; i < MaxPending && entries.MoveNext(); i++)
+        {
             order.Add((entries.Current.Value.Seq, entries.Current.Key));
+        }
+
         order.Sort();
         for (var i = 0; i < Math.Min(order.Count, MaxPending); i++)
+        {
             _pending[order[i].Index] = _pending[order[i].Index] with { Seq = i + 1 };
+        }
+
         _seq = order.Count;
         Rebuild();
         return ++_seq;
@@ -264,7 +329,9 @@ internal sealed class TessQueue
     private bool Release(long index)
     {
         if (!Assert(index >= 0) || !_inFlight.Remove(index)) return false;
+
         if (_blocked.Remove(index) && _pending.TryGetValue(index, out var entry)) Push(index, entry.Version, entry.Seq);
+
         return true;
     }
 
@@ -276,14 +343,12 @@ internal sealed class TessQueue
         _blocked.Clear();
         _heap.Clear();
         if (flights) _inFlight.Clear();
+
         (_seq, _version) = (0, 0);
         Publish();
     }
 
-    private void Publish()
-    {
-        Volatile.Write(ref _count, _pending.Count + _deferred.Count + _home.Count);
-    }
+    private void Publish() => Volatile.Write(ref _count, _pending.Count + _deferred.Count + _home.Count);
 
     private static long Raw(long index, Entry entry) => entry.Full ? index : index | long.MinValue;
 
@@ -300,7 +365,10 @@ internal sealed class TessQueue
     private void Push(long index, long version, long seq)
     {
         _heap.Enqueue((index, version), Priority(index, seq));
-        if (_heap.Count > _pending.Count + MaxStale) Rebuild(); // superseded nodes piled up
+        if (_heap.Count > _pending.Count + MaxStale)
+        {
+            Rebuild(); // superseded nodes piled up
+        }
     }
 
     // The heap anew from the pending entries, built in one go (linear) instead of node by node
@@ -312,8 +380,14 @@ internal sealed class TessQueue
         for (var i = 0; i < MaxPending && entries.MoveNext(); i++)
         {
             var (index, entry) = (entries.Current.Key, entries.Current.Value);
-            if (_inFlight.Contains(index)) _ = _blocked.Add(index);
-            else _nodes.Add(((index, entry.Version), Priority(index, entry.Seq)));
+            if (_inFlight.Contains(index))
+            {
+                _ = _blocked.Add(index);
+            }
+            else
+            {
+                _nodes.Add(((index, entry.Version), Priority(index, entry.Seq)));
+            }
         }
 
         _heap.EnqueueRange(_nodes);

@@ -1,29 +1,22 @@
+using System.Diagnostics;
+using Komet.Core;
+
 namespace Komet.Vulkan;
 
 // Recorded on its own thread, like glthread for GL: it begins, records, ends and submits segment command buffers from
 // its own pool (one thread per pool) and makes queue operations in post order (Queue). The engine thread waits only
 // where a submission must exist (Reach): GL's segment wait, other threads' queue ops, arena reuse.
-internal sealed unsafe partial class VulkanFrame
+internal sealed partial class VulkanFrame
 {
-    public const int MaxOps = 1 << 15, MaxDescriptors = 1 << 18, MaxVertexBindings = 1 << 16, MaxPushWords = 1 << 19;
-    private const int SpinCycles = 200, MaxWaitMs = 5000, MaxSpare = 64;
-
-    private readonly Op[] _ops = new Op[MaxOps];
-    private readonly Descriptor[] _descriptors = new Descriptor[MaxDescriptors];
-    private readonly (uint Location, ulong Buffer, ulong Offset)[] _vertexBindings =
-        new (uint, ulong, ulong)[MaxVertexBindings];
-    private readonly uint[] _push = new uint[MaxPushWords];
-    private readonly ManualResetEventSlim _wake = new(false);
-    private Thread? _worker;
-    private long _posted, _recorded;
-    private int _descriptorsUsed, _vertexBindingsUsed, _pushUsed, _sleeping, _stop;
-    private IntPtr _recording;
-    private ulong _workerPool;
-
-    // Spare recorded objects: the recording thread gives back, the frame's thread takes
-    private readonly Core.BoundedPool<Rendering> _spareRenderings = new(MaxSpare);
-    private readonly Core.BoundedPool<Moves> _spareMoves = new(MaxSpare);
-    private readonly Core.BoundedPool<Clearing> _spareClearings = new(MaxSpare);
+    public enum DrawKind : byte
+    {
+        Direct,
+        Indexed,
+        IndexedIndirect,
+        IndexedIndirectCount, // Count the most, the count read at CountBuffer + CountOffset
+        Indirect, // Vulkan-only's, from mods: glDrawArraysIndirect's commands, Count of them First bytes apart
+        IndirectCount
+    }
 
     public enum OpKind : byte
     {
@@ -45,6 +38,7 @@ internal sealed unsafe partial class VulkanFrame
         RawCopy, // CopyRaw's: level 0 of the image in Pipeline into the one in Layout, aspect Count, First x Instances big
         Present, // Show's blit: the image in Pipeline (First x Instances) into the window's in Layout (Count x BaseInstance)
         Submit, // Close's: the segment in Ref ended and submitted, signalling the semaphore in Indirect (0 none); Count 1 if
+
         // its setup buffer was ended
         After, // Close's after (Ref an Action), run once the submission before it was made
         Call,
@@ -52,87 +46,54 @@ internal sealed unsafe partial class VulkanFrame
         Queue // the frame's own: a queue operation (Ref an Action), made even after a fault
     }
 
-    public enum DrawKind : byte
-    {
-        Direct,
-        Indexed,
-        IndexedIndirect,
-        IndexedIndirectCount, // Count the most, the count read at CountBuffer + CountOffset
-        Indirect, // Vulkan-only's, from mods: glDrawArraysIndirect's commands, Count of them First bytes apart
-        IndirectCount
-    }
+    public const int MaxOps = 1 << 15, MaxDescriptors = 1 << 18, MaxVertexBindings = 1 << 16, MaxPushWords = 1 << 19;
+    private const int SpinCycles = 200, MaxWaitMs = 5000, MaxSpare = 64;
+    private readonly Descriptor[] _descriptors = new Descriptor[MaxDescriptors];
 
-    public struct Op
-    {
-        public OpKind Kind;
-        public DrawKind Draw;
-        public uint IndexType;
-        public ulong Pipeline, Layout, Index, IndexOffset, Indirect, IndirectOffset, CountBuffer, CountOffset;
-        public int Descriptors, DescriptorCount, Push, PushBytes, Vertices, VertexCount;
-        public uint Count, Instances, First, BaseInstance;
-        public int BaseVertex;
-        public float X, Y, Width, Height;
-        public object? Ref;
-    }
+    private readonly Op[] _ops = new Op[MaxOps];
+    private readonly uint[] _push = new uint[MaxPushWords];
+    private readonly BoundedPool<Clearing> _spareClearings = new(MaxSpare);
+    private readonly BoundedPool<Moves> _spareMoves = new(MaxSpare);
 
-    public struct Descriptor
-    {
-        public uint Binding, Type;
-        public Vk.BufferDescriptor Buffer;
-        public Vk.ImageDescriptor Image;
-    }
+    // Spare recorded objects: the recording thread gives back, the frame's thread takes
+    private readonly BoundedPool<Rendering> _spareRenderings = new(MaxSpare);
 
-    // Rendering and Moves go back to the frame once recorded (Spare): a segment switch would make two each otherwise
-    public sealed class Rendering
-    {
-        public readonly ulong[] Colors = new ulong[MaxColors];
-        public int Count;
-        public ulong Depth;
-        public int DepthLayout;
-        public uint Width, Height;
-        public bool Stencil; // the depth's view holds a stencil too: attached as the stencil as well
-        public uint Layers = 1; // a layered rendering's (every layer of an array attached at once)
-    }
+    private readonly (uint Location, ulong Buffer, ulong Offset)[] _vertexBindings =
+        new (uint, ulong, ulong)[MaxVertexBindings];
 
-    // Back to the frame once recorded too (a clear a pass, every frame)
-    public sealed class Clearing
-    {
-        public readonly Vk.ClearAttachment[] Attachments = new Vk.ClearAttachment[MaxColors + 1];
-        public int Count;
-        public Vk.Rect Rect;
-        public uint Layers = 1;
-    }
-
-    // Also orders all memory before it against all after
-    public sealed class Moves
-    {
-        public (ulong Image, uint Aspect, int Levels, int Layers, int From, int To)[] Images = [];
-        public int Count;
-
-        public Moves() { }
-
-        public Moves(params (ulong Image, uint Aspect, int Levels, int Layers, int From, int To)[] images)
-        {
-            (Images, Count) = (images, images.Length);
-        }
-    }
-
-    private static T Spared<T>(Core.BoundedPool<T> spare) where T : class, new() => spare.Take() ?? new T();
-
-    private void Spare(object? recorded)
-    {
-        if (recorded is Rendering rendering) _spareRenderings.Give(rendering);
-        else if (recorded is Moves moves) _spareMoves.Give(moves);
-        else if (recorded is Clearing clearing) _spareClearings.Give(clearing);
-    }
+    private readonly ManualResetEventSlim _wake = new(false);
+    private int _descriptorsUsed, _vertexBindingsUsed, _pushUsed, _sleeping, _stop;
+    private long _posted, _recorded;
+    private IntPtr _recording;
+    private Thread? _worker;
+    private ulong _workerPool;
 
     // Recording thread faults end its segment's work: nothing is recorded any more, the segments stay empty
     public string Fault { get; private set; } = "";
 
+    private static T Spared<T>(BoundedPool<T> spare) where T : class, new() => spare.Take() ?? new T();
+
+    private void Spare(object? recorded)
+    {
+        if (recorded is Rendering rendering)
+        {
+            _spareRenderings.Give(rendering);
+        }
+        else if (recorded is Moves moves)
+        {
+            _spareMoves.Give(moves);
+        }
+        else if (recorded is Clearing clearing)
+        {
+            _spareClearings.Give(clearing);
+        }
+    }
+
     private void StartWorker()
     {
         _workerPool = _device.CommandPool();
-        _worker = new Thread(Work) { IsBackground = true, Name = "komet-vulkan-record", Priority = ThreadPriority.AboveNormal };
+        _worker = new Thread(Work)
+            { IsBackground = true, Name = "komet-vulkan-record", Priority = ThreadPriority.AboveNormal };
         _worker.Start();
     }
 
@@ -142,7 +103,10 @@ internal sealed unsafe partial class VulkanFrame
     public (int Descriptors, int Vertices, int Push) Room(int descriptors, int vertices, int pushWords)
     {
         if (!Assert(descriptors is >= 0 and <= 64 && vertices is >= 0 and <= 16 && pushWords is >= 0 and <= 64))
+        {
             return (0, 0, 0);
+        }
+
         if (_descriptorsUsed + descriptors > MaxDescriptors || _vertexBindingsUsed + vertices > MaxVertexBindings ||
             _pushUsed + pushWords > MaxPushWords)
         {
@@ -157,10 +121,14 @@ internal sealed unsafe partial class VulkanFrame
     }
 
     public Span<Descriptor> Descriptors(int at, int count) =>
-        Assert(at >= 0) && Assert(count >= 0 && at + count <= MaxDescriptors) ? _descriptors.AsSpan(at, count) : [];
+        Assert(at >= 0) && Assert(count >= 0 && at + count <= MaxDescriptors)
+            ? _descriptors.AsSpan(at, count)
+            : [];
 
     public Span<(uint Location, ulong Buffer, ulong Offset)> VertexBindings(int at, int count) =>
-        Assert(at >= 0) && Assert(count >= 0 && at + count <= MaxVertexBindings) ? _vertexBindings.AsSpan(at, count) : [];
+        Assert(at >= 0) && Assert(count >= 0 && at + count <= MaxVertexBindings)
+            ? _vertexBindings.AsSpan(at, count)
+            : [];
 
     public Span<uint> PushWords(int at, int count) =>
         Assert(at >= 0) && Assert(count >= 0 && at + count <= MaxPushWords) ? _push.AsSpan(at, count) : [];
@@ -169,6 +137,7 @@ internal sealed unsafe partial class VulkanFrame
     public void Post(Op op)
     {
         if (!Assert(_open is not null) || !Assert(op.Kind <= OpKind.Call) || Fault.Length > 0) return;
+
         Counting(op.Kind);
         Enqueue(op);
     }
@@ -182,6 +151,7 @@ internal sealed unsafe partial class VulkanFrame
     public void PostClear(ReadOnlySpan<Vk.ClearAttachment> attachments, Vk.Rect rect, uint layers)
     {
         if (!Assert(attachments.Length is > 0 and <= MaxColors + 1)) return;
+
         var clearing = Spared(_spareClearings);
         attachments.CopyTo(clearing.Attachments);
         (clearing.Count, clearing.Rect, clearing.Layers) = (attachments.Length, rect, layers);
@@ -191,6 +161,7 @@ internal sealed unsafe partial class VulkanFrame
     private void Enqueue(Op op)
     {
         if (_posted - Volatile.Read(ref _recorded) >= MaxOps) Drain();
+
         _ops[_posted % MaxOps] = op;
         // Both store then load the other's value (Sleep): full fences, else both read stale and it sleeps until Reach
         _ = Interlocked.Exchange(ref _posted, _posted + 1);
@@ -203,13 +174,15 @@ internal sealed unsafe partial class VulkanFrame
     private void Reach(long count)
     {
         if (_worker is null || Volatile.Read(ref _recorded) >= count) return;
+
         _ = Assert(Thread.CurrentThread != _worker); // the thread would wait for itself
         _wake.Set();
         var (spin, start) = (new SpinWait(), Hitches.Now);
         for (var i = 0; i < int.MaxValue && Volatile.Read(ref _recorded) < count; i++)
         {
             spin.SpinOnce(-1);
-            if (System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds <= MaxWaitMs) continue;
+            if (Stopwatch.GetElapsedTime(start).TotalMilliseconds <= MaxWaitMs) continue;
+
             Fault = "the recording thread did not catch up";
             break;
         }
@@ -257,19 +230,77 @@ internal sealed unsafe partial class VulkanFrame
     {
         _wake.Reset();
         _ = Interlocked.Exchange(ref _sleeping, 1);
-        if (Volatile.Read(ref _recorded) == Volatile.Read(ref _posted) && Volatile.Read(ref _stop) == 0) _ = _wake.Wait(100);
+        if (Volatile.Read(ref _recorded) == Volatile.Read(ref _posted) && Volatile.Read(ref _stop) == 0)
+        {
+            _ = _wake.Wait(100);
+        }
+
         Volatile.Write(ref _sleeping, 0);
     }
 
     private void StopWorker()
     {
         if (_worker is not { } worker || !Assert(Thread.CurrentThread != worker)) return;
+
         Volatile.Write(ref _stop, 1);
         _wake.Set();
         _worker = null;
-        if (!Assert(worker.Join(MaxWaitMs))) return; // leaked: neither the pool nor the wake goes under a thread still recording
+        if (!Assert(worker.Join(MaxWaitMs)))
+        {
+            return; // leaked: neither the pool nor the wake goes under a thread still recording
+        }
+
         if (_workerPool != 0) _device.DestroyPool(_workerPool);
+
         _workerPool = 0;
         _wake.Dispose();
+    }
+
+    public struct Op
+    {
+        public OpKind Kind;
+        public DrawKind Draw;
+        public uint IndexType;
+        public ulong Pipeline, Layout, Index, IndexOffset, Indirect, IndirectOffset, CountBuffer, CountOffset;
+        public int Descriptors, DescriptorCount, Push, PushBytes, Vertices, VertexCount;
+        public uint Count, Instances, First, BaseInstance;
+        public int BaseVertex;
+        public float X, Y, Width, Height;
+        public object? Ref;
+    }
+
+    public struct Descriptor
+    {
+        public uint Binding, Type;
+        public Vk.BufferDescriptor Buffer;
+        public Vk.ImageDescriptor Image;
+    }
+
+    // Rendering and Moves go back to the frame once recorded (Spare): a segment switch would make two each otherwise
+    public sealed class Rendering
+    {
+        public readonly ulong[] Colors = new ulong[MaxColors];
+        public int Count;
+        public ulong Depth;
+        public int DepthLayout;
+        public uint Layers = 1; // a layered rendering's (every layer of an array attached at once)
+        public bool Stencil; // the depth's view holds a stencil too: attached as the stencil as well
+        public uint Width, Height;
+    }
+
+    // Back to the frame once recorded too (a clear a pass, every frame)
+    public sealed class Clearing
+    {
+        public readonly Vk.ClearAttachment[] Attachments = new Vk.ClearAttachment[MaxColors + 1];
+        public int Count;
+        public uint Layers = 1;
+        public Vk.Rect Rect;
+    }
+
+    // Also orders all memory before it against all after
+    public sealed class Moves
+    {
+        public int Count;
+        public (ulong Image, uint Aspect, int Levels, int Layers, int From, int To)[] Images = [];
     }
 }

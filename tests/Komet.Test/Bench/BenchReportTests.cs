@@ -33,12 +33,16 @@ public sealed class BenchReportTests
         {
             run.Logs[s] = new BenchSegmentLog(true, segments[s].Seconds, 20, 30, 6000, 5000);
             if (s == skip) continue;
+
             var tags = segments[s].Measured ? BenchFrameTags.None : BenchFrameTags.Unmeasured;
             for (var i = 0; i < FramesPerSegment; i++)
             {
                 if (tessMs != null)
+                {
                     TessAccounting.Record(TessBucket.Full, (long)(tessMs(segments[s]) * Stopwatch.Frequency / 1000),
                         false);
+                }
+
                 recorder.Stamp(s, i == 0 ? tags | BenchFrameTags.Discard : tags, s, i, 0.5f);
                 var middle = i == FramesPerSegment / 2;
                 recorder.Frame(
@@ -63,6 +67,7 @@ public sealed class BenchReportTests
     private static float Arms(BenchSegment segment)
     {
         if (!segment.Measured) return 20f;
+
         return segment.Arm == 0 ? 10f : 12f;
     }
 
@@ -288,12 +293,10 @@ public sealed class BenchReportTests
     }
 
     [Test]
-    public void SpreadIgnoresMissingLaps()
-    {
+    public void SpreadIgnoresMissingLaps() =>
         Assert.Multiple(() =>
         {
             Assert.That(BenchReport.Spread([1, double.NaN, 3]), Is.EqualTo((2.0, Math.Sqrt(2), 2)));
             Assert.That(BenchReport.Spread([5.0]).Sd, Is.NaN, "one lap has no spread");
         });
-    }
 }

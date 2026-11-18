@@ -30,52 +30,75 @@ internal static class StringScratch
     public static int Rewritten => Done.Count; // methods
 
     internal static MethodBase?[] Seams() =>
-    [
-        AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.ActiveHotbarSlot)),
-        AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.OffhandHotbarSlot)),
-        AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.MouseItemSlot)),
-        AccessTools.DeclaredMethod(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.GetInventoryName), [typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.GetHotbarItemstack), [typeof(int)]),
-        AccessTools.DeclaredMethod(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.GetHotbarInventory), []),
-        AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetStringSetting), [typeof(string), typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetStringListSetting), [typeof(string), typeof(List<string>)]),
-        AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetIntSetting), [typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetFloatSetting), [typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetBoolSetting), [typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(ClientMain), nameof(ClientMain.TriggerRenderStage), [typeof(EnumRenderStage), typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(GuiElementItemSlotGridBase), nameof(GuiElementItemSlotGridBase.RenderInteractiveElements), [typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(PlayerAnimationManager), nameof(PlayerAnimationManager.IsAnimationActiveOrRunning), [typeof(string), typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(PlayerAnimationManager), nameof(PlayerAnimationManager.IsAnimationActive), [typeof(string[])]),
-        AccessTools.DeclaredMethod(typeof(PlayerAnimationManager), nameof(PlayerAnimationManager.GetAnimationState), [typeof(string)]),
-        AccessTools.DeclaredMethod(typeof(HudDialogChat), nameof(HudDialogChat.OnRenderGUI), [typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(AnimationManager), nameof(AnimationManager.StartAnimation), [typeof(AnimationMetaData)])
-    ];
+        [
+            AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager),
+                nameof(PlayerInventoryManager.ActiveHotbarSlot)),
+            AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager),
+                nameof(PlayerInventoryManager.OffhandHotbarSlot)),
+            AccessTools.DeclaredPropertyGetter(typeof(PlayerInventoryManager),
+                nameof(PlayerInventoryManager.MouseItemSlot)),
+            AccessTools.DeclaredMethod(typeof(PlayerInventoryManager), nameof(PlayerInventoryManager.GetInventoryName),
+                [typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(PlayerInventoryManager),
+                nameof(PlayerInventoryManager.GetHotbarItemstack), [typeof(int)]),
+            AccessTools.DeclaredMethod(typeof(PlayerInventoryManager),
+                nameof(PlayerInventoryManager.GetHotbarInventory), []),
+            AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetStringSetting),
+                [typeof(string), typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetStringListSetting),
+                [typeof(string), typeof(List<string>)]),
+            AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetIntSetting), [typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetFloatSetting), [typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(SettingsBase), nameof(SettingsBase.GetBoolSetting), [typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(ClientMain), nameof(ClientMain.TriggerRenderStage),
+                [typeof(EnumRenderStage), typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(GuiElementItemSlotGridBase),
+                nameof(GuiElementItemSlotGridBase.RenderInteractiveElements), [typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(PlayerAnimationManager),
+                nameof(PlayerAnimationManager.IsAnimationActiveOrRunning), [typeof(string), typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(PlayerAnimationManager), nameof(PlayerAnimationManager.IsAnimationActive),
+                [typeof(string[])]),
+            AccessTools.DeclaredMethod(typeof(PlayerAnimationManager), nameof(PlayerAnimationManager.GetAnimationState),
+                [typeof(string)]),
+            AccessTools.DeclaredMethod(typeof(HudDialogChat), nameof(HudDialogChat.OnRenderGUI), [typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(AnimationManager), nameof(AnimationManager.StartAnimation),
+                [typeof(AnimationMetaData)])
+        ];
 
     public static void Install(Harmony harmony)
     {
         Done.Clear();
-        if (!NotNull(harmony)) return;
+
         var rewrite = new HarmonyMethod(AccessTools.Method(typeof(StringScratch), nameof(Rewrite)));
         foreach (var seam in Seams().Bounded(32))
-            if (seam is MethodInfo method)
-                _ = harmony.Patch(method, transpiler: rewrite);
+        {
+            if (seam is MethodInfo method) _ = harmony.Patch(method, transpiler: rewrite);
+        }
     }
 
     // Each join of two or three strings becomes Joined, each ToLowerInvariant Lowered, each UpdateDebugAttributes Debugged
     internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase original)
     {
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code))) return code;
+
         var (two, three) = (Concat(2), Concat(3));
         var lower = AccessTools.DeclaredMethod(typeof(string), nameof(string.ToLowerInvariant), []);
         var debug = AccessTools.DeclaredMethod(typeof(Entity), nameof(Entity.UpdateDebugAttributes), []);
-        (MethodInfo? Engine, string Mine)[] swaps = [(two, nameof(Joined)), (three, nameof(Joined3)), (lower, nameof(Lowered)), (debug, nameof(Debugged))];
+        (MethodInfo? Engine, string Mine)[] swaps =
+            [(two, nameof(Joined)), (three, nameof(Joined3)), (lower, nameof(Lowered)), (debug, nameof(Debugged))];
         var changed = false;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (code[i].operand is not MethodInfo called) continue;
+
             foreach (var (engine, mine) in swaps.Bounded(4))
-                if (engine is not null && called == engine && Il.Substitute(code, i, AccessTools.Method(typeof(StringScratch), mine)))
+            {
+                if (engine is not null && called == engine &&
+                    Il.Substitute(code, i, AccessTools.Method(typeof(StringScratch), mine)))
+                {
                     changed = true;
+                }
+            }
         }
 
         Done.Mark(original, changed);
@@ -83,14 +106,19 @@ internal static class StringScratch
     }
 
     private static MethodInfo? Concat(int parts) =>
-        AccessTools.DeclaredMethod(typeof(string), nameof(string.Concat), [.. Enumerable.Repeat(typeof(string), parts)]);
+        AccessTools.DeclaredMethod(typeof(string), nameof(string.Concat),
+            [.. Enumerable.Repeat(typeof(string), parts)]);
 
     internal static string Joined(string? a, string? b)
     {
         if (!FrameScratch.Enabled) return string.Concat(a, b);
+
         var slot = (uint)HashCode.Combine(RuntimeHelpers.GetHashCode(a), RuntimeHelpers.GetHashCode(b)) % Slots;
         if (Joins[slot] is { } kept && ReferenceEquals(kept.A, a) && ReferenceEquals(kept.B, b) && kept.C is null)
+        {
             return kept.Text;
+        }
+
         var joined = string.Concat(a, b);
         Joins[slot] = new Join(a, b, null, joined);
         return joined;
@@ -100,10 +128,15 @@ internal static class StringScratch
     internal static string Joined3(string? a, string? b, string? c)
     {
         if (!FrameScratch.Enabled) return string.Concat(a, b, c);
+
         var slot = (uint)HashCode.Combine(RuntimeHelpers.GetHashCode(a), RuntimeHelpers.GetHashCode(b),
             RuntimeHelpers.GetHashCode(c)) % Slots;
-        if (Joins[slot] is { } kept && ReferenceEquals(kept.A, a) && ReferenceEquals(kept.B, b) && ReferenceEquals(kept.C, c))
+        if (Joins[slot] is { } kept && ReferenceEquals(kept.A, a) && ReferenceEquals(kept.B, b) &&
+            ReferenceEquals(kept.C, c))
+        {
             return kept.Text;
+        }
+
         var joined = string.Concat(a, b, c);
         Joins[slot] = new Join(a, b, c, joined);
         return joined;
@@ -111,13 +144,16 @@ internal static class StringScratch
 
     // A key already lower is its own lowered string (ToLowerInvariant makes none for it): only others are kept. A null key
     // fails in the settings' lookup as it did.
-    internal static string Lowered(string key)
+    internal static string Lowered(string? key)
     {
         if (!FrameScratch.Enabled || key is null) return key?.ToLowerInvariant()!;
+
         var slot = (uint)RuntimeHelpers.GetHashCode(key) % Slots;
         if (Lowers[slot] is { } kept && ReferenceEquals(kept.A, key)) return kept.Text;
+
         var lowered = key.ToLowerInvariant();
         if (!ReferenceEquals(lowered, key)) Lowers[slot] = new Join(key, null, null, lowered);
+
         return lowered;
     }
 

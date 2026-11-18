@@ -1,5 +1,7 @@
 using Komet.Core;
+using Komet.Hud;
 using Vintagestory.Client;
+using Vintagestory.Client.NoObf;
 
 namespace Komet.Bench;
 
@@ -7,7 +9,7 @@ namespace Komet.Bench;
 // "gui": "options": every lap's knobs switch over the paused game as in Komet's settings (SwitchMs, ResumeMs).
 internal static class BenchGui
 {
-    public const string Creative = "creative", Debug = "debug", Options = "options", Help = "help";
+    public const string Creative = "creative", Debug = "debug", Options = "options", Help = "help", Map = "map";
     private const long SwitchMs = 2000, ResumeMs = 5000;
     public const float CaptureSeconds = 15;
     private const double TicksPerSecond = 12;
@@ -19,8 +21,9 @@ internal static class BenchGui
 
     public static void Switch(ICoreClientAPI capi, int[] values, string page, Action? shot)
     {
-        if (!NotNull(capi) || !NotNull(values) || !NotNull(page) || capi.World is not Vintagestory.Client.NoObf.ClientMain game) return;
-        Hud.HudOverlay.OptionsForBench?.Invoke(true, page.Length > 0 ? page : null);
+        if (!NotNull(capi) || !NotNull(values) || !NotNull(page) || capi.World is not ClientMain game) return;
+
+        HudOverlay.OptionsForBench?.Invoke(true, page.Length > 0 ? page : null);
         _shot = shot;
         game.PauseGame(true);
         var now = Environment.TickCount64;
@@ -31,6 +34,7 @@ internal static class BenchGui
     public static void Switching(ICoreClientAPI capi)
     {
         if (_switching is not var (values, switchAt, resumeAt) || !NotNull(capi)) return;
+
         var now = Environment.TickCount64;
         if (values.Length > 0 && now >= switchAt)
         {
@@ -41,14 +45,34 @@ internal static class BenchGui
         }
 
         if (now < resumeAt) return;
-        (capi.World as Vintagestory.Client.NoObf.ClientMain)?.PauseGame(false);
-        Hud.HudOverlay.OptionsForBench?.Invoke(false, null);
+
+        (capi.World as ClientMain)?.PauseGame(false);
+        HudOverlay.OptionsForBench?.Invoke(false, null);
         _switching = null;
+    }
+
+    // "gui": "map": the world map opened full-screen at every lap and left open, so the shots show it (map mods drawn
+    // by another renderer, e.g. Vulkan-only)
+    public static void OpenMap(ICoreClientAPI capi)
+    {
+        var maps = capi.ModLoader.Systems.FirstOrDefault(static s => s.GetType().Name == "WorldMapManager");
+        var open = maps?.GetType().GetMethod("ToggleMap");
+        var dialog = capi.Gui.LoadedGuis.FirstOrDefault(static g => g.GetType().Name == "GuiDialogWorldMap");
+        if (open is null || maps is null)
+        {
+            capi.Logger.Warning("Komet bench: no world map to open");
+            return;
+        }
+
+        if (dialog is { DialogType: EnumDialogType.Dialog } && dialog.IsOpened()) return;
+
+        _ = open.Invoke(maps, [EnumDialogType.Dialog]);
     }
 
     public static void Open(ICoreClientAPI capi)
     {
-        if (!NotNull(capi) || !Assert(TicksPerSecond > 0)) return;
+        if (!NotNull(capi)) return;
+
         _dialog ??= capi.Gui.LoadedGuis.FirstOrDefault(static g => g.GetType().Name == "GuiDialogInventory");
         if (_dialog is null)
         {
@@ -57,6 +81,7 @@ internal static class BenchGui
         }
 
         if (!_dialog.IsOpened()) _ = _dialog.TryOpen();
+
         Scrollbar()?.SetScrollbarPosition(0);
         _owed = 0;
     }
@@ -65,14 +90,19 @@ internal static class BenchGui
     public static void Scroll(ICoreClientAPI capi, float dt)
     {
         if (!NotNull(capi) || !Finite(dt) || Scrollbar() is not { } bar) return;
+
         _owed += dt * TicksPerSecond;
         for (var i = 0; i < Math.Min((int)_owed, 8); i++)
+        {
             bar.OnMouseWheel(capi, new MouseWheelEventArgs { delta = -1, deltaPrecise = -1 });
+        }
+
         _owed -= Math.Floor(_owed);
     }
 
     private static GuiElementScrollbar? Scrollbar() =>
-        Assert(TicksPerSecond > 0) && _dialog is { } dialog && dialog.IsOpened() && dialog.Composers["maininventory"] is { } composer
+        _dialog is { } dialog && dialog.IsOpened() &&
+               dialog.Composers["maininventory"] is { } composer
             ? composer.GetScrollbar("scrollbar")
             : null;
 
@@ -88,15 +118,10 @@ internal sealed class BenchShots(string folder) : IRenderer
     public double RenderOrder => 10;
     public int RenderRange => 0;
 
-    public void Take(string name)
-    {
-        if (!NotNull(name) || !Assert(name.EndsWith(".png", StringComparison.Ordinal))) return;
-        _pending = Path.Combine(folder, name);
-    }
-
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
         if (_pending is not { } path || !Assert(stage == EnumRenderStage.Done)) return;
+
         _pending = null;
         try
         {
@@ -110,5 +135,14 @@ internal sealed class BenchShots(string folder) : IRenderer
         }
     }
 
-    public void Dispose() { }
+    public void Dispose()
+    {
+    }
+
+    public void Take(string name)
+    {
+        if (!NotNull(name) || !Assert(name.EndsWith(".png", StringComparison.Ordinal))) return;
+
+        _pending = Path.Join(folder, name);
+    }
 }

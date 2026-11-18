@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
+using Komet.Core;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using Komet.Core;
 
 namespace Komet.Hud;
 
@@ -13,13 +13,20 @@ internal enum UpdateState
     Outdated,
     Unverified,
     Failed,
+
     // Nothing to compare, nothing failed
     NoRelease
 }
 
 // Replaced whole so render-thread readers never see half a result. "" = unknown.
-internal sealed record UpdateReport(UpdateState State, string Detail = "", string Tag = "", string Newest = "",
-    string Installed = "", string Published = "", string Released = "")
+internal sealed record UpdateReport(
+    UpdateState State,
+    string Detail = "",
+    string Tag = "",
+    string Newest = "",
+    string Installed = "",
+    string Published = "",
+    string Released = "")
 {
     public const int HashLength = SHA256.HashSizeInBytes * 2;
     public static readonly UpdateReport Pending = new(UpdateState.Checking);
@@ -28,30 +35,32 @@ internal sealed record UpdateReport(UpdateState State, string Detail = "", strin
     // A version tag with a pre-release part (v3.0.0-pre.3): not published while it is tested
     public static bool PreRelease(string tag) => tag.StartsWith('v') && tag.Contains('-', StringComparison.Ordinal);
 
-    public (string Key, Rgba? Color) Notice() => State switch
-    {
-        UpdateState.NoRelease when PreRelease(Detail) => ("hud-update-prebuild", null),
-        UpdateState.Checking => ("hud-update-checking", null),
-        UpdateState.Verified => ("hud-update-verified", HudCanvas.Good),
-        UpdateState.Mismatch => ("hud-update-mismatch", HudCanvas.Error),
-        UpdateState.Outdated => ("hud-update-outdated", HudCanvas.Warning),
-        UpdateState.Unverified => ("hud-update-unverified", null),
-        UpdateState.Failed => ("hud-update-failed", null),
-        _ => ("hud-update-norelease", null)
-    };
+    public (string Key, Rgba? Color) Notice() =>
+        State switch
+        {
+            UpdateState.NoRelease when PreRelease(Detail) => ("hud-update-prebuild", null),
+            UpdateState.Checking => ("hud-update-checking", null),
+            UpdateState.Verified => ("hud-update-verified", HudCanvas.Good),
+            UpdateState.Mismatch => ("hud-update-mismatch", HudCanvas.Error),
+            UpdateState.Outdated => ("hud-update-outdated", HudCanvas.Warning),
+            UpdateState.Unverified => ("hud-update-unverified", null),
+            UpdateState.Failed => ("hud-update-failed", null),
+            _ => ("hud-update-norelease", null)
+        };
 
-    public string Verdict() => State switch
-    {
-        UpdateState.Checking => "verify-checking",
-        UpdateState.Failed => "verify-failed",
-        UpdateState.NoRelease when PreRelease(Detail) => "verify-prebuild",
-        UpdateState.NoRelease => "verify-norelease",
-        _ when Match => "verify-match",
-        _ when Installed.Length > 0 && Published.Length > 0 => "verify-mismatch",
-        _ when Tag.Length == 0 => "verify-norelease",
-        _ when Installed.Length == 0 => "verify-nofile",
-        _ => "verify-nochecksum"
-    };
+    public string Verdict() =>
+        State switch
+        {
+            UpdateState.Checking => "verify-checking",
+            UpdateState.Failed => "verify-failed",
+            UpdateState.NoRelease when PreRelease(Detail) => "verify-prebuild",
+            UpdateState.NoRelease => "verify-norelease",
+            _ when Match => "verify-match",
+            _ when Installed.Length > 0 && Published.Length > 0 => "verify-mismatch",
+            _ when Tag.Length == 0 => "verify-norelease",
+            _ when Installed.Length == 0 => "verify-nofile",
+            _ => "verify-nochecksum"
+        };
 }
 
 internal sealed class UpdateCheck : IDisposable
@@ -73,7 +82,7 @@ internal sealed class UpdateCheck : IDisposable
         _logger = logger;
         (_preview, _sourcePath) = (preview, sourcePath);
         BuildTag = preview ? "preview-" + commit : "v" + version;
-        if (!NotNull(logger) || !Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0))
+        if (!Assert(version.Length > 0) || !Assert(!preview || commit.Length > 0))
         {
             _report = new UpdateReport(UpdateState.Failed, "bad arguments");
             return;
@@ -91,6 +100,7 @@ internal sealed class UpdateCheck : IDisposable
     public void Start()
     {
         if (!Assert(BuildTag.Length > 1) || Interlocked.CompareExchange(ref _running, 1, 0) != 0) return;
+
         _report = UpdateReport.Pending;
         _ = Task.Run(Run).ContinueWith(
             failed => _logger.Warning("Komet update check: {0}", failed.Exception?.GetBaseException().Message),
@@ -130,7 +140,10 @@ internal sealed class UpdateCheck : IDisposable
         finally
         {
             if (_report.State == UpdateState.Checking)
+            {
                 _report = new UpdateReport(UpdateState.Failed, "unexpected error"); // logged by Start
+            }
+
             _logger.Notification("Komet update check: {0} {1}", _report.State, _report.Detail);
             Volatile.Write(ref _running, 0);
         }
@@ -141,19 +154,31 @@ internal sealed class UpdateCheck : IDisposable
         string released)
     {
         if (!Assert(tag.Length > 1) || !Assert(listed || published.Length == 0))
+        {
             return new UpdateReport(UpdateState.Failed, "bad arguments");
+        }
+
         var report = new UpdateReport(UpdateState.Unverified, tag, listed ? tag : "", newest, installed, published,
             released);
         var behind = Behind(tag, newest);
-        if (!listed && !behind) report = report with { State = UpdateState.NoRelease };
+        if (!listed && !behind)
+        {
+            report = report with { State = UpdateState.NoRelease };
+        }
         else if (installed.Length > 0 && published.Length > 0)
+        {
             report = report with
             {
                 State = report.Match ? UpdateState.Verified : UpdateState.Mismatch,
                 Detail = installed[..Math.Min(ShortHash, installed.Length)]
             };
+        }
+
         if (report.State != UpdateState.Mismatch && behind)
+        {
             report = report with { State = UpdateState.Outdated, Detail = newest };
+        }
+
         return report;
     }
 
@@ -162,19 +187,52 @@ internal sealed class UpdateCheck : IDisposable
     internal static bool Behind(string tag, string newest)
     {
         if (newest.Length == 0 || newest == tag) return false;
+
         if (Version(tag) is not { } mine || Version(newest) is not { } theirs) return true;
+
         var order = mine.Core.CompareTo(theirs.Core);
         if (order != 0) return order < 0;
-        if (mine.Pre.Length == 0) return false; // the release of a pre-release this build is ahead of
-        return theirs.Pre.Length == 0 || string.CompareOrdinal(theirs.Pre, mine.Pre) > 0;
+
+        if (mine.Pre.Length == 0)
+        {
+            return false; // the release of a pre-release this build is ahead of
+        }
+
+        return theirs.Pre.Length == 0 || ComparePreRelease(theirs.Pre, mine.Pre) > 0;
+    }
+
+    private static int ComparePreRelease(string left, string right)
+    {
+        var a = left.Split('.');
+        var b = right.Split('.');
+        for (var i = 0; i < Math.Min(Math.Min(a.Length, b.Length), int.MaxValue); i++)
+        {
+            var x = a[i];
+            var y = b[i];
+            var numericX = x.Length > 0 && x.All(char.IsAsciiDigit);
+            var numericY = y.Length > 0 && y.All(char.IsAsciiDigit);
+            var order = numericX && numericY
+                ? x.Length.CompareTo(y.Length)
+                : numericX.CompareTo(numericY) * -1;
+            if (order == 0) order = string.CompareOrdinal(x, y);
+
+            if (order != 0) return order;
+        }
+
+        return a.Length.CompareTo(b.Length);
     }
 
     private static (Version Core, string Pre)? Version(string tag)
     {
         if (!tag.StartsWith('v')) return null;
+
+        var metadata = tag.IndexOf('+', StringComparison.Ordinal);
+        if (metadata >= 0) tag = tag[..metadata];
+
         var dash = tag.IndexOf('-', StringComparison.Ordinal);
         var core = dash < 0 ? tag[1..] : tag[1..dash];
         if (!System.Version.TryParse(core, out var version)) return null;
+
         return (version, dash < 0 ? "" : tag[(dash + 1)..]);
     }
 
@@ -183,6 +241,7 @@ internal sealed class UpdateCheck : IDisposable
         var asset = release["assets"]?.Take(MaxAssets).FirstOrDefault(a => (string?)a["name"] == "komet.sha256");
         var url = (string?)asset?["browser_download_url"];
         if (url is null || !Assert(url.StartsWith("https://", StringComparison.Ordinal))) return "";
+
         var line = (await _http.GetStringAsync(new Uri(url)).ConfigureAwait(false)).Split(' ', 2)[0].Trim();
         return Assert(line.Length == UpdateReport.HashLength) ? line : "";
     }

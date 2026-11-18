@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Komet.Core;
 
 namespace Komet.Vulkan;
 
@@ -20,10 +21,13 @@ internal static class Builds
 
     private static readonly TaskScheduler Scheduler =
         new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, Workers).ConcurrentScheduler;
+
     private static readonly Lock Gate = new();
     private static readonly HashSet<Task> Running = [];
+
     private static readonly KindTimes Tallied =
         new(["ports", "pipelines", "ports by the waiting draw", "pipelines by the waiting draw"]);
+
     private static long _started;
 
     // Tests: each build is waited for, so a frame draws as if made in place
@@ -33,7 +37,21 @@ internal static class Builds
     {
         get
         {
-            lock (Gate) return _started;
+            lock (Gate)
+            {
+                return _started;
+            }
+        }
+    }
+
+    public static int Pending
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return Running.Count;
+            }
         }
     }
 
@@ -49,7 +67,10 @@ internal static class Builds
 
         _ = task.ContinueWith(static done =>
         {
-            lock (Gate) _ = Running.Remove(done);
+            lock (Gate)
+            {
+                _ = Running.Remove(done);
+            }
         }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         task.Start(Scheduler);
         return task;
@@ -59,28 +80,30 @@ internal static class Builds
     public static bool Wait(TimeSpan timeout)
     {
         Task[] running;
-        lock (Gate) running = [.. Running];
-        return Task.WaitAll(running, timeout);
-    }
-
-    public static int Pending
-    {
-        get
+        lock (Gate)
         {
-            lock (Gate) return Running.Count;
+            running = [.. Running];
         }
+
+        return Task.WaitAll(running, timeout);
     }
 
     // waiting: made on the engine's thread by the draw awaiting it, tallied apart from the workers' builds
     public static void Count(Kind kind, long ticks, bool waiting)
     {
         var i = (int)kind;
-        lock (Gate) Tallied.Add(waiting ? i + Kinds : i, ticks);
+        lock (Gate)
+        {
+            Tallied.Add(waiting ? i + Kinds : i, ticks);
+        }
     }
 
     public static string Report()
     {
-        lock (Gate) return Tallied.Report("shaders made");
+        lock (Gate)
+        {
+            return Tallied.Report("shaders made");
+        }
     }
 }
 
@@ -90,16 +113,16 @@ internal static class Builds
 // workers' queue.
 internal sealed class Build<T> where T : class
 {
-    private readonly Lock _gate = new();
     private readonly Action<T>? _free;
-    private readonly Func<(T? Made, string Why)> _make;
+    private readonly Lock _gate = new();
     private readonly Builds.Kind _kind;
+    private readonly Func<(T? Made, string Why)> _make;
     private readonly Task _task;
+    private int _claimed; // 1 once a worker or the awaiting thread began make
+    private bool _dropped, _taken;
+    private volatile bool _finished;
     private T? _made;
     private string _why = "";
-    private bool _dropped, _taken;
-    private int _claimed; // 1 once a worker or the awaiting thread began make
-    private volatile bool _finished;
 
     public Build(Builds.Kind kind, Func<(T? Made, string Why)> make, Action<T>? free = null)
     {
@@ -125,11 +148,13 @@ internal sealed class Build<T> where T : class
     private void Made(Builds.Kind kind, Func<(T? Made, string Why)> make, bool waiting)
     {
         lock (_gate)
+        {
             if (_dropped)
             {
                 _finished = true;
                 return;
             }
+        }
 
         var start = Stopwatch.GetTimestamp();
         T? made = null;
@@ -151,6 +176,7 @@ internal sealed class Build<T> where T : class
             {
                 (_made, _why, Ticks) = (made, why, ticks);
                 if (waiting) Where = "by the waiting draw";
+
                 _finished = true; // last: Done (read without _gate) publishes the result, Ticks and Where with it
                 return;
             }
@@ -159,13 +185,16 @@ internal sealed class Build<T> where T : class
         }
 
         if (made is null) return;
+
         try
         {
             _free?.Invoke(made);
         }
-        catch (Exception e) when (e is not OutOfMemoryException) // a faulted worker would make Builds.Wait throw at device end
+        catch (Exception e) when
+            (e is not OutOfMemoryException) // a faulted worker would make Builds.Wait throw at device end
         {
-            _ = Assert(false); // reported once; what was dropped stays unfreed
+            ModEvents.Logger?.Error("Komet: freeing a dropped {0} build failed: {1}", kind, e);
+            _ = Assert(false);
         }
     }
 
@@ -194,15 +223,23 @@ internal sealed class Build<T> where T : class
     }
 
     // For where a draw cannot be left out
-    public bool Wait(TimeSpan timeout) => _task.Wait(timeout) && Done;
+    private bool Wait(TimeSpan timeout) => _task.Wait(timeout) && Done;
 
     // Made here when no worker began it yet, else waited for as long as a build may take; booked as a stutter of its kind
     public bool Awaited(Hitches.Kind kind)
     {
         if (Done) return true;
+
         var at = Hitches.Now;
-        if (Interlocked.Exchange(ref _claimed, 1) == 0) Made(_kind, _make, true);
-        else _ = Wait(TimeSpan.FromSeconds(Builds.LongestSeconds));
+        if (Interlocked.Exchange(ref _claimed, 1) == 0)
+        {
+            Made(_kind, _make, true);
+        }
+        else
+        {
+            _ = Wait(TimeSpan.FromSeconds(Builds.LongestSeconds));
+        }
+
         Hitches.Since(kind, at);
         return Done;
     }

@@ -1,8 +1,9 @@
+using System.Collections;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 
 namespace Komet.World;
 
@@ -32,23 +33,27 @@ internal static class CookingMatch
     private static Harmony? _harmony;
     private static ILogger? _logger;
     private static int _rewritten;
-    private static bool _shaped;
 
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten => (_rewritten | (Bypassed ? StackBit : 0)) == AllBits;
 
     // Another mod's prefix replaces GetMatchingStack: Komet's rewrite of it is unpatched
     public static bool Bypassed { get; private set; }
-    internal static bool Matched => _shaped;
+    internal static bool Matched { get; private set; }
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
-        (_rewritten, _shaped, Bypassed, _harmony, _logger) = (0, false, false, null, logger);
+        (_rewritten, Matched, Bypassed, _harmony, _logger) = (0, false, false, null, logger);
         var seams = Seams();
-        if (!NotNull(harmony) || seams[0] is not MethodInfo matches ||
-            seams[1] is not MethodInfo matching) return;
-        _shaped = EngineShape.Matches(seams, fingerprint, nameof(CookingMatch), logger);
-        if (!_shaped) return;
+        if (seams[0] is not MethodInfo matches ||
+            seams[1] is not MethodInfo matching)
+        {
+            return;
+        }
+
+        Matched = EngineShape.Matches(seams, fingerprint, nameof(CookingMatch), logger);
+        if (!Matched) return;
+
         _ = harmony.Patch(matches, new HarmonyMethod(Enter), transpiler: new HarmonyMethod(RewriteMatches),
             finalizer: new HarmonyMethod(Leave));
         _ = harmony.Patch(matching, transpiler: new HarmonyMethod(RewriteMatching));
@@ -60,16 +65,19 @@ internal static class CookingMatch
     // another mod's prefix and comes back once it is gone
     internal static void Recheck()
     {
-        if (!_shaped || _harmony is not { } harmony || Seams()[1] is not MethodInfo matching) return;
-        var foreign = EngineShape.Foreign([matching], PatchKinds.Prefix, harmony.Id);
+        if (!Matched || _harmony is not { } harmony || Seams()[1] is not MethodInfo matching) return;
+
+        var foreign = EngineShape.Foreign([matching], KapiPatchKinds.Prefix, harmony.Id);
         if (foreign == Bypassed) return;
+
         Bypassed = foreign;
         var rewrite = AccessTools.Method(typeof(CookingMatch), nameof(RewriteMatching));
         if (foreign)
         {
             harmony.Unpatch(matching, rewrite);
             _rewritten &= ~StackBit;
-            _logger?.Notification("Komet CookingMatch: another mod replaces GetMatchingStack, only Matches is rewritten");
+            _logger?.Notification(
+                "Komet CookingMatch: another mod replaces GetMatchingStack, only Matches is rewritten");
         }
         else
         {
@@ -99,11 +107,11 @@ internal static class CookingMatch
         if (--_depth == 0)
         {
             _stacks?.Clear();
-            (_items as System.Collections.IList)?.Clear();
+            (_items as IList)?.Clear();
         }
     }
 
-    internal static List<CodeInstruction> RewriteMatches(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> RewriteMatches(IEnumerable<CodeInstruction> instructions)
     {
         _rewritten &= ~MatchesBit;
         var ingredient = AccessTools.TypeByName(IngredientType);
@@ -112,10 +120,15 @@ internal static class CookingMatch
                 ? null
                 : AccessTools.Method(typeof(Enumerable), nameof(Enumerable.ToList))?.MakeGenericMethod(ingredient));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ingredient) || !NotNull(copy) ||
-            !NotNull(toList)) return code;
+            !NotNull(toList))
+        {
+            return code;
+        }
+
         var (stacks, items) = (Il.Single(code, c => c.Is(OpCodes.Newobj, copy)), Il.Single(code, c => c.Calls(toList)));
         var counts = Il.Single(code, c => c.opcode == OpCodes.Newarr && ReferenceEquals(c.operand, typeof(int)));
         if (stacks < 0 || items < 0 || counts < 0) return code;
+
         var item = AccessTools.Method(typeof(CookingMatch), nameof(Items)).MakeGenericMethod(ingredient);
         var (stack, count) = (AccessTools.Method(typeof(CookingMatch), nameof(Stacks)),
             AccessTools.Method(typeof(CookingMatch), nameof(Counts)));
@@ -129,6 +142,7 @@ internal static class CookingMatch
     internal static List<ItemStack> Stacks(IEnumerable<ItemStack> stacks)
     {
         if (!Enabled || _depth != 1) return [.. stacks];
+
         var list = _stacks ??= [];
         list.Clear();
         list.AddRange(stacks);
@@ -138,7 +152,9 @@ internal static class CookingMatch
     internal static List<T> Items<T>(IEnumerable<T> items)
     {
         if (!Enabled || _depth != 1) return [.. items];
+
         if (_items is not List<T> list) _items = list = [];
+
         list.Clear();
         list.AddRange(items);
         return list;
@@ -149,7 +165,9 @@ internal static class CookingMatch
     {
         // a negative count throws as newarr does
         if (!Enabled || _depth != 1 || !Index(count, MaxCounts + 1)) return new int[count];
+
         if (_counts is not { } counts || counts.Length < count) _counts = counts = new int[Math.Max(count, 16)];
+
         return counts;
     }
 
@@ -161,16 +179,24 @@ internal static class CookingMatch
         var equals = AccessTools.Method(typeof(ItemStack), nameof(ItemStack.Equals),
             [typeof(IWorldAccessor), typeof(ItemStack), typeof(string[])]);
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(source) || !NotNull(equals))
+        {
             return code;
+        }
+
         var starts = Enumerable.Range(0, code.Count).Where(i => code[i].LoadsField(source)).ToArray();
         if (!Assert(starts.Length == Arrays)) return code;
+
         var ends = starts.Select(s => Copy(code, s, equals)).ToArray();
         if (ends.Any(e => e < 0)) return code;
+
         var shared = AccessTools.Method(typeof(CookingMatch), nameof(Ignored));
         for (var k = 0; k < Arrays; k++)
         {
             for (var i = starts[k]; i < Math.Min(ends[k] + 1, MaxInstructions); i++)
+            {
                 (code[i].opcode, code[i].operand) = (OpCodes.Nop, null);
+            }
+
             (code[ends[k] + 1].opcode, code[ends[k] + 1].operand) = (OpCodes.Call, shared);
         }
 
@@ -186,14 +212,19 @@ internal static class CookingMatch
         {
             var c = code[i];
             if ((i > start && c.labels.Count > 0) || c.blocks.Count > 0 || c.Branches(out _)) return -1;
+
             if (c.opcode == OpCodes.Newarr && ReferenceEquals(c.operand, typeof(string))) arrays++;
+
             if (!c.Is(OpCodes.Ldstr, Frozen)) continue;
+
             end = code[i + 1].opcode == OpCodes.Stelem_Ref ? i + 1 : -1;
             break;
         }
 
         return end >= 0 && Index(end + 2, code.Count) && arrays == 1 && code[end + 1].IsLdloc() &&
-               code[end + 2].Calls(equals) && code[end + 1].labels.Count == 0 ? end : -1;
+               code[end + 2].Calls(equals) && code[end + 1].labels.Count == 0
+            ? end
+            : -1;
     }
 
     // IgnoredStackAttributes + "timeFrozen", shared while the source array and its entries are unchanged
@@ -201,6 +232,7 @@ internal static class CookingMatch
     {
         var source = GlobalConstants.IgnoredStackAttributes; // null throws as the engine's ldlen does
         if (_ignored is { } shared && Same(shared, source)) return shared.Joined;
+
         var copy = new string[source.Length + 1];
         source.AsSpan().CopyTo(copy);
         copy[^1] = Frozen;
@@ -212,9 +244,16 @@ internal static class CookingMatch
     {
         var (entries, copy) = (shared.Entries, shared.Joined);
         if (!ReferenceEquals(shared.Source, source) || source.Length != entries.Length ||
-            copy.Length != entries.Length + 1 || !ReferenceEquals(copy[^1], Frozen)) return false;
+            copy.Length != entries.Length + 1 || !ReferenceEquals(copy[^1], Frozen))
+        {
+            return false;
+        }
+
         for (var i = 0; i < Math.Min(entries.Length, MaxCounts); i++)
+        {
             if (!ReferenceEquals(source[i], entries[i]) || !ReferenceEquals(copy[i], entries[i])) return false;
+        }
+
         return true;
     }
 

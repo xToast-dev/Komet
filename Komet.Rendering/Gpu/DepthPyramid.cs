@@ -3,11 +3,12 @@ namespace Komet.Rendering;
 // Units lie far above the engine's: a build may run mid terrain pass with its program's textures bound.
 internal sealed class DepthPyramid
 {
-    public const int Unit = 31, DepthUnit = 30;
+    public const int Unit = 31;
+    private const int DepthUnit = 30;
     private const int ParamsBinding = 14, AboveImage = 6, LevelImage = 7, Tile = 8, MaxLevels = 16;
+    private IGpuBackend? _gpu;
 
     private int _program, _params, _texture;
-    private IGpuBackend? _gpu;
 
     // Backend the pyramid was made with; its programs and images belong to it, also after a switch
     private IGpuBackend Backend => _gpu ?? GpuBackends.Current;
@@ -24,10 +25,13 @@ internal sealed class DepthPyramid
     public bool Ready(ILogger logger, IGpuBackend? backend = null)
     {
         if (_program != 0) return true;
+
         _gpu = backend ?? GpuBackends.Current;
-        if (!NotNull(logger) || !NotNull(Backend)) return false;
+        if (!NotNull(Backend)) return false;
+
         _program = Backend.Program(GpuShaders.HiZ, logger);
         if (_program != 0 && _params == 0) _params = Backend.Buffer();
+
         return _program != 0;
     }
 
@@ -36,6 +40,7 @@ internal sealed class DepthPyramid
     {
         Built = false;
         if (!Assert(_program != 0) || !Assert(depth > 0 && depthWidth > 0 && depthHeight > 0)) return false;
+
         var refused = Backend.Refused;
         var (width, height, kept) = ((depthWidth + 1) / 2, (depthHeight + 1) / 2, true);
         if (width != Width || height != Height || _texture == 0)
@@ -48,6 +53,7 @@ internal sealed class DepthPyramid
         // No image (no memory or handle left; Pyramid still names its levels): unbuilt, asked for again next frame.
         // Built over nothing, the passes tested against a missing image's zeros, which hid all the terrain.
         if (_texture == 0) return false;
+
         Backend.Barrier(GpuBarrier.Attachments); // the draws into the depth buffer, then this build's fetches of it
         Backend.Texture(DepthUnit, depth);
         var (w, h, sw, sh) = (width, height, depthWidth, depthHeight);
@@ -56,9 +62,10 @@ internal sealed class DepthPyramid
         {
             ShaderParams.Ints(p, sw, sh, w, h);
             ShaderParams.Ints(p[4..], level == 0 ? 1 : 0, 0, 0, 0);
-            Backend.Upload<float>(_params, p);
+            Backend.Upload(_params, p);
             Backend.Uniforms(ParamsBinding, _params);
             if (level > 0) Backend.Image(AboveImage, _texture, level - 1, false);
+
             Backend.Image(LevelImage, _texture, level, true);
             Backend.Dispatch(_program, (w + Tile - 1) / Tile, (h + Tile - 1) / Tile);
             Backend.Barrier(GpuBarrier.Images | GpuBarrier.Textures);
@@ -87,6 +94,7 @@ internal static class ShaderParams
     public static void Ints(Span<float> into, int a, int b, int c, int d)
     {
         if (!Assert(into.Length >= 4)) return;
+
         (into[0], into[1], into[2], into[3]) = (BitConverter.Int32BitsToSingle(a), BitConverter.Int32BitsToSingle(b),
             BitConverter.Int32BitsToSingle(c), BitConverter.Int32BitsToSingle(d));
     }
@@ -96,6 +104,7 @@ internal static class ShaderParams
         (int From, int Before) draws = default)
     {
         if (!Assert(into.Length >= TestFloats) || !Assert(viewProjection.Length == 16) || !NotNull(pyramid)) return;
+
         viewProjection.CopyTo(into);
         (into[16], into[17], into[18], into[19]) = ((float)shift.X, (float)shift.Y, (float)shift.Z, 0);
         Ints(into[20..], pyramid.Width, pyramid.Height, pyramid.Levels, ranges.Count);

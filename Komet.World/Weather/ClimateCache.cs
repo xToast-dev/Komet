@@ -26,7 +26,7 @@ internal static class ClimateCache
     public static int Capacity { get; private set; }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "LerpedClimateMaps")]
-    private static extern ref LimitedDictionary<long, int[]> Maps(ClientWorldMap map);
+    private static extern ref LimitedDictionary<long, int[]>? Maps(ClientWorldMap map);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "LerpedClimateMapsLock")]
     private static extern ref object MapsLock(ClientWorldMap map);
@@ -39,22 +39,30 @@ internal static class ClimateCache
             AccessTools.Field(typeof(ClientWorldMap), "LerpedClimateMapsLock"));
         var capacity = AccessTools.Field(typeof(LimitedDictionary<long, int[]>), "capacity");
         _world++; // what any thread remembers is the closed world's
-        if (!NotNull(harmony) || !NotNull(load) || !NotNull(maps) || !NotNull(gate) || !NotNull(capacity) ||
+        if (!NotNull(load) || !NotNull(maps) || !NotNull(gate) || !NotNull(capacity) ||
             !Assert(maps.FieldType == typeof(LimitedDictionary<long, int[]>) && capacity.FieldType == typeof(int)))
+        {
             return; // the accessors would throw at first use
+        }
+
         _ = harmony.Patch(load, new HarmonyMethod(Sized));
-        if (AccessTools.Method(typeof(ClientWorldMap), nameof(ClientWorldMap.TryLoadLerpedClimateMap), [typeof(int), typeof(int)])
+        if (AccessTools.Method(typeof(ClientWorldMap), nameof(ClientWorldMap.TryLoadLerpedClimateMap),
+                [typeof(int), typeof(int)])
             is { } find)
+        {
             _ = harmony.Patch(find, new HarmonyMethod(Recent), new HarmonyMethod(Remember));
+        }
     }
 
     private static bool Recent(ClientWorldMap __instance, int chunkX, int chunkZ, ref int[]? __result)
     {
         if (!Enabled || _lastFound is not { } found || _lastKeys is not { } keys || _lastWorld != _world) return true;
+
         var key = __instance.MapRegionIndex2DFromClientChunkCoord(chunkX, chunkZ);
         for (var i = 0; i < Remembered; i++)
         {
             if (keys[i] != key || found[i] is not { } map) continue;
+
             __result = map;
             return false;
         }
@@ -65,11 +73,16 @@ internal static class ClimateCache
     private static void Remember(ClientWorldMap __instance, int chunkX, int chunkZ, int[]? __result, bool __runOriginal)
     {
         if (!__runOriginal || __result is null) return;
+
         if (_lastWorld != _world || _lastKeys is null || _lastFound is null)
+        {
             (_lastWorld, _lastKeys, _lastFound, _lastNext) = (_world, new long[Remembered], new int[]?[Remembered], 0);
+        }
+
         var slot = _lastNext;
         _lastNext = (slot + 1) % Remembered;
-        (_lastKeys[slot], _lastFound[slot]) = (__instance.MapRegionIndex2DFromClientChunkCoord(chunkX, chunkZ), __result);
+        (_lastKeys[slot], _lastFound[slot]) =
+            (__instance.MapRegionIndex2DFromClientChunkCoord(chunkX, chunkZ), __result);
     }
 
     // Leaving the world: its maps go with it, this thread's remembered ones now, another thread's at its next lookup
@@ -83,6 +96,7 @@ internal static class ClimateCache
     internal static int CapacityFor(int region, int distance)
     {
         if (!Assert(region > 0) || !Assert(distance > 0)) return EngineCapacity;
+
         var perAxis = 2 * distance / region + 1;
         return Math.Clamp(perAxis * perAxis, EngineCapacity, MaxCapacity);
     }
@@ -102,13 +116,17 @@ internal static class ClimateCache
     {
         var gate = MapsLock(map);
         if (!NotNull(gate)) return;
+
         Capacity = wanted;
         if (Maps(map) is { } maps && Limited<long, int[]>.CapacityOf(maps) == wanted) return;
+
         lock (gate)
         {
             ref var current = ref Maps(map);
             if (current is null || Limited<long, int[]>.CapacityOf(current) != wanted)
+            {
                 current = new LimitedDictionary<long, int[]>(wanted);
+            }
         }
     }
 

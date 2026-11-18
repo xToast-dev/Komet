@@ -13,7 +13,7 @@ A shader pack without a mod uses the same fields in `komet-shader.json`, either 
 
 | Key | Type | Meaning |
 |---|---|---|
-| `id` | string | Pack id; default: the mod's domain (or the folder's name) |
+| `id` | string | Ignored here: the pack id is the mod's domain |
 | `name` | string | Page title; may be a lang key |
 | `author` | string | Shown in the detail panel |
 | `programs` | string[] | Who gets the defines: game program names (`final`, `chunkopaque` ...) and `pass:<id>` for the pack's passes. Missing: every game program and every pass of the pack |
@@ -86,7 +86,7 @@ Before the first write Komet keeps a copy of the player's file with the ending `
 ```
 
 Holds the named Komet feature at the game's own behaviour while the mod runs, like
-<xref:Komet.Api.KometFeatures.HoldOff*> from code.
+<xref:Komet.Api.KapiFeatures.HoldOff*> from code.
 
 ## The Komet path for files
 

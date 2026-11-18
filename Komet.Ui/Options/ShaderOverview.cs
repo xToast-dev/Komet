@@ -1,104 +1,132 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using Komet.Core;
 using Komet.Api;
 using Komet.Rendering;
-using Komet.Core;
 
 namespace Komet.Options;
 
-// The Shaders section's first page, Active shaders. It names the renderer drawing now, then lists every shader pack and every
-// mod with KometShaders registrations. Each gets a switch that takes all its defines, uniforms, edits and passes in or out
-// (kept in ModConfig/komet/shader-settings.json), and a detail text with where it comes from, what it registers, and a pass
-// that failed and why. The page is built anew when anything registers, is switched or fails, at most once a frame.
-internal static class ShaderOverview
+// Active shader page: refresh scheduling, switches and dependency activation.
+internal static partial class ShaderOverview
 {
     private const string PageId = "shaders-overview";
-    private const int MaxListed = KometShaders.MaxDefines + KometShaders.MaxPasses;
+    private const int MaxListed = ShaderHub.MaxDefines + ShaderHub.MaxPasses;
 
     private static ICoreClientAPI? _api;
     private static bool _asked;
-    private static Action? _changed;
+    private static int _generation;
 
-    // A click changed the packs on disk (the example): an open screen takes its pages anew
     public static event Action? Refreshed;
 
     public static void Hook(ICoreClientAPI api)
     {
-        if (!NotNull(api) || !NotNull(api.Event)) return;
-        _api = api;
-        foreach (var mod in ShaderState.Of(api).Off.Bounded(MaxListed)) ModShaders.Turn(mod, false);
+        if (!NotNull(api.Event)) return;
 
-        _changed ??= Ask;
+        _api = api;
+        _generation++;
+        _asked = false;
+        foreach (var mod in ShaderState.Of(api).Off.Bounded(MaxListed))
+        {
+            ModShaders.Turn(mod, false);
+        }
+
         // off first: a second Hook without Unhook would subscribe twice, and Unhook takes it off once
-        ModShaders.Changed -= _changed;
-        ShaderMods.Changed -= _changed;
-        ModShaders.Changed += _changed;
-        ShaderMods.Changed += _changed;
+        ModShaders.Changed -= Ask;
+        ShaderMods.Changed -= Ask;
+        ModShaders.Changed += Ask;
+        ShaderMods.Changed += Ask;
     }
 
     public static void Unhook()
     {
-        if (_changed is { } changed)
-        {
-            ModShaders.Changed -= changed;
-            ShaderMods.Changed -= changed;
-        }
+        ModShaders.Changed -= Ask;
+        ShaderMods.Changed -= Ask;
 
         (_api, _asked) = (null, false);
+        _generation++;
         ShaderState.Forget();
     }
 
     private static void Ask()
     {
         if (_asked || _api?.Event is not { } events || !NotNull(_api.World)) return;
+
         _asked = true;
+        var generation = _generation;
         events.EnqueueMainThreadTask(() =>
         {
+            if (generation != _generation) return;
+
             _asked = false;
             if (_api is { } api) Build(api);
         }, "komet-shader-overview");
     }
 
-    // The page anew (KometOptions.Page with the same id replaces it in place)
     public static void Build(ICoreClientAPI api)
     {
-        if (!NotNull(api)) return;
-        var page = KometOptions.Page(PageId, T("shaders-overview"), T("section-shaders"));
+        var page = OptionPages.Page(PageId, T("shaders-overview"), T("section-shaders"));
         page.Legend = Legend;
-        _ = page.Group(() => T("shaders-renderer", KometShaders.Renderer == KometRenderer.Vulkan ? "Vulkan" : "OpenGL"));
+        _ = page.Group(() =>
+            T("shaders-renderer", ShaderHub.Renderer == KapiRenderer.Vulkan ? "Vulkan" : "OpenGL"));
         var mods = ModShaders.Mods();
         var found = ShaderMods.All(api);
         var declared = found.Where(f => f.Declared).ToList();
-        var others = found.Where(f => !f.Declared && !mods.Contains(f.Id) && !mods.Contains(ShaderPacks.ModPrefix + f.Id)).ToList();
+        var others = found
+            .Where(f => !f.Declared && !mods.Contains(f.Id) && !mods.Contains(ShaderPacks.ModPrefix + f.Id)).ToList();
         mods = [.. mods.Where(m => !declared.Exists(d => m == d.Id || m == ShaderPacks.ModPrefix + d.Id))];
         if (mods.Count + others.Count + declared.Count == 0) _ = page.Group(T("shaders-none"));
+
         if (declared.Count > 0) _ = page.Group(T("shaders-declared"));
+
         foreach (var mod in declared.Bounded(MaxListed))
         {
-            var details = Status(mod) + (ShaderPacks.About(ShaderPacks.ModPrefix + mod.Id) is null ? "" : " " + Details(api, ShaderPacks.ModPrefix + mod.Id));
-            _ = page.Switch(mod.Name, () => ShaderMods.Wanted(api, mod), on => Turn(api, mod, on), details).Default(1).Live()
-                .Tagged(() => Tags(mod)).Card(() => Facts(mod));
+            var details = Status(mod) + (ShaderPacks.About(ShaderPacks.ModPrefix + mod.Id) is null
+                ? ""
+                : " " + Details(api, ShaderPacks.ModPrefix + mod.Id));
+            _ = page.Switch(mod.Name, () => ShaderMods.Wanted(api, mod), on => Turn(api, mod, on), details).Default(1)
+                .Live()
+                .LockedWhen(() => Needed(mod)).Tagged(() => Tags(mod)).Card(() => Facts(mod));
         }
 
         if (mods.Count > 0 && declared.Count + others.Count > 0) _ = page.Group(T("shaders-packs"));
+
         foreach (var mod in mods.Bounded(MaxListed))
         {
-            var files = found.Find(f => f.Id == mod);
-            _ = page.Switch(Name(api, mod), () => ModShaders.IsOn(mod), on =>
+            Pack(api, page, mod, found.Find(f => f.Id == mod));
+        }
+
+        if (others.Count > 0) _ = page.Group(T("shaders-others"));
+
+        foreach (var mod in others.Bounded(MaxListed))
+        {
+            Other(api, page, mod);
+        }
+
+        Files(api, page);
+    }
+
+    private static void Files(ICoreClientAPI api, OptionPage page) =>
+        _ = page.Group(T("shaders-files"))
+            .Button(T("shaders-folder"), T("do-open"), () => Open(ShaderPacks.UserFolder), T("shaders-folder-hint"))
+            .Button(T("shaders-reload"), T("do-reload"), () => Reload(api), T("shaders-reload-hint"));
+
+    // A shader mod that declares nothing: a switch when it replaces game shaders, else its facts
+    private static void Other(ICoreClientAPI api, OptionPage page, ShaderMods.Found mod) =>
+        _ = (mod.Replaces
+                ? page.Switch(mod.Name, () => ShaderMods.Wanted(api, mod), on => Turn(api, mod, on), Status(mod))
+                    .Default(1).Live()
+                    .LockedWhen(() => Needed(mod))
+                : page.Button(mod.Name, T("shaders-others-tag"), Nothing, Status(mod))).Tagged(() => Tags(mod))
+            .Card(() => Facts(mod));
+
+    // A shader pack's switch
+    private static void Pack(ICoreClientAPI api, OptionPage page, string mod, ShaderMods.Found? files) =>
+        _ = page.Switch(Name(api, mod), () => ModShaders.IsOn(mod), on =>
             {
                 ModShaders.Turn(mod, on);
                 Store(api);
             }, Details(api, mod) + (files is null ? "" : " " + Status(files))).Default(1)
-                .Tagged(() => [.. Simple(mod).Select(f => (f.Icon, f.Kind))]).Card(() => Simple(mod));
-        }
-
-        if (others.Count > 0) _ = page.Group(T("shaders-others"));
-        foreach (var mod in others.Bounded(MaxListed))
-            _ = (mod.Replaces
-                ? page.Switch(mod.Name, () => ShaderMods.Wanted(api, mod), on => Turn(api, mod, on), Status(mod)).Default(0).Live()
-                : page.Button(mod.Name, T("shaders-others-tag"), Nothing, Status(mod))).Tagged(() => Tags(mod)).Card(() => Facts(mod));
-        _ = page.Group(T("shaders-files"))
-            .Button(T("shaders-folder"), T("do-open"), () => Open(ShaderPacks.UserFolder), T("shaders-folder-hint"))
-            .Button(T("shaders-reload"), T("do-reload"), () => Reload(api), T("shaders-reload-hint"));
-    }
+            .Tagged(() => [.. Simple(mod).Select(f => (f.Icon, f.Kind))]).Card(() => Simple(mod));
 
     // Every pack read again from disk and the mods' files (a designer's edit shows without leaving the world; Modding ›
     // Templates after writing the example pack)
@@ -107,199 +135,97 @@ internal static class ShaderOverview
         _ = api.Assets?.Reload(AssetCategory.shaders); // the mods' shader files, as the game's .reload shaders
         _ = api.Assets?.Reload(AssetCategory.shaderincludes);
         // and their komet.json and Komet versions (config/komet.json, config/komet/...)
-        foreach (var domain in ShaderMods.All(api).SelectMany(m => m.Variants.Select(v => v.Split(':')[0]).Append(m.Id)).Distinct().Bounded(MaxListed))
+        foreach (var domain in ShaderMods.All(api).SelectMany(m => m.Variants.Select(v => v.Split(':')[0]).Append(m.Id))
+                     .Distinct().Bounded(MaxListed))
+        {
             _ = api.Assets?.Reload(new AssetLocation(domain, ShaderMods.VariantPath[..^1]));
+        }
+
         ShaderPacks.Load(api);
         Build(api);
-        KometShaders.Reload();
+        ShaderHub.Reload();
         Refreshed?.Invoke();
     }
 
-    // A shader mod replacing game shaders: on, it starts (or resumes) at once; off, it pauses at once
+    // A shader mod found by its files (replacing shaders or declared): on, it starts (or resumes) at once, a held mod it
+    // depends on first; off, it pauses at once, unless other mods depend on it (its row is locked then)
     private static void Turn(ICoreClientAPI api, ShaderMods.Found mod, bool on)
+    {
+        if (!on && ShaderMods.Dependents(api, mod.Id).Length > 0) return;
+
+        if (on && !EnableDependencies(api, mod)) return;
+
+        if (!ApplyTurn(api, mod, on))
+        {
+            _ = ActivationFailed(api, mod, "its start or pause callback failed");
+            return;
+        }
+
+        Store(api);
+        Build(api);
+        Refreshed?.Invoke();
+    }
+
+    private static bool EnableDependencies(ICoreClientAPI api, ShaderMods.Found root)
+    {
+        var found = ShaderMods.All(api).ToDictionary(m => m.Id, StringComparer.Ordinal);
+        found[root.Id] = root;
+        if (!ShaderDependencies.Plan(root.Id, id => [.. ShaderMods.Dependencies(api, found[id]).Select(m => m.Id)],
+                out var order, out var why))
+        {
+            return ActivationFailed(api, root, why);
+        }
+
+        foreach (var id in order.Bounded(ShaderDependencies.MaxMods))
+        {
+            if (ShaderMods.Mismatch(api, id) is { } mismatch) return ActivationFailed(api, root, $"{id}: {mismatch}");
+        }
+
+        foreach (var id in order.Bounded(ShaderDependencies.MaxMods))
+        {
+            if (id != root.Id && (ShaderMods.Off.Contains(id) || ShaderState.Of(api).Stopped.Contains(id)) &&
+                !ApplyTurn(api, found[id], true))
+            {
+                return ActivationFailed(api, root, "dependency did not start: " + id);
+            }
+        }
+
+        return true;
+    }
+
+    private static bool ActivationFailed(ICoreClientAPI api, ShaderMods.Found mod, string why)
+    {
+        api.Logger?.Warning("Komet: shader mod {0} was not activated: {1}", mod.Id, why);
+        api.ShowChatMessage(T("shaders-found-blocked", mod.Name));
+        Store(api);
+        Build(api);
+        return false;
+    }
+
+    private static bool ApplyTurn(ICoreClientAPI api, ShaderMods.Found mod, bool on)
     {
         ShaderMods.Want(api, mod, on);
         ModShaders.Turn(ShaderPacks.ModPrefix + mod.Id, on); // its komet.json settings and passes, at once either way
         ModShaders.Turn(mod.Id, on); // and what its code registered
-        Store(api);
-        if (on && ShaderMods.Off.Contains(mod.Id) && ShaderMods.Start(api, mod)) api.ShowChatMessage(T("shaders-found-started", mod.Name));
-        else if (!on && mod.Replaces && !ShaderMods.Off.Contains(mod.Id) && ShaderMods.Pause(api, mod))
+        if (on && ShaderMods.Off.Contains(mod.Id))
+        {
+            if (!ShaderMods.Start(api, mod)) return false;
+
+            api.ShowChatMessage(T("shaders-found-started", mod.Name));
+        }
+        else if (!on && mod.Replaces && !ShaderMods.Off.Contains(mod.Id))
+        {
+            if (!ShaderMods.Pause(api, mod)) return false;
+
             api.ShowChatMessage(T("shaders-found-paused", mod.Name));
-        Build(api);
-        Refreshed?.Invoke();
-    }
-
-    // How the mod is bound in, then what holds for it now: the markers after its name (Modding › Shader reference explains them)
-    private static List<(TagIcon Icon, TagKind Kind)> Tags(ShaderMods.Found mod)
-    {
-        // who drives it first, as a badge: the mod talks to Komet itself, Komet takes it over, or Komet only knows it
-        List<(TagIcon, TagKind)> tags = [Bound(mod) switch
-        {
-            Binding.Speaks => (TagIcon.Link, TagKind.Speaks),
-            Binding.TakesOver => (TagIcon.Comet, TagKind.TakesOver),
-            _ => (TagIcon.Eye, TagKind.Plain)
-        }];
-        if (Runs(mod) is var (icon, kind, _)) tags.Add((icon, kind));
-        if (mod.Declared) tags.Add((TagIcon.File, TagKind.Plain));
-        if (ModShaders.Mods().Contains(mod.Id)) tags.Add((TagIcon.Code, TagKind.Plain));
-        if (mod.Variants.Length > 0) tags.Add((TagIcon.Versions, TagKind.Plain));
-        if (ShaderMods.Off.Contains(mod.Id)) tags.Add((TagIcon.Pause, TagKind.Plain));
-        else
-        {
-            var (_, gl, vulkan, _) = ShaderMods.State(mod);
-            if (gl.Length + vulkan.Length > 0 || Needs(mod) is not null) tags.Add((TagIcon.Warning, TagKind.Warn));
         }
 
-        return tags;
+        return true;
     }
 
-    // The detail's card for a found mod: how it is bound in, where it runs, its shaders, what it replaces, what holds
-    private static List<(TagIcon Icon, TagKind Kind, string Text)> Facts(ShaderMods.Found mod)
-    {
-        List<(TagIcon, TagKind, string)> facts = [Bound(mod) switch
-        {
-            Binding.Speaks => (TagIcon.Link, TagKind.Speaks, T(mod.Declared ? "fact-speaks-json" : "fact-speaks-code")),
-            Binding.TakesOver => (TagIcon.Comet, TagKind.TakesOver, T("fact-takesover")),
-            _ => (TagIcon.Eye, TagKind.Plain, T("fact-found"))
-        }];
-        if (Runs(mod) is { } runs) facts.Add(runs);
-        var (programs, gl, _, _) = ShaderMods.State(mod);
-        if (ShaderMods.Off.Contains(mod.Id)) facts.Add((TagIcon.Pause, TagKind.Plain, T("fact-held")));
-        else if (programs == 0) // a declared mod's shader files may be passes only: nothing to say then
-        {
-            if (!mod.Declared && (mod.Own.Length > 0 || mod.Replaces)) facts.Add((TagIcon.Shader, TagKind.Plain, T("fact-shaders-none")));
-        }
-        else if (gl.Length > 0) facts.Add((TagIcon.Shader, TagKind.Warn, T("fact-shaders-failed", gl.Length, programs, string.Join(", ", gl.Take(3)))));
-        else facts.Add((TagIcon.Shader, TagKind.Plain, T("fact-shaders-ok", programs)));
-        var game = mod.Replaced.Count(f => f.StartsWith("shaders/", StringComparison.Ordinal));
-        if (Replacing(game, mod.Replaced.Length - game, mod.Elsewhere.Length) is { Length: > 0 } replacing)
-            facts.Add((TagIcon.Replaces, TagKind.Plain, replacing));
-        if (mod.Variants.Length > 0) facts.Add((TagIcon.Versions, TagKind.Plain, T("fact-variants", mod.Variants.Length)));
-        if (Needs(mod) is { } needs) facts.Add((TagIcon.Warning, TagKind.Warn, needs));
-        return facts;
-    }
-
-    // What it replaces, naming only what there is: "Replaces 15 game shaders, 2 game includes, 8 files of another mod"
-    private static string Replacing(int shaders, int includes, int elsewhere)
-    {
-        List<string> parts = [];
-        if (shaders > 0) parts.Add(T("fact-replaces-shaders", shaders));
-        if (includes > 0) parts.Add(T("fact-replaces-includes", includes));
-        if (elsewhere > 0) parts.Add(T("fact-replaces-elsewhere", elsewhere));
-        return parts.Count == 0 ? "" : T("fact-replaces", string.Join(", ", parts));
-    }
-
-    // A pack or a code mod: it talks to Komet, and runs where Komet draws
-    private static List<(TagIcon Icon, TagKind Kind, string Text)> Simple(string mod)
-    {
-        var pack = mod.StartsWith(ShaderPacks.ModPrefix, StringComparison.Ordinal);
-        List<(TagIcon, TagKind, string)> facts = [(TagIcon.Link, TagKind.Speaks, T(pack ? "fact-speaks-pack" : "fact-speaks-code"))];
-        if (Runs(null) is { } runs) facts.Add(runs);
-        facts.Add((pack ? TagIcon.Folder : TagIcon.Code, TagKind.Plain, T(pack ? "legend-folder" : "legend-code")));
-        return facts;
-    }
-
-    // Where it runs now: OpenGL (an OpenGL-only mod says why), or Vulkan with how its translation fares; null while held
-    private static (TagIcon Icon, TagKind Kind, string Text)? Runs(ShaderMods.Found? mod)
-    {
-        if (mod is not null && ShaderMods.Off.Contains(mod.Id)) return null;
-        if (KometShaders.Renderer != KometRenderer.Vulkan)
-            return (TagIcon.OpenGl, TagKind.OpenGl, T(mod is not null && ModAdapters.OpenGlOnly(mod.Id) ? "fact-gl-only" : "fact-gl"));
-        if (mod is null) return (TagIcon.Vulkan, TagKind.VulkanOk, T("fact-vk"));
-        var (programs, _, vulkan, pending) = ShaderMods.State(mod);
-        if (vulkan.Length > 0) return (TagIcon.Vulkan, TagKind.VulkanPartial, T("fact-vk-partial", vulkan.Length, programs, vulkan[0].Pass));
-        if (pending > 0) return (TagIcon.Vulkan, TagKind.VulkanOk, T("fact-vk-porting", pending, programs));
-        return (TagIcon.Vulkan, TagKind.VulkanOk, programs > 0 ? T("fact-vk-ok", programs) : T("fact-vk"));
-    }
-
-    // Every symbol of this page and what it means, for the detail while no row is chosen
-    private static List<(TagIcon Icon, TagKind Kind, string Text)> Legend()
-    {
-        List<(TagIcon, TagKind, string)> legend =
-        [
-            (TagIcon.Link, TagKind.Heading, T("legend-binding")),
-            (TagIcon.Link, TagKind.Speaks, T("legend-link")), (TagIcon.Comet, TagKind.TakesOver, T("legend-comet")),
-            (TagIcon.Eye, TagKind.Plain, T("legend-eye")),
-            (TagIcon.Vulkan, TagKind.Heading, T("legend-renderer")),
-            (TagIcon.Vulkan, TagKind.VulkanOk, T("legend-vulkan")), (TagIcon.Vulkan, TagKind.VulkanPartial, T("legend-vulkan-partial")),
-            (TagIcon.OpenGl, TagKind.OpenGl, T("legend-opengl")),
-            (TagIcon.File, TagKind.Heading, T("legend-details")),
-            (TagIcon.File, TagKind.Plain, T("legend-file")), (TagIcon.Folder, TagKind.Plain, T("legend-folder")),
-            (TagIcon.Code, TagKind.Plain, T("legend-code")), (TagIcon.Versions, TagKind.Plain, T("legend-versions")),
-            (TagIcon.Pause, TagKind.Plain, T("legend-pause")), (TagIcon.Warning, TagKind.Warn, T("legend-warning"))
-        ];
-        return legend;
-    }
-
-    private enum Binding
-    {
-        Found,
-        Speaks,
-        TakesOver
-    }
-
-    // komet.json or the code API: the mod talks to Komet; an adapter Komet ships: Komet takes it over
-    private static Binding Bound(ShaderMods.Found mod)
-    {
-        if (mod.Declared || ModShaders.Mods().Contains(mod.Id)) return Binding.Speaks;
-        return ModAdapters.Steers(mod.Id) ? Binding.TakesOver : Binding.Found;
-    }
-
-    // A dependency missing or of another major version: Komet does not start the mod
-    private static string? Needs(ShaderMods.Found mod)
-    {
-        if (_api is null || ShaderMods.Mismatch(_api, mod.Id) is not var (name, wanted, loaded)) return null;
-        return loaded.Length == 0 ? T("shaders-found-missing", name, wanted) : T("shaders-found-version", name, wanted, loaded);
-    }
-
-    // What the mod changes and how its shaders fare under the renderer drawing now
-    private static string Status(ShaderMods.Found mod)
-    {
-        // the card says how it is bound in, where it runs, its shaders and what it replaces; the text adds the rest
-        List<string> lines = [];
-        var (_, _, vulkan, _) = ShaderMods.State(mod);
-        if (vulkan.Length > 0) lines.Add(T("shaders-found-vulkan", vulkan.Length, vulkan.Length, vulkan[0].Pass, vulkan[0].Why));
-        if (!ShaderMods.Off.Contains(mod.Id) && _api is not null && !ShaderMods.Wanted(_api, mod)) lines.Add(T("shaders-found-next"));
-        if (ShaderMods.Off.Contains(mod.Id) && mod.Replaces) lines.Add(T("shaders-found-held"));
-        if (!mod.Declared) lines.Add(T("shaders-others-join"));
-        return string.Join(" ", lines);
-    }
-
-    // A found mod's row only shows its detail
     private static void Nothing()
     {
-        // the detail is all there is
-    }
-
-    private static string Name(ICoreClientAPI api, string mod)
-    {
-        if (ShaderPacks.About(mod) is { } pack) return pack.Name;
-        return api.ModLoader?.GetMod(mod)?.Info?.Name is { Length: > 0 } name ? name : mod;
-    }
-
-    // What the detail panel says: origin and author, what it registers, each pass and a failure's reason
-    private static string Details(ICoreClientAPI api, string mod)
-    {
-        var lines = new List<string>();
-        if (ShaderPacks.About(mod) is { } pack)
-        {
-            lines.Add(pack.Where.EndsWith(':') ? T("shaders-pack-declared", pack.Where[..^1]) : T("shaders-pack", ShaderPacks.Shown(pack.Where)));
-            if (pack.Author is { Length: > 0 } author) lines.Add(T("shaders-by", author));
-            lines.Add(T("shaders-settings", pack.Settings));
-        }
-        else
-        {
-            var info = api.ModLoader?.GetMod(mod)?.Info;
-            lines.Add(T("shaders-mod", mod));
-            if (info?.Authors is { Count: > 0 } authors) lines.Add(T("shaders-by", string.Join(", ", authors)));
-        }
-
-        var (defines, uniforms, edits) = ModShaders.Count(mod);
-        lines.Add(T("shaders-counts", defines, uniforms, edits));
-        foreach (var (owner, id, failure) in ModPasses.Listed().Bounded(KometShaders.MaxPasses))
-            if (owner == mod)
-                lines.Add(failure.Length > 0 ? T("shaders-pass-failed", id, failure) : T("shaders-pass", id));
-        return string.Join(" ", lines);
+        // The button only selects its detail card.
     }
 
     private static void Open(string folder)
@@ -307,9 +233,11 @@ internal static class ShaderOverview
         try
         {
             _ = Directory.CreateDirectory(folder);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true })?.Dispose(); // the handle, not the process
+            Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true })
+                ?.Dispose(); // the handle, not the process
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or Win32Exception
+                                      or InvalidOperationException)
         {
             _api?.Logger?.Warning("Komet shaders: the folder {0} could not be opened: {1}", folder, e.Message);
         }
@@ -322,6 +250,5 @@ internal static class ShaderOverview
         ShaderState.Store(api);
     }
 
-    private static string T(string key, params object[] args) =>
-        KometText.Translate("settings-" + key, args);
+    private static string T(string key, params object[] args) => KometText.Translate("settings-" + key, args);
 }

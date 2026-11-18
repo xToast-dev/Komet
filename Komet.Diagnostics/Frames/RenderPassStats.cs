@@ -40,7 +40,10 @@ internal sealed class RenderPassStats
     public RenderPassStats()
     {
         _byCost = (a, b) => _sumMs[b].CompareTo(_sumMs[a]);
-        for (var i = 0; i < Keys.Length; i++) _order[i] = i;
+        for (var i = 0; i < Keys.Length; i++)
+        {
+            _order[i] = i;
+        }
     }
 
     public static int Count => Keys.Length;
@@ -65,7 +68,8 @@ internal sealed class RenderPassStats
         Index(place, Count) && Index(rank, DetailCount) ? _topMarks[_order[place]][rank].Name ?? "–" : "";
 
     public double DetailMs(int place, int rank) =>
-        Index(place, Count) && Index(rank, DetailCount) && _frames > 0 && _topMarks[_order[place]][rank].Name is { } m
+        Index(place, Count) && Index(rank, DetailCount) && _frames > 0 &&
+               _topMarks[_order[place]][rank].Name is { } m
             ? _marks[_order[place]].GetValueOrDefault(m) / _frames
             : double.NaN;
 
@@ -78,6 +82,7 @@ internal sealed class RenderPassStats
     public void AddFrame(in FrameRecord frame, bool steady)
     {
         if (!Assert(double.IsNaN(frame.DtMs) || frame.DtMs >= 0)) return;
+
         AddFrame(frame.Root, steady, frame.DtMs, frame.OutsideMs);
     }
 
@@ -87,10 +92,12 @@ internal sealed class RenderPassStats
     {
         _hasFrame = false;
         if (frame?.Marks == null) return;
+
         var profiled = FrameClock.ToMs(frame.ElapsedTicks);
         var outside = outsideMs > 0 ? outsideMs : 0; // NaN: not measured
         var total = dtMs > 0 ? Math.Max(dtMs, profiled + outside) : profiled + outside;
         if (!Finite(total)) return;
+
         _frames++;
         _sumTotalMs += total;
         Array.Clear(_frameMs);
@@ -99,19 +106,26 @@ internal sealed class RenderPassStats
         if (outside > 0)
         {
             TopN.Rank(_frameTop, Outside, outside);
-            var (gpu, smoothing) = (Math.Clamp(OutsideParts.GpuWaitMs, 0, outside), Math.Clamp(OutsideParts.SmoothingMs, 0, outside));
+            var (gpu, smoothing) = (Math.Clamp(OutsideParts.GpuWaitMs, 0, outside),
+                Math.Clamp(OutsideParts.SmoothingMs, 0, outside));
             smoothing = Math.Min(smoothing, outside - gpu);
             if (gpu > 0) AddMark(Pass.Outside, "gpu-wait", gpu);
+
             if (smoothing > 0) AddMark(Pass.Outside, "smoothing", smoothing);
+
             if (outside - gpu - smoothing > 0) AddMark(Pass.Outside, "events", outside - gpu - smoothing);
         }
 
         var assigned = outside + AddMarks(frame.Marks) + AddRanges(frame.ChildRanges);
         _frameMs[(int)Pass.Other] += Math.Max(0, total - assigned);
-        for (var i = 0; i < Keys.Length; i++) _sumMs[i] += _frameMs[i];
+        for (var i = 0; i < Keys.Length; i++)
+        {
+            _sumMs[i] += _frameMs[i];
+        }
 
         _hasFrame = true;
         if (!steady || total <= WorstFrameMs) return;
+
         WorstFrameMs = total;
         _frameTop.CopyTo(_worstTop, 0);
     }
@@ -124,6 +138,7 @@ internal sealed class RenderPassStats
         {
             var (code, entry) = entries.Current;
             if (!NotNull(entry)) continue;
+
             var ms = FrameClock.ToMs(entry.ElapsedTicks);
             MarkCalls += entry.CallCount;
             var pass = Classify(code, ref current);
@@ -141,12 +156,14 @@ internal sealed class RenderPassStats
     private double AddRanges(Dictionary<string, ProfileEntryRange>? ranges)
     {
         if (ranges == null) return 0;
+
         var sum = 0.0;
         using var entries = ranges.GetEnumerator();
         for (var i = 0; i < MaxRanges && entries.MoveNext(); i++)
         {
             var (code, range) = entries.Current;
             if (!NotNull(range)) continue;
+
             var pass = code switch
             {
                 "rendTransparent" => Pass.Transparent,
@@ -158,9 +175,12 @@ internal sealed class RenderPassStats
             TopN.Rank(_frameTop, code, ms);
             sum += ms;
             if (range.Marks == null) continue;
+
             using var marks = range.Marks.GetEnumerator();
             for (var j = 0; j < MaxMarks && marks.MoveNext(); j++)
+            {
                 AddMark(pass, marks.Current.Key, FrameClock.ToMs(marks.Current.Value.ElapsedTicks));
+            }
         }
 
         return sum;
@@ -169,16 +189,24 @@ internal sealed class RenderPassStats
     private void AddMark(Pass pass, string code, double ms)
     {
         if (!Assert(code.Length > 0)) return;
+
         var marks = _marks[(int)pass];
         ref var sum = ref CollectionsMarshal.GetValueRefOrNullRef(marks, code);
-        if (!Unsafe.IsNullRef(ref sum)) sum += ms;
-        else if (marks.Count < MaxMarks) marks[code] = ms;
+        if (!Unsafe.IsNullRef(ref sum))
+        {
+            sum += ms;
+        }
+        else if (marks.Count < MaxMarks)
+        {
+            marks[code] = ms;
+        }
     }
 
     // A mark carries the time since the previous: a stage boundary belongs to the old pass
     private static Pass Classify(string code, ref Pass current)
     {
         if (!Assert(code.Length > 0)) return Pass.Other;
+
         switch (code)
         {
             case "sleep": return Pass.Sleep;
@@ -212,13 +240,16 @@ internal sealed class RenderPassStats
     public void UpdateOrder()
     {
         if (_frames == 0) return;
+
         Array.Sort(_order, _byCost);
         for (var pass = 0; pass < Keys.Length; pass++)
         {
             Array.Clear(_topMarks[pass]);
             using var marks = _marks[pass].GetEnumerator();
             for (var i = 0; i < MaxMarks && marks.MoveNext(); i++)
+            {
                 TopN.Rank(_topMarks[pass], marks.Current.Key, marks.Current.Value);
+            }
         }
     }
 
@@ -226,7 +257,10 @@ internal sealed class RenderPassStats
     {
         (_frames, _sumTotalMs) = (0, 0);
         Array.Clear(_sumMs);
-        for (var i = 0; i < Keys.Length; i++) _marks[i].Clear();
+        for (var i = 0; i < Keys.Length; i++)
+        {
+            _marks[i].Clear();
+        }
     }
 
     public void ResetWorst()
@@ -237,6 +271,18 @@ internal sealed class RenderPassStats
 
     private enum Pass
     {
-        GameTick, Before, Shadows, Opaque, Transparent, PostProcess, Gui, Done, MainThread, Swap, Sleep, Outside, Other
+        GameTick,
+        Before,
+        Shadows,
+        Opaque,
+        Transparent,
+        PostProcess,
+        Gui,
+        Done,
+        MainThread,
+        Swap,
+        Sleep,
+        Outside,
+        Other
     }
 }

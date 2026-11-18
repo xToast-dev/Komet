@@ -1,7 +1,10 @@
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Komet.Core;
 using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
+using OpenTK.Windowing.Desktop;
+using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 using static Komet.Rendering.Fields;
 
@@ -25,10 +28,7 @@ internal static partial class VulkanRenderer
     private static bool _begunFirst; // began this frame ahead of the Before stage's renderers
     private static (int Reveal, int Accumulation) _oit;
 
-    private static HarmonyMethod Of(string name)
-    {
-        return new HarmonyMethod(AccessTools.Method(typeof(VulkanRenderer), name));
-    }
+    private static HarmonyMethod Of(string name) => new(AccessTools.Method(typeof(VulkanRenderer), name));
 
     private static void Patch(Harmony harmony)
     {
@@ -38,15 +38,22 @@ internal static partial class VulkanRenderer
             Of(nameof(Unframing)));
         _ = harmony.Patch(AccessTools.DeclaredMethod(platform, nameof(ClientPlatformWindows.AllocateEmptyMesh)),
             postfix: Of(nameof(MeshAllocated)));
-        foreach (var cairo in (ReadOnlySpan<string>)[nameof(ClientPlatformWindows.LoadCairoTexture),
-                     nameof(ClientPlatformWindows.LoadOrUpdateCairoTexture)])
+        foreach (var cairo in (ReadOnlySpan<string>)
+                 [
+                     nameof(ClientPlatformWindows.LoadCairoTexture),
+                     nameof(ClientPlatformWindows.LoadOrUpdateCairoTexture)
+                 ])
+        {
             if (AccessTools.DeclaredMethod(platform, cairo) is { } made) // the GUI's: never lean
+            {
                 _ = harmony.Patch(made, Of(nameof(CairoMaking)), finalizer: Of(nameof(CairoMade)));
+            }
+        }
 
         IndirectDraw.Takeover = Takeover;
         PoolUpdates.Install(harmony, _logger);
         PatchBirths(harmony);
-        var swap = AccessTools.Method(typeof(OpenTK.Windowing.Desktop.GameWindow), "SwapBuffers");
+        var swap = AccessTools.Method(typeof(GameWindow), "SwapBuffers");
         if (NotNull(swap)) _ = harmony.Patch(swap, Of(nameof(Swapping)));
     }
 
@@ -54,19 +61,30 @@ internal static partial class VulkanRenderer
     {
         _events = events;
         Renderers.AddRange([
-            new Hook(EnumRenderStage.Before, EarliestOrder, StartingFirst), new Hook(EnumRenderStage.Before, 0.01, StartingThen),
+            new Hook(EnumRenderStage.Before, EarliestOrder, StartingFirst),
+            new Hook(EnumRenderStage.Before, 0.01, StartingThen),
             new Hook(EnumRenderStage.Before, PrepareOrder, Preparing), new Hook(EnumRenderStage.Done, 0.99, Ended),
             new Hook(EnumRenderStage.OIT, OitOrder, OitBegins),
-            new Hook(EnumRenderStage.Ortho, EarliestOrder, OrthoBegins), new Hook(EnumRenderStage.Ortho, LastOrder, OrthoEnds)
+            new Hook(EnumRenderStage.Ortho, EarliestOrder, OrthoBegins),
+            new Hook(EnumRenderStage.Ortho, LastOrder, OrthoEnds)
         ]);
-        foreach (var hook in Renderers.Bounded(32)) events.RegisterRenderer(hook, hook.Own, "komet-vulkan");
+        foreach (var hook in Renderers.Bounded(32))
+        {
+            events.RegisterRenderer(hook, hook.Own, "komet-vulkan");
+        }
     }
 
     // The hooks leave the engine's stages too: stopped mid-world, none of them runs again
     private static void Unhook()
     {
         if (IndirectDraw.Takeover == Takeover) IndirectDraw.Takeover = null;
-        foreach (var hook in Renderers.Bounded(32)) _events?.UnregisterRenderer(hook, hook.Own);
+
+        foreach (var hook in Renderers.Bounded(32))
+        {
+            Features.Cleanup("Vulkan", "detach render stage " + hook.Own,
+                () => _events?.UnregisterRenderer(hook, hook.Own));
+        }
+
         (_events, _begunFirst) = (null, false);
         Renderers.Clear();
         GlSamplers.Clear();
@@ -111,7 +129,11 @@ internal static partial class VulkanRenderer
     private static void StartingFirst()
     {
         _begunFirst = false;
-        if (!Only || VulkanCore.Device is null) return; // the device starts at Before 0
+        if (!Only || VulkanCore.Device is null)
+        {
+            return; // the device starts at Before 0
+        }
+
         Starting();
         _begunFirst = State is Phase.Running or Phase.Waiting; // else Before 0.01 decides (the device's first frame)
     }
@@ -129,12 +151,19 @@ internal static partial class VulkanRenderer
         if (GlTap.Stranded) // until the world is left: OpenGL shows the GUI over a cleared frame
         {
             if (_renderer is not null) Fail("Vulkan-only stopped: the device cannot give OpenGL the world back");
+
             Overlaid();
             return;
         }
 
         var device = VulkanCore.Device;
-        if (!Only) (_failed, _failure) = (false, ""); // switched off after a failure: switching on tries anew
+        if (SafetyReason.Length > 0) return;
+
+        if (!Only)
+        {
+            (_failed, _failure) = (false, ""); // switched off after a failure: switching on tries anew
+        }
+
         if (!Only || device is null)
         {
             Paused(Only ? "waits for the Vulkan device (render settings, Vulkan)" : "");
@@ -142,6 +171,7 @@ internal static partial class VulkanRenderer
         }
 
         if (_failed) return;
+
         if (!ShadercFetch.Ready(_api)) // no shader compiler yet: OpenGL draws, the player is told
         {
             Paused(ShadercFetch.Status);
@@ -167,6 +197,7 @@ internal static partial class VulkanRenderer
     private static void Begin(VulkanDevice device)
     {
         if (_api?.Render is not { } render) return;
+
         DecideScene();
         if (!Tapped())
         {
@@ -175,13 +206,19 @@ internal static partial class VulkanRenderer
         }
 
         Remade();
-        if (State == Phase.Failed) return; // stranded as it let go
+        if (State == Phase.Failed)
+        {
+            return; // stranded as it let go
+        }
+
         _renderer ??= Made(device);
         if (_renderer is not { } renderer) return;
+
         renderer.Requads(ClientPlatformAbstract.singleIndexBufferSize / 24);
         Hooked(renderer);
         _scene?.Warming(); // the programs ported as they were linked, their known pipelines begun
         if (!_watched) renderer.Rewatch();
+
         _watched = true;
         Decide(device);
         Update(Engine(), renderer);
@@ -189,7 +226,7 @@ internal static partial class VulkanRenderer
         var (framebuffers, shared) = Windowing(renderer, render);
         // esr-pre held these: what ran before, the GPU wait for the slot's frame unless Pacing waited for it at the frame's
         // start (Frame.Next), and the start
-        var profiler = Vintagestory.Client.ScreenManager.FrameProfiler;
+        var profiler = ScreenManager.FrameProfiler;
         profiler?.Mark(StartingMark);
         var started = renderer.Start(framebuffers, shared, out var why);
         profiler?.Mark(StartedMark);
@@ -203,6 +240,7 @@ internal static partial class VulkanRenderer
         Culling(renderer, _taking && OcclusionCulling.Active);
         IndirectDraw.Plain = true;
         if (_scene is { } scene) scene.Framing = SceneOn;
+
         Report(waits);
         // From now on GL runs no GPU work Vulkan leaves, nor (held by lean) while ports are awaited
         (GlTap.Resting, GlTap.Lean) = (GlIdle || GlTap.Leaned > 0, LeanOn);
@@ -213,6 +251,7 @@ internal static partial class VulkanRenderer
     private static string Joined(string a, string b)
     {
         if (a.Length + b.Length == 0) return "";
+
         return a.Length > 0 && b.Length > 0 ? a + "; " + b : a + b;
     }
 
@@ -220,7 +259,10 @@ internal static partial class VulkanRenderer
     {
         var made = TerrainRenderer.Create(device, Math.Max(ClientPlatformAbstract.singleIndexBufferSize / 24, 1 << 20),
             _logger, out var why);
-        if (made is null) Fail("Vulkan terrain: " + why);
+        if (made is null)
+        {
+            Fail("Vulkan terrain: " + why);
+        }
         else
         {
             (made.Targets.Owned, made.RecordTaps) = (OitOwned, GlTap.Taps);
@@ -242,18 +284,24 @@ internal static partial class VulkanRenderer
     private static void Suspended(bool suspend)
     {
         if (suspend == OcclusionCulling.Suspended) return;
+
         OcclusionCulling.Suspended = suspend;
         if (suspend)
-            _logger?.Notification("Komet: Vulkan-only draws the opaque terrain without OcclusionCulling: the device cannot " +
-                                  "draw with a count the GPU wrote (drawIndirectCount)");
+        {
+            _logger?.Notification(
+                "Komet: Vulkan-only draws the opaque terrain without OcclusionCulling: the device cannot " +
+                "draw with a count the GPU wrote (drawIndirectCount)");
+        }
     }
 
     private static string Unported()
     {
         List<string>? missing = null; // made only when one is missing: asked every frame
         for (var i = 0; i < Math.Min(Programs.Length, Ports.Length); i++)
-            if (Built[i] > 0 && Ports[i] is null && Porting[i] is null)
-                (missing ??= []).Add(Programs[i].Name);
+        {
+            if (Built[i] > 0 && Ports[i] is null && Porting[i] is null) (missing ??= []).Add(Programs[i].Name);
+        }
+
         return missing is null
             ? ""
             : $"no SPIR-V port of {string.Join(", ", missing)}: Vulkan leaves them out of the picture (see the log)";
@@ -262,7 +310,11 @@ internal static partial class VulkanRenderer
     private static void Preparing()
     {
         if (State is not (Phase.Running or Phase.Waiting) || _renderer is not { } renderer ||
-            _api?.World is not ClientMain game || TerrainOf(game) is not { } chunks) return;
+            _api?.World is not ClientMain game || TerrainOf(game) is not { } chunks)
+        {
+            return;
+        }
+
         Guarded(static s => s.renderer.Prepare(Adoptable(s.chunks)), (renderer, chunks));
     }
 
@@ -271,16 +323,20 @@ internal static partial class VulkanRenderer
         Found.Clear();
         var passes = PassPools(chunks);
         if (!_taking || !NotNull(passes)) return Found;
+
         for (var pass = 0; pass < Math.Min(passes.Length, ChunkPasses); pass++)
         {
             if (passes[pass] is not { } managers) continue;
+
             for (var m = 0; m < Math.Min(managers.Length, MaxManagers); m++)
             {
                 if (managers[m] is not { } manager) continue;
+
                 var pools = Pools(manager);
                 for (var i = 0; i < Math.Min(pools.Count, MaxPools); i++)
-                    if (ModelRef(pools[i]) is VAO vao)
-                        Found.Add((vao, Classic(pass)));
+                {
+                    if (ModelRef(pools[i]) is VAO vao) Found.Add((vao, Classic(pass)));
+                }
             }
         }
 
@@ -302,8 +358,10 @@ internal static partial class VulkanRenderer
     private static void OitBegins()
     {
         if (!_taking || _renderer is not { } renderer) return;
+
         var now = (Reveal(null), Accumulation(null));
         if (now == _oit) return;
+
         _oit = now;
         Guarded(renderer.ForgetTargets);
     }
@@ -312,35 +370,49 @@ internal static partial class VulkanRenderer
     private static void Ended()
     {
         if (_windowing || _renderer is not { } renderer) return;
+
         VulkanWatch.Mark("Done", renderer.Frame.Number);
         _ = Finished(renderer, null);
     }
 
     // False when Vulkan presented the frame: the engine's SwapBuffers must not
-    private static bool Swapping(OpenTK.Windowing.Desktop.NativeWindow __instance)
+    private static bool Swapping(NativeWindow __instance)
     {
         if (!_windowing || _renderer is not { } renderer) return true;
+
         VulkanWatch.Mark("the buffers swap", renderer.Frame.Number);
         return !Finished(renderer, __instance);
     }
 
     // True once shown in the window; without one, closes the last segment. Not Guarded: a closure a frame.
-    private static bool Finished(TerrainRenderer renderer, OpenTK.Windowing.Desktop.NativeWindow? window)
+    private static bool Finished(TerrainRenderer renderer, NativeWindow? window)
     {
-        if (_scene is { } scene) scene.Framing = SceneOn; // what comes between frames too
+        if (_scene is { } scene)
+        {
+            scene.Framing = SceneOn; // what comes between frames too
+        }
+
         var shown = false;
         try
         {
-            if (window is null) renderer.Frame.Close("the frame's end", endsFrame: true);
-            else shown = renderer.Present(window);
+            if (window is null)
+            {
+                renderer.Frame.Close("the frame's end", endsFrame: true);
+            }
+            else
+            {
+                shown = renderer.Present(window);
+            }
+
             if (renderer.Unshowable is { Length: > 0 } unshowable)
             {
-                Fail($"Vulkan-only needs Vulkan to show its frames, but {unshowable}: OpenGL draws the world (join the " +
-                     "world again to try once more)");
+                Fail(
+                    $"Vulkan-only needs Vulkan to show its frames, but {unshowable}: OpenGL draws the world (join the " +
+                    "world again to try once more)");
                 return false;
             }
 
-            if ((State is Phase.Running or Phase.Waiting) && !MemoryGuard()) Periodically(renderer);
+            if (State is Phase.Running or Phase.Waiting && !MemoryGuard()) Periodically(renderer);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -350,11 +422,14 @@ internal static partial class VulkanRenderer
         return shown;
     }
 
+    // ReSharper disable once InconsistentNaming - Harmony binds the parameter by the engine's name
     private static bool Takeover(MeshRef modelRef, int[] indices, int[] sizes, int count, bool useSSBOs)
     {
         if (modelRef is not VAO vao) return false;
+
         var pass = Taken(out var renderer);
         if (pass == Pass.None) return false;
+
         Mark(Drawn.Terrain);
         try // not Guarded: a closure per draw would feed the garbage collector hundreds a frame
         {
@@ -381,7 +456,10 @@ internal static partial class VulkanRenderer
     {
         renderer = _renderer!;
         if (State is not (Phase.Running or Phase.Waiting) || _renderer is null || _api?.World is not ClientMain game)
+        {
             return Pass.None;
+        }
+
         var pass = PassOf(GlTap.Program, Stage(game));
         return pass != Pass.None && _taking && renderer.Takes(GlTap.DrawFramebuffer) ? pass : Pass.None;
     }
@@ -391,7 +469,11 @@ internal static partial class VulkanRenderer
     {
         VulkanWatch.Mark("culling: a counted draw");
         if (State is not (Phase.Running or Phase.Waiting) || _renderer is not { } renderer || !NotNull(vao) ||
-            !Assert(commands.Offset >= 0 && count.Offset >= 0)) return false;
+            !Assert(commands.Offset >= 0 && count.Offset >= 0))
+        {
+            return false;
+        }
+
         Mark(Drawn.Terrain);
         try // every pool's draw: no closure for Guarded
         {
@@ -399,7 +481,8 @@ internal static partial class VulkanRenderer
             var (listed, listedAt) = backend.Native(commands.Buffer);
             var (counted, countedAt) = backend.Native(count.Buffer);
             return renderer.TakeCounted(vao, ssbo,
-                ((listed, listedAt + (ulong)commands.Offset), (counted, countedAt + (ulong)count.Offset), max), Sampler);
+                ((listed, listedAt + (ulong)commands.Offset), (counted, countedAt + (ulong)count.Offset), max),
+                Sampler);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
@@ -414,11 +497,16 @@ internal static partial class VulkanRenderer
     {
         if (Strands(why.Length > 0 ? why : "was switched off"))
         {
-            Fail("Vulkan-only (lean) cannot hand the world to OpenGL: join it again"); // OpenGL stays tapped and resting
+            Fail(
+                "Vulkan-only (lean) cannot hand the world to OpenGL: join it again"); // OpenGL stays tapped and resting
             return;
         }
 
-        if (State == Phase.Running && _renderer is { } only) HandBack(only); // once, as it stops
+        if (State == Phase.Running && _renderer is { } only)
+        {
+            HandBack(only); // once, as it stops
+        }
+
         Unpushed();
         if (_renderer is { } renderer)
         {
@@ -429,9 +517,13 @@ internal static partial class VulkanRenderer
 
         _taking = false;
         (State, Status) = (_failed ? Phase.Failed : Phase.Off, _failed ? _failure : why);
-        if (!Only && _renderer is not null) LetGo(); // before Untap: handing back is quiet OpenGL work
+        if (!Only && _renderer is not null)
+        {
+            LetGo(); // before Untap: handing back is quiet OpenGL work
+        }
         // the record tapped at the start stays while Vulkan is on: what it hears now Vulkan needs later
         if (!GlTap.Tapped || (Only && !VulkanCore.Failed)) return;
+
         GlTap.Untap();
         _watched = false;
     }
@@ -446,14 +538,25 @@ internal static partial class VulkanRenderer
 
     private static void Fail(string why)
     {
+        var hadRenderer = _renderer is not null;
         var stranded = Strands($"failed ({why})");
-        (_failed, _failure) = (true, why);
-        Komet.Core.VulkanRecord.Failed(); // OpenGL from now on for players who never chose
+        (_failed, _failure, SafetyReason) = (true, why, why);
+        VulkanRecord.Failed(); // OpenGL from now on for players who never chose
         Unpushed();
         (State, Status, _taking) = (Phase.Failed, _failure, false);
         if (!stranded && _renderer is { } only) HandBack(only);
+
         LetGo();
-        if (!stranded) GlTap.Untap(); // stranded: tapped and resting until the world is left
+        if (!stranded)
+        {
+            GlTap.Untap();
+            if (hadRenderer)
+            {
+                TerrainRebuild.Recover();
+                _logger?.Notification("Komet: OpenGL recovery queued: terrain will be rebuilt into fresh OpenGL pools");
+            }
+        } // stranded: tapped and resting until the world is left
+
         _watched = false;
         _logger?.Warning("Komet: {0}", _failure);
     }
@@ -475,34 +578,43 @@ internal static partial class VulkanRenderer
     // use, unless GL rests (drew nothing more)
     private static void Distant(TerrainRenderer renderer)
     {
-        if (!DistantShadows.Published(out var texture, out var version, out _, out _) || version == _distant) return;
+        if (!DistantShadows.Published(out var texture, out var version) || version == _distant) return;
+
         _distant = version;
         if (!GlTap.Resting) renderer.Images.Changed(texture);
     }
 
     private static void Disposing(VAO __instance)
     {
-        if (_renderer is { } renderer)
-            Guarded(static s => s.renderer.Release(s.__instance), (renderer, __instance));
+        if (_renderer is { } renderer) Guarded(static s => s.renderer.Release(s.__instance), (renderer, __instance));
     }
 
     private static void Unframing(FrameBufferRef frameBuffer)
     {
         if (_renderer is { } renderer && NotNull(frameBuffer))
+        {
             Guarded(static s => s.renderer.Release(s.frameBuffer), (renderer, frameBuffer));
+        }
     }
 
     private static Samplers.State SamplerObject(int id)
     {
         if (!Assert(id > 0)) return default;
-        if (GlTap.SamplerOf(id) is { } recorded) return recorded; // followed as it changes: no cache
+
+        if (GlTap.SamplerOf(id) is { } recorded)
+        {
+            return recorded; // followed as it changes: no cache
+        }
+
         if (GlSamplers.TryGetValue(id, out var known)) return known;
+
         GL.GetSamplerParameter(id, SamplerParameterName.TextureMinFilter, out int min);
         GL.GetSamplerParameter(id, SamplerParameterName.TextureMagFilter, out int mag);
         GL.GetSamplerParameter(id, SamplerParameterName.TextureWrapS, out int wrap);
         GL.GetSamplerParameter(id, SamplerParameterName.TextureCompareMode, out int compare);
         var state = Samplers.FromGl(min, mag, wrap, compare != 0);
         if (GlSamplers.Count < MaxGlSamplers) GlSamplers[id] = state;
+
         return state;
     }
 

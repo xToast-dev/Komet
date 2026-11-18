@@ -7,18 +7,16 @@ namespace Komet.Test.Gpu;
 // locations, origin pushed per pool
 internal sealed class TerrainScene : IDisposable
 {
-    public TerrainScene(VulkanDevice device, bool high, string program = "chunkopaque")
+    public TerrainScene(bool high, string program = "chunkopaque")
     {
-        Device = device;
-        Name = program;
         var (vertex, fragment) = EngineShaders.Program(program, high);
         Program = Parity.Linked(vertex, fragment);
-        var ported = ProgramPorts.Port(Program, program, out var why, new HashSet<string>(["origin"], StringComparer.Ordinal));
+        var source = ProgramPorts.Read(Program, program, out var why);
+        var ported = source is null ? null
+            : ProgramPorts.Made(source, out why, new HashSet<string>(["origin"], StringComparer.Ordinal));
         Ported = ported ?? throw new InvalidOperationException(why);
     }
 
-    public VulkanDevice Device { get; }
-    public string Name { get; }
     public int Program { get; }
     public GlslPort.Ported Ported { get; }
 

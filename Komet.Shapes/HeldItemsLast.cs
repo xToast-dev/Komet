@@ -31,48 +31,71 @@ internal static class HeldItemsLast
     public static bool Enabled { get; set; } = true;
     public static bool Complete => Substituted[0] == Sites && Substituted[1] == Sites;
 
-    public static void Install(Harmony harmony, ILogger? logger)
-    {
-        (_render, _mode, _player, _opaque) = (null, null, null, false);
-        Array.Clear(Substituted);
-        Held.Clear();
-        if (!NotNull(harmony) || AccessTools.TypeByName(Renderer) is not { } renderer ||
-            AccessTools.TypeByName(PlayerRenderer) is not { } player) return;
-        var held = AccessTools.DeclaredMethod(renderer, "RenderHeldItem", [typeof(float), typeof(bool), typeof(bool)]);
-        var mode = AccessTools.DeclaredField(player, "renderMode");
-        var pass = AccessTools.DeclaredMethod(typeof(SystemRenderEntities), nameof(SystemRenderEntities.OnRenderOpaque3D), [typeof(float)]);
-        if (held is null || mode is null || !mode.FieldType.IsEnum || pass is null) return;
-        (_render, _mode, _player) = (Caller(held, renderer), Reader(mode, player), player);
-        foreach (var type in new[] { renderer, player }.Bounded(Sites))
-            if (AccessTools.DeclaredMethod(type, "DoRender3DOpaque", [typeof(float), typeof(bool)]) is { } opaque)
-                _ = harmony.Patch(opaque, transpiler: new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Rewrite))));
-        if (Complete) // the transpilers count what they replaced
-            _ = harmony.Patch(pass, new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Begin))),
-                new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Flush))),
-                finalizer: new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Settle))));
-        else
-            logger?.Warning("Komet HeldItemsLast: DoRender3DOpaque is not the method it was written for; held items draw before " +
-                            "bodies, as in the engine");
-    }
-
     // Each RenderHeldItem(dt, isShadowPass, right) call becomes Drawn(this, dt, isShadowPass, right)
     // Both renderers' DoRender3DOpaque, which the transpiler rewrites
     internal static MethodBase?[] Replaced =>
     [
         AccessTools.TypeByName(Renderer) is { } renderer
-            ? AccessTools.DeclaredMethod(renderer, "DoRender3DOpaque", [typeof(float), typeof(bool)]) : null,
+            ? AccessTools.DeclaredMethod(renderer, "DoRender3DOpaque", [typeof(float), typeof(bool)])
+            : null,
         AccessTools.TypeByName(PlayerRenderer) is { } player
-            ? AccessTools.DeclaredMethod(player, "DoRender3DOpaque", [typeof(float), typeof(bool)]) : null
+            ? AccessTools.DeclaredMethod(player, "DoRender3DOpaque", [typeof(float), typeof(bool)])
+            : null
     ];
 
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase original)
+    public static void Install(Harmony harmony, ILogger? logger)
+    {
+        (_render, _mode, _player, _opaque) = (null, null, null, false);
+        Array.Clear(Substituted);
+        Held.Clear();
+        if (AccessTools.TypeByName(Renderer) is not { } renderer ||
+            AccessTools.TypeByName(PlayerRenderer) is not { } player)
+        {
+            return;
+        }
+
+        var held = AccessTools.DeclaredMethod(renderer, "RenderHeldItem", [typeof(float), typeof(bool), typeof(bool)]);
+        var mode = AccessTools.DeclaredField(player, "renderMode");
+        var pass = AccessTools.DeclaredMethod(typeof(SystemRenderEntities),
+            nameof(SystemRenderEntities.OnRenderOpaque3D), [typeof(float)]);
+        if (held is null || mode is null || !mode.FieldType.IsEnum || pass is null) return;
+
+        (_render, _mode, _player) = (Caller(held, renderer), Reader(mode, player), player);
+        foreach (var type in new[] { renderer, player }.Bounded(Sites))
+        {
+            if (AccessTools.DeclaredMethod(type, "DoRender3DOpaque", [typeof(float), typeof(bool)]) is { } opaque)
+            {
+                _ = harmony.Patch(opaque,
+                    transpiler: new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Rewrite))));
+            }
+        }
+
+        if (Complete) // the transpilers count what they replaced
+        {
+            _ = harmony.Patch(pass, new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Begin))),
+                new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Flush))),
+                finalizer: new HarmonyMethod(AccessTools.Method(typeof(HeldItemsLast), nameof(Settle))));
+        }
+        else
+        {
+            logger?.Warning(
+                "Komet HeldItemsLast: DoRender3DOpaque is not the method it was written for; held items draw before " +
+                "bodies, as in the engine");
+        }
+    }
+
+    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase? original)
     {
         var (slot, found) = (original?.DeclaringType?.FullName == PlayerRenderer ? 1 : 0, 0);
         var drawn = AccessTools.Method(typeof(HeldItemsLast), nameof(Drawn));
         if (Assert(Il.Take(instructions, Il.MaxInstructions, out var code)))
+        {
             for (var i = 0; i < Math.Min(code.Count, Il.MaxInstructions); i++)
-                if (code[i].operand is MethodInfo { Name: "RenderHeldItem" } && Il.Substitute(code, i, drawn))
-                    found++;
+            {
+                if (code[i].operand is MethodInfo { Name: "RenderHeldItem" } && Il.Substitute(code, i, drawn)) found++;
+            }
+        }
+
         Substituted[slot] = found;
         return code;
     }
@@ -87,6 +110,7 @@ internal static class HeldItemsLast
     internal static void Drawn(object renderer, float dt, bool isShadowPass, bool right)
     {
         if (_render is not { } render) return;
+
         if (_opaque && !isShadowPass && Held.Count < MaxHeld && !Hands(renderer))
         {
             Held.Add((renderer, dt, right));
@@ -98,13 +122,15 @@ internal static class HeldItemsLast
 
     // First person draws held items in its hand field of view, within its own DoRender3DOpaque
     private static bool Hands(object renderer) =>
-        _player is { } player && player.IsInstanceOfType(renderer) && _mode is { } mode && mode(renderer) == FirstPerson;
+        _player is { } player && player.IsInstanceOfType(renderer) && _mode is { } mode &&
+               mode(renderer) == FirstPerson;
 
     // Postfix: the bodies are drawn; the held items in the state the opaque pass gave them, left as they found it
-    internal static void Flush(ClientMain ___game)
+    internal static void Flush(ClientMain? ___game)
     {
         _opaque = false;
         if (Held.Count == 0 || _render is not { } render || ___game?.api?.Render is not { } gl) return;
+
         gl.GlMatrixModeModelView();
         gl.GlDisableCullFace();
         gl.GlToggleBlend(true);
@@ -112,7 +138,9 @@ internal static class HeldItemsLast
         try
         {
             for (var i = 0; i < Math.Min(Held.Count, MaxHeld); i++)
+            {
                 render(Held[i].Renderer, Held[i].Dt, false, Held[i].Right);
+            }
         }
         finally
         {
@@ -131,8 +159,9 @@ internal static class HeldItemsLast
 
     private static Action<object, float, bool, bool> Caller(MethodInfo held, Type renderer)
     {
-        var method = new DynamicMethod("KometRenderHeldItem", typeof(void), [typeof(object), typeof(float), typeof(bool), typeof(bool)],
-            typeof(HeldItemsLast).Module, skipVisibility: true);
+        var method = new DynamicMethod("KometRenderHeldItem", typeof(void),
+            [typeof(object), typeof(float), typeof(bool), typeof(bool)],
+            typeof(HeldItemsLast).Module, true);
         var il = method.GetILGenerator();
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Castclass, renderer);
@@ -146,7 +175,8 @@ internal static class HeldItemsLast
 
     private static System.Func<object, int> Reader(FieldInfo mode, Type player)
     {
-        var method = new DynamicMethod("KometRenderMode", typeof(int), [typeof(object)], typeof(HeldItemsLast).Module, skipVisibility: true);
+        var method = new DynamicMethod("KometRenderMode", typeof(int), [typeof(object)], typeof(HeldItemsLast).Module,
+            true);
         var il = method.GetILGenerator();
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Castclass, player);

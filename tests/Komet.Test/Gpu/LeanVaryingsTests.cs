@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Komet.Rendering;
 using Komet.Vulkan;
 
@@ -20,7 +21,8 @@ public sealed class LeanVaryingsTests
         ArgumentNullException.ThrowIfNull(name);
         var (vertex, fragment) = EngineShaders.Program(name, high == 1);
         (vertex, fragment) = (DistantShadows.Vertex(vertex) ?? vertex,
-            (DistantShadows.Fragment(fragment) ?? fragment).Replace("#define SSAOLEVEL", DistantShadows.Definition + "#define SSAOLEVEL",
+            (DistantShadows.Fragment(fragment) ?? fragment).Replace("#define SSAOLEVEL",
+                DistantShadows.Definition + "#define SSAOLEVEL",
                 StringComparison.Ordinal));
         var program = new ShaderProgram
         {
@@ -41,6 +43,6 @@ public sealed class LeanVaryingsTests
     }
 
     private static int Outputs(string code) =>
-        System.Text.RegularExpressions.Regex.Count(code, @"^\s*(flat\s+)?out\s+\w+\s+\w+\s*;",
-            System.Text.RegularExpressions.RegexOptions.Multiline);
+        Regex.Count(code, @"^\s*(flat\s+)?out\s+\w+\s+\w+\s*;",
+            RegexOptions.Multiline);
 }

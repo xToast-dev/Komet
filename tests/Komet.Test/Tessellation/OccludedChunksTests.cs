@@ -1,3 +1,4 @@
+using Komet.Chunks;
 using Komet.Core;
 using Komet.Tessellation;
 
@@ -36,8 +37,10 @@ public sealed class OccludedChunksTests
         rig.AddRegion(X, Z, cy);
         _ = rig.Put(X, cy, Z, center ?? Solid);
         foreach (var (dx, dy, dz) in Faces)
-            if (cy + dy >= 0)
-                _ = rig.Put(X + dx, cy + dy, Z + dz, Mixed);
+        {
+            if (cy + dy >= 0) _ = rig.Put(X + dx, cy + dy, Z + dz, Mixed);
+        }
+
         return rig;
     }
 
@@ -45,7 +48,11 @@ public sealed class OccludedChunksTests
     private static void Stale(ChunkRig rig)
     {
         ChunkRig.Set(rig.Tesselator, "currentClimateRegionMap", new int[1]);
-        foreach (var corner in Corners) ChunkRig.Set(rig.Tesselator, corner, -7.5f);
+        foreach (var corner in Corners)
+        {
+            ChunkRig.Set(rig.Tesselator, corner, -7.5f);
+        }
+
         _ = ((BlockPos)ChunkRig.Get(rig.Tesselator, "tmpPos")).SetDimension(1);
     }
 
@@ -82,9 +89,15 @@ public sealed class OccludedChunksTests
             Assert.That(ChunkRig.CenterParts(mine), Is.SameAs(ChunkRig.CenterParts(engine)));
             Assert.That(ChunkRig.EdgeParts(engine), Is.Empty);
             if (edgeOnly)
+            {
                 Assert.That(ChunkRig.CenterParts(engine), Is.Null,
                     "an edge-only pass leaves the centre to the previous one");
-            else Assert.That(ChunkRig.CenterParts(engine), Is.Empty);
+            }
+            else
+            {
+                Assert.That(ChunkRig.CenterParts(engine), Is.Empty);
+            }
+
             float[] engineBounds = [a.x, a.y, a.z, a.radius, a.radiusY, a.radiusZ],
                 myBounds = [b.x, b.y, b.z, b.radius, b.radiusY, b.radiusZ];
             Assert.That(myBounds.Select(BitConverter.SingleToInt32Bits),
@@ -114,17 +127,18 @@ public sealed class OccludedChunksTests
         _ = rig.Put(X + 1, Y, Z, Cave, (x, _, _) => x == 5 ? ChunkRig.Water : ChunkRig.Air);
         // slabs lying on the chunk close its top
         _ = rig.Put(X, Y + 1, Z, (_, y, _) => y == 0 ? ChunkRig.Slab : ChunkRig.Air);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(OccludedChunks.Enclosed(rig.Tesselator, X, Y, Z, rig.Tess(X, Y, Z)), Is.True);
             Assert.That(rig.EngineDrawsNothing(X, Y, Z), Is.True);
-        });
+        }
         AssertSameResult(rig, Y, false);
     }
 
     private static int Cave(int x, int y, int z)
     {
         if (x == 0) return ChunkRig.Stone;
+
         return x % 2 == 0 ? ChunkRig.Air : ChunkRig.Glass;
     }
 
@@ -164,6 +178,7 @@ public sealed class OccludedChunksTests
             yield return Case("slab touching " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
                 (x, y, z) => Touching(dx, dy, dz, x, y, z) ? ChunkRig.Slab : ChunkRig.Stone));
             if (!sample) continue;
+
             yield return Case("snow touching " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
                 (x, y, z) => Touching(dx, dy, dz, x, y, z) ? ChunkRig.Snow : ChunkRig.Stone), dy == 1);
             yield return Case("air behind the slab " + name, rig => rig.Put(X + dx, Y + dy, Z + dz,
@@ -177,27 +192,37 @@ public sealed class OccludedChunksTests
         return new TestCaseData(name, conservative).SetName("Agrees: " + name);
     }
 
-    private static bool Touching(int dx, int dy, int dz, int x, int y, int z) => (dx, dy, dz) switch
-    {
-        (1, 0, 0) => x == 0,
-        (-1, 0, 0) => x == 31,
-        (0, 1, 0) => y == 0,
-        (0, -1, 0) => y == 31,
-        (0, 0, 1) => z == 0,
-        _ => z == 31
-    };
+    private static bool Touching(int dx, int dy, int dz, int x, int y, int z) =>
+        (dx, dy, dz) switch
+        {
+            (1, 0, 0) => x == 0,
+            (-1, 0, 0) => x == 31,
+            (0, 1, 0) => y == 0,
+            (0, -1, 0) => y == 31,
+            (0, 0, 1) => z == 0,
+            _ => z == 31
+        };
 
     [TestCaseSource(nameof(Changes))]
     public void TheFastPathAgreesWithTheEnginesFaceCulling(string change, bool conservative)
     {
         if (Changed.Count == 0) _ = Changes().ToList();
+
         using var rig = Enclosed(Y);
         Changed[change](rig);
         var enclosed = OccludedChunks.Enclosed(rig.Tesselator, X, Y, Z, rig.Tess(X, Y, Z));
         var nothing = rig.EngineDrawsNothing(X, Y, Z);
-        if (conservative) Assert.That(enclosed, Is.False, "left to the engine");
-        else Assert.That(enclosed, Is.EqualTo(nothing));
+        if (conservative)
+        {
+            Assert.That(enclosed, Is.False, "left to the engine");
+        }
+        else
+        {
+            Assert.That(enclosed, Is.EqualTo(nothing));
+        }
+
         if (!enclosed) return;
+
         Assert.That(nothing, Is.True);
         AssertSameResult(rig, Y, false);
         AssertSameResult(rig, Y, true);
@@ -208,12 +233,12 @@ public sealed class OccludedChunksTests
     public void OtherCullModesAreLeftToTheEngine()
     {
         using var rig = Enclosed(Y, (x, y, z) => (x, y, z) == (7, 9, 11) ? ChunkRig.Merge : ChunkRig.Stone);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(rig.EngineDrawsNothing(X, Y, Z), Is.True, "the engine draws nothing here either");
             Assert.That(OccludedChunks.Enclosed(rig.Tesselator, X, Y, Z, rig.Tess(X, Y, Z)), Is.False,
                 "but only Default is proven");
-        });
+        }
     }
 
     [Test]
@@ -245,11 +270,11 @@ public sealed class OccludedChunksTests
     {
         using var rig = Enclosed(Y);
         rig.Game.Blocks = [.. rig.Blocks.Take(ChunkRig.Granite)]; // granite and up no longer count
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(OccludedChunks.Enclosed(rig.Tesselator, X, Y, Z, rig.Tess(X, Y, Z)), Is.False);
             Assert.That(rig.EngineDrawsNothing(X, Y, Z), Is.False, "the neighbours' granite became air");
-        });
+        }
     }
 
     // Straight on the bit planes: which palette indices a layer uses decides, not what its palette lists
@@ -305,10 +330,15 @@ public sealed class OccludedChunksTests
         using var rig = new ChunkRig(types);
 
         int Any(int x, int y, int z) =>
-            ChunkRig.Count + (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
+            ChunkRig.Count +
+                   (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
 
         var center = rig.Put(X, Y, Z, Any);
-        foreach (var (dx, dy, dz) in Faces) _ = rig.Put(X + dx, Y + dy, Z + dz, Any);
+        foreach (var (dx, dy, dz) in Faces)
+        {
+            _ = rig.Put(X + dx, Y + dy, Z + dz, Any);
+        }
+
         var bits = (int)ChunkRig.Get(((ChunkData)center.Data).blocksLayer, "bitsize");
         Assert.That(bits, Is.GreaterThanOrEqualTo(6), "the general case");
         var (hx, hy, hz) = (rng.Next(32), rng.Next(32), rng.Next(32));
@@ -344,7 +374,9 @@ public sealed class OccludedChunksTests
         var nothing = rig.EngineDrawsNothing(X, Y, Z);
         Assert.That(enclosed, Is.EqualTo(nothing), $"change {seed % 4}, block {hole}, face {face}");
         if (seed % 4 is 0 or 3) Assert.That(enclosed, Is.True, "no hole, or one the chunk cannot see");
+
         if (!enclosed) return;
+
         AssertSameResult(rig, Y, false);
         AssertSameResult(rig, Y, true);
     }
@@ -378,7 +410,7 @@ public sealed class OccludedChunksTests
             "a chunk full of faces before");
         AssertSameResult(rig, Y, true);
 
-        (Block[] Blocks, Block[] Fluids, int[] Rgbs, byte[] Draw, byte[] DrawFluids) Next(bool fast)
+        (Block?[] Blocks, Block[] Fluids, int[] Rgbs, byte[] Draw, byte[] DrawFluids) Next(bool fast)
         {
             _ = rig.Tesselator.BeginProcessChunk(2, 3, 2, rig.At(2, 3, 2)!, false); // a chunk full of faces before
             var tess = rig.Tess(X, Y, Z);
@@ -411,6 +443,7 @@ public sealed class OccludedChunksTests
     // the enclosed chunks: the engine runs every pass while it is there. On NowProcessChunk only a patch of its body counts.
     [TestCase("BuildBlockPolygons", HarmonyPatchType.Postfix, true)]
     [TestCase("GetRange_Faster", HarmonyPatchType.Postfix, true)]
+    [TestCase("GetNeighbouringChunks", HarmonyPatchType.Postfix, true)]
     [TestCase("NowProcessChunk", HarmonyPatchType.Transpiler, true)]
     [TestCase("NowProcessChunk", HarmonyPatchType.Prefix, false)]
     public void AnotherModsPatchOnThePipeline(string seam, HarmonyPatchType kind, bool standsDown)
@@ -443,6 +476,9 @@ public sealed class OccludedChunksTests
         // KometModSystem's order and id: the other fast paths patch methods the prefix skips
         TessSeams.Install(harmony, null);
         FaceLight.Install(harmony);
+        ChunkLookup.Install(harmony);
+        NeighbourReads.Install(harmony);
+        JitWarm.Install(harmony, null);
         OccludedChunks.Install(harmony);
         TessSeams.Recheck();
         Assert.That(OccludedChunks.Installed, Is.True);

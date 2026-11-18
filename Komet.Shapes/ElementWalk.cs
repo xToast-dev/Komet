@@ -31,7 +31,9 @@ internal ref struct ElementWalk
         {
             var depth = _depth;
             if (depth < 0) return false;
+
             if (depth >= MaxDepth) return Fail();
+
             var (items, i) = (_items[depth]!, _next[depth]);
             if (i >= items.Length)
             {
@@ -40,8 +42,10 @@ internal ref struct ElementWalk
             }
 
             if (_count >= MaxElements) return Fail();
+
             (element, _next[depth], Depth, _count) = (items[i], i + 1, depth, _count + 1);
             if (element?.Children is not { Length: > 0 } children) return true;
+
             (_depth, _items[depth + 1], _next[depth + 1], _owners[depth + 1]) = (depth + 1, children, 0, _count - 1);
             return true;
         }
@@ -64,7 +68,7 @@ internal ref struct ElementWalk
     [InlineArray(MaxDepth + 1)]
     private struct Levels
     {
-        private ShapeElement[]? _level;
+        private ShapeElement?[]? _level;
     }
 
     [InlineArray(MaxDepth + 1)]

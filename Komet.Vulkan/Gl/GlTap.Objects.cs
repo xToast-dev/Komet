@@ -4,9 +4,10 @@ namespace Komet.Vulkan;
 
 // The bindings the taps follow: vertex arrays, buffer binding points, texture units' array and cube textures, scissor,
 // clear values, pixel store. A vertex array or texture not seen being made is asked from OpenGL once, on first sight.
-internal static unsafe partial class GlTap
+internal static partial class GlTap
 {
-    public const int MaxAttributes = 16, MaxBindings = 16;
+    public const int MaxAttributes = 16;
+    private const int MaxBindings = 16;
     public const uint Texture2DArray = 0x8C1A, TextureCube = 0x8513, Fill = 0x1B02;
     private const int MaxArrays = 1 << 16, MaxKnownTextures = 1 << 16;
     private const uint ArrayBuffer = 0x8892, ElementBuffer = 0x8893, UniformBuffer = 0x8A11, StorageBuffer = 0x90D2;
@@ -15,35 +16,20 @@ internal static unsafe partial class GlTap
     private const uint CubeFirst = 0x8515, CubeLast = 0x851A;
     private const int ProfileMask = 0x9126;
 
-    // One vertex attribute as glVertexAttrib(I)Pointer left it; Stride is what OpenGL steps by (0 only from
-    // glVertexArrayVertexBuffer: no stepping, as Vulkan takes it too)
-    public readonly record struct Attribute(bool Enabled, uint Buffer, int Size, uint Type, bool Normalized,
-        bool Integer, int Stride, long Offset, uint Divisor);
-
-    // A VAO's attributes by location and element buffer; Changes: attribute changes (element buffer rebinds per draw)
-    public sealed class VertexArray
-    {
-        public Attribute[] Attributes { get; } = new Attribute[MaxAttributes];
-        public uint Elements { get; set; }
-        public long Changes { get; set; }
-    }
-
     private static readonly Dictionary<uint, VertexArray> Arrays = [];
     private static readonly Dictionary<uint, uint> TextureTargets = []; // each texture's target, asked once
     private static readonly (uint Buffer, long Offset, long Size)[] Uniforms = new (uint, long, long)[MaxBindings];
     private static readonly (uint Buffer, long Offset, long Size)[] Storages = new (uint, long, long)[MaxBindings];
     private static readonly uint[] UnitArrays = new uint[MaxUnits], UnitCubes = new uint[MaxUnits];
     private static uint _vao, _arrayBuffer, _uniformBuffer, _storageBuffer, _copyRead, _copyWrite, _unpackBuffer;
-    private static uint _indirect, _packBuffer, _parameters, _polygonMode = Fill;
+    private static uint _indirect, _packBuffer, _parameters;
 
     // The element buffer is the bound vertex array's. Vulkan-only also follows VAO 0's (GL keeps one): the engine binds
     // a pool's index buffer with none bound to fill it (updateIndices), which must reach Vulkan's copy
     private static uint _looseElements;
-    private static float _lineWidth = 1, _widest = 1;
-    private static uint _logicOp = 0x1503; // GL_COPY
-    private static (int RowLength, int SkipRows, int SkipPixels, int Alignment) _unpack = (0, 0, 0, 4), _pack = (0, 0, 0, 4);
+    private static float _widest = 1;
+    private static (int RowLength, int SkipRows, int SkipPixels, int Alignment) _pack = (0, 0, 0, 4);
     private static VertexArray? _array;
-    private static (int X, int Y, int Width, int Height) _scissor;
     private static (float R, float G, float B, float A) _clearColor;
     private static double _clearDepth = 1;
 
@@ -52,7 +38,7 @@ internal static unsafe partial class GlTap
     // What the tap keeps by GL name, for the report; Bytes: approx., of vertex arrays (16 attributes each) and targets
     public static (int Programs, int Arrays, int Textures, int Framebuffers, long Bytes) Held =>
         (Programs.Count, Arrays.Count, TextureTargets.Count, DrawBuffers.Count,
-            (730L * Arrays.Count) + (24L * TextureTargets.Count));
+            730L * Arrays.Count + 24L * TextureTargets.Count);
 
     // An occlusion query began (target, id) or ended (target, 0)
     public static Action<uint, uint>? Querying { get; set; }
@@ -60,16 +46,20 @@ internal static unsafe partial class GlTap
     // A query's result or availability (id, GL_QUERY_RESULT or _AVAILABLE) from Vulkan; null: OpenGL answers
     public static System.Func<uint, uint, long?>? Answering { get; set; }
 
-    public static (int X, int Y, int Width, int Height) Scissor => _scissor;
-    public static uint PolygonMode => _polygonMode;
-    public static float LineWidth => _lineWidth;
+    public static (int X, int Y, int Width, int Height) Scissor { get; private set; }
+
+    public static uint PolygonMode { get; private set; } = Fill;
+
+    public static float LineWidth { get; private set; } = 1;
 
     // glLogicOp's operation (GL_CLEAR 0x1500 to GL_SET 0x150F), used while GL_COLOR_LOGIC_OP is on
-    public static uint LogicOperation => _logicOp;
+    public static uint LogicOperation { get; private set; } = 0x1503;
 
     // glPixelStorei's GL_UNPACK_*, and whether GL_PIXEL_UNPACK_BUFFER is bound (the pointer is then an offset into it)
-    public static (int RowLength, int SkipRows, int SkipPixels, int Alignment) Unpack => _unpack;
-    public static bool Unpacking => _unpackBuffer != 0;
+    public static (int RowLength, int SkipRows, int SkipPixels, int Alignment) Unpack { get; private set; } =
+        (0, 0, 0, 4);
+
+    private static bool Unpacking => _unpackBuffer != 0;
 
     // glPixelStorei's GL_PACK_* and GL_PIXEL_PACK_BUFFER, while tapped
     public static ((int RowLength, int SkipRows, int SkipPixels, int Alignment) Store, uint Buffer)? Pack =>
@@ -86,19 +76,29 @@ internal static unsafe partial class GlTap
     public static uint UnitTexture(int unit, uint target)
     {
         if (!Index(unit, MaxUnits)) return 0;
-        return target switch { Texture2DArray => UnitArrays[unit], TextureCube => UnitCubes[unit], _ => UnitTextures[unit] };
+
+        return target switch
+        {
+            Texture2DArray => UnitArrays[unit], TextureCube => UnitCubes[unit], _ => UnitTextures[unit]
+        };
     }
 
     // The target a texture was made for, asked once (DSA binds by it)
-    public static uint TargetOf(uint texture)
+    private static uint TargetOf(uint texture)
     {
         if (texture == 0) return Texture2D;
+
         if (TextureTargets.TryGetValue(texture, out var known)) return known;
+
         if (Tapped && TextureRecords.TryGetValue(texture, out var recorded) && recorded.Target != 0)
+        {
             return recorded.Target;
+        }
+
         GL.GetTextureParameter((int)texture, (GetTextureParameter)GlTextureTarget, out int target);
         var made = target == 0 ? Texture2D : (uint)target;
         if (TextureTargets.Count >= MaxKnownTextures) TextureTargets.Clear();
+
         TextureTargets[texture] = made;
         return made;
     }
@@ -109,13 +109,15 @@ internal static unsafe partial class GlTap
     private static VertexArray? ArrayOf(uint vao)
     {
         if (vao == 0) return null;
+
         if (Arrays.TryGetValue(vao, out var known)) return known;
+
         var made = new VertexArray();
         for (var i = 0; i < MaxAttributes; i++)
         {
             int Get(int name)
             {
-                GL.GetVertexArrayIndexed((int)vao, i, (VertexArrayIndexedParameter)name, out int value);
+                GL.GetVertexArrayIndexed((int)vao, i, (VertexArrayIndexedParameter)name, out var value);
                 return value;
             }
 
@@ -126,9 +128,10 @@ internal static unsafe partial class GlTap
                 Get(0x88FD) != 0, Effective(Get(0x82D8), size, type), offset[0], (uint)Get(0x88FE));
         }
 
-        GL.GetVertexArray((int)vao, VertexArrayParameter.ElementArrayBufferBinding, out int elements);
+        GL.GetVertexArray((int)vao, VertexArrayParameter.ElementArrayBufferBinding, out var elements);
         made.Elements = (uint)elements;
         if (Arrays.Count < MaxArrays) Arrays[vao] = made;
+
         return made;
     }
 
@@ -136,7 +139,9 @@ internal static unsafe partial class GlTap
     private static int Effective(int stride, int size, uint type)
     {
         if (!Assert(size is >= 0 and <= 4 or 0x80E1)) return 0;
+
         if (stride > 0) return stride;
+
         return type switch
         {
             0x1400 or 0x1401 => size, // bytes
@@ -147,14 +152,15 @@ internal static unsafe partial class GlTap
         };
     }
 
-    private static uint Bound(uint target) => target switch
-    {
-        ArrayBuffer => _arrayBuffer, ElementBuffer => BoundArray?.Elements ?? _looseElements,
-        UniformBuffer => _uniformBuffer,
-        StorageBuffer => _storageBuffer, CopyRead => _copyRead, CopyWrite => _copyWrite,
-        UnpackBuffer => _unpackBuffer, IndirectBuffer => _indirect, PackBuffer => _packBuffer,
-        ParameterBuffer => _parameters, _ => 0
-    };
+    private static uint Bound(uint target) =>
+        target switch
+        {
+            ArrayBuffer => _arrayBuffer, ElementBuffer => BoundArray?.Elements ?? _looseElements,
+            UniformBuffer => _uniformBuffer,
+            StorageBuffer => _storageBuffer, CopyRead => _copyRead, CopyWrite => _copyWrite,
+            UnpackBuffer => _unpackBuffer, IndirectBuffer => _indirect, PackBuffer => _packBuffer,
+            ParameterBuffer => _parameters, _ => 0
+        };
 
     private static void BindTo(uint target, uint buffer)
     {
@@ -202,36 +208,37 @@ internal static unsafe partial class GlTap
         _storageBuffer = (uint)GL.GetInteger((GetPName)0x90D3);
         (_copyRead, _copyWrite) = ((uint)GL.GetInteger((GetPName)0x8F36), (uint)GL.GetInteger((GetPName)0x8F37));
         (_unpackBuffer, _indirect) = ((uint)GL.GetInteger((GetPName)0x88EF), (uint)GL.GetInteger((GetPName)0x8F43));
-        _unpack = (GL.GetInteger(GetPName.UnpackRowLength), GL.GetInteger(GetPName.UnpackSkipRows),
+        Unpack = (GL.GetInteger(GetPName.UnpackRowLength), GL.GetInteger(GetPName.UnpackSkipRows),
             GL.GetInteger(GetPName.UnpackSkipPixels), GL.GetInteger(GetPName.UnpackAlignment));
         (_pack, _packBuffer) = (Packing(), (uint)GL.GetInteger((GetPName)0x88ED));
         // not asked: GL_PARAMETER_BUFFER_BINDING is GL 4.6 (GL_INVALID_ENUM before); an earlier tap's name must not stay
         _parameters = 0;
         for (var i = 0; i < MaxBindings; i++)
         {
-            GL.GetInteger(GetIndexedPName.UniformBufferBinding, i, out int uniform);
-            GL.GetInteger((GetIndexedPName)0x90D3, i, out int storage);
-            GL.GetInteger64((GetIndexedPName)0x8A29, i, out long start);
-            GL.GetInteger64((GetIndexedPName)0x8A2A, i, out long size);
+            GL.GetInteger(GetIndexedPName.UniformBufferBinding, i, out var uniform);
+            GL.GetInteger((GetIndexedPName)0x90D3, i, out var storage);
+            GL.GetInteger64((GetIndexedPName)0x8A29, i, out var start);
+            GL.GetInteger64((GetIndexedPName)0x8A2A, i, out var size);
             Uniforms[i] = ((uint)uniform, start, size);
             Storages[i] = ((uint)storage, 0, 0);
         }
 
         var box = new int[4];
         GL.GetInteger(GetPName.ScissorBox, box);
-        _scissor = (box[0], box[1], box[2], box[3]);
+        Scissor = (box[0], box[1], box[2], box[3]);
         var clear = new float[4];
         GL.GetFloat(GetPName.ColorClearValue, clear);
         (_clearColor, _clearDepth) = ((clear[0], clear[1], clear[2], clear[3]), GL.GetDouble(GetPName.DepthClearValue));
         var modes = new int[2];
         GL.GetInteger(GetPName.PolygonMode, modes);
-        _polygonMode = (uint)modes[0];
-        _lineWidth = GL.GetFloat(GetPName.LineWidth);
-        _logicOp = (uint)GL.GetInteger(GetPName.LogicOpMode);
+        PolygonMode = (uint)modes[0];
+        LineWidth = GL.GetFloat(GetPName.LineWidth);
+        LogicOperation = (uint)GL.GetInteger(GetPName.LogicOpMode);
         var range = new float[2];
         GL.GetFloat(GetPName.AliasedLineWidthRange, range);
         // a forward-compatible core context refuses lines wider than one (GL_INVALID_VALUE): the width stays
-        var refused = (GL.GetInteger(GetPName.ContextFlags) & 1) != 0 && (GL.GetInteger((GetPName)ProfileMask) & 1) != 0;
+        var refused = (GL.GetInteger(GetPName.ContextFlags) & 1) != 0 &&
+                      (GL.GetInteger((GetPName)ProfileMask) & 1) != 0;
         _widest = refused ? 1 : Math.Max(range[1], 1);
         var active = GL.GetInteger(GetPName.ActiveTexture);
         for (var unit = 0; unit < MaxUnits; unit++)
@@ -242,6 +249,27 @@ internal static unsafe partial class GlTap
         }
 
         GL.ActiveTexture((TextureUnit)active);
+    }
+
+    // One vertex attribute as glVertexAttrib(I)Pointer left it; Stride is what OpenGL steps by (0 only from
+    // glVertexArrayVertexBuffer: no stepping, as Vulkan takes it too)
+    public readonly record struct Attribute(
+        bool Enabled,
+        uint Buffer,
+        int Size,
+        uint Type,
+        bool Normalized,
+        bool Integer,
+        int Stride,
+        long Offset,
+        uint Divisor);
+
+    // A VAO's attributes by location and element buffer; Changes: attribute changes (element buffer rebinds per draw)
+    public sealed class VertexArray
+    {
+        public Attribute[] Attributes { get; } = new Attribute[MaxAttributes];
+        public uint Elements { get; set; }
+        public long Changes { get; set; }
     }
 }
 
@@ -276,11 +304,13 @@ internal interface IGlWrites
         (int Format, int Width, int Height, int Depth) spec, (uint Format, uint Type) data, IntPtr pixels);
 
     // Vulkan-only: client-memory upload into a box of a level (Z: layer or cube face); true when taken, else changed
-    bool TextureSubImaged(uint texture, uint target, int level, (int X, int Y, int Z, int Width, int Height, int Depth) box,
+    bool TextureSubImaged(uint texture, uint target, int level,
+        (int X, int Y, int Z, int Width, int Height, int Depth) box,
         (uint Format, uint Type) data, IntPtr pixels);
 
     // Vulkan-only: glCopyImageSubData from one texture's level (and layer Z) into another's; true when taken
-    bool TextureCopied((uint Texture, int Level, int X, int Y, int Z) to, (uint Texture, int Level, int X, int Y, int Z) from,
+    bool TextureCopied((uint Texture, int Level, int X, int Y, int Z) to,
+        (uint Texture, int Level, int X, int Y, int Z) from,
         (int Width, int Height, int Depth) size);
 
     // Vulkan-only: glCopyTexSubImage2D from an FBO's read buffer (Read: GlTap.ReadBufferOf) into a level (Z: layer)

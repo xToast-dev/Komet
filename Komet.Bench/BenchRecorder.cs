@@ -1,5 +1,6 @@
 using Komet.Diagnostics;
 using Komet.Tessellation;
+using Komet.Vulkan;
 using Vintagestory.Client;
 
 namespace Komet.Bench;
@@ -18,13 +19,38 @@ internal enum BenchFrameTags : byte
 
 // One frame as FrameClock closed it, with the driver's stamp; allocation in KiB, queues and passes as of the next frame
 internal readonly record struct BenchFrame(
-    float DtMs, float GcMs, float JitMs, float RunQueueMs, int AllocKb, int MainAllocKb, byte Gen0, byte Gen1,
-    byte Gen2, BenchFrameTags Flags, short Segment, int TessQ, int TessNear, int UploadQ, int Received, int TessPasses,
-    float TessMs, float X, float Z, float Yaw, float GpuMs = float.NaN, float OpaqueGpuMs = float.NaN); // Vulkan's last timed frame, its opaque terrain
+    float DtMs,
+    float GcMs,
+    float JitMs,
+    float RunQueueMs,
+    int AllocKb,
+    int MainAllocKb,
+    byte Gen0,
+    byte Gen1,
+    byte Gen2,
+    BenchFrameTags Flags,
+    short Segment,
+    int TessQ,
+    int TessNear,
+    int UploadQ,
+    int Received,
+    int TessPasses,
+    float TessMs,
+    float X,
+    float Z,
+    float Yaw,
+    float GpuMs = float.NaN,
+    float OpaqueGpuMs = float.NaN); // Vulkan's last timed frame, its opaque terrain
 
 // The latest collection at a spike frame's end (GC.GetGCMemoryInfo); Valid false: the frame collected nothing
 internal readonly record struct BenchGc(
-    bool Valid, long Index, int Generation, float PauseMs, bool Compacted, bool Concurrent, long PromotedKb);
+    bool Valid,
+    long Index,
+    int Generation,
+    float PauseMs,
+    bool Compacted,
+    bool Concurrent,
+    long PromotedKb);
 
 internal readonly record struct BenchSpike(int Frame, float Ms, BenchGc Gc);
 
@@ -56,7 +82,9 @@ internal sealed class BenchRecorder : IFrameSink
     public BenchRecorder(int capacity, int segments, int spikesPerSegment)
     {
         if (!Assert(capacity is > 0 and <= MaxFrames)) capacity = 1;
+
         if (!Assert(segments is > 0 and <= BenchScenario.MaxSegments)) segments = 1;
+
         (_frames, _segments, _perSegment) =
             (new BenchFrame[capacity], segments, Math.Clamp(spikesPerSegment, 1, MaxSpikes));
         _spikes = new BenchSpike[segments * _perSegment];
@@ -74,6 +102,7 @@ internal sealed class BenchRecorder : IFrameSink
     {
         // NaN dt fails the first test too
         if (!Assert(Recording) || !Assert(frame.DtMs >= 0) || !Finite(frame.GcMs)) return;
+
         var (chunks, tess) = (RuntimeStats.chunksReceived, TessAccounting.Totals());
         // tess itself after Clear() at a world change
         var done = tess.Passes >= _tess.Passes && tess.Ticks >= _tess.Ticks ? tess.Since(_tess) : tess;
@@ -92,15 +121,17 @@ internal sealed class BenchRecorder : IFrameSink
             Collections(counters.Gen2), flags, (short)_stampSegment, RuntimeStats.chunksAwaitingTesselation,
             TessSchedule.NearWaiting, RuntimeStats.chunksAwaitingPooling, received,
             (int)Math.Min(done.Passes, int.MaxValue), (float)done.Ms, _stampX, _stampZ, _stampYaw,
-            (float)Komet.Vulkan.VulkanRenderer.FrameGpuMs, OpaqueGpu());
+            (float)VulkanRenderer.FrameGpuMs, OpaqueGpu());
         if ((flags & Excluded) == 0 && _stampSegment >= 0)
+        {
             Spike(i, ms, frame.Root, counters.Gen0 > 0); // gen1 and gen2 count in Gen0 too
+        }
     }
 
     private static float OpaqueGpu()
     {
         Span<double> groups = stackalloc double[3];
-        var timed = Komet.Vulkan.VulkanRenderer.TerrainGpuMs(groups);
+        var timed = VulkanRenderer.TerrainGpuMs(groups);
         return Assert(groups.Length == 3) && timed ? (float)groups[1] : float.NaN;
     }
 
@@ -108,6 +139,7 @@ internal sealed class BenchRecorder : IFrameSink
     public void Start()
     {
         if (!Assert(!Recording) || !Assert(Count == 0)) return;
+
         (_chunks, _tess, Recording) = (RuntimeStats.chunksReceived, TessAccounting.Totals(), true);
     }
 
@@ -120,16 +152,19 @@ internal sealed class BenchRecorder : IFrameSink
     public void Stamp(int segment, BenchFrameTags flags, float x, float z, float yaw)
     {
         if (!Index(segment, _segments) || !Assert(float.IsFinite(x) && float.IsFinite(z)) || !Finite(yaw)) return;
+
         (_stampSegment, _stampFlags, _stampX, _stampZ, _stampYaw, _stamped) = (segment, flags, x, z, yaw, true);
     }
 
     public ReadOnlySpan<BenchSpike> Spikes(int segment) =>
         Index(segment, _segments) && Assert(_spikes.Length == _segments * _perSegment)
-            ? _spikes.AsSpan(segment * _perSegment, _perSegment) : [];
+            ? _spikes.AsSpan(segment * _perSegment, _perSegment)
+            : [];
 
     public ReadOnlySpan<BenchSpikeMark> Marks(int segment, int rank) =>
         Index(segment, _segments) && Index(rank, _perSegment)
-            ? _marks.AsSpan((segment * _perSegment + rank) * MarksPerSpike, MarksPerSpike) : [];
+            ? _marks.AsSpan((segment * _perSegment + rank) * MarksPerSpike, MarksPerSpike)
+            : [];
 
     private static int Kb(long bytes) =>
         Assert(bytes >= 0) && Assert(bytes / 1024 <= int.MaxValue) ? (int)(bytes / 1024) : 0;
@@ -140,16 +175,20 @@ internal sealed class BenchRecorder : IFrameSink
     private void Spike(int frame, float ms, ProfileEntryRange? root, bool collected)
     {
         if (!Index(_stampSegment, _segments) || !Assert(ms >= 0)) return;
+
         var spikes = _spikes.AsSpan(_stampSegment * _perSegment, _perSegment);
         var rank = Math.Min(spikes.Length, MaxSpikes);
         for (var i = 0; i < Math.Min(spikes.Length, MaxSpikes); i++)
+        {
             if (spikes[i].Ms < ms)
             {
                 rank = i;
                 break;
             }
+        }
 
         if (rank >= spikes.Length) return;
+
         spikes[rank..^1].CopyTo(spikes[(rank + 1)..]);
         spikes[rank] = new BenchSpike(frame, ms, collected ? LastGc() : default);
         var marks = _marks.AsSpan(_stampSegment * _perSegment * MarksPerSpike, _perSegment * MarksPerSpike);
@@ -172,13 +211,16 @@ internal sealed class BenchRecorder : IFrameSink
     {
         top.Clear();
         if (root?.Marks == null || !Assert(top.Length == MarksPerSpike)) return;
+
         Rank(top, null, root.Marks);
         if (root.ChildRanges == null) return;
+
         using var ranges = root.ChildRanges.GetEnumerator(); // struct enumerator: nothing allocated
         for (var i = 0; i < RenderPassStats.MaxRanges && ranges.MoveNext(); i++)
         {
             var (code, range) = ranges.Current;
             if (!NotNull(range)) continue;
+
             Insert(top, new BenchSpikeMark(code, null, (float)FrameClock.ToMs(range.ElapsedTicks), range.CallCount));
             if (range.Marks != null) Rank(top, code, range.Marks);
         }
@@ -187,11 +229,13 @@ internal sealed class BenchRecorder : IFrameSink
     private static void Rank(Span<BenchSpikeMark> top, string? range, Dictionary<string, ProfileEntry> marks)
     {
         if (!Assert(top.Length == MarksPerSpike) || !Assert(marks.Count <= RenderPassStats.MaxMarks)) return;
+
         using var entries = marks.GetEnumerator();
         for (var i = 0; i < RenderPassStats.MaxMarks && entries.MoveNext(); i++)
         {
             var (code, entry) = entries.Current;
             if (!NotNull(entry)) continue;
+
             Insert(top, new BenchSpikeMark(range, code, (float)FrameClock.ToMs(entry.ElapsedTicks), entry.CallCount));
         }
     }
@@ -199,6 +243,7 @@ internal sealed class BenchRecorder : IFrameSink
     private static void Insert(Span<BenchSpikeMark> top, BenchSpikeMark mark)
     {
         if (!Assert(top.Length == MarksPerSpike) || !Finite(mark.Ms)) return;
+
         TopN.Insert(top, mark, mark.Ms, static m => m.Empty ? -1 : m.Ms);
     }
 }

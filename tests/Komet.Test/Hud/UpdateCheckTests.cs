@@ -36,11 +36,17 @@ public sealed class UpdateCheckTests
     [TestCase("v2.0.9", "v2.0.10", true)]
     [TestCase("v2.0.0", "v2.0.0", false)]
     [TestCase("v2.0.0", "", false)]
+    [TestCase("v2.0.1-pre.9", "v2.0.1-pre.10", true)]
+    [TestCase("v2.0.1-pre.10", "v2.0.1-pre.9", false)]
+    [TestCase("v2.0.1+local", "v2.0.1", false)]
+    [TestCase("v2.0.1-pre.1+local", "v2.0.1-pre.1", false)]
+    [TestCase("v2.0.1-pre.1", "v2.0.1-pre.1.1", true)]
+    [TestCase("v2.0.1-pre.1", "v2.0.1-pre.alpha", true)]
+    [TestCase("v2.0.1-pre.alpha", "v2.0.1-pre.1", false)]
+    [TestCase("v2.0.1-pre.99999999999999999999", "v2.0.1-pre.100000000000000000000", true)]
     [TestCase("preview-abc1234", "preview-def5678", true)]
-    public void TheNewestTagIsAnUpdateOnlyWhenItIsLater(string tag, string newest, bool behind)
-    {
+    public void TheNewestTagIsAnUpdateOnlyWhenItIsLater(string tag, string newest, bool behind) =>
         Assert.That(UpdateCheck.Behind(tag, newest), Is.EqualTo(behind));
-    }
 
     [TestCase("Checking", "v1", "a", "a", "verify-checking")]
     [TestCase("Failed", "v1", "a", "a", "verify-failed")]

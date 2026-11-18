@@ -14,22 +14,13 @@ internal sealed class BoundedPool<T>(int max) where T : class
         }
     }
 
-    // Drops every kept item, returning how many were kept
-    public int Clear()
-    {
-        lock (_lock)
-        {
-            var count = _items.Count;
-            _items.Clear();
-            return count;
-        }
-    }
-
     public void Give(T item)
     {
         if (!NotNull(item)) return;
+
         lock (_lock)
-            if (_items.Count < max)
-                _items.Push(item);
+        {
+            if (_items.Count < max) _items.Push(item);
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using OpenTK.Graphics.OpenGL;
+using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
@@ -12,15 +13,16 @@ internal static class GlContext
     internal const int Size = 64, WallDistance = 10;
     private static bool _resolving;
 
+    internal static string Why { get; private set; } = "";
+
     // OpenTK asks for libglfw.so.3 by name, which the loader then finds among the libraries already in the process; the game ships it
     private static void Resolve()
     {
         if (_resolving) return;
+
         _resolving = true;
         _ = NativeLibrary.TryLoad(Path.Combine(GameInstall.Lib, "libglfw.so.3"), out _);
     }
-
-    internal static string Why { get; private set; } = "";
 
     internal static NativeWindow? Context()
     {
@@ -31,7 +33,7 @@ internal static class GlContext
             var window = new NativeWindow(new NativeWindowSettings
             {
                 StartVisible = false, APIVersion = new Version(4, 6), Profile = ContextProfile.Compatability,
-                ClientSize = new OpenTK.Mathematics.Vector2i(Size, Size)
+                ClientSize = new Vector2i(Size, Size)
             });
             window.MakeCurrent();
             return window;

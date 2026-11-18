@@ -22,8 +22,11 @@ internal sealed class OwnCross(IBlockTesselator engine) : OwnSlot(engine)
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     protected override bool Draw(TCTCache vars, Block block)
     {
+        if (OwnTessellation.CrossStoodDown) return false;
+
         OwnQuads.Chosen chosen = default;
         if (!Choose(vars, block, out var hash, out var color, ref chosen)) return false;
+
         vars.drawFaceFlags = CrossFaces;
         Draw(vars, block, hash, color, ref chosen);
         return true;
@@ -34,18 +37,32 @@ internal sealed class OwnCross(IBlockTesselator engine) : OwnSlot(engine)
     private static bool Choose(TCTCache vars, Block block, out int hash, out int color, ref OwnQuads.Chosen chosen)
     {
         (hash, color) = (0, 0);
-        var (fast, positions, tct) = (vars.fastBlockTextureSubidsByFace, vars.textureAtlasPositionsByTextureSubId, vars.tct);
+        var (fast, positions, tct) = (vars.fastBlockTextureSubidsByFace, vars.textureAtlasPositionsByTextureSubId,
+            vars.tct);
         if (block.VertexFlags is null || fast is null || positions is null || tct is null ||
             RgbsExt(tct) is not { } light || !Index(vars.extIndex3d, light.Length) ||
-            OwnQuads.Pools(tct, block.RenderPass, block.DoNotRenderAtLod2 ? 2 : 1) is not { } pools) return false;
-        if (block.HasAlternates && block.FastTextureVariants is null) return false;
+            OwnQuads.Pools(tct, block.RenderPass, block.DoNotRenderAtLod2 ? 2 : 1) is not { } pools)
+        {
+            return false;
+        }
+
+        if (block is { HasAlternates: true, FastTextureVariants: null }) return false;
+
         var variants = block.HasAlternates ? block.FastTextureVariants : null;
         if (block.HasAlternates || block.RandomizeRotations)
-            hash = GameMath.MurmurHash3(vars.posX, block.RandomizeAxes == EnumRandomizeAxes.XYZ ? vars.posY : 0, vars.posZ);
+        {
+            hash = GameMath.MurmurHash3(vars.posX, block.RandomizeAxes == EnumRandomizeAxes.XYZ ? vars.posY : 0,
+                vars.posZ);
+        }
+
         for (var q = 0; q < Quads; q++)
         {
             var id = OwnQuads.Texture(variants, fast, 2 * q, hash, false);
-            if (id == OwnQuads.Unknown || !OwnQuads.Take(positions, pools, id, out var position, out var mesh)) return false;
+            if (id == OwnQuads.Unknown || !OwnQuads.Take(positions, pools, id, out var position, out var mesh))
+            {
+                return false;
+            }
+
             (chosen.Positions[q], chosen.Meshes[q]) = (position, mesh);
         }
 
@@ -67,7 +84,11 @@ internal sealed class OwnCross(IBlockTesselator engine) : OwnSlot(engine)
         for (var q = 0; q < Quads; q++)
         {
             var (position, mesh) = (chosen.Positions[q], chosen.Meshes[q]);
-            if (!NotNull(position) || !NotNull(mesh)) continue; // Choose took both
+            if (!NotNull(position) || !NotNull(mesh))
+            {
+                continue; // Choose took both
+            }
+
             var (x0, y0, z0, x1, y1, z1) = Corners(vars, matrix, q);
             quad.Set(0, x1, y0, z1, position.x2, position.y2);
             quad.Set(1, x1, y1, z1, position.x2, position.y1);
@@ -88,6 +109,7 @@ internal sealed class OwnCross(IBlockTesselator engine) : OwnSlot(engine)
     {
         var (x, y, z) = (vars.finalX, vars.finalY, vars.finalZ);
         if (matrix is null) return (x + q, y, z, x + (1f - q), y + Height, z + 1f);
+
         Mat4f.MulWithVec3_Position(matrix, q, 0f, 0f, _start);
         Mat4f.MulWithVec3_Position(matrix, 1f - q, Height, 1f, _end);
         return (x + _start.X, y + _start.Y, z + _start.Z, _end.X + x, _end.Y + y, _end.Z + z);

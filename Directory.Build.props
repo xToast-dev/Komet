@@ -6,6 +6,7 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <WarningsNotAsErrors Condition="'$(MSBuildProjectName)' == 'Komet.Vulkan' or '$(MSBuildProjectName)' == 'Komet.Ui'">$(WarningsNotAsErrors);KR0008</WarningsNotAsErrors>
         <MSBuildTreatWarningsAsErrors>true</MSBuildTreatWarningsAsErrors>
         <WarningLevel>9999</WarningLevel>
         <AnalysisLevel>latest-all</AnalysisLevel>
@@ -14,7 +15,11 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <CopyDocumentationFileToOutputDirectory>false</CopyDocumentationFileToOutputDirectory>
         <NoWarn>$(NoWarn);CS1591</NoWarn>
-        <VsInstall Condition="'$(VsInstall)' == ''">/home/xtoast/.local/share/vintagestory/</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == '' and '$(VINTAGE_STORY)' != ''">$(VINTAGE_STORY)</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == '' and '$(OS)' == 'Windows_NT'">$(APPDATA)/Vintagestory</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == '' and '$(XDG_DATA_HOME)' != '' and Exists('$(XDG_DATA_HOME)/vintagestory/VintagestoryAPI.dll')">$(XDG_DATA_HOME)/vintagestory</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == '' and Exists('$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.local/share/vintagestory/VintagestoryAPI.dll')">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.local/share/vintagestory</VsInstall>
+        <VsInstall Condition="'$(VsInstall)' == ''">/opt/vintagestory</VsInstall>
         <!-- The repository root, with its trailing slash: the projects reach each other and the tests the mod's folder from here -->
         <KometRepo>$(MSBuildThisFileDirectory)</KometRepo>
     </PropertyGroup>
@@ -30,5 +35,18 @@
         <PackageReference Include="Roslynator.Analyzers" Version="5.0.0" PrivateAssets="all"/>
         <PackageReference Include="SonarAnalyzer.CSharp" Version="10.34.0.3385" PrivateAssets="all"/>
     </ItemGroup>
+
+    <!-- KometQuick=true (build.sh quick, scripts/shadertest.sh): only Komet's own rules and the compiler's warnings, the
+         third-party analyzers (Sonar, Roslynator, the .NET analyzers, the style rules) stay out, the source generators stay in; they halve a project's
+         compile. The full gate stays the default, in the release build and in CI. -->
+    <PropertyGroup Condition="'$(KometQuick)' == 'true'">
+        <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+        <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    </PropertyGroup>
+    <Target Name="KometQuickAnalyzers" BeforeTargets="CoreCompile" Condition="'$(KometQuick)' == 'true'">
+        <ItemGroup>
+            <Analyzer Remove="@(Analyzer)" Condition="$([System.String]::Copy('%(Filename)').StartsWith('SonarAnalyzer')) or $([System.String]::Copy('%(Filename)').StartsWith('Roslynator'))"/>
+        </ItemGroup>
+    </Target>
 
 </Project>

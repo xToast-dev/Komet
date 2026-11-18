@@ -9,16 +9,25 @@ namespace Komet.Testing;
 // tessellates a visible face: that would need the block tesselators, atlases and shapes, which the golden tests never reach.
 public sealed class ChunkRig : IDisposable
 {
-    public const int Size = 32, Volume = Size * Size * Size, ChunksX = 4, ChunksY = 4, ChunksZ = 4, Mul = 2097152;
+    public const int Size = 32, Volume = Size * Size * Size, ChunksX = 4, ChunksY = 4, ChunksZ = 4;
+    private const int Mul = 2097152;
 
     // Block ids. Stone and granite are opaque cubes; glass lets faces through; a slab is opaque only below; snow is an opaque
     // JSONAndSnowLayer block, merge an opaque block with FaceCullMode.Merge, jsonwater an opaque JSONAndWater block; water is a
     // fluid with the liquid face cull mode
-    public const int Air = 0, Stone = 1, Granite = 2, Glass = 3, Slab = 4, Snow = 5, Water = 6, Merge = 7,
-        JsonWater = 8, Count = 9;
+    public const int Air = 0,
+        Stone = 1,
+        Granite = 2,
+        Glass = 3,
+        Slab = 4,
+        Snow = 5,
+        Water = 6,
+        Merge = 7,
+        JsonWater = 8,
+        Count = 9;
 
     // TileSideEnum.MoveIndex as ChunkTesselator.Start sets it for the 34^3 extended arrays: N E S W U D
-    public static readonly int[] Moves = [-34, 1, 34, -1, 1156, -1156];
+    private static readonly int[] Moves = [-34, 1, 34, -1, 1156, -1156];
 
     private readonly MeshDataRecycler? _recycler;
 
@@ -65,7 +74,7 @@ public sealed class ChunkRig : IDisposable
 
     public byte[] Draw => (byte[])Get(Tesselator, "currentChunkDraw32");
     public byte[] DrawFluids => (byte[])Get(Tesselator, "currentChunkDrawFluids");
-    public Block[] BlocksExt => (Block[])Get(Tesselator, "currentChunkBlocksExt");
+    public Block?[] BlocksExt => (Block?[])Get(Tesselator, "currentChunkBlocksExt");
     public Block[] FluidsExt => (Block[])Get(Tesselator, "currentChunkFluidBlocksExt");
     public int[] RgbsExt => (int[])Get(Tesselator, "currentChunkRgbsExt");
 
@@ -88,6 +97,7 @@ public sealed class ChunkRig : IDisposable
             int x = i % Size, z = i / Size % Size, y = i / Size / Size;
             var id = block(x, y, z);
             if (id != Air) chunk.Data[i] = id;
+
             var f = fluid?.Invoke(x, y, z) ?? Air;
             if (f != Air) chunk.Data.SetFluid(i, f);
         }
@@ -106,11 +116,12 @@ public sealed class ChunkRig : IDisposable
     {
         const int size = 18; // 16 inner values and a padding of 1
 
-        IntDataMap2D Values(int offset) => new()
-        {
-            Data = [.. Enumerable.Range(0, size * size).Select(i => (i * 7919 + offset * 104729) % 251)],
-            Size = size, TopLeftPadding = 1, BottomRightPadding = 1
-        };
+        IntDataMap2D Values(int offset) =>
+            new()
+            {
+                Data = [.. Enumerable.Range(0, size * size).Select(i => (i * 7919 + offset * 104729) % 251)],
+                Size = size, TopLeftPadding = 1, BottomRightPadding = 1
+            };
 
         var region =
             RuntimeHelpers.GetUninitializedObject(AccessTools.TypeByName("Vintagestory.Client.ClientMapRegion"));
@@ -203,7 +214,10 @@ public sealed class ChunkRig : IDisposable
         for (var lod = 0; lod < lods.Length; lod++)
         {
             lods[lod] = new MeshData[passes][];
-            for (var pass = 0; pass < passes; pass++) lods[lod][pass] = [new MeshData(16, 16)];
+            for (var pass = 0; pass < passes; pass++)
+            {
+                lods[lod][pass] = [new MeshData(16, 16)];
+            }
         }
 
         return lods;
@@ -213,11 +227,14 @@ public sealed class ChunkRig : IDisposable
     {
         var blocks = new Block[Count + extra];
         for (var id = 0; id < blocks.Length; id++)
+        {
             blocks[id] = new Block
             {
                 BlockId = id, Code = new AssetLocation("komet", "tess" + id), DrawType = EnumDrawType.Cube,
                 FaceCullMode = EnumFaceCullMode.Default, BlockMaterial = EnumBlockMaterial.Stone
             };
+        }
+
         (blocks[Air].DrawType, blocks[Air].BlockMaterial) = (EnumDrawType.Empty, EnumBlockMaterial.Air);
         blocks[Air].AllSidesOpaque = false;
         blocks[Air].SideSolid = new SmallBoolArray(0);

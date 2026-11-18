@@ -1,4 +1,5 @@
 using System.Text.Json;
+using JetBrains.Annotations;
 
 namespace Komet.Test.Synth;
 
@@ -11,12 +12,9 @@ internal static class Synth
     public const string Category = "Synth";
     private const int Rounds = 6, MinMs = 120;
 
-    public sealed record Result(string Feature, string Scenario, double OffNs, double OnNs, double OffBytes, double OnBytes,
-        double TimeDelta, double BytesDelta, double Noise, string Verdict);
-
     // work runs `ops` operations; probe (optional) gives a value both arms must agree on
-    public static Result Run(string feature, string scenario, Action<int> work, int ops = 1000,
-        Func<object?>? probe = null, Action? reset = null)
+    public static Result Run(string feature, string scenario, [InstantHandle] Action<int> work, int ops = 1000,
+        [InstantHandle] Func<object?>? probe = null, [InstantHandle] Action? reset = null)
     {
         // Patch once before the off arm runs: MonoMod marks every patched original not-inlineable and the mark outlives the
         // unpatch, so no caller tiered up by the off arm carries an engine body the later patch would never reach
@@ -37,9 +35,12 @@ internal static class Synth
             for (var arm = 0; arm < 2; arm++)
             {
                 var enabled = onFirst ? arm == 0 : arm == 1;
-                var sample = enabled ? WithFeature(feature, () => Measure(work, batch, reset)) : Measure(work, batch, reset);
+                var sample = enabled
+                    ? WithFeature(feature, () => Measure(work, batch, reset))
+                    : Measure(work, batch, reset);
                 (enabled ? on : off).Add(sample);
                 if (probe is null || !enabled) continue;
+
                 var got = WithFeature(feature, () =>
                 {
                     reset?.Invoke();
@@ -89,7 +90,8 @@ internal static class Synth
         return (ns / ops, (GC.GetAllocatedBytesForCurrentThread() - bytes) / (double)ops);
     }
 
-    private static Result Report(string feature, string scenario, List<(double Ns, double Bytes)> off, List<(double Ns, double Bytes)> on)
+    private static Result Report(string feature, string scenario, List<(double Ns, double Bytes)> off,
+        List<(double Ns, double Bytes)> on)
     {
         var (offNs, onNs) = (Median(off.Select(s => s.Ns)), Median(on.Select(s => s.Ns)));
         var (offBytes, onBytes) = (Median(off.Select(s => s.Bytes)), Median(on.Select(s => s.Bytes)));
@@ -98,13 +100,23 @@ internal static class Synth
         // the spread of the off arm's rounds: a time gain inside it is noise
         var noise = offNs > 0 ? (off.Max(s => s.Ns) - off.Min(s => s.Ns)) / offNs : 0;
         var verdict = "none";
-        if ((time <= -0.05 && -time > noise) || (bytesDelta <= -0.10 && offBytes - onBytes >= 8)) verdict = "gain";
-        else if (time >= 0.05 && time > noise) verdict = "slower";
+        if ((time <= -0.05 && -time > noise) || (bytesDelta <= -0.10 && offBytes - onBytes >= 8))
+        {
+            verdict = "gain";
+        }
+        else if (time >= 0.05 && time > noise)
+        {
+            verdict = "slower";
+        }
+
         var result = new Result(feature, scenario, offNs, onNs, offBytes, onBytes, time, bytesDelta, noise, verdict);
         TestContext.Out.WriteLine($"synth {feature}/{scenario}: {offNs:F1} -> {onNs:F1} ns/op ({time:+0.0%;-0.0%}), " +
                                   $"{offBytes:F0} -> {onBytes:F0} B/op ({bytesDelta:+0.0%;-0.0%}), noise {noise:0.0%}: {verdict}");
         if (Environment.GetEnvironmentVariable("KOMET_SYNTH_OUT") is { Length: > 0 } path)
+        {
             File.AppendAllText(path, JsonSerializer.Serialize(result) + "\n");
+        }
+
         return result;
     }
 
@@ -125,4 +137,18 @@ internal static class Synth
             return value?.ToString() ?? "null";
         }
     }
+
+    // ReSharper disable NotAccessedPositionalProperty.Global - JsonSerializer writes each one to KOMET_SYNTH_OUT
+    public sealed record Result(
+        string Feature,
+        string Scenario,
+        double OffNs,
+        double OnNs,
+        double OffBytes,
+        double OnBytes,
+        double TimeDelta,
+        double BytesDelta,
+        double Noise,
+        string Verdict);
+    // ReSharper restore NotAccessedPositionalProperty.Global
 }

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Komet.Api;
 using Komet.Diagnostics;
 using Komet.Hud;
+using Komet.Api;
 
 namespace Komet.Test.Hud;
 
@@ -13,7 +13,8 @@ public sealed class DebugProtocolTests
     private static readonly string[] RuntimeKeys =
     [
         "hud-dbg-level-high", "hud-dbg-level-medium", "hud-dbg-level-low", "hud-dbg-level-info", "hud-dbg-risk-high",
-        "hud-dbg-risk-medium", "hud-dbg-risk-low", "hud-cause-gc", "hud-cause-jit", "hud-cause-runqueue", "hud-cause-outside",
+        "hud-dbg-risk-medium", "hud-dbg-risk-low", "hud-cause-gc", "hud-cause-jit", "hud-cause-runqueue",
+        "hud-cause-outside",
         "hud-cause-unprofiled", "hud-cause-other"
     ];
 
@@ -25,7 +26,8 @@ public sealed class DebugProtocolTests
     {
         GameLang.EnsureLoaded();
         _assets = Directory.CreateTempSubdirectory("komet-lang-").FullName;
-        var german = JsonDocument.Parse(File.ReadAllText(Path.Combine(Paths.KometDir, "assets", "komet", "lang", "de.json")))
+        var german = JsonDocument
+            .Parse(File.ReadAllText(Path.Combine(Paths.KometDir, "assets", "komet", "lang", "de.json")))
             .RootElement.EnumerateObject().ToDictionary(p => "komet:" + p.Name, p => p.Value.GetString());
         _ = Directory.CreateDirectory(Path.Combine(_assets, "game", "lang"));
         File.WriteAllText(Path.Combine(_assets, "game", "lang", "de.json"), JsonSerializer.Serialize(german));
@@ -45,10 +47,14 @@ public sealed class DebugProtocolTests
     public void TheProtocolHasEverySectionInTheLanguageAskedFor()
     {
         var input = Input("de");
-        var text = DebugProtocol.Build(input, Extra(), DebugFrames.Summarize(input.Frames), ["komet-debug.txt"]);
+        var text = DebugProtocol.Report(input, Extra(), DebugFrames.Summarize(input.Frames), ["komet-debug.txt"]).Text();
         Assert.Multiple(() =>
         {
-            for (var i = 0; i < DebugProtocol.Sections.Length; i++) Assert.That(text, Does.Contain($"[{i + 1}] "));
+            for (var i = 0; i < DebugProtocol.Sections.Length; i++)
+            {
+                Assert.That(text, Does.Contain($"[{i + 1}] "));
+            }
+
             Assert.That(text, Does.Contain("KOMET DEBUG-PROTOKOLL"));
             Assert.That(text, Does.Contain("[1] BEFUNDE"));
             Assert.That(text, Does.Not.Contain("hud-dbg-"), "an untranslated key");
@@ -80,10 +86,14 @@ public sealed class DebugProtocolTests
     {
         foreach (var lang in (string[])["en", "de"])
         {
-            var keys = JsonDocument.Parse(File.ReadAllText(Path.Combine(Paths.KometDir, "assets", "komet", "lang", lang + ".json")))
+            var keys = JsonDocument
+                .Parse(File.ReadAllText(Path.Combine(Paths.KometDir, "assets", "komet", "lang", lang + ".json")))
                 .RootElement.EnumerateObject().Select(p => p.Name).ToHashSet();
             var numbers = DebugProtocol.Numbers(default).Select(n => "hud-dbg-n-" + n.Key);
-            Assert.That(RuntimeKeys.Concat(numbers).Concat(DebugProtocol.Sections).Where(k => !keys.Contains(k)), Is.Empty, lang);
+            var stages = Enum.GetNames<KapiRenderStage>()
+                .Select(s => "settings-connected-stage-" + s.ToLowerInvariant()); // ConnectedModsPage.Stage
+            Assert.That(RuntimeKeys.Concat(numbers).Concat(stages).Concat(DebugProtocol.Sections).Where(k => !keys.Contains(k)),
+                Is.Empty, lang);
         }
     }
 
@@ -91,6 +101,7 @@ public sealed class DebugProtocolTests
     public void TheLogNamesOnlyMethodsKometSharesWithAnotherMod()
     {
         static PatchLink Link(string owner) => new(owner, PatchKind.Prefix, 400, "M", false);
+
         var audit = new HarmonyAudit
         {
             Methods =
@@ -101,13 +112,16 @@ public sealed class DebugProtocolTests
             ],
             Owners = [("other", "Other 1.0", 2)]
         };
-        Assert.That(SharedPatches.Lines(audit, "komet"), Is.EqualTo((List<string>)["A.Shared [Low] with other (Other 1.0)"]));
+        Assert.That(SharedPatches.Lines(audit, "komet"),
+            Is.EqualTo((List<string>)["A.Shared [Low] with other (Other 1.0)"]));
     }
 
     [Test]
     public void APrefixThatSkipsAnotherOwnersPatchIsHighRisk()
     {
-        static PatchLink Link(string owner, PatchKind kind, bool skips = false) => new(owner, kind, 400, "M", skips);
+        static PatchLink Link(string owner, PatchKind kind, bool skips = false) =>
+            new(owner, kind, 400, "M", skips);
+
         Assert.Multiple(() =>
         {
             Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix, true), Link("b", PatchKind.Postfix)], 2),
@@ -116,7 +130,8 @@ public sealed class DebugProtocolTests
                 Is.EqualTo(PatchRisk.High));
             Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Transpiler), Link("b", PatchKind.Postfix)], 2),
                 Is.EqualTo(PatchRisk.Medium));
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix), Link("b", PatchKind.Postfix)], 2), Is.EqualTo(PatchRisk.Low));
+            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix), Link("b", PatchKind.Postfix)], 2),
+                Is.EqualTo(PatchRisk.Low));
             Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix, true)], 1), Is.EqualTo(PatchRisk.Low));
         });
     }
@@ -141,13 +156,16 @@ public sealed class DebugProtocolTests
             Spikes = [(new DebugSpike(frames[99]), [("~gc", 30f), ("entities", 12f), (null, 0f)])],
             Causes = [("~gc", 10, 120, 118)], ModTimes = [("testmod", 0.4, [("Renderer (60/s)", 0.3)])],
             Scopes = [("testmod:path", 12.5, 300)], Extra = [("Test (testmod)", "cached: 4")], HudMeans = "FPS: 60",
-            System = [("hud-dbg-os", "Linux")], Runtime = [("hud-dbg-locks", "3")], World = [("hud-dbg-chunks", "100 loaded")],
-            Render = [("hud-dbg-draw-calls", "900")], Client = [("viewDistance", "256")], Knobs = [("FrustumSweep", 1, 0)],
-            Features = [new FeatureInfo("ChunkBudget", "Chunk budget", "komet", FeatureState.StoodDown, true)],
+            System = [("hud-dbg-os", "Linux")], Runtime = [("hud-dbg-locks", "3")],
+            World = [("hud-dbg-chunks", "100 loaded")],
+            Render = [("hud-dbg-draw-calls", "900")], Client = [("viewDistance", "256")],
+            Knobs = [("FrustumSweep", 1, 0)],
+            Features = [new KapiFeatureInfo("ChunkBudget", "Chunk budget", "komet", KapiFeatureState.StoodDown, true)],
             Mods = [("testmod", "Test", "1.0.0", "Code", "testmod.zip")], Entities = [("game:wolf", 3)], EntityTotal = 3
         };
     }
 
     private static DebugExtra Extra() =>
-        new(new HarmonyAudit(), ["1.1.2026 12:00:00 [Error] boom"], 1, 0, new Dictionary<string, double> { ["fps"] = 50 }, "20260101-120000");
+        new(new HarmonyAudit(), ["1.1.2026 12:00:00 [Error] boom"], 1, 0,
+            new Dictionary<string, double> { ["fps"] = 50 }, "20260101-120000");
 }

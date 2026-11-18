@@ -25,7 +25,8 @@ internal static class DecompressScratch
     public static void Install(Harmony harmony)
     {
         var method = Target();
-        if (!NotNull(harmony) || !NotNull(method)) return;
+        if (!NotNull(method)) return;
+
         _ = harmony.Patch(method, transpiler: new HarmonyMethod(Rewrite));
     }
 
@@ -45,11 +46,19 @@ internal static class DecompressScratch
         var (mine, length) = (AccessTools.Method(typeof(DecompressScratch), nameof(Decompress)),
             AccessTools.Method(typeof(DecompressScratch), nameof(Length)));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(decompress) ||
-            !NotNull(consume) || !NotNull(mine) || !NotNull(length)) return code;
+            !NotNull(consume) || !NotNull(mine) || !NotNull(length))
+        {
+            return code;
+        }
+
         var at = Il.Single(code, c => c.Calls(decompress));
         if (!Assert(at >= 0) || !Index(at + 3, code.Count) || !Assert(code[at].opcode == OpCodes.Callvirt) ||
             code[at + 1].opcode != OpCodes.Dup || code[at + 2].opcode != OpCodes.Ldlen ||
-            code[at + 3].opcode != OpCodes.Conv_I4) return code;
+            code[at + 3].opcode != OpCodes.Conv_I4)
+        {
+            return code;
+        }
+
         var stop = Stop(code, at + 4, consume);
         // Running off the body's end is logged, stopping is not
         if (!Index(stop, code.Count) || !code[stop].Calls(consume)) return code;
@@ -69,7 +78,9 @@ internal static class DecompressScratch
                          type == typeof(InvalidDataException);
             if (code[i].Calls(consume) || (op.FlowControl == FlowControl.Call && !throws) || op == OpCodes.Dup ||
                 op.FlowControl == FlowControl.Return || op.Name?.StartsWith("st", StringComparison.Ordinal) != false)
+            {
                 return i;
+            }
         }
 
         return code.Count;
@@ -79,20 +90,30 @@ internal static class DecompressScratch
     internal static byte[] Decompress(ICompression compression, byte[] data, int offset, int length)
     {
         if (!Enabled || compression.GetType() != typeof(CompressionZSTD))
+        {
             return compression.Decompress(data, offset, length);
+        }
+
         var size = compression.DecompressAndSize(data, offset, length, out var buffer);
         // What CompressionZSTD.Decompress returns on a zstd error; the length check then throws
         if (size < 0) return [];
+
         if (!NotNull(buffer) || !Assert(size <= buffer.Length)) return compression.Decompress(data, offset, length);
+
         (_buffer, _length) = (buffer, size);
         if (Counting.Hud) _ = Interlocked.Add(ref _saved, size);
+
         return buffer;
     }
 
     // Replaces the length check's ldlen: decompressed size for the buffer handed out above, else the array's length
     internal static int Length(byte[] array)
     {
-        if (!NotNull(array) || !ReferenceEquals(array, _buffer)) return array.Length; // null throws here as ldlen would
+        if (!NotNull(array) || !ReferenceEquals(array, _buffer))
+        {
+            return array.Length; // null throws here as ldlen would
+        }
+
         _buffer = null; // one answer per decompression, and zstd may swap its buffer on a later call
         return _length;
     }

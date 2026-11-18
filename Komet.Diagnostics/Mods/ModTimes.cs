@@ -2,8 +2,8 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 using Vintagestory.Common;
@@ -31,7 +31,7 @@ internal sealed class ModTimes
     private static IModLoader? _loader;
     private static ILogger? _logger;
     private static MethodInfo? _stage, _entity, _block;
-    private static bool _full, _crowded, _ready, _replay;
+    private static bool _full, _crowded, _ready;
 
     private static bool _sampling = true; // True when RenderStage is not patched: listeners timed every frame
 
@@ -56,7 +56,7 @@ internal sealed class ModTimes
     }
 
     public static bool Patched { get; private set; } // the patches went in, or were tried, this session
-    public static bool Replays => _replay; // RenderStage knows the engine's loop: the renderers are timed too
+    public static bool Replays { get; private set; }
 
     // A world is in: the methods shared with other mods go to the log (SharedPatches)
     public static void Joined() => SharedPatches.Log(_loader, _logger, _harmony?.Id ?? "");
@@ -66,10 +66,11 @@ internal sealed class ModTimes
     {
         Entries.Clear();
         ModByAssembly.Clear();
-        (_harmony, _loader, _logger, Patched, _full, _crowded, _ready, _replay) =
+        (_harmony, _loader, _logger, Patched, _full, _crowded, _ready, Replays) =
             (null, null, null, false, false, false, false, false);
         (_sampling, _frame, _sampled) = (true, 0, 0);
-        if (!NotNull(harmony) || !NotNull(loader) || !NotNull(logger)) return;
+        if (!NotNull(loader)) return;
+
         _stage = AccessTools.Method(typeof(ClientEventManager), nameof(ClientEventManager.TriggerRenderStage));
         _entity = AccessTools.Method(typeof(GameTickListener), nameof(GameTickListener.OnTriggered));
         _block = AccessTools.Method(typeof(GameTickListenerBlock), nameof(GameTickListenerBlock.OnTriggered));
@@ -79,11 +80,14 @@ internal sealed class ModTimes
             return;
         }
 
-        _replay = EngineShape.Matches([_stage], Shape, nameof(ModTimes), logger) &&
+        Replays = EngineShape.Matches([_stage], Shape, nameof(ModTimes), logger) &&
                   Il.Binds(_stage, AccessTools.Method(typeof(ModTimes), nameof(RenderStage)));
-        if (!_replay)
+        if (!Replays)
+        {
             logger.Warning(
                 "Komet: TriggerRenderStage is not the loop the mod times replay, they leave the renderers out");
+        }
+
         (_harmony, _loader, _logger) = (harmony, loader, logger);
     }
 
@@ -97,15 +101,21 @@ internal sealed class ModTimes
     private static void Patch()
     {
         if (Patched || _harmony is null || !NotNull(_entity) || !NotNull(_block)) return;
+
         Patched = true;
         var self = typeof(ModTimes);
         try
         {
-            if (_replay && _stage is { } stage && !EngineShape.Foreign([stage], PatchKinds.Body, null, self))
+            if (Replays && _stage is { } stage && !EngineShape.Foreign([stage], KapiPatchKinds.Body, null, self))
+            {
                 _ = _harmony.Patch(stage, new HarmonyMethod(RenderStage));
-            else if (_replay)
+            }
+            else if (Replays)
+            {
                 _logger?.Warning(
                     "Komet: another mod rewrites TriggerRenderStage, the mod times leave the renderers out");
+            }
+
             _ = _harmony.Patch(_entity, new HarmonyMethod(Start), new HarmonyMethod(EndEntity));
             _ = _harmony.Patch(_block, new HarmonyMethod(Start), new HarmonyMethod(EndBlock));
         }
@@ -118,10 +128,11 @@ internal sealed class ModTimes
 
     // Over MaxRenderers back to the engine's loop: a bounded loop would skip renderers. Harmony injects ___ fields by
     // name.
-    internal static bool RenderStage(ClientMain ___game, List<RenderHandler>[] ___renderersByStage,
+    internal static bool RenderStage(ClientMain ___game, List<RenderHandler?>[] ___renderersByStage,
         EnumRenderStage stage, float dt)
     {
         if (!Enabled || !Index((int)stage, ___renderersByStage.Length)) return true;
+
         if (stage == EnumRenderStage.Before)
         {
             _sampling = ++_frame % SampleEvery == 0;
@@ -129,29 +140,42 @@ internal sealed class ModTimes
         }
 
         if (!_sampling) return true;
+
         var list = ___renderersByStage[(int)stage];
         if (!NotNull(list)) return true;
+
+        return Renderers(___game, list, stage, dt);
+    }
+
+    private static bool Renderers(ClientMain game, List<RenderHandler?> list, EnumRenderStage stage, float dt)
+    {
         if (list.Count > MaxRenderers)
         {
             if (!_crowded)
+            {
                 _logger?.Warning("Komet: {0} holds more than {1} renderers, the mod times leave it out", stage,
                     MaxRenderers);
+            }
+
             _crowded = true;
             return true;
         }
 
-        var debug = ___game.extendedDebugInfo;
+        var debug = game.extendedDebugInfo;
         // Count re-read: a renderer may unregister. Idle animatables skipped as the engine does (~12,900 a frame cost
         // ms).
         for (var i = 0; i < Math.Min(list.Count, MaxRenderers); i++)
         {
-            if (Links.SkipIdle(list, i)) continue;
+            if (Links.Skips.SkipIdle(list, i)) continue;
+
             var handler = list[i];
-            if (!NotNull(handler.Renderer) || Links.SkipRenderer(handler.Renderer)) continue;
+            if (handler is null || !NotNull(handler.Renderer) || Links.Skips.SkipRenderer(handler.Renderer)) continue;
+
             var start = Stopwatch.GetTimestamp();
             handler.Renderer.OnRenderFrame(dt, stage);
             Book(handler.Renderer is DummyRenderer dummy ? dummy.action.Method : handler.Renderer.GetType(), start);
             if (!debug) continue;
+
             ScreenManager.Platform.CheckGlError(handler.ProfilingName);
             ScreenManager.FrameProfiler.Mark(handler.ProfilingName);
         }
@@ -173,6 +197,7 @@ internal sealed class ModTimes
     private static void EndBlock(GameTickListenerBlock __instance, long __state)
     {
         if (__state == 0) return;
+
         var handler = __instance.Handler ?? (Delegate?)__instance.HandlerBare;
         if (NotNull(handler)) Book(handler.Method, __state);
     }
@@ -185,8 +210,11 @@ internal sealed class ModTimes
             if (Entries.Count >= MaxEntries)
             {
                 if (!_full)
+                {
                     _logger?.Warning("Komet: the mod times keep {0} renderers and listeners, later ones are left out",
                         MaxEntries);
+                }
+
                 _full = true;
                 return;
             }
@@ -210,33 +238,45 @@ internal sealed class ModTimes
     {
         var owner = method.DeclaringType;
         if (!NotNull(owner)) return new Entry("?", method.Name);
+
         for (var depth = 0; depth < MaxNesting && owner.Name.StartsWith('<') && owner.DeclaringType != null; depth++)
+        {
             owner = owner.DeclaringType; // lambdas live in generated nested classes
+        }
+
         var name = method.Name;
         var close = name.IndexOf('>', StringComparison.Ordinal);
         if (name.StartsWith('<') && Assert(close > 1)) name = name[1..close] + " (lambda)";
+
         return new Entry(ModOf(owner.Assembly), owner.Name + "." + name);
     }
 
     private static string ModOf(Assembly assembly)
     {
         if (ModByAssembly.TryGetValue(assembly, out var mod)) return mod;
+
         mod = assembly.GetName().Name ?? "?";
         if (mod.StartsWith("Vintagestory", StringComparison.Ordinal)) mod = "game";
+
         foreach (var candidate in (_loader?.Mods ?? []).Bounded(HarmonyAudit.MaxLoadedMods))
+        {
             if (candidate is ModContainer container && container.Assembly == assembly) mod = candidate.Info.ModID;
+        }
+
         return ModByAssembly[assembly] = mod;
     }
 
     public double TotalExcept(string mod)
     {
         if (!NotNull(mod)) return 0;
+
         double total = 0;
-        using (var mods = _byMod.GetEnumerator())
+        using var mods = _byMod.GetEnumerator();
+        for (var i = 0; i < MaxEntries && mods.MoveNext(); i++)
         {
-            for (var i = 0; i < MaxEntries && mods.MoveNext(); i++)
-                if (mods.Current.Key != mod) total += mods.Current.Value;
+            if (mods.Current.Key != mod) total += mods.Current.Value;
         }
+
         return total;
     }
 
@@ -249,13 +289,15 @@ internal sealed class ModTimes
             ? $"{e.Name} ({KometText.Format(e.CallsPerSecond, "F1")}/s)"
             : "";
 
-    public double DetailMs(int place, int rank) => Index(place, MaxMods) && Index(rank, DetailCount)
-        ? _top[place][rank].Entry?.SmoothMs ?? double.NaN
-        : double.NaN;
+    public double DetailMs(int place, int rank) =>
+        Index(place, MaxMods) && Index(rank, DetailCount)
+            ? _top[place][rank].Entry?.SmoothMs ?? double.NaN
+            : double.NaN;
 
     public void Update(int frames, float seconds)
     {
         if (!Assert(frames > 0) || !Assert(seconds > 0)) return;
+
         var timed = TakeSampled(frames);
         var scale = (double)frames / timed;
         _byMod.Clear();
@@ -278,7 +320,9 @@ internal sealed class ModTimes
         }
 
         for (var i = 0; i < MaxMods; i++)
+        {
             if (_mods[i].Mod is { } mod) _mods[i].Ms = _byMod.GetValueOrDefault(mod);
+        }
     }
 
     private void Reorder()
@@ -287,10 +331,16 @@ internal sealed class ModTimes
         using (var mods = _byMod.GetEnumerator())
         {
             for (var i = 0; i < MaxEntries && mods.MoveNext(); i++)
+            {
                 TopN.Rank(_mods, mods.Current.Key, mods.Current.Value);
+            }
         }
 
-        for (var i = 0; i < MaxMods; i++) Array.Clear(_top[i]);
+        for (var i = 0; i < MaxMods; i++)
+        {
+            Array.Clear(_top[i]);
+        }
+
         using var entries = Entries.GetEnumerator();
         for (var i = 0; i < MaxEntries && entries.MoveNext(); i++)
         {
@@ -303,7 +353,10 @@ internal sealed class ModTimes
     private int Place(string mod)
     {
         for (var i = 0; i < MaxMods; i++)
+        {
             if (_mods[i].Mod == mod) return i;
+        }
+
         return -1;
     }
 

@@ -58,10 +58,11 @@ public sealed class WorldGenScratchTests
     public void ACodesLastPartIsTheEnginesAnswer()
     {
         var block = new Block { Code = new AssetLocation("game:rock-granite") };
+        var last = 0;
         Assert.Multiple(() =>
         {
-            Assert.That(WorldGenScratch.LastCodePart(block, 0), Is.EqualTo(block.LastCodePart(0)));
-            Assert.That(WorldGenScratch.LastCodePart(block, 0), Is.EqualTo("granite"));
+            Assert.That(WorldGenScratch.LastCodePart(block, last), Is.EqualTo(block.LastCodePart(last)));
+            Assert.That(WorldGenScratch.LastCodePart(block, last), Is.EqualTo("granite"));
             Assert.That(WorldGenScratch.LastCodePart(block, 1), Is.EqualTo("rock"));
         });
     }

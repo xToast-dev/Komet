@@ -12,7 +12,9 @@ namespace Komet.Test.Tessellation;
 // rotated crosses (CrossTesselator's startRot/endRot), with ambient occlusion on (FaceLight).
 public sealed class TessParallelTests
 {
-    private const int Threads = 4, Extra = 40, Chunks = ChunkRig.ChunksX * ChunkRig.ChunksY * ChunkRig.ChunksZ,
+    private const int Threads = 4,
+        Extra = 40,
+        Chunks = ChunkRig.ChunksX * ChunkRig.ChunksY * ChunkRig.ChunksZ,
         MaxTicks = 100000;
 
     private const int Cross = ChunkRig.Glass;
@@ -20,7 +22,8 @@ public sealed class TessParallelTests
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Made")]
     private static extern ref ChunkTesselator?[] Made(
-        [UnsafeAccessorType("Komet.Tessellation.TessWorkers, Komet.Tessellation")] object? workers);
+        [UnsafeAccessorType("Komet.Tessellation.TessWorkers, Komet.Tessellation")]
+        object? workers);
 
     [Test]
     [Category("Slow")]
@@ -37,7 +40,9 @@ public sealed class TessParallelTests
             Install(harmony);
             _ = Mesher(rig, rig.Tesselator);
             var alone = Run(rig, manager, []);
-            ChunkTesselator[] workers = [.. Enumerable.Range(0, Threads).Select(_ => Mesher(rig, rig.NewTesselator()))];
+            var workers = new ChunkTesselator[Threads];
+            for (var i = 0; i < workers.Length; i++) workers[i] = Mesher(rig, rig.NewTesselator());
+
             var together = Run(rig, manager, workers);
             Assert.Multiple(() =>
             {
@@ -45,7 +50,10 @@ public sealed class TessParallelTests
                 Assert.That(alone.Values.Count(d => d.Vertices > 0), Is.GreaterThan(Chunks / 4),
                     "the world draws something");
                 Assert.That(together.Keys, Is.EquivalentTo(alone.Keys));
-                foreach (var (key, digest) in alone) Assert.That(together[key], Is.EqualTo(digest), $"chunk {key}");
+                foreach (var (key, digest) in alone)
+                {
+                    Assert.That(together[key], Is.EqualTo(digest), $"chunk {key}");
+                }
             });
         }
         finally
@@ -80,9 +88,16 @@ public sealed class TessParallelTests
     {
         var dirty = (UniqueQueue<long>)ChunkRig.Get(rig.Game, "dirtyChunks");
         for (var i = 0; i < Chunks; i++)
+        {
             dirty.Enqueue(ChunkRig.Key(i % ChunkRig.ChunksX, i / ChunkRig.ChunksX % ChunkRig.ChunksY, i / 16));
+        }
+
         TessWorkers.Steer(rig.Game, manager, true); // binds the world, which drops any instance an earlier world had
-        for (var i = 0; i < workers.Length; i++) Volatile.Write(ref Made(null)[i], workers[i]); // as Make would leave them
+        for (var i = 0; i < workers.Length; i++)
+        {
+            Volatile.Write(ref Made(null)[i], workers[i]); // as Make would leave them
+        }
+
         WorkerPool.Resize(null, workers.Length);
         var (counting, before) = (Counting.Bench, WorkerPool.BackgroundTicks);
         Counting.Bench = true; // the pool's time on background jobs: the workers must have run passes
@@ -152,7 +167,10 @@ public sealed class TessParallelTests
     private static void Fill(ChunkRig rig)
     {
         foreach (var block in rig.Blocks)
+        {
             (block.VertexFlags, block.EmitSideAo) = (new VertexFlags(0), block.AllSidesOpaque ? (byte)63 : (byte)0);
+        }
+
         (rig.Blocks[Cross].DrawType, rig.Blocks[Cross].RandomizeRotations, rig.Blocks[Cross].EmitSideAo) =
             (EnumDrawType.Cross, true, 0);
         for (var i = 0; i < Chunks; i++)
@@ -168,13 +186,25 @@ public sealed class TessParallelTests
         var h = TessMix.Hash(x, 0, z);
         var ground = 70 + (int)(8 * Math.Sin(x / 9.0) + 6 * Math.Cos(z / 7.0));
         if (y > ground) return (y == ground + 1 && h % 5 == 0) || (h % 997 == 0 && y > 110) ? Cross : ChunkRig.Air;
+
         var r = TessMix.Hash(x, y, z);
-        if (y < ground - 3 && r % 11 == 0) return ChunkRig.Air; // caves
-        if (r % 13 == 0) return ChunkRig.Count + r / 13 % ores; // ores
+        if (y < ground - 3 && r % 11 == 0)
+        {
+            return ChunkRig.Air; // caves
+        }
+
+        if (r % 13 == 0)
+        {
+            return ChunkRig.Count + r / 13 % ores; // ores
+        }
+
         var pick = r / 16 % 17;
         if (pick == 0) return ChunkRig.Slab;
+
         if (pick == 1) return ChunkRig.Merge;
+
         if (pick == 2) return Cross;
+
         return pick < 9 ? ChunkRig.Granite : ChunkRig.Stone;
     }
 
@@ -193,7 +223,9 @@ public sealed class TessParallelTests
                         (int)(EnumChunkRenderPass)ChunkRig.Get(part, "pass"));
                     foreach (var lod in new[]
                                  { "modelDataLod0", "modelDataLod1", "modelDataNotLod2Far", "modelDataLod2Far" })
+                    {
                         vertices += Mesh(hash, (MeshData?)AccessTools.Field(part.GetType(), lod).GetValue(part));
+                    }
                 }
             }
 
@@ -213,8 +245,11 @@ public sealed class TessParallelTests
                 return 0;
             }
 
-            int v = mesh.VerticesCount, n = mesh.IndicesCount, c = mesh.CustomInts?.Count ?? -1,
-                s = mesh.CustomShorts?.Count ?? -1, f = mesh.CustomFloats?.Count ?? -1;
+            int v = mesh.VerticesCount,
+                n = mesh.IndicesCount,
+                c = mesh.CustomInts?.Count ?? -1,
+                s = mesh.CustomShorts?.Count ?? -1,
+                f = mesh.CustomFloats?.Count ?? -1;
             Add(hash, v, n, c, s, f);
             hash.AppendData(MemoryMarshal.AsBytes(mesh.xyz.AsSpan(0, 3 * v)));
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Uv.AsSpan(0, 2 * v)));
@@ -222,8 +257,17 @@ public sealed class TessParallelTests
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Flags.AsSpan(0, v)));
             hash.AppendData(MemoryMarshal.AsBytes(mesh.Indices.AsSpan(0, n)));
             if (c > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomInts!.Values.AsSpan(0, c)));
-            if (s > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomShorts!.Values.AsSpan(0, s))); // TopSoil's overlay
-            if (f > 0) hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomFloats!.Values.AsSpan(0, f))); // Liquid's
+
+            if (s > 0)
+            {
+                hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomShorts!.Values.AsSpan(0, s))); // TopSoil's overlay
+            }
+
+            if (f > 0)
+            {
+                hash.AppendData(MemoryMarshal.AsBytes(mesh.CustomFloats!.Values.AsSpan(0, f))); // Liquid's
+            }
+
             return v;
         }
 
@@ -274,7 +318,11 @@ public sealed class JitWarmTests
     public void WarmsAgainInTheNextWorld()
     {
         var method = JitWarm.Methods()[0];
-        using (var first = new TestHarmony("komet-test-jitwarm")) JitWarm.Install(first, null);
+        using (var first = new TestHarmony("komet-test-jitwarm"))
+        {
+            JitWarm.Install(first, null);
+        }
+
         using var second = new TestHarmony("komet-test-jitwarm");
         JitWarm.Install(second, null);
         Assert.That(Harmony.GetPatchInfo(method)?.Owners, Does.Contain(second.Id));

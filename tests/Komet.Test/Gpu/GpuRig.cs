@@ -12,15 +12,28 @@ internal sealed class GpuRig : IDisposable
 {
     public const string Gl = "gl", Vulkan = "vulkan";
 
-    private readonly VulkanDevice? _device;
-    private readonly VulkanBackend? _backend;
     private readonly bool _waited = Builds.Waited;
 
     private GpuRig(VulkanDevice? device, VulkanBackend? backend)
     {
-        (_device, _backend) = (device, backend);
+        (Device, Backend) = (device, backend);
         GpuBackends.Current = backend is null ? GlBackend.Instance : backend;
         Builds.Waited = true;
+    }
+
+    public NativeWindow? Window { get; private set; }
+    public VulkanDevice? Device { get; }
+
+    public VulkanBackend? Backend { get; }
+
+    public void Dispose()
+    {
+        GpuBackends.Current = GlBackend.Instance;
+        Backend?.Dispose();
+        Device?.Dispose();
+        Window?.Dispose();
+        Window = null;
+        Builds.Waited = _waited;
     }
 
     // A GL context must be current
@@ -28,6 +41,7 @@ internal sealed class GpuRig : IDisposable
     {
         why = "";
         if (backend == Gl) return new GpuRig(null, null);
+
         Span<byte> uuid = stackalloc byte[VulkanDevice.UuidBytes];
         ReadOnlySpan<byte> named = GlInterop.Uuid(uuid) ? uuid : default; // else picked by OpenGL's renderer name
         if (!Shaderc.Load())
@@ -36,7 +50,8 @@ internal sealed class GpuRig : IDisposable
             return null;
         }
 
-        var device = VulkanDevice.Create(named, (GL.GetString(StringName.Vendor), GL.GetString(StringName.Renderer)), out why);
+        var device = VulkanDevice.Create(named, (GL.GetString(StringName.Vendor), GL.GetString(StringName.Renderer)),
+            out why);
         return device is null ? null : new GpuRig(device, new VulkanBackend(device, null, null));
     }
 
@@ -44,6 +59,7 @@ internal sealed class GpuRig : IDisposable
     {
         var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here: " + GlContext.Why);
+
         var rig = Start(backend, out var why);
         if (rig is null)
         {
@@ -55,20 +71,6 @@ internal sealed class GpuRig : IDisposable
         return rig;
     }
 
-    public NativeWindow? Window { get; private set; }
-    public VulkanDevice? Device => _device;
-    public VulkanBackend? Backend => _backend;
-
     public int Depth(float depth, int size) =>
-        _backend is null ? GlContext.Wall(depth) : _backend.Filled(size, size, depth);
-
-    public void Dispose()
-    {
-        GpuBackends.Current = GlBackend.Instance;
-        _backend?.Dispose();
-        _device?.Dispose();
-        Window?.Dispose();
-        Window = null;
-        Builds.Waited = _waited;
-    }
+        Backend?.Filled(size, size, depth) ?? GlContext.Wall(depth);
 }

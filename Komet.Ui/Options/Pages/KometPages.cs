@@ -1,9 +1,10 @@
+using System.ComponentModel;
 using System.Globalization;
-using Komet.Api;
 using Komet.Core;
 using Komet.Hud;
 using Komet.Rendering;
 using Vintagestory.API.Util;
+using Vintagestory.Client.NoObf;
 using static Komet.Options.OptionsText;
 
 namespace Komet.Options;
@@ -11,8 +12,7 @@ namespace Komet.Options;
 // The options screen's own texts: Komet's lang keys under "settings-"
 internal static class OptionsText
 {
-    internal static string T(string key, params object[] args) =>
-        KometText.Translate("settings-" + key, args);
+    internal static string T(string key, params object[] args) => KometText.Translate("settings-" + key, args);
 }
 
 // What the Komet pages' buttons do, handed in by the HUD: copy the values, run the benchmark for a length in seconds, show
@@ -24,8 +24,9 @@ internal sealed record KometActions(Action Dump, Action<float> Bench, Action Ver
 // Exact page adds every engine-exact switch under masters, so nothing is reachable only in komet.json.
 internal sealed class KometPages(HudSettings settings, KometActions actions)
 {
-    public const string Overview = "komet-overview", ExactId = "komet-exact", Hud = "komet-hud", Style = "komet-style", Tools = "komet-tools",
-        Templates = "modding-templates";
+    public const string Overview = "komet-overview", ExactId = "komet-exact", Hud = "komet-hud", Tools = "komet-tools";
+    private const string Style = "komet-style", Templates = "modding-templates";
+
     private const int MaxNeeds = 8; // how far a chain of Knob.Needs is followed
 
     private static readonly string[] Corners = ["topleft", "topright", "bottomleft", "bottomright"];
@@ -34,24 +35,43 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     private static readonly string[] Areas = ["render", "chunks", "misc", "vulkan"];
 
     private string? _armed; // the reset that asked once and waits for its second click
+    private int _compatibilityNotices;
 
     public bool Advanced => settings.ShowAdvanced;
 
     // The styles the Style page offers; the screen sets it
-    public StyleLibrary? Styles { get; set; }
+    public StyleLibrary? Styles { get; init; }
 
     // For the templates' assets; the screen sets it
-    public ICoreClientAPI? Api { get; set; }
+    public ICoreClientAPI? Api { get; init; }
+    internal Action<string> Navigate { get; init; } = static _ => { };
+
+    internal OptionPage Compatibility() =>
+        CompatibilityPage.Build(Api, T("section-komet"), Navigate, actions,
+            out _compatibilityNotices);
+
+    internal OptionPage Connected() => ConnectedModsPage.Build(Api, T("section-komet"), Navigate);
 
     public OptionPage[] Build()
     {
         var section = T("section-komet");
         _armed = null;
-        List<OptionPage> pages = [OverviewPage(section)];
-        foreach (var area in Areas.Bounded(Areas.Length)) pages.Add(AreaPage(area, section));
+        List<OptionPage> pages = [OverviewPage(section), Compatibility(), Connected()];
+        if (ClientSettings.DeveloperMode) pages.Add(RenderDebugPage.Build(section, Navigate));
+
+        foreach (var area in Areas.Bounded(Areas.Length))
+        {
+            pages.Add(AreaPage(area, section));
+        }
+
         if (settings.ShowAdvanced) pages.Add(ExactPage(section));
+
         pages.Add(HudPage(section));
-        if (Styles is not null) pages.Add(StylePage(section)); // the screen's library: none outside a screen
+        if (Styles is not null)
+        {
+            pages.Add(StylePage(section)); // the screen's library: none outside a screen
+        }
+
         pages.Add(ToolsPage(section));
         return [.. pages];
     }
@@ -61,23 +81,43 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     {
         var s = settings.Knobs;
         var page = new OptionPage(Overview, T("page-overview"), section);
+        _ = page.Group(T("compat-title"))
+            .Button(T("compat-check"),
+                () => _compatibilityNotices > 0 ? T("compat-notices", _compatibilityNotices) : T("do-open"),
+                () => Navigate(CompatibilityPage.Id), T("compat-overview-hint"))
+            .Tagged(CompatibilityTags)
+            .Button(T("connected-title"), () => T("connected-count", global::Komet.Api.Kapi.Mods.Count),
+                () => Navigate(ConnectedModsPage.Id), T("connected-hint"));
         var hw = HardwareProfile.Found;
         var names = Array.ConvertAll(Presets.Names, name => T("preset-" + name));
         _ = page.Group(T("preset-group"))
             .Choice(T("preset"), [.. names, T("preset-adjusted")],
                 () => s.Adjusted ? Presets.Names.Length : Array.IndexOf(Presets.Names, s.Preset),
-                choice => { if (Index(choice, Presets.Names.Length)) s.ChoosePreset(Presets.Names[choice]); },
+                choice =>
+                {
+                    if (Index(choice, Presets.Names.Length)) s.ChoosePreset(Presets.Names[choice]);
+                },
                 T("komet-preset-hint"))
             .Offering(Presets.Names.Length)
-            .Button(T("hardware", hw.Cores, Known(hw.RamGb), Known(hw.VramGb), Known(hw.RefreshHz)), T("do-detected"), s.UseDetected,
+            .Button(T("hardware", hw.Cores, Known(hw.RamGb), Known(hw.VramGb), Known(hw.RefreshHz)), T("do-detected"),
+                s.UseDetected,
                 T("detected-hint"));
         _ = ModeRow(page.Group(() => T("renderer-group", VulkanMode.Renderer())));
         _ = page.Group(T("general"));
         var knobs = Knobs.BuiltIn; // Knob.General: preferences, not quality against speed
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
-            if (knobs[i].General && knobs[i].Page is not null)
-                _ = Row(page, knobs[i], i);
+        {
+            if (knobs[i].General && knobs[i].Page is not null) _ = Row(page, knobs[i], i);
+        }
+
         return page;
+    }
+
+    private IReadOnlyList<(TagIcon Icon, TagKind Kind)> CompatibilityTags()
+    {
+        if (Features.Troubled > 0) return [(TagIcon.Warning, TagKind.Warn)];
+
+        return _compatibilityNotices > 0 ? [(TagIcon.Link, TagKind.Plain)] : [];
     }
 
     // An area's trade-offs by group; its exact switches live on the Exact page
@@ -87,10 +127,17 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         var knobs = Knobs.BuiltIn;
         List<int> weighed = [];
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
-            if (knobs[i].Page == area && Single(knobs[i]) && knobs[i].Group is not null)
-                weighed.Add(i);
+        {
+            if (knobs[i].Page == area && Single(knobs[i]) && knobs[i].Group is not null) weighed.Add(i);
+        }
+
         Grouped(page, weighed);
-        if (page.Count == 0) _ = page.Group(T("page-" + area)); // nothing weighed here: the page stands for its exact switches
+        if (page.Count == 0)
+        {
+            _ = page.Group(T("page-" +
+                             area)); // nothing weighed here: only the heading (its exact switches are on the Exact page)
+        }
+
         return Features.AddRows(page, true);
     }
 
@@ -100,23 +147,27 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         var knobs = Knobs.BuiltIn;
         List<string?> groups = [];
         foreach (var i in members.Bounded(Knobs.MaxKnobs))
-            if (!groups.Contains(knobs[i].Group))
-                groups.Add(knobs[i].Group);
+        {
+            if (!groups.Contains(knobs[i].Group)) groups.Add(knobs[i].Group);
+        }
+
         foreach (var group in groups.Bounded(Knobs.MaxKnobs))
         {
             if (group is not null) _ = page.Group(T(group));
+
             foreach (var i in members.Bounded(Knobs.MaxKnobs))
-                if (knobs[i].Group == group)
-                    _ = Row(page, knobs[i], i);
+            {
+                if (knobs[i].Group == group) _ = Row(page, knobs[i], i);
+            }
         }
     }
 
     // Knob.Weighed: a trade-off a player weighs, a row of its own
-    private static bool Single(Knob knob) => knob.Page is not null && knob.Weighed && !knob.General;
+    private static bool Single(Knob knob) => knob is { Page: not null, Weighed: true, General: false };
 
     // Every other switch only makes the engine's own result faster: under the area's master switch
     private static bool IsExact(Knob knob) =>
-        knob.Page is not null && knob.IsSwitch && !knob.Weighed && !knob.General;
+        knob is { Page: not null, IsSwitch: true, Weighed: false, General: false };
 
     // Every engine-exact switch on one page: a master over all, then per area its own master and its switches in group
     // order. A switch turned off is marked (it costs speed and is worth naming in a bug report); with no row chosen the
@@ -128,8 +179,12 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         var s = settings.Knobs;
         List<int> all = [];
         foreach (var area in Areas.Bounded(Areas.Length))
+        {
             all.AddRange(ExactOf(area));
+        }
+
         if (all.Count == 0) return page;
+
         _ = page.Group(T("exact-overview"))
             .Switch(T("exact-all", all.Count), () => all.TrueForAll(i => s.Knob(i) != 0),
                 on => all.ForEach(i => s.SetKnob(i, on ? 1 : 0)), T("exact-all-hint"));
@@ -137,8 +192,10 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         {
             var members = ExactOf(area);
             if (members.Count == 0) continue;
+
             _ = page.Group(T("page-" + area))
-                .Switch(T("exact-area", T("page-" + area), members.Count), () => members.TrueForAll(i => s.Knob(i) != 0),
+                .Switch(T("exact-area", T("page-" + area), members.Count),
+                    () => members.TrueForAll(i => s.Knob(i) != 0),
                     on => members.ForEach(i => s.SetKnob(i, on ? 1 : 0)), T("exact-area-hint"));
             foreach (var i in members.Bounded(Knobs.MaxKnobs))
             {
@@ -159,17 +216,25 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         var knobs = Knobs.BuiltIn;
         List<int> found = [];
         for (var i = 0; i < Math.Min(knobs.Length, Knobs.MaxKnobs); i++)
-            if (knobs[i].Page == area && IsExact(knobs[i]))
-                found.Add(i);
+        {
+            if (knobs[i].Page == area && IsExact(knobs[i])) found.Add(i);
+        }
+
         List<string?> groups = [];
         foreach (var i in found.Bounded(Knobs.MaxKnobs))
-            if (!groups.Contains(knobs[i].Group))
-                groups.Add(knobs[i].Group);
+        {
+            if (!groups.Contains(knobs[i].Group)) groups.Add(knobs[i].Group);
+        }
+
         List<int> ordered = [];
         foreach (var group in groups.Bounded(Knobs.MaxKnobs))
+        {
             foreach (var i in found.Bounded(Knobs.MaxKnobs))
-                if (knobs[i].Group == group)
-                    ordered.Add(i);
+            {
+                if (knobs[i].Group == group) ordered.Add(i);
+            }
+        }
+
         return ordered;
     }
 
@@ -182,13 +247,18 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         List<(TagIcon, TagKind, string)> legend =
         [
             (TagIcon.Comet, TagKind.Heading, T("page-exact")),
-            (TagIcon.Comet, off.Count == 0 ? TagKind.TakesOver : TagKind.Plain, T("exact-on", all.Count - off.Count, all.Count)),
+            (TagIcon.Comet, off.Count == 0 ? TagKind.TakesOver : TagKind.Plain,
+                T("exact-on", all.Count - off.Count, all.Count)),
             (TagIcon.Comet, TagKind.Plain, T("exact-about"))
         ];
         if (off.Count == 0) return legend;
+
         legend.Add((TagIcon.Warning, TagKind.Heading, T("exact-off-heading")));
         foreach (var i in off.Bounded(Knobs.MaxKnobs))
+        {
             legend.Add((TagIcon.Warning, TagKind.Warn, T(knobs[i].Label)));
+        }
+
         return legend;
     }
 
@@ -197,7 +267,8 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         var s = settings;
         return new OptionPage(Hud, T("page-hud"), section).Group(T("display"))
             .Switch(T("visible"), () => s.Visible, on => s.Visible = on)
-            .Choice(T("corner"), Array.ConvertAll(Corners, c => T("corner-" + c)), () => (int)s.Corner, i => s.Corner = (HudCorner)i)
+            .Choice(T("corner"), Array.ConvertAll(Corners, c => T("corner-" + c)), () => (int)s.Corner,
+                i => s.Corner = (HudCorner)i)
             .Slider(T("opacity"), HudSettings.OpacityRange, () => s.Opacity, v => s.Opacity = v)
             .Slider(T("scale"), HudSettings.ScaleRange, () => s.FontScale, v => s.FontScale = v)
             .Slider(T("interval"), HudSettings.IntervalRange, () => s.Interval, v => s.Interval = v)
@@ -217,18 +288,25 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     {
         var (s, page) = (settings, new OptionPage(Style, T("page-style"), section));
         if (Styles is not { } styles) return page;
+
         var choices = styles.Choices();
         var motions = new[] { T("motion-off"), T("motion-calm"), T("motion-full") };
         _ = page.Group(T("look"))
-            .Choice(T("style"), Array.ConvertAll(choices, c => c.Name), () => Math.Max(0, Array.FindIndex(choices, c => c.Id == s.MenuStyle)),
-                i => { if (Index(i, choices.Length)) s.MenuStyle = choices[i].Id; }, T("style-hint")).Live()
+            .Choice(T("style"), Array.ConvertAll(choices, c => c.Name),
+                () => Math.Max(0, Array.FindIndex(choices, c => c.Id == s.MenuStyle)),
+                i =>
+                {
+                    if (Index(i, choices.Length)) s.MenuStyle = choices[i].Id;
+                }, T("style-hint")).Live()
             .Slider(T("menu-opacity"), HudSettings.MenuOpacityRange, () => s.MenuOpacity, v => s.MenuOpacity = v).Live()
             .Choice(T("motion"), motions, () => s.MenuMotion, i => s.MenuMotion = i, T("motion-hint")).Live()
             .Group(T("own-styles"))
-            .Button(T("style-folder"), T("do-open"), () => OpenFolder(StyleLibrary.UserFolder), T("style-folder-hint", ShaderPacks.Shown(StyleLibrary.UserFolder)))
+            .Button(T("style-folder"), T("do-open"), () => OpenFolder(StyleLibrary.UserFolder),
+                T("style-folder-hint", ShaderPacks.Shown(StyleLibrary.UserFolder)))
             .Button(T("style-template"), T("do-copy-style"), () =>
             {
                 if (styles.Template(s.MenuStyle) is not { } folder) return;
+
                 StylesReloaded?.Invoke();
                 s.MenuStyle = Path.GetFileName(folder);
                 OpenFolder(folder);
@@ -237,26 +315,26 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         return page;
     }
 
-    // Modding › Templates: every example Komet writes on request, next to the guides that start from them. Without a mod
-    // of your own (a shader pack, a style: they show at once), then whole mods to copy into the Mods folder.
     public OptionPage TemplatesPage(string section)
     {
         var (s, page) = (settings, new OptionPage(Templates, T("page-templates"), section));
-        _ = page.Group(T("templates-own"))
-            .Button(T("add-example-pack"), T("do-create"), () =>
+        _ = page.Button(T("add-example-pack"), T("templates-create-local"), () =>
             {
-                if (Api is { } api && KometExamples.Create(api, KometExamples.Shader) is not null) ShaderOverview.Reload(api);
+                if (Api is { } api && KometExamples.Create(api, KometExamples.Shader) is not null)
+                {
+                    ShaderOverview.Reload(api);
+                }
             }, T("add-example-pack-hint", ShaderPacks.Shown(ShaderPacks.UserFolder)))
-            .Button(T("add-example-style"), T("do-create"), () =>
+            .Button(T("add-example-style"), T("templates-create-local"), () =>
             {
                 if (Api is not { } api || KometExamples.Create(api, KometExamples.Style) is not { } folder) return;
+
                 StylesReloaded?.Invoke();
                 s.MenuStyle = Path.GetFileName(folder); // the example's id is its folder's name
             }, T("add-example-style-hint", ShaderPacks.Shown(StyleLibrary.UserFolder)))
-            .Group(T("templates-mods"))
-            .Button(T("add-mod-template"), T("do-create"), () => Example(KometExamples.Mod),
+            .Button(T("add-mod-template"), T("templates-export"), () => Example(KometExamples.Mod),
                 T("add-mod-template-hint", ShaderPacks.Shown(KometExamples.ModFolder)))
-            .Button(T("add-vulkan-template"), T("do-create"), () => Example(KometExamples.Vulkan),
+            .Button(T("add-vulkan-template"), T("templates-export"), () => Example(KometExamples.Vulkan),
                 T("add-vulkan-template-hint", ShaderPacks.Shown(KometExamples.ModFolder)))
             .Group(T("templates-folders"))
             .Button(T("templates-folder"), T("do-open"), () => OpenFolder(KometExamples.ModFolder),
@@ -270,6 +348,7 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     private void Example(string kind)
     {
         if (Api is not { } api) return;
+
         if (KometExamples.Create(api, kind) is { } folder) OpenFolder(folder);
     }
 
@@ -283,9 +362,9 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
             _ = Directory.CreateDirectory(folder);
             NetUtil.OpenUrlInBrowser(folder);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or Win32Exception)
         {
-            ApiEvents.Logger?.Warning("Komet styles: {0} could not be opened: {1}", folder, e.Message);
+            ModEvents.Logger?.Warning("Komet styles: {0} could not be opened: {1}", folder, e.Message);
         }
     }
 
@@ -295,7 +374,8 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         _ = page.Group(T("options"))
             .Switch(T("showadvanced"), () => s.ShowAdvanced, on => s.ShowAdvanced = on, T("showadvanced-hint"))
             .Group(T("version"))
-            .Switch(T("updates"), () => s.UpdateCheck, on => (s.UpdateAsked, s.UpdateCheck) = (true, on), T("updates-hint"))
+            .Switch(T("updates"), () => s.UpdateCheck, on => (s.UpdateAsked, s.UpdateCheck) = (true, on),
+                T("updates-hint"))
             .Button(T("checksum"), T("do-verify"), actions.Verify, T("checksum-hint"))
             .Group(T("actions"))
             .Button(T("rebuild"), T("do-rebuild"), TerrainRebuild.Request, T("rebuild-hint"))
@@ -307,16 +387,16 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     }
 
     // A reset acts on its second click; the first only turns its caption into the question
-    private OptionPage Reset(OptionPage page, string label, Action reset)
-    {
-        return page.Button(T(label), () => _armed == label ? Lang.Get("Confirm") : T("do-reset"), () =>
+    private OptionPage Reset(OptionPage page, string label, Action reset) =>
+        page.Button(T(label), () => _armed == label ? Lang.Get("Confirm") : T("do-reset"), () =>
         {
             if (_armed == label) reset();
+
             _armed = _armed == label ? null : label;
         }, T("reset-hint"));
-    }
 
-    private static string Known(int value) => value > 0 && Assert(value < 1_000_000) ? value.ToString(CultureInfo.InvariantCulture) : "?";
+    private static string Known(int value) =>
+        value > 0 && Assert(value < 1_000_000) ? value.ToString(CultureInfo.InvariantCulture) : "?";
 
     // A knob's row: dimmed while a knob it needs is off, locked while its feature is held; a slider marks the value it
     // follows now (preset and computer)
@@ -324,10 +404,10 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     {
         var (unit, hint, s) = (knob.Unit.Length > 0 ? " " + knob.Unit : "", T(knob.Label + "-hint"), settings.Knobs);
         _ = (knob.IsSwitch
-            ? page.Switch(T(knob.Label), () => s.Knob(index) != 0, on => s.SetKnob(index, on ? 1 : 0), hint)
-                .Standard(() => KometSettings.KnobDefault(index) != 0 ? 1 : 0)
-            : page.Slider(T(knob.Label), knob.Min, knob.Max, 1, () => s.Knob(index),
-                v => s.SetKnob(index, (int)v), unit, hint).Standard(() => KometSettings.KnobDefault(index)))
+                ? page.Switch(T(knob.Label), () => s.Knob(index) != 0, on => s.SetKnob(index, on ? 1 : 0), hint)
+                    .Standard(() => KnobSettings.KnobDefault(index) != 0 ? 1 : 0)
+                : page.Slider(T(knob.Label), knob.Min, knob.Max, 1, () => s.Knob(index),
+                    v => s.SetKnob(index, (int)v), unit, hint).Standard(() => KnobSettings.KnobDefault(index)))
             .LockedWhen(() => Features.LockText(index));
         var needed = Needed(knob);
         return needed.Length == 0 ? page : page.EnabledWhen(() => Array.TrueForAll(needed, k => s.Knob(k) != 0));
@@ -342,6 +422,7 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         {
             var at = Knobs.Find(key);
             if (!Assert(at >= 0) || chain.Contains(at)) break;
+
             chain.Add(at);
             key = Knobs.At(at).Needs;
         }
@@ -351,9 +432,15 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     }
 
     private OptionPage ModeRow(OptionPage page) =>
-        page.Choice(T("vulkan-mode"), Array.ConvertAll(VulkanMode.Choices, choice => T("vulkan-mode-" + choice.Name)),
-                () => VulkanMode.Choice(VulkanMode.Of(settings.Knobs.Knob)),
-                choice => { if (Index(choice, VulkanMode.Choices.Length)) VulkanMode.Set(VulkanMode.Choices[choice].Mode, settings.Knobs.SetKnob); },
-                T("vulkan-mode-hint"))
-            .LockedWhen(() => VulkanMode.CoreKnob >= 0 ? Features.LockText(VulkanMode.CoreKnob) : null);
+        page.Choice(T("vulkan-mode"),
+            Array.ConvertAll(VulkanMode.Choices, choice => T("vulkan-mode-" + choice.Name)),
+            () => VulkanMode.Choice(VulkanMode.Of(settings.Knobs.Knob)),
+            choice =>
+            {
+                if (Index(choice, VulkanMode.Choices.Length))
+                {
+                    VulkanMode.Set(VulkanMode.Choices[choice].Mode, settings.Knobs.SetKnob);
+                }
+            },
+            T("vulkan-mode-hint"));
 }

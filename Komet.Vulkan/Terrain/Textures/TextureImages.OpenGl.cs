@@ -18,25 +18,34 @@ internal sealed unsafe partial class TextureImages
     public (int Count, long Bytes, int Left) WriteBack(int most, long budget, IReadOnlySet<int> skip)
     {
         if (!Assert(most > 0) || !Assert(budget > 0) || !NotNull(skip) || !_device.WaitIdle()) return default;
+
         return HandedAll(_images
-            .Where(p => p.Value is { Stale: false } && (p.Value.Drawn || GlTap.Behind((uint)p.Key)) && !GlTap.LeanTexture((uint)p.Key) && !skip.Contains(p.Key) &&
+            .Where(p => p.Value is { Stale: false } && (p.Value.Drawn || GlTap.Behind((uint)p.Key)) &&
+                        !GlTap.LeanTexture((uint)p.Key) && !skip.Contains(p.Key) &&
                         !GlTap.IsRenderbuffer(p.Key)) // a renderbuffer takes no upload: it stays as OpenGL had it
-            .Select(p => (p.Key, p.Value.Image, Math.Clamp(GlTexture.Levels(p.Key), 1, p.Value.Image.Levels), // none past OpenGL's
+            .Select(p => (p.Key, p.Value.Image,
+                Math.Clamp(GlTexture.Levels(p.Key), 1, p.Value.Image.Levels), // none past OpenGL's
                 Vk.LayoutShaderRead)), (most, budget));
     }
 
     // Render targets (TerrainTargets' images): like textures, within what is left
-    public (int Count, long Bytes, int Left) WriteBack(IEnumerable<SharedImage> targets, System.Func<int, int> resting,
+    public (int Count, long Bytes, int Left) WriteBack(IReadOnlyCollection<SharedImage> targets,
+        System.Func<int, int> resting,
         (int Most, long Budget) room, IReadOnlySet<int> skip)
     {
-        if (!NotNull(targets) || !NotNull(resting) || !NotNull(skip) || room.Most <= 0 || room.Budget <= 0) return default;
+        if (!NotNull(targets) || !NotNull(resting) || !NotNull(skip) || room.Most <= 0 || room.Budget <= 0)
+        {
+            return default;
+        }
+
         return HandedAll(targets
             .Where(i => i.Texture > 0 && !GlTap.LeanTexture((uint)i.Texture) && !skip.Contains(i.Texture))
             .Select(i => (i.Texture, i, 1, resting(i.Texture))), room);
     }
 
     // In Komet's quiet with tight unpack state, while they fit
-    private (int Count, long Bytes, int Left) HandedAll(IEnumerable<(int Texture, SharedImage Image, int Levels, int Resting)> from,
+    private (int Count, long Bytes, int Left) HandedAll(
+        IEnumerable<(int Texture, SharedImage Image, int Levels, int Resting)> from,
         (int Most, long Budget) room)
     {
         var (count, bytes, left) = (0, 0L, 0);
@@ -68,6 +77,7 @@ internal sealed unsafe partial class TextureImages
     {
         var size = Footprint(from.Image, from.Levels);
         if (room.Most <= 0 || size <= 0 || size > room.Budget) return null;
+
         return Written(texture, from, size) ? size : null;
     }
 
@@ -75,9 +85,14 @@ internal sealed unsafe partial class TextureImages
     private static long Footprint(SharedImage image, int levels)
     {
         if (image.Format.Pack is not var (_, _, texel)) return 0;
+
         var bytes = 0L;
         for (var level = 0; level < Math.Min(levels, MaxLevels); level++)
-            bytes += (long)Math.Max(image.Width >> level, 1) * Math.Max(image.Height >> level, 1) * image.Layers * texel;
+        {
+            bytes += (long)Math.Max(image.Width >> level, 1) * Math.Max(image.Height >> level, 1) * image.Layers *
+                     texel;
+        }
+
         return bytes < int.MaxValue ? bytes : 0;
     }
 
@@ -85,16 +100,24 @@ internal sealed unsafe partial class TextureImages
     {
         var (image, levels, _) = from;
         if (image.Format.Pack is not var (format, type, texel)) return false;
-        using var host = HostBuffer.Create(_device, (ulong)size, bulk: true);
+
+        using var host = HostBuffer.Create(_device, (ulong)size, true);
         if (host is null || host.Take((int)size, out _, 16) != 0 || !CopiedOut(from, host.Buffer, texel)) return false;
+
         var at = 0L;
         for (var level = 0; level < Math.Min(levels, MaxLevels); level++)
         {
             var (width, height) = image.LevelSize(level);
             var pixels = (IntPtr)host.Pointer(at);
-            if (!image.Arrayed && !image.Cube)
+            if (image is { Arrayed: false, Cube: false })
+            {
                 GL.TextureSubImage2D(texture, level, 0, 0, width, height, format, type, pixels);
-            else GL.TextureSubImage3D(texture, level, 0, 0, 0, width, height, image.Layers, format, type, pixels);
+            }
+            else
+            {
+                GL.TextureSubImage3D(texture, level, 0, 0, 0, width, height, image.Layers, format, type, pixels);
+            }
+
             at += (long)width * height * image.Layers * texel;
         }
 
@@ -105,6 +128,7 @@ internal sealed unsafe partial class TextureImages
     {
         var (image, levels, resting) = from;
         if (!Assert(resting > 0)) return false;
+
         var aspect = Planes(image.Format.Aspect);
         return _device.Run(commands =>
         {
@@ -128,8 +152,7 @@ internal sealed unsafe partial class TextureImages
     }
 
     // Buffer copies take one plane: depth of a depth-stencil image
-    private static uint Planes(uint aspect) =>
-        (aspect & Vk.AspectDepth) != 0 ? Vk.AspectDepth : aspect;
+    private static uint Planes(uint aspect) => (aspect & Vk.AspectDepth) != 0 ? Vk.AspectDepth : aspect;
 
     // Any state: even stale it is closest, as OpenGL holds nothing
     public SharedImage? Held(int texture) =>
@@ -141,26 +164,34 @@ internal sealed unsafe partial class TextureImages
     {
         var gl = GlTexture.Of(texture);
         var kind = (uint)gl.Kind;
-        if (!Assert(texture > 0) || gl.Width <= 0 || gl.Height <= 0 || kind is not (Texture2D or GlTexture.Array2D or GlTap.TextureCube))
+        if (!Assert(texture > 0) || gl.Width <= 0 || gl.Height <= 0 ||
+            kind is not (Texture2D or GlTexture.Array2D or GlTap.TextureCube))
         {
-            GlTap.Restored((uint)texture, true); // nothing known to give it: OpenGL keeps its stand-in (sampled, never past it)
+            GlTap.Restored((uint)texture,
+                true); // nothing known to give it: OpenGL keeps its stand-in (sampled, never past it)
             return false;
         }
 
         var levels = Math.Clamp(GlTexture.Levels(texture), 1, MaxLevels);
         var layers = LayersOf(kind, gl.Depth);
-        var source = image is not null && (image.Width, image.Height, image.Layers) == (gl.Width, gl.Height, layers) ? image : null;
+        var source = image is not null && (image.Width, image.Height, image.Layers) == (gl.Width, gl.Height, layers)
+            ? image
+            : null;
         var filled = Math.Min(levels, source?.Levels ?? 0);
         var size = source is null ? 0 : Footprint(source, filled);
-        using var host = size > 0 ? HostBuffer.Create(_device, (ulong)size, bulk: true) : null;
+        using var host = size > 0 ? HostBuffer.Create(_device, (ulong)size, true) : null;
         var full = host is not null && host.Take((int)size, out _, 16) == 0 &&
                    CopiedOut((source!, filled, resting), host.Buffer, source!.Format.Pack!.Value.Bytes);
         var saved = UnpackTight();
-        var bound = GL.GetInteger((GetPName)(kind switch { GlTap.TextureCube => BindingCube, GlTexture.Array2D => BindingArray, _ => Binding2D }));
+        var bound = GL.GetInteger((GetPName)(kind switch
+        {
+            GlTap.TextureCube => BindingCube, GlTexture.Array2D => BindingArray, _ => Binding2D
+        }));
         try
         {
             GL.BindTexture((TextureTarget)kind, texture);
-            Specified((kind, (uint)gl.Format), (gl.Width, gl.Height, layers, levels), full ? (source, filled, host) : (null, 0, null));
+            Specified((kind, (uint)gl.Format), (gl.Width, gl.Height, layers, levels),
+                full ? (source, filled, host) : (null, 0, null));
         }
         finally
         {
@@ -174,7 +205,8 @@ internal sealed unsafe partial class TextureImages
 
     // glTexImage2D (cube: six faces) or glTexImage3D (array layers) per level, pixels from the host buffer where
     // present
-    private static void Specified((uint Kind, uint Format) texture, (int Width, int Height, int Layers, int Levels) size,
+    private static void Specified((uint Kind, uint Format) texture,
+        (int Width, int Height, int Layers, int Levels) size,
         (SharedImage? Image, int Levels, HostBuffer? Host) data)
     {
         var (kind, format) = texture;
@@ -185,22 +217,35 @@ internal sealed unsafe partial class TextureImages
         {
             var (width, height) = (Math.Max(size.Width >> level, 1), Math.Max(size.Height >> level, 1));
             var given = level < data.Levels && pack is not null && data.Host is not null;
-            var (pf, pt) = given ? (pack!.Value.Format, pack.Value.Type) : ((PixelFormat)blankFormat, (PixelType)blankType);
+            var (pf, pt) = given
+                ? (pack!.Value.Format, pack.Value.Type)
+                : ((PixelFormat)blankFormat, (PixelType)blankType);
             var face = (long)width * height * (given ? pack!.Value.Bytes : 0);
             var pixels = given ? (IntPtr)data.Host!.Pointer(at) : IntPtr.Zero;
             if (kind == GlTexture.Array2D)
-                GL.TexImage3D(TextureTarget.Texture2DArray, level, (PixelInternalFormat)format, width, height, size.Layers, 0, pf,
+            {
+                GL.TexImage3D(TextureTarget.Texture2DArray, level, (PixelInternalFormat)format, width, height,
+                    size.Layers, 0, pf,
                     pt, pixels);
+            }
             else
+            {
                 for (var f = 0; f < Math.Min(kind == GlTap.TextureCube ? Faces : 1, Faces); f++)
-                    GL.TexImage2D(kind == GlTap.TextureCube ? TextureTarget.TextureCubeMapPositiveX + f : TextureTarget.Texture2D,
-                        level, (PixelInternalFormat)format, width, height, 0, pf, pt, given ? pixels + (nint)(f * face) : 0);
+                {
+                    GL.TexImage2D(
+                        kind == GlTap.TextureCube ? TextureTarget.TextureCubeMapPositiveX + f : TextureTarget.Texture2D,
+                        level, (PixelInternalFormat)format, width, height, 0, pf, pt,
+                        given ? pixels + (nint)(f * face) : 0);
+                }
+            }
+
             at += face * size.Layers;
         }
     }
 
     // Rows tight (no unpack buffer, no skips), restored after
-    private static (int RowLength, int SkipRows, int SkipPixels, int Alignment, int ImageHeight, int SkipImages, int Buffer)
+    private static (int RowLength, int SkipRows, int SkipPixels, int Alignment, int ImageHeight, int SkipImages, int
+        Buffer)
         UnpackTight()
     {
         var saved = (GL.GetInteger(GetPName.UnpackRowLength), GL.GetInteger(GetPName.UnpackSkipRows),
@@ -214,6 +259,7 @@ internal sealed unsafe partial class TextureImages
         GL.PixelStore((PixelStoreParameter)UnpackImageHeight, 0);
         GL.PixelStore((PixelStoreParameter)UnpackSkipImages, 0);
         if (saved.Item7 != 0) GL.BindBuffer(BufferTarget.PixelUnpackBuffer, 0);
+
         return saved;
     }
 
@@ -242,7 +288,8 @@ internal sealed unsafe partial class TextureImages
 
         if (GlTap.LeanTexture((uint)texture))
         {
-            why = $"texture {texture} changed in a way Vulkan did not follow, and lean gave OpenGL none of it to read back";
+            why =
+                $"texture {texture} changed in a way Vulkan did not follow, and lean gave OpenGL none of it to read back";
             return false;
         }
 
@@ -251,8 +298,9 @@ internal sealed unsafe partial class TextureImages
         try
         {
             for (var level = 0; level < Math.Min(image.Levels, MaxLevels); level++)
-                if (!LevelRead(texture, (entry, level), (format, type, bytes), out why))
-                    return false;
+            {
+                if (!LevelRead(texture, (entry, level), (format, type, bytes), out why)) return false;
+            }
         }
         finally
         {
@@ -263,7 +311,8 @@ internal sealed unsafe partial class TextureImages
         return true;
     }
 
-    private bool LevelRead(int texture, (Entry Entry, int Level) at, (PixelFormat Format, PixelType Type, int Bytes) pack,
+    private bool LevelRead(int texture, (Entry Entry, int Level) at,
+        (PixelFormat Format, PixelType Type, int Bytes) pack,
         out string why)
     {
         why = "";
@@ -276,7 +325,8 @@ internal sealed unsafe partial class TextureImages
             return false;
         }
 
-        GL.GetTextureSubImage(texture, at.Level, 0, 0, 0, width, height, image.Layers, pack.Format, pack.Type, (int)size,
+        GL.GetTextureSubImage(texture, at.Level, 0, 0, 0, width, height, image.Layers, pack.Format, pack.Type,
+            (int)size,
             (IntPtr)buffer.Pointer(offset));
         var region = new Vk.BufferImageCopy
         {
@@ -299,21 +349,31 @@ internal sealed unsafe partial class TextureImages
         var saved = GlTap.Pack ?? (GlTap.Packing(), (uint)GL.GetInteger((GetPName)0x88ED));
         var (rows, skipRows, skipPixels, alignment) = saved.Store;
         if (alignment != 1) GL.PixelStore((PixelStoreParameter)PackAlignment, 1);
+
         if (rows != 0) GL.PixelStore((PixelStoreParameter)PackRowLength, 0);
+
         if (skipRows != 0) GL.PixelStore((PixelStoreParameter)PackSkipRows, 0);
+
         if (skipPixels != 0) GL.PixelStore((PixelStoreParameter)PackSkipPixels, 0);
+
         if (saved.Item2 != 0) GL.BindBuffer(BufferTarget.PixelPackBuffer, 0);
+
         return saved;
     }
 
     // The pack state PackTight saved, set again
-    private static void PackRestored(((int RowLength, int SkipRows, int SkipPixels, int Alignment) Store, uint Buffer) saved)
+    private static void PackRestored(
+        ((int RowLength, int SkipRows, int SkipPixels, int Alignment) Store, uint Buffer) saved)
     {
         var (rows, skipRows, skipPixels, alignment) = saved.Store;
         if (alignment != 1) GL.PixelStore((PixelStoreParameter)PackAlignment, alignment);
+
         if (rows != 0) GL.PixelStore((PixelStoreParameter)PackRowLength, rows);
+
         if (skipRows != 0) GL.PixelStore((PixelStoreParameter)PackSkipRows, skipRows);
+
         if (skipPixels != 0) GL.PixelStore((PixelStoreParameter)PackSkipPixels, skipPixels);
+
         if (saved.Buffer != 0) GL.BindBuffer(BufferTarget.PixelPackBuffer, saved.Buffer);
     }
 }

@@ -29,11 +29,16 @@ public sealed class HeldGpuTests
             {
                 var buffers = new int[Churned];
                 GL.CreateBuffers(Churned, buffers);
-                foreach (var buffer in buffers) GL.NamedBufferData(buffer, 256, IntPtr.Zero, BufferUsageHint.DynamicDraw);
+                foreach (var buffer in buffers)
+                {
+                    GL.NamedBufferData(buffer, 256, IntPtr.Zero, BufferUsageHint.DynamicDraw);
+                }
+
                 Assert.That(scene.Mirrors.Count, Is.EqualTo(count + Churned), "each mirrored from its first contents");
                 Assert.That(scene.Mirrors.ManagedBytes, Is.GreaterThan(bytes));
                 GL.DeleteBuffers(Churned, buffers);
-                Assert.That(scene.Mirrors.Count, Is.EqualTo(count), $"round {round}: every mirror went with its buffer");
+                Assert.That(scene.Mirrors.Count, Is.EqualTo(count),
+                    $"round {round}: every mirror went with its buffer");
                 Assert.That(scene.Mirrors.ManagedBytes, Is.EqualTo(bytes), $"round {round}");
             }
 

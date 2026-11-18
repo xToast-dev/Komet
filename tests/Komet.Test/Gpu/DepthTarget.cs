@@ -5,17 +5,18 @@ namespace Komet.Test.Gpu;
 // A depth texture of its own framebuffer, drawn into with the depth test as the engine's passes have it, read back as floats
 internal sealed class DepthTarget : IDisposable
 {
-    private readonly int _framebuffer, _texture;
+    private readonly int _texture;
 
     public DepthTarget(int width, int height, int colors = 0)
     {
         (Width, HeightPixels) = (width, height);
-        _framebuffer = GL.GenFramebuffer();
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
+        Framebuffer = GL.GenFramebuffer();
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, Framebuffer);
         _texture = GL.GenTexture();
         GL.BindTexture(TextureTarget.Texture2D, _texture);
         GL.TexStorage2D(TextureTarget2d.Texture2D, 1, SizedInternalFormat.DepthComponent32f, width, height);
-        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, TextureTarget.Texture2D,
+        GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment,
+            TextureTarget.Texture2D,
             _texture, 0);
         Colors = new int[colors];
         for (var i = 0; i < colors; i++)
@@ -27,20 +28,38 @@ internal sealed class DepthTarget : IDisposable
                 TextureTarget.Texture2D, Colors[i], 0);
         }
 
-        if (colors == 0) GL.DrawBuffer(DrawBufferMode.None);
-        else GL.DrawBuffers(colors, [.. Enumerable.Range(0, colors).Select(i => DrawBuffersEnum.ColorAttachment0 + i)]);
+        if (colors == 0)
+        {
+            GL.DrawBuffer(DrawBufferMode.None);
+        }
+        else
+        {
+            GL.DrawBuffers(colors, [.. Enumerable.Range(0, colors).Select(i => DrawBuffersEnum.ColorAttachment0 + i)]);
+        }
+
         GL.BindTexture(TextureTarget.Texture2D, 0);
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
     }
 
-    public int Width { get; }
-    public int HeightPixels { get; }
-    public int Framebuffer => _framebuffer;
-    public int[] Colors { get; }
+    private int Width { get; }
+    private int HeightPixels { get; }
+    public int Framebuffer { get; }
+
+    private int[] Colors { get; }
+
+    public void Dispose()
+    {
+        GL.DeleteFramebuffer(Framebuffer);
+        GL.DeleteTexture(_texture);
+        foreach (var color in Colors)
+        {
+            GL.DeleteTexture(color);
+        }
+    }
 
     public void Begin()
     {
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, Framebuffer);
         GL.Viewport(0, 0, Width, HeightPixels);
         GL.Enable(EnableCap.DepthTest);
         GL.DepthFunc(DepthFunction.Lequal);
@@ -55,16 +74,9 @@ internal sealed class DepthTarget : IDisposable
     public float[] Read()
     {
         var depth = new float[Width * HeightPixels];
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _framebuffer);
+        GL.BindFramebuffer(FramebufferTarget.Framebuffer, Framebuffer);
         GL.ReadPixels(0, 0, Width, HeightPixels, PixelFormat.DepthComponent, PixelType.Float, depth);
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         return depth;
-    }
-
-    public void Dispose()
-    {
-        GL.DeleteFramebuffer(_framebuffer);
-        GL.DeleteTexture(_texture);
-        foreach (var color in Colors) GL.DeleteTexture(color);
     }
 }

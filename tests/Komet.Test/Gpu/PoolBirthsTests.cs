@@ -13,14 +13,16 @@ public sealed class PoolBirthsTests
     {
         MeshDataPoolManager opaque = Manager(), liquid = Manager(), tenth = Manager(), other = Manager();
         var passes = new MeshDataPoolManager[10][];
-        (passes[0], passes[4], passes[9]) = ([opaque], [Manager(), liquid], [tenth]);
-        Assert.Multiple(() =>
+        passes[0] = [opaque];
+        passes[4] = [Manager(), liquid];
+        passes[9] = [tenth];
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(VulkanRenderer.PassOf(passes, opaque), Is.Zero);
             Assert.That(VulkanRenderer.PassOf(passes, liquid), Is.EqualTo(4));
             Assert.That(VulkanRenderer.PassOf(passes, tenth), Is.EqualTo(-1), "past the chunk passes");
             Assert.That(VulkanRenderer.PassOf(passes, other), Is.EqualTo(-1), "another mod's pool");
             Assert.That(VulkanRenderer.PassOf(null, opaque), Is.EqualTo(-1));
-        });
+        }
     }
 }

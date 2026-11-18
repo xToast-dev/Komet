@@ -20,7 +20,10 @@ internal static class KometText
     public static string Num(double value, int decimals = 0)
     {
         if (!double.IsFinite(value) || !Assert(decimals is >= 0 and <= 4)) return "–";
-        var culture = Lang.CurrentLocale is { } locale && locale.StartsWith("de", StringComparison.Ordinal) ? German : CultureInfo.InvariantCulture;
+
+        var culture = Lang.CurrentLocale is { } locale && locale.StartsWith("de", StringComparison.Ordinal)
+            ? German
+            : CultureInfo.InvariantCulture;
         return value.ToString(Grouped[decimals], culture);
     }
 
@@ -36,11 +39,15 @@ internal static class KometText
     public static Func<string> Once(string key, params object[] args)
     {
         if (!Assert(key.Length > 0) || !NotNull(args)) return static () => "";
+
         string? locale = null, text = null;
         return () =>
         {
             if (text is null || !ReferenceEquals(locale, Lang.CurrentLocale))
+            {
                 (locale, text) = (Lang.CurrentLocale, Translate(key, args));
+            }
+
             return text;
         };
     }
@@ -54,13 +61,17 @@ internal static class KometText
         }
 
         if (!Cache.TryGetValue((prefix, name), out var text))
+        {
             Cache[(prefix, name)] = text = Translate(prefix + name.TrimStart('~'));
+        }
+
         return text;
     }
 
     public static string LocalTime(string iso)
     {
         if (iso.Length == 0 || !Assert(iso.Length <= 40)) return "";
+
         var format = Translate("time-format");
         var ok = DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
             out var time);

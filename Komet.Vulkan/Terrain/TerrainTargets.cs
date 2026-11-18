@@ -30,26 +30,47 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
 
     public List<string> Replaced { get; } = [];
 
-    public IEnumerable<SharedImage> Images => _images.Values;
+    public IReadOnlyCollection<SharedImage> Images => _images.Values;
 
     public IEnumerable<VulkanFrame.Shared> Resting =>
-        _images.Values.Select(i => new VulkanFrame.Shared(i, _resting.GetValueOrDefault(i.Texture, Vk.LayoutShaderRead)));
+        _images.Values.Select(i =>
+            new VulkanFrame.Shared(i, _resting.GetValueOrDefault(i.Texture, Vk.LayoutShaderRead)));
+
+    public void Dispose()
+    {
+        _ = device.WaitIdle();
+        foreach (var image in _images.Values.Bounded(MaxImages))
+        {
+            image.Dispose();
+        }
+
+        _images.Clear();
+        _sampling.Clear();
+        _swapped.Clear();
+        _resting.Clear();
+    }
 
     public FrameBufferRef? Of(int fbo)
     {
         if (!Assert(fbo >= 0) || !Assert(_all.Count < 64) || fbo == 0) return null;
+
         for (var i = 0; i < Math.Min(_all.Count, 64); i++) // asked for every draw: no closure
-            if (_all[i]?.FboId == fbo)
-                return _all[i];
+        {
+            if (_all[i].FboId == fbo) return _all[i];
+        }
+
         return null;
     }
 
     public bool Swapped(FrameBufferRef framebuffer)
     {
         if (!NotNull(framebuffer) || !Assert(_swapped.Count <= MaxImages)) return false;
+
         foreach (var swapped in _swapped.Bounded(MaxImages))
-            if (ReferenceEquals(swapped, framebuffer))
-                return true;
+        {
+            if (ReferenceEquals(swapped, framebuffer)) return true;
+        }
+
         return false;
     }
 
@@ -57,13 +78,16 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
 
     // Layout the image rests in between segments
     public int RestingOf(int texture) =>
-        Assert(texture >= 0) && Assert(_resting.Count <= MaxImages) ? _resting.GetValueOrDefault(texture, Vk.LayoutShaderRead) : 0;
+        Assert(texture >= 0) && Assert(_resting.Count <= MaxImages)
+            ? _resting.GetValueOrDefault(texture, Vk.LayoutShaderRead)
+            : 0;
 
     public Samplers.State? Sampling(int texture) => _sampling.TryGetValue(texture, out var s) ? s : null;
 
     public void Forget(int texture)
     {
         if (!_images.ContainsKey(texture)) return;
+
         _ = _swapped.RemoveAll(s => (s.ColorTextureIds ?? []).Contains(texture) || s.DepthTextureId == texture);
         _ = Free(texture, true);
     }
@@ -72,12 +96,17 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
     {
         why = "";
         if (!NotNull(framebuffer) || !Assert(framebuffer.FboId > 0)) return false;
+
         var colors = framebuffer.ColorTextureIds ?? [];
         if (!Assert(colors.Length <= MaxColors) || _images.Count + colors.Length + 1 > MaxImages) return false;
+
         if (_swapped.Exists(s => ReferenceEquals(s, framebuffer))) return true;
+
         for (var i = 0; i < Math.Min(colors.Length, MaxColors); i++)
-            if (Swapped(colors[i], out why) is null)
-                return false;
+        {
+            if (Swapped(colors[i], out why) is null) return false;
+        }
+
         if (framebuffer.DepthTextureId > 0)
         {
             var depth = Swapped(framebuffer.DepthTextureId, out why);
@@ -85,6 +114,7 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
             // shadow map: sampled more than drawn, so it rests so from the start (transitions start from the current
             // layout)
             if (colors.Length == 0 && !depth.Rest(device, RestingOf(depth.Texture), Vk.LayoutShaderRead)) return false;
+
             if (colors.Length == 0) _resting[depth.Texture] = Vk.LayoutShaderRead;
         }
 
@@ -96,6 +126,7 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
     {
         why = "";
         if (!Assert(texture > 0)) return null;
+
         return _images.GetValueOrDefault(texture) ?? Stood(texture, out why);
     }
 
@@ -103,7 +134,9 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
     {
         why = "";
         if (!Assert(texture > 0)) return null;
+
         if (_images.TryGetValue(texture, out var known)) return known;
+
         if (Owned?.Invoke(texture) != true)
         {
             why = $"texture {texture} belongs to no framebuffer and no owner Komet knows";
@@ -132,14 +165,22 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
         var made = SharedImage.Private(device, (gl.Width, gl.Height, 1, layers), f, usage, out why, stands: texture,
             arrayed: arrayed);
         if (made is null) return null;
+
         var image = Komet.Owned.Kept(made, (device, resting, texture), static (image, s) =>
-            image.Rest(s.device, Vk.LayoutUndefined, s.resting) ? null : $"texture {s.texture}: the device did not take its image",
+                image.Rest(s.device, Vk.LayoutUndefined, s.resting)
+                    ? null
+                    : $"texture {s.texture}: the device did not take its image",
             out why);
         if (image is null) return null;
+
         image.OpaqueAlpha = opaque;
         Claimed?.Invoke(texture);
         if (Replaced.Count < 64)
-            Replaced.Add($"texture {texture} as a Vulkan image {gl.Width}x{gl.Height}, {layers} layers, format 0x{gl.Format:X}");
+        {
+            Replaced.Add(
+                $"texture {texture} as a Vulkan image {gl.Width}x{gl.Height}, {layers} layers, format 0x{gl.Format:X}");
+        }
+
         _sampling[texture] = GlTexture.Sampling(texture) with { Mipmaps = 0 };
         (_images[texture], Version, _resting[texture]) = (image, Version + 1, resting);
         return image;
@@ -149,10 +190,18 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
     public void Release(FrameBufferRef framebuffer)
     {
         if (!NotNull(framebuffer) || !Assert(_images.Count <= MaxImages)) return;
+
         var colors = framebuffer.ColorTextureIds ?? [];
         if (_images.ContainsKey(framebuffer.DepthTextureId) || Array.Exists(colors, _images.ContainsKey))
+        {
             _ = device.WaitIdle(); // once for all of them
-        for (var i = 0; i < Math.Min(colors.Length, MaxColors); i++) _ = Free(colors[i], false);
+        }
+
+        for (var i = 0; i < Math.Min(colors.Length, MaxColors); i++)
+        {
+            _ = Free(colors[i], false);
+        }
+
         _ = Free(framebuffer.DepthTextureId, false);
         if (_swapped.RemoveAll(s => ReferenceEquals(s, framebuffer)) > 0) Version++;
     }
@@ -160,21 +209,13 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
     private bool Free(int texture, bool wait)
     {
         if (!_images.Remove(texture, out var shared)) return false;
+
         Version++;
         if (wait) _ = device.WaitIdle();
+
         _ = _sampling.Remove(texture);
         _ = _resting.Remove(texture);
         shared.Dispose(); // the texture stays: its owner deletes it
         return true;
-    }
-
-    public void Dispose()
-    {
-        _ = device.WaitIdle();
-        foreach (var image in _images.Values.Bounded(MaxImages)) image.Dispose();
-        _images.Clear();
-        _sampling.Clear();
-        _swapped.Clear();
-        _resting.Clear();
     }
 }

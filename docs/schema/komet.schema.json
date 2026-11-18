@@ -10,7 +10,7 @@
     },
     "id": {
       "type": "string",
-      "description": "Defaults to the mod's domain or the folder's name"
+      "description": "Ignored: the pack id is always the mod's domain"
     },
     "name": {
       "type": "string",
@@ -31,9 +31,21 @@
       "maxItems": 40,
       "items": {
         "type": "object",
-        "required": [
-          "key"
-        ],
+        "if": {
+          "properties": {
+            "type": {
+              "const": "group"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        "else": {
+          "required": [
+            "key"
+          ]
+        },
         "additionalProperties": false,
         "properties": {
           "key": {

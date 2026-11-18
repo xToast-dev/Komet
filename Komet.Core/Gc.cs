@@ -35,7 +35,11 @@ internal static class GcLatency
     {
         if (_installed && Enabled)
         {
-            if (_before is null && GCSettings.LatencyMode != GCLatencyMode.SustainedLowLatency) _before = GCSettings.LatencyMode;
+            if (_before is null && GCSettings.LatencyMode != GCLatencyMode.SustainedLowLatency)
+            {
+                _before = GCSettings.LatencyMode;
+            }
+
             GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
         }
         else if (_before is { } before)

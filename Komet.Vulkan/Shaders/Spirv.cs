@@ -8,8 +8,10 @@ namespace Komet.Vulkan;
 internal static class Spirv
 {
     public const uint Magic = 0x07230203;
+
     // VkDescriptorType: a combined image sampler, a separate (sampled) image, a storage image, uniform and storage buffers
-    public const int CombinedSampler = 1, SeparateImage = 2, StorageImage = 3, UniformBuffer = 6, StorageBuffer = 7;
+    public const int CombinedSampler = 1, StorageImage = 3, UniformBuffer = 6, StorageBuffer = 7;
+    private const int SeparateImage = 2;
     private const int MaxWords = 1 << 22, MaxIds = 1 << 20, MaxResources = 64, Header = 5;
 
     private const int OpTypeImage = 25, OpTypeSampledImage = 27, OpTypeStruct = 30, OpTypePointer = 32, OpVariable = 59;
@@ -19,12 +21,10 @@ internal static class Spirv
     private const int OpName = 5, OpMemberName = 6, OpMemberDecorate = 72;
     private const int DecorationOffset = 35, DecorationArrayStride = 6, MaxMembers = 1024;
 
-    public readonly record struct Resource(int Set, int Binding, int Type);
-    public readonly record struct Member(string Name, int Offset, int Stride);
-
     public static Resource[] Resources(ReadOnlySpan<uint> words)
     {
         if (words.Length < Header || words[0] != Magic || !Assert(words.Length <= MaxWords)) return [];
+
         var bound = (int)Math.Min(words[3], MaxIds);
         var ids = new Id[bound];
         var variables = new List<int>();
@@ -33,6 +33,7 @@ internal static class Spirv
         {
             var (count, op) = ((int)(words[at] >> 16), (int)(words[at] & 0xFFFF));
             if (count == 0 || at + count > words.Length) break;
+
             Read(words.Slice(at, count), op, ids, variables);
             at += count;
         }
@@ -42,8 +43,13 @@ internal static class Spirv
         {
             // Through the pointer and any arrays to an image, sampled image or block
             var (storage, type) = (ids[variable].Storage, ids[variable].Of);
-            for (var hop = 0; hop < 8 && Index(type, ids.Length) && ids[type].Kind == 0; hop++) type = ids[type].Of;
+            for (var hop = 0; hop < 8 && Index(type, ids.Length) && ids[type].Kind == 0; hop++)
+            {
+                type = ids[type].Of;
+            }
+
             if (!Index(type, ids.Length)) continue;
+
             var descriptor = (storage, ids[type].Kind) switch
             {
                 (UniformConstant, CombinedSampler) => CombinedSampler,
@@ -63,17 +69,29 @@ internal static class Spirv
     private static void Read(ReadOnlySpan<uint> op, int code, Id[] ids, List<int> variables)
     {
         if (op.Length < 2) return;
+
         switch (code)
         {
             case OpDecorate when op.Length >= 3 && op[1] < ids.Length:
                 ref var target = ref ids[op[1]];
-                if (op[2] == DecorationBinding && op.Length >= 4) target.Binding = (int)op[3];
-                else if (op[2] == DecorationSet && op.Length >= 4) target.Set = (int)op[3];
-                else if (op[2] == DecorationBufferBlock) target.BufferBlock = true;
+                if (op[2] == DecorationBinding && op.Length >= 4)
+                {
+                    target.Binding = (int)op[3];
+                }
+                else if (op[2] == DecorationSet && op.Length >= 4)
+                {
+                    target.Set = (int)op[3];
+                }
+                else if (op[2] == DecorationBufferBlock)
+                {
+                    target.BufferBlock = true;
+                }
+
                 break;
             case OpVariable when op.Length >= 4 && op[2] < ids.Length:
                 (ids[op[2]].Of, ids[op[2]].Storage) = ((int)op[1], (int)op[3]);
                 if (op[3] is UniformConstant or Uniform or StorageBufferClass) variables.Add((int)op[2]);
+
                 break;
             case OpTypePointer or OpTypeArray or OpTypeRuntimeArray when op.Length >= 3 && op[1] < ids.Length:
                 ids[op[1]].Of = (int)op[code == OpTypePointer ? 3 : 2];
@@ -90,25 +108,33 @@ internal static class Spirv
     public static Member[] Members(ReadOnlySpan<uint> words, string block)
     {
         if (words.Length < Header || words[0] != Magic || !Assert(block.Length > 0)) return [];
+
         var layout = new Layout();
         var at = Header;
         for (var step = 0; step < MaxWords && at < words.Length; step++)
         {
             var (count, op) = ((int)(words[at] >> 16), (int)(words[at] & 0xFFFF));
             if (count == 0 || at + count > words.Length) break;
+
             Note(words.Slice(at, count), op, layout);
             at += count;
         }
 
         var id = -1;
         foreach (var (key, name) in layout.Names.Bounded(MaxIds))
-            if (name == block && layout.Structs.ContainsKey(key))
-                id = key;
+        {
+            if (name == block && layout.Structs.ContainsKey(key)) id = key;
+        }
+
         if (!layout.Structs.TryGetValue(id, out var types)) return [];
+
         var members = new Member[Math.Min(types.Length, MaxMembers)];
         for (var i = 0; i < Math.Min(members.Length, MaxMembers); i++)
+        {
             members[i] = new Member(layout.MemberNames.GetValueOrDefault((id, i), ""),
                 layout.Offsets.GetValueOrDefault((id, i), -1), layout.Strides.GetValueOrDefault((int)types[i]));
+        }
+
         return members;
     }
 
@@ -140,8 +166,13 @@ internal static class Spirv
         var bytes = MemoryMarshal.AsBytes(words);
         var end = bytes.IndexOf((byte)0);
         if (!Assert(end >= 0)) return "";
+
         return Encoding.UTF8.GetString(bytes[..end]);
     }
+
+    public readonly record struct Resource(int Set, int Binding, int Type);
+
+    public readonly record struct Member(string Name, int Offset, int Stride);
 
     private struct Id
     {

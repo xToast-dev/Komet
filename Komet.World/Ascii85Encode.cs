@@ -13,20 +13,19 @@ internal static class Ascii85Encode
 {
     private const int MaxGroups = 1 << 28; // a byte[] holds at most 2^31 bytes
 
-    public static bool Patched { get; private set; }
-
     public static void Install(Harmony harmony)
     {
-        Patched = false;
         var encode = AccessTools.DeclaredMethod(typeof(Ascii85), nameof(Ascii85.Encode), [typeof(byte[])]);
-        if (!NotNull(harmony) || encode is null) return;
-        Patched = harmony.Patch(encode, new HarmonyMethod(typeof(Ascii85Encode), nameof(Encoding))) is not null;
+        if (encode is null) return;
+
+        _ = harmony.Patch(encode, new HarmonyMethod(typeof(Ascii85Encode), nameof(Encoding)));
     }
 
     // Prefix: the engine's null check stays the engine's (it throws)
     private static bool Encoding(byte[]? bytes, ref string __result)
     {
         if (!WorldGenScratch.Enabled || bytes is null) return true;
+
         __result = Encode(bytes);
         return false;
     }
@@ -35,15 +34,25 @@ internal static class Ascii85Encode
     {
         var (whole, rest) = (bytes.Length / 4, bytes.Length % 4);
         var length = rest > 0 ? rest + 1 : 0;
-        for (var g = 0; g < Math.Min(whole, MaxGroups); g++) length += Whole(bytes, g) == 0 ? 1 : 5;
+        for (var g = 0; g < Math.Min(whole, MaxGroups); g++)
+        {
+            length += Whole(bytes, g) == 0 ? 1 : 5;
+        }
+
         return string.Create(length, bytes, static (span, data) =>
         {
             var (groups, left, at) = (data.Length / 4, data.Length % 4, 0);
             for (var g = 0; g < Math.Min(groups, MaxGroups); g++)
             {
                 var value = Whole(data, g);
-                if (value == 0) span[at++] = 'z';
-                else at += Write(span[at..], value, 5);
+                if (value == 0)
+                {
+                    span[at++] = 'z';
+                }
+                else
+                {
+                    at += Write(span[at..], value, 5);
+                }
             }
 
             if (left > 0) _ = Write(span[at..], Group(data, groups * 4, left), left + 1);
@@ -57,7 +66,11 @@ internal static class Ascii85Encode
     private static uint Group(byte[] bytes, int at, int count)
     {
         var value = 0u;
-        for (var i = 0; i < Math.Min(count, 4); i++) value |= (uint)bytes[at + i] << (24 - i * 8);
+        for (var i = 0; i < Math.Min(count, 4); i++)
+        {
+            value |= (uint)bytes[at + i] << (24 - i * 8);
+        }
+
         return value;
     }
 

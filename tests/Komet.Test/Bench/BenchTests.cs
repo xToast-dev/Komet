@@ -7,6 +7,7 @@ using Komet.Diagnostics;
 using Komet.Hud;
 using Komet.Rendering;
 using Komet.Tessellation;
+using Newtonsoft.Json;
 using Vintagestory.Server.Systems;
 using static Komet.Testing.Profiles;
 
@@ -21,8 +22,16 @@ public sealed class BenchConfigTests
         "\"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\", \"set\": { \"FrustumSweep\": false } } ]";
 
     private static readonly string Root = Path.Combine(Path.GetTempPath(), "komet-bench-test");
-    private static readonly string[] Profiles = ["quick", "load", "debug", "smoke", "aa", "full", "tess", "gcreg", "culling", "culling1440", "hud", "vulkan"],
+
+    private static readonly string[] Profiles =
+        [
+            "quick", "load", "debug", "smoke", "aa", "full", "tess", "gcreg", "culling", "culling1440", "hud", "vulkan", "map", "shadertest"
+        ],
         OnOff = ["on", "off"];
+
+    // What komet.json holds, as the HUD's settings save it
+    private static readonly string[] SettingsKeys =
+        [.. JsonNode.Parse(JsonConvert.SerializeObject(new HudSettings()))!.AsObject().Select(entry => entry.Key)];
 
     internal static string Json(string extra = "", string? output = null,
         string world = "{ \"savegameId\": \"75695bba\" }")
@@ -34,10 +43,6 @@ public sealed class BenchConfigTests
     }
 
     private static string BenchJson() => Path.Combine(Paths.Repo, "scripts", "bench.json");
-
-    // What komet.json holds, as the HUD's settings save it
-    private static readonly string[] SettingsKeys =
-        [.. JsonNode.Parse(Newtonsoft.Json.JsonConvert.SerializeObject(new HudSettings()))!.AsObject().Select(entry => entry.Key)];
 
     [TearDown]
     public void Restore()
@@ -92,7 +97,7 @@ public sealed class BenchConfigTests
                                             """));
         var baseline = Knobs.Snapshot();
         var values = BenchDriver.ArmValues(baseline, config.Arms, out var error);
-        var expected = Knobs.Snapshot(engine: true);
+        var expected = Knobs.Snapshot(true);
         expected[Knobs.Find("FrustumSweep")] = 1;
         Assert.Multiple(() =>
         {
@@ -121,7 +126,8 @@ public sealed class BenchConfigTests
     [TestCase("\"laps\": 3, \"arms\": [ { \"name\": \"A\" }, { \"name\": \"B\" } ]", "a multiple of the 2 arms")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"Nonexistent\": true } } ]",
         "arms[0].set.Nonexistent must be a knob name from the modules' *Features.cs (Knobs table)")]
-    [TestCase("\"route\": { \"back\": false }, \"laps\": 1, \"warmupLaps\": 1", "route.back must be true for more than one lap")]
+    [TestCase("\"route\": { \"back\": false }, \"laps\": 1, \"warmupLaps\": 1",
+        "route.back must be true for more than one lap")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"My Mod:water\": true } } ]", "set.My Mod:water must be")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"UploadCap\": 99 } } ]", "inside the knob's range")]
     [TestCase("\"arms\": [ { \"name\": \"A\", \"set\": { \"UploadCap\": 2, \"UploadCap\": 3 } } ]", "named once")]
@@ -147,7 +153,11 @@ public sealed class BenchConfigTests
         foreach (var (name, profile) in profiles)
         {
             var flat = JsonNode.Parse(Json())!.AsObject();
-            foreach (var (key, value) in profile!.AsObject()) flat[key] = value!.DeepClone();
+            foreach (var (key, value) in profile!.AsObject())
+            {
+                flat[key] = value!.DeepClone();
+            }
+
             flat["name"] = name;
             var config = BenchConfig.Parse(flat.ToJsonString());
             var knobs = profile["arms"]?.AsArray()
@@ -261,6 +271,7 @@ public sealed class BenchRecorderTests
             {
                 recorder.Stamp(0, BenchFrameTags.None, 0, 0, 0);
                 if (frame == 1) _ = Busy.Collect();
+
                 Busy.Spin(2);
                 FrameClock.End();
                 FrameClock.Begin();
@@ -311,7 +322,10 @@ public sealed class BenchRecorderTests
                      (5, 0), (9, 0), (7, 0), (9, 0), (3, 0), (12, 0), (500, BenchFrameTags.Paused),
                      (400, BenchFrameTags.Discard)
                  })
+        {
             Feed(recorder, 1, ms, tags);
+        }
+
         Assert.Multiple(() =>
         {
             Assert.That(recorder.Spikes(1).ToArray().Select(s => (s.Frame, s.Ms)),
@@ -375,7 +389,11 @@ public sealed class BenchRecorderTests
     public void FramesPastTheCapacityAreCountedNotStored()
     {
         var recorder = Started(5);
-        for (var i = 0; i < 8; i++) Feed(recorder, 0, 10);
+        for (var i = 0; i < 8; i++)
+        {
+            Feed(recorder, 0, 10);
+        }
+
         Assert.That((recorder.Count, recorder.Dropped), Is.EqualTo((5, 3)));
     }
 
@@ -388,17 +406,28 @@ public sealed class BenchRecorderTests
     {
         var recorder = Started(30_000, 2, 10);
         ProfileEntryRange[] trees = [Tree(), Tree()]; // FrameProfilerUtil.Begin builds a new root every frame
-        for (var i = 0; i < 1000; i++) Feed(recorder, i < 500 ? 0 : 1, 10, root: trees[i % 2]);
+        for (var i = 0; i < 1000; i++)
+        {
+            Feed(recorder, i < 500 ? 0 : 1, 10, root: trees[i % 2]);
+        }
+
         var allocated = new long[AllocationWindows];
         for (var window = 0; window < allocated.Length; window++)
+        {
             allocated[window] = Window(recorder, trees, 20 + 10 * window);
+        }
+
         Assert.That(allocated.Min(), Is.Zero, $"bytes per window: {string.Join(", ", allocated)}");
     }
 
     private static long Window(BenchRecorder recorder, ProfileEntryRange[] trees, int ms)
     {
         var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 5000; i++) Feed(recorder, 1, ms + i % 7, root: trees[i % 2]);
+        for (var i = 0; i < 5000; i++)
+        {
+            Feed(recorder, 1, ms + i % 7, root: trees[i % 2]);
+        }
+
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 }
@@ -424,15 +453,11 @@ public sealed class BenchScenarioTests
     private static readonly BenchKind[] LapWithoutRoute = [BenchKind.LapSettle, BenchKind.Rotate];
     private static readonly int[] Abba = [0, 1, 1, 0, 0, 1, 1, 0];
 
-    private static BenchSegment[] Expand(string extra)
-    {
-        return BenchScenario.Expand(BenchConfig.Parse(BenchConfigTests.Json(extra)));
-    }
+    private static BenchSegment[] Expand(string extra) =>
+        BenchScenario.Expand(BenchConfig.Parse(BenchConfigTests.Json(extra)));
 
-    private static int[] LapArms(BenchSegment[] segments, bool warmup)
-    {
-        return [.. segments.Where(s => s.Kind == BenchKind.LapSettle && s.Warmup == warmup).Select(s => s.Arm)];
-    }
+    private static int[] LapArms(BenchSegment[] segments, bool warmup) =>
+        [.. segments.Where(s => s.Kind == BenchKind.LapSettle && s.Warmup == warmup).Select(s => s.Arm)];
 
     [Test]
     public void SetupClimbAndSettleComeBeforeTheLaps()
@@ -505,12 +530,10 @@ public sealed class BenchScenarioTests
     }
 
     [Test]
-    public void TheSegmentCapIsEnforced()
-    {
+    public void TheSegmentCapIsEnforced() =>
         Assert.That(() => Expand("\"laps\": 40, \"warmupLaps\": 0"),
             Throws.TypeOf<InvalidDataException>().With.Message
                 .Contains(BenchScenario.MaxSegments.ToString(CultureInfo.InvariantCulture)));
-    }
 
     // EntityControls.CalcMovementVectors is what the engine walks for Forward at a level pitch of π; the out leg has to point the same way
     [TestCase(1.0)]
@@ -540,10 +563,8 @@ public sealed class BenchScenarioTests
     {
         const double heading = 0.7, leg = 440;
 
-        static BenchSegment Of(BenchKind kind, bool far = false)
-        {
-            return new BenchSegment(kind, 0, 0, false, far, kind == BenchKind.Turn ? 2 : 40);
-        }
+        static BenchSegment Of(BenchKind kind, bool far = false) =>
+            new(kind, 0, 0, false, far, kind == BenchKind.Turn ? 2 : 40);
 
         var outEnd = BenchScenario.Pose(Of(BenchKind.Out), 40, heading, leg);
         var farTurn = BenchScenario.Pose(Of(BenchKind.Turn, true), 2, heading, leg);
@@ -567,14 +588,12 @@ public sealed class BenchScenarioTests
     // packet carries still passes EntityPosExtensions.SetFromPacket, which rejects more than 128 blocks per axis
     [TestCase(BenchConfig.MaxSpeed)]
     [TestCase(BenchScenario.ClimbSpeed)]
-    public void TheWorstFrameStaysUnderTheServersStepLimit(double speed)
-    {
+    public void TheWorstFrameStaysUnderTheServersStepLimit(double speed) =>
         Assert.Multiple(() =>
         {
             Assert.That(Accepted(speed * BenchDriver.MaxStep), Is.True);
             Assert.That(Accepted(128.5), Is.False, "the check the test relies on is the engine's");
         });
-    }
 
     private static bool Accepted(double step)
     {

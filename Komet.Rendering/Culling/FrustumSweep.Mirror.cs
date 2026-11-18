@@ -22,6 +22,7 @@ internal static partial class FrustumSweep
     private static Mirror? Update(Mirror m, List<ModelDataPoolLocation> locations)
     {
         if (!Assert(locations.Count <= MaxLocations)) return null;
+
         var current = CollectionsMarshal.AsSpan(locations);
         var same = ReferenceEquals(m.Owner, locations);
         if (same && Version(locations) == m.ListVersion)
@@ -32,24 +33,31 @@ internal static partial class FrustumSweep
 
         var diffed = same && m.Length > 0 && Diff(m, current);
         if (!diffed && !Rebuild(m, locations, current)) return null;
+
         (m.ListVersion, m.Quiet) = (Version(locations), 0);
         if (Counting.Hud)
         {
             _ = Interlocked.Increment(ref _rebuilds);
             if (diffed) _ = Interlocked.Increment(ref _diffed);
+
             _ = Interlocked.Increment(ref _frameRebuilds);
         }
 
         if (diffed) Tidy(m, false);
+
         return m;
     }
 
     private static Mirror? Owned(int slot, List<ModelDataPoolLocation> locations)
     {
         if (!NotNull(locations)) return null;
+
         if (slot == Foreign) return Unnumbered.GetOrCreateValue(locations);
+
         if (!Index(slot, MaxPoolIds)) return null;
+
         if (slot >= _mirrors.Length) Array.Resize(ref _mirrors, Capacity(slot + 1, _mirrors.Length, MaxPoolIds));
+
         var m = _mirrors[slot] ??= new Mirror();
         return m.Owner is null || ReferenceEquals(m.Owner, locations) ? m : Unnumbered.GetOrCreateValue(locations);
     }
@@ -59,6 +67,7 @@ internal static partial class FrustumSweep
     {
         var slot = SlotOf(pool);
         if (slot == Foreign || !Assert(!_open) || slot >= _mirrors.Length) return;
+
         _mirrors[slot] = null;
     }
 
@@ -68,16 +77,26 @@ internal static partial class FrustumSweep
     internal static int Boxes(MeshDataPool pool, Span<Occlusion.Range> into, (double X, double Y, double Z) camera)
     {
         if (!Enabled || !NotNull(pool) || Locations(pool) is not { } locations) return -1;
+
         var slot = SlotOf(pool);
         if (slot == Foreign || slot >= _mirrors.Length || _mirrors[slot] is not { } m ||
-            !ReferenceEquals(m.Owner, locations) || m.ListVersion != Version(locations)) return -1;
+            !ReferenceEquals(m.Owner, locations) || m.ListVersion != Version(locations))
+        {
+            return -1;
+        }
+
         var (groups, starts, sizes) = (pool.indicesGroupsCount, pool.indicesStartsByte, pool.indicesSizes);
         if (groups > m.Emitted || groups > into.Length || !Assert(m.Emitted <= m.Rows.Length) ||
-            starts.Length < 2 * groups || sizes.Length < groups) return -1;
+            starts.Length < 2 * groups || sizes.Length < groups)
+        {
+            return -1;
+        }
+
         for (var g = 0; g < Math.Min(groups, MaxLocations); g++)
         {
             var row = m.Rows[g];
             if ((uint)row >= (uint)m.Length || m.Start[row] != starts[2 * g] || m.Count[row] != sizes[g]) return -1;
+
             var s = m.Slot[row];
             into[g] = Occlusion.Box((m.Cx[s], m.Cy[s], m.Cz[s]), (m.Hx[s], m.Hy[s], m.Hz[s]), sizes[g],
                 starts[2 * g] / 4, camera);
@@ -92,6 +111,7 @@ internal static partial class FrustumSweep
         var (n, w) = (locations.Length, Vector<double>.Count);
         (m.Owner, m.Length) = (null, 0); // unowned until every row is in
         if (!Grow(m, n, w)) return false;
+
         Array.Clear(m.Refs, n, m.Refs.Length - n); // no reference keeps a removed location alive
         var (allocated, ordered) = (0, true);
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
@@ -126,16 +146,27 @@ internal static partial class FrustumSweep
         var (n, w) = (list.Length, Vector<double>.Count);
         // a Settle over rows beyond Grow's sizing would find no room for its grid padding
         if (n == 0 || n > m.Refs.Length || Geometry(n, w) > m.Cx.Length) return false;
+
         var (j, fresh, budget, old) = (0, 0, ScanBudget * (long)n + MaxLocations / 16, m.Length);
         for (var i = 0; i < Math.Min(n, MaxLocations); i++)
         {
             var p = j < old && ReferenceEquals(m.Refs[j].Loc, list[i]) ? j : Find(m, list[i], j, ref budget);
             if (p == Lost) return false;
             // LodLevel and CullVisible are set after TryAdd returns: a row read before that is read again
-            if (p >= 0 && (m.Lod[p] != list[i].LodLevel || !ReferenceEquals(m.Refs[p].Vis, list[i].CullVisible))) p = Unseen;
+            if (p >= 0 && (m.Lod[p] != list[i].LodLevel || !ReferenceEquals(m.Refs[p].Vis, list[i].CullVisible)))
+            {
+                p = Unseen;
+            }
+
             m.Match[i] = p;
-            if (p == Unseen) fresh++;
-            else j = p + 1;
+            if (p == Unseen)
+            {
+                fresh++;
+            }
+            else
+            {
+                j = p + 1;
+            }
         }
 
         var slots = (m.Used + fresh + w - 1) / w * w;
@@ -148,15 +179,25 @@ internal static partial class FrustumSweep
         var old = m.Length;
         // the engine throws on a null; Rebuild lets it
         if (!NotNull(target)) return Lost;
+
         var near = Math.Min(old, j + Window);
         for (var p = j; p < Math.Min(near, MaxLocations); p++)
+        {
             if (ReferenceEquals(m.Refs[p].Loc, target)) return p;
+        }
+
         if (near >= old) return Unseen;
+
         if (m.Ordered) return Search(m, target, near);
+
         budget -= old - near;
         if (budget < 0) return Lost;
+
         for (var p = near; p < Math.Min(old, MaxLocations); p++)
+        {
             if (ReferenceEquals(m.Refs[p].Loc, target)) return p;
+        }
+
         return Unseen;
     }
 
@@ -167,12 +208,21 @@ internal static partial class FrustumSweep
         for (var step = 0; step < MaxSearch && lo < hi; step++)
         {
             var mid = (lo + hi) >>> 1;
-            if (m.Start[mid] < start) lo = mid + 1;
-            else hi = mid;
+            if (m.Start[mid] < start)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
         }
 
         for (var p = lo; p < Math.Min(m.Length, MaxLocations) && m.Start[p] == start; p++)
+        {
             if (ReferenceEquals(m.Refs[p].Loc, target)) return p;
+        }
+
         return Unseen;
     }
 
@@ -190,7 +240,11 @@ internal static partial class FrustumSweep
             }
             else if (i >= copied)
             {
-                for (var d = gone; d < Math.Min(p, MaxLocations); d++) allocated -= Drop(m, d);
+                for (var d = gone; d < Math.Min(p, MaxLocations); d++)
+                {
+                    allocated -= Drop(m, d);
+                }
+
                 var run = Run(m, i, p, n);
                 Array.Copy(m.Refs, p, m.NRefs, i, run);
                 Array.Copy(m.Start, p, m.NStart, i, run);
@@ -204,9 +258,18 @@ internal static partial class FrustumSweep
             ordered &= i == 0 || m.NStart[i - 1] <= m.NStart[i];
         }
 
-        for (var d = gone; d < Math.Min(old, MaxLocations); d++) allocated -= Drop(m, d);
+        for (var d = gone; d < Math.Min(old, MaxLocations); d++)
+        {
+            allocated -= Drop(m, d);
+        }
+
         if (!Assert(at - m.Used == fresh)) return Abandon(m, n);
-        for (var s = at; s < Math.Min(slots, MaxSlots); s++) Blank(m, s);
+
+        for (var s = at; s < Math.Min(slots, MaxSlots); s++)
+        {
+            Blank(m, s);
+        }
+
         (m.Refs, m.NRefs, m.Start, m.NStart, m.Count, m.NCount) =
             (m.NRefs, m.Refs, m.NStart, m.Start, m.NCount, m.Count);
         (m.Lod, m.NLod, m.Slot, m.NSlot) = (m.NLod, m.Lod, m.NSlot, m.Slot);
@@ -220,6 +283,7 @@ internal static partial class FrustumSweep
     {
         // Rebuild hands the pool to the engine
         if (!NotNull(loc.CullVisible)) return false;
+
         m.NRefs[i] = new LocRef(loc, loc.CullVisible);
         (m.NStart[i], m.NCount[i]) = (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart);
         (m.NLod[i], m.NSlot[i]) = (loc.LodLevel, slot);
@@ -237,7 +301,11 @@ internal static partial class FrustumSweep
     private static int Run(Mirror m, int i, int p, int n)
     {
         var run = 1;
-        for (var k = 1; k < Math.Min(n - i, MaxLocations) && m.Match[i + k] == p + k; k++) run++;
+        for (var k = 1; k < Math.Min(n - i, MaxLocations) && m.Match[i + k] == p + k; k++)
+        {
+            run++;
+        }
+
         return run;
     }
 
@@ -254,44 +322,45 @@ internal static partial class FrustumSweep
     // Rows in list order, slots in geometry order (grid or list): Slot and Inv map between them
     private sealed class Mirror
     {
-        // Whose list at which version, and the Render call and stage batch the result belongs to
-        public object? Owner;
-        public int ListVersion, Pass = -1, Groups, Batch = -1, Rendered;
+        public double[] BCx = [], BCy = [], BCz = [], BHx = [], BHy = [], BHz = [];
+        public int[] BStart = [], BCount = [];
+        public int Base, Used, Slots;
+        public ulong[] Cand = [];
+
+        // Cell size and origin, each row's cell (Key), cells' first slots (Bins) and bounds; Cells 0 = no grid
+        public int Cells, Shift, OriginX, OriginZ, Wide;
+
+        // By slot: [0, Base) grid or list order, [Base, Used) added by Diff, Slots padded to whole vectors
+        public float[] Cx = [], Cy = [], Cz = [], Hx = [], Hy = [], Hz = [];
+        public int Dead, Fresh, Quiet;
+        public bool Dirty; // Cand may hold bits Candidates did not take (and clear)
+        public int Emitted; // Rows[..Emitted]: the rows the last Emit wrote, in order
+        public int[] Inv = []; // slot -> row, Gone for padding and removed rows
+        public int[] Key = [], Bins = [];
 
         public int Length, AllocatedTris;
-        public LocRef[] Refs = [];
-        public int[] Start = [], Count = [], Lod = [];
-        public int[] Slot = []; // row -> slot
-        public bool Ordered; // the rows' starts never decrease, so Diff may bisect
+        public int ListVersion, Pass = -1, Groups, Batch = -1, Rendered;
+        public double[] LoX = [], HiX = [], LoY = [], HiY = [], LoZ = [], HiZ = [];
 
         // Diff: each new row's old row, and the spare arrays it merges into
         public int[] Match = [];
         public LocRef[] NRefs = [];
         public int[] NStart = [], NCount = [], NLod = [], NSlot = [];
-        public int Dead, Fresh, Quiet;
+        public bool[] Ok = [];
+        public bool Ordered; // the rows' starts never decrease, so Diff may bisect
 
-        // By slot: [0, Base) grid or list order, [Base, Used) added by Diff, Slots padded to whole vectors
-        public float[] Cx = [], Cy = [], Cz = [], Hx = [], Hy = [], Hz = [];
-        public int[] Inv = []; // slot -> row, Gone for padding and removed rows
-        public int Base, Used, Slots;
+        public long[] Outside = [], BOutside = [];
+
+        // Whose list at which version, and the Render call and stage batch the result belongs to
+        public object? Owner;
+        public LocRef[] Refs = [];
+        public int[] Rows = [];
+        public long SkippedRows;
+        public int[] Slot = []; // row -> slot
+        public int[] Start = [], Count = [], Lod = [];
 
         // Same geometry by row, while a relayout sorts
         public float[] Sx = [], Sy = [], Sz = [], Shx = [], Shy = [], Shz = [];
-
-        // Cell size and origin, each row's cell (Key), cells' first slots (Bins) and bounds; Cells 0 = no grid
-        public int Cells, Shift, OriginX, OriginZ, Wide;
         public bool Tried; // Settle found no grid worth having for this list
-        public int[] Key = [], Bins = [];
-        public double[] LoX = [], HiX = [], LoY = [], HiY = [], LoZ = [], HiZ = [];
-        public int[] BStart = [], BCount = [];
-        public double[] BCx = [], BCy = [], BCz = [], BHx = [], BHy = [], BHz = [];
-
-        public long[] Outside = [], BOutside = [];
-        public ulong[] Cand = [];
-        public bool Dirty; // Cand may hold bits Candidates did not take (and clear)
-        public int[] Rows = [];
-        public bool[] Ok = [];
-        public int Emitted; // Rows[..Emitted]: the rows the last Emit wrote, in order
-        public long SkippedRows;
     }
 }

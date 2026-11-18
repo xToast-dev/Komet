@@ -79,9 +79,8 @@ public sealed class RulesTests
 
     private static string Lines(int statements) => string.Concat(Enumerable.Repeat("        n++;\n", statements));
 
-    private static string Method(string body)
-    {
-        return $$"""
+    private static string Method(string body) =>
+        $$"""
                  static class C
                  {
                      const int Max = 8;
@@ -95,7 +94,6 @@ public sealed class RulesTests
                      static int M(int n, int[] items) { {{body}} return n; }
                  }
                  """;
-    }
 
     [Test]
     public void WhileDoGotoAndDirectivesAreForbidden()
@@ -106,11 +104,9 @@ public sealed class RulesTests
     }
 
     [Test]
-    public void KeywordsInCommentsAndStringsAreNoStatements()
-    {
+    public void KeywordsInCommentsAndStringsAreNoStatements() =>
         Assert.That(Ids(Method("var s = \"#region while (x) goto\"; n += s.Length; // while (n > 0) goto do\n")),
             Is.Empty);
-    }
 
     // Roslyn would skip these as generated code; the rules skip only obj/, bin/ and paths outside the project directory
     [TestCase("/p/Komet/Sneaky.g.cs", "", "/p/Komet/", "KR0001 KR0003 KR0003")]
@@ -170,10 +166,7 @@ public sealed class RulesTests
     [TestCase("for (var i = 0; i < Max; i += System.Numerics.Vector<int>.Count) n++;")]
     [TestCase("for (int i = 0, k = 2; i < Max; i++) n += k;")]
     [TestCase("for (var i = 0; i < Max; i++) { var j = i; j = 0; n += j; }")]
-    public void ForLoopsWithAConstantBoundPass(string loop)
-    {
-        Assert.That(Ids(Method(loop)), Is.Empty);
-    }
+    public void ForLoopsWithAConstantBoundPass(string loop) => Assert.That(Ids(Method(loop)), Is.Empty);
 
     [TestCase("for (var i = 0; i < n; i++) n++;", TestName = "bound is a parameter")]
     [TestCase("for (var i = 0; i < Math.Min(n, items.Length); i++) n++;", TestName = "Math.Min without a constant")]
@@ -204,10 +197,7 @@ public sealed class RulesTests
         TestName = "a typed reference writes it")]
     [TestCase("for (var i = 0; i < Max; i++) { (i, n) = (0, 1); }", TestName = "a deconstruction writes it")]
     [TestCase("for (var i = 0; i < Max && Keep(() => i = 0); i++) Reset!();", TestName = "the condition writes it")]
-    public void ForLoopsWithoutAConstantBoundFail(string loop)
-    {
-        Assert.That(Ids(Method(loop)), Is.EqualTo("KR0004"));
-    }
+    public void ForLoopsWithoutAConstantBoundFail(string loop) => Assert.That(Ids(Method(loop)), Is.EqualTo("KR0004"));
 
     [TestCase("foreach (var x in items.Bounded(Max)) n += x;", "")]
     [TestCase("foreach (var x in (ReadOnlySpan<int>)[1, 2]) n += x;", "")]
@@ -219,10 +209,8 @@ public sealed class RulesTests
     [TestCase("foreach (var v in (System.Collections.Generic.IEnumerable<int>)[.. items]) n += v;", "KR0005")]
     [TestCase("foreach (var v in (ReadOnlySpan<int>)[.. items, 1]) n += v;", "KR0005")]
     [TestCase("var b = items.Bounded(Max); foreach (var v in b) n += v;", "KR0005")]
-    public void ForEachNeedsBoundedOrALiteral(string loop, string expected)
-    {
+    public void ForEachNeedsBoundedOrALiteral(string loop, string expected) =>
         Assert.That(Ids(Method(loop)), Is.EqualTo(expected));
-    }
 
     // Contracts implements Bounded with the loops the rules forbid elsewhere
     [Test]
@@ -379,13 +367,19 @@ public sealed class RulesTests
     [Test]
     public void AssetsAndModInfoAreValidJson()
     {
-        var files = Directory.GetFiles(Path.Combine(Paths.KometDir, "assets"), "*.json", SearchOption.AllDirectories)
-            .Append(Path.Combine(Paths.KometDir, "modinfo.json"));
+        string[] files =
+        [
+            .. Directory.GetFiles(Path.Combine(Paths.KometDir, "assets"), "*.json", SearchOption.AllDirectories),
+            Path.Combine(Paths.KometDir, "modinfo.json")
+        ];
         var strict = new JsonLoadSettings { DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error };
         Assert.Multiple(() =>
         {
-            Assert.That(files.Count(), Is.GreaterThan(1));
-            foreach (var file in files) Assert.DoesNotThrow(() => JToken.Parse(File.ReadAllText(file), strict), file);
+            Assert.That(files, Has.Length.GreaterThan(1));
+            foreach (var file in files)
+            {
+                Assert.DoesNotThrow(() => JToken.Parse(File.ReadAllText(file), strict), file);
+            }
         });
     }
 
@@ -393,8 +387,7 @@ public sealed class RulesTests
     {
         public override string Path => path;
 
-        public override SourceText GetText(CancellationToken cancellationToken = default) =>
-            SourceText.From(json);
+        public override SourceText GetText(CancellationToken cancellationToken = default) => SourceText.From(json);
     }
 
     private sealed class Options(string? projectDir) : AnalyzerConfigOptionsProvider

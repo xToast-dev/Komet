@@ -16,20 +16,39 @@ so in the log and the HUD.
 
 Drop the release zip (`komet_<version>.zip`) into the game's `Mods` folder.
 
+## What it brings
+
+- **Engine speed-ups**: chunk loading and building, culling, shadows, shapes and GC pressure, each with its own switch.
+- **Vulkan renderer**: optional, switched in the options menu; off, the game draws with OpenGL.
+- **HUD**: frame times, lows, spikes and per-mod costs.
+- **Shader Studio**: a shader editor for shader authors in the separate mod `kometsdk` (`Komet.Sdk`).
+- **For other mods**: settings, shader values and passes through `komet.json` / `komet-shader.json`
+  (schemas in `docs/schema`) and the API, KAPI 1.0 (`Komet.Api`), in `Komet.Core.dll`.
+
 ## Documentation
 
 - **Players and mod authors**: in game, Escape › Settings, sections **Help** and **Modding**.
 - **Code authors**: the developer site in `docs/site` (API reference and articles), built with `scripts/apidocs.sh`.
-- **Maintenance**: [MAINTAINING.md](MAINTAINING.md).
+- **Maintainers**: [MAINTAINING.md](MAINTAINING.md), [docs/CODING-RULES.md](docs/CODING-RULES.md),
+  [docs/WORKBENCH.md](docs/WORKBENCH.md).
 
 ## Building
 
-Needs the .NET 10 SDK and Vintage Story in `/opt/vintagestory` (otherwise set `VsInstall=…`).
+Needs the .NET 10 SDK and Vintage Story. Windows defaults to `%APPDATA%/Vintagestory`; Linux checks
+`$XDG_DATA_HOME/vintagestory`, `~/.local/share/vintagestory`, then `/opt/vintagestory`.
+Set `VINTAGE_STORY` or pass `-p:VsInstall=…` for another installation.
 
 ```bash
 ./build.sh                         # Releases/komet/ and Releases/komet_<version>.zip
 scripts/test.sh                    # the quick tests; --all for every test
 scripts/bench.sh --build --profile quick   # starts the game in a sandbox and flies one lap
+```
+
+On Windows, build and run the portable tests from PowerShell:
+
+```powershell
+dotnet build Komet/Komet.csproj -c Release -t:Package
+dotnet test tests/Komet.Portable -c Release
 ```
 
 ## Menu style

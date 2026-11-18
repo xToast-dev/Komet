@@ -1,4 +1,4 @@
-using Komet.Api;
+using Komet.Core;
 using Komet.Options;
 using Newtonsoft.Json;
 
@@ -8,13 +8,13 @@ namespace Komet.Test.Options;
 public sealed class StyleTests
 {
     private static string Folder([CallerFilePath] string here = "") =>
-        Path.GetFullPath(Path.Join(Path.GetDirectoryName(here), "../../../Komet/assets/komet/config"));
+        Path.GetFullPath(Path.Join(Path.GetDirectoryName(here), "../../.."));
 
-    [TestCase("komet-styles/pragmatic")]
-    [TestCase("komet-templates/style-example")]
+    [TestCase("Komet/assets/komet/config/komet-styles/pragmatic")]
+    [TestCase("Komet.Sdk/assets/kometsdk/config/komet-templates/style-example")]
     public void BuiltInStylesUseOnlyKnownKeys(string id)
     {
-        var style = JsonConvert.DeserializeObject<KometStyle>(File.ReadAllText(Path.Join(Folder(), id, "style.json")))!;
+        var style = JsonConvert.DeserializeObject<StyleData>(File.ReadAllText(Path.Join(Folder(), id, "style.json")))!;
         Assert.Multiple(() =>
         {
             Assert.That(style.Colors.Keys, Is.SubsetOf(StyleSheet.ColorKeys));
@@ -28,7 +28,8 @@ public sealed class StyleTests
     [Test]
     public void AStyleNamesOnlyWhatItChanges()
     {
-        var sheet = StyleSheet.From(new KometStyle { Id = "ember", Colors = { ["accent"] = "#E2672F80" } }, null, null, null);
+        var sheet = StyleSheet.From(new StyleData { Id = "ember", Colors = { ["accent"] = "#E2672F80" } }, null, null,
+            null);
         Assert.That((sheet["accent"].R, sheet["accent"].A, sheet["faint"].A, sheet.Size("logo")),
             Is.EqualTo((0xE2 / 255.0, 0x80 / 255.0, 0x5C / 255.0, 96)));
     }
@@ -44,8 +45,15 @@ public sealed class StyleTests
     public void ScriptsNoStyleFontShipsTakeTheGamesFont(string lang, bool own)
     {
         Assert.That(StyleFonts.OwnScript(lang), Is.EqualTo(own));
-        if (own) Assert.That(StyleFonts.Reads("Saira Semi Condensed", lang), Is.False);
-        else Assert.That(StyleFonts.Sample(lang), Is.Not.Empty, "its letters are tested");
+        if (own)
+        {
+            Assert.That(StyleFonts.Reads("Saira Semi Condensed", lang), Is.False);
+        }
+        else
+        {
+            Assert.That(StyleFonts.Sample(lang), Is.Not.Empty, "its letters are tested");
+        }
+
         Assert.That(StyleFonts.Reads("Saira Semi Condensed", "en"), Is.True, "English needs no test");
     }
 }

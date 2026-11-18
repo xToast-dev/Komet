@@ -67,7 +67,9 @@ public sealed class IlTests
             Assert.That(code[at], Is.SameAs(before), "in place: labels and exception blocks stay on it");
             Assert.That((code[at].opcode, code[at].operand), Is.EqualTo((theirs[at].opcode, theirs[at].operand)));
             if (site.OnlyThere)
+            {
                 Assert.That(code.Select(Shape), Is.EqualTo(theirs.Select(Shape)), "the feature's whole body");
+            }
         });
     }
 
@@ -172,7 +174,7 @@ public sealed class IlTests
             {
                 Assert.That(theirs.Exists(c => c.Calls(mine)), Is.True, name);
                 Assert.That(Il.Confined(code, store,
-                    (c, operand) => operand == 0 && (c.Calls(enqueue) || c.Calls(dequeue) || c.LoadsField(count))),
+                        (c, operand) => operand == 0 && (c.Calls(enqueue) || c.Calls(dequeue) || c.LoadsField(count))),
                     Is.True, name);
                 Assert.That(
                     Il.Confined(code, store, (c, operand) => operand == 0 && (c.Calls(enqueue) || c.Calls(dequeue))),
@@ -200,8 +202,7 @@ public sealed class IlTests
             return code;
         }
 
-        bool Confined(List<CodeInstruction> code, Il.Uses uses) =>
-            Il.Confined(code, store, Member, uses, 6);
+        bool Confined(List<CodeInstruction> code, Il.Uses uses) => Il.Confined(code, store, Member, uses, 6);
 
         var variants = new[]
         {
@@ -234,7 +235,7 @@ public sealed class IlTests
 
     private static bool Member(CodeInstruction c, int operand) =>
         operand == 0 && c.opcode == OpCodes.Call && c.operand is MethodInfo { IsStatic: false } m &&
-            m.DeclaringType == typeof(ColumnNoise) && m.ReturnType == typeof(double);
+               m.DeclaringType == typeof(ColumnNoise) && m.ReturnType == typeof(double);
 
     // Each call of GetOriginalInstructions declares its own LocalBuilders: a local by its index
     private static (OpCode, object?) Shape(CodeInstruction code) =>
@@ -243,10 +244,16 @@ public sealed class IlTests
     private static Il.Uses Kind(CodeInstruction code)
     {
         if (code.IsStloc()) return Il.Uses.Store;
+
         if (!code.IsLdloc()) return Il.Uses.None;
+
         return code.opcode == OpCodes.Ldloca || code.opcode == OpCodes.Ldloca_S ? Il.Uses.Address : Il.Uses.Load;
     }
 
-    private sealed record Site(MethodBase Target, System.Func<CodeInstruction, bool> Match, MethodInfo Mine,
-        bool OnlyThere, System.Func<IEnumerable<CodeInstruction>, List<CodeInstruction>> Transpile);
+    private sealed record Site(
+        MethodBase Target,
+        System.Func<CodeInstruction, bool> Match,
+        MethodInfo Mine,
+        bool OnlyThere,
+        System.Func<IEnumerable<CodeInstruction>, List<CodeInstruction>> Transpile);
 }

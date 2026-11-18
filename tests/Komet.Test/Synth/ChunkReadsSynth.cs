@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
+using Komet.Chunks;
 using Komet.Core;
+using Vintagestory.Server;
 
 namespace Komet.Test.Synth;
 
@@ -8,7 +11,7 @@ public sealed class ChunkReadsSynth
 {
     private const int Cells = 32 * 32 * 32;
 
-    private static readonly MethodInfo Loaded = AccessTools.Method(typeof(Komet.Chunks.ChunkLookup), "Loaded");
+    private static readonly MethodInfo Loaded = AccessTools.Method(typeof(ChunkLookup), "Loaded");
 
     // The main thread's lookups around the player: the 27 chunks of a 3x3x3 block, all loaded, and the shell of a 4x4x4 one
     // around it (37 not loaded), by chunk coordinate, block position and index, as renderers and block accessors ask
@@ -24,12 +27,16 @@ public sealed class ChunkReadsSynth
             var chunks = (Dictionary<long, ClientChunk>)ChunkRig.Get(rig.Map, "chunks");
             var loaded = new List<(int X, int Y, int Z)>();
             for (var x = 0; x < 3; x++)
+            {
                 for (var y = 0; y < 3; y++)
+                {
                     for (var z = 0; z < 3; z++)
                     {
                         chunks[ChunkRig.Key(x, y, z)] = chunk;
                         loaded.Add((x, y, z));
                     }
+                }
+            }
 
             var map = rig.Map;
             var (found, pos) = (0, new BlockPos(0));
@@ -40,18 +47,27 @@ public sealed class ChunkReadsSynth
                 {
                     int x = i & 3, y = (i >> 2) & 3, z = (i >> 4) & 3;
                     if (SynthCalls.GetChunk(map, x, y, z) is not null) found++;
+
                     if (SynthCalls.GetChunk(map, pos.Set(x * 32 + 5, y * 32 + 7, z * 32 + 9)) is not null) found++;
+
                     if (SynthCalls.GetChunk(map, ChunkRig.Key(z, y, x)) is not null) found++;
                 }
             }, 6400, () => found, () =>
             {
                 // the mirror as loadChunkMT's finalizer leaves it (a no-op for the engine's lookups)
-                foreach (var (x, y, z) in loaded) _ = Loaded.Invoke(null, [map, new Packet_ServerChunk { X = x, Y = y, Z = z }, chunk]);
+                foreach (var (x, y, z) in loaded)
+                {
+                    _ = Loaded.Invoke(null, [map, new Packet_ServerChunk { X = x, Y = y, Z = z }, chunk]);
+                }
             });
             using (new FeatureRig("ChunkLookup"))
             {
                 // the on arm answers from the mirror
-                foreach (var (x, y, z) in loaded) _ = Loaded.Invoke(null, [map, new Packet_ServerChunk { X = x, Y = y, Z = z }, chunk]);
+                foreach (var (x, y, z) in loaded)
+                {
+                    _ = Loaded.Invoke(null, [map, new Packet_ServerChunk { X = x, Y = y, Z = z }, chunk]);
+                }
+
                 Counting.Hud = true;
                 var hits = Komet.Chunks.ChunkLookup.Hits;
                 _ = SynthCalls.GetChunk(map, 3, 3, 3);
@@ -80,7 +96,11 @@ public sealed class ChunkReadsSynth
         {
             var r = new Random(5);
             var chunks = Enumerable.Range(0, 8).Select(_ => Filled(rig.Pool, r)).ToArray();
-            foreach (var chunk in chunks) Pack(chunk);
+            foreach (var chunk in chunks)
+            {
+                Pack(chunk);
+            }
+
             var cells = Enumerable.Range(0, 64).Select(_ => r.Next(Cells)).ToArray();
             long sum = 0;
             _ = Synth.Run("DirectChunks", "packed-reads", ops =>
@@ -90,7 +110,11 @@ public sealed class ChunkReadsSynth
                 {
                     var chunk = chunks[i & 7];
                     if (!chunk.IsPacked()) Pack(chunk);
-                    foreach (var cell in cells) sum += SynthCalls.ReadBlock(chunk, cell);
+
+                    foreach (var cell in cells)
+                    {
+                        sum += SynthCalls.ReadBlock(chunk, cell);
+                    }
                 }
             }, 64, () => sum);
             using (new FeatureRig("DirectChunks"))
@@ -124,11 +148,17 @@ public sealed class ChunkReadsSynth
                 for (var i = 0; i < ops; i++)
                 {
                     var chunk = chunks[i & 7];
-                    foreach (var cell in cells) sum += SynthCalls.ReadBlock(chunk, cell);
+                    foreach (var cell in cells)
+                    {
+                        sum += SynthCalls.ReadBlock(chunk, cell);
+                    }
                 }
             }, 640, () => sum, () =>
             {
-                foreach (var chunk in chunks) Pack(chunk);
+                foreach (var chunk in chunks)
+                {
+                    Pack(chunk);
+                }
             });
             Assert.That(result.Feature, Is.EqualTo("DirectChunks"));
         }
@@ -146,13 +176,14 @@ public sealed class ChunkReadsSynth
         var target = Komet.Chunks.ChunkThreadClosure.Target()!;
         var supplyType = target.DeclaringType!;
         var requestType = AccessTools.TypeByName("Vintagestory.Server.ChunkColumnLoadRequest");
-        var server = (Vintagestory.Server.ServerMain)RuntimeHelpers.GetUninitializedObject(typeof(Vintagestory.Server.ServerMain));
-        var map = (Vintagestory.Server.ServerWorldMap)RuntimeHelpers.GetUninitializedObject(typeof(Vintagestory.Server.ServerWorldMap));
+        var server = (ServerMain)RuntimeHelpers.GetUninitializedObject(typeof(ServerMain));
+        var map = (ServerWorldMap)RuntimeHelpers.GetUninitializedObject(typeof(ServerWorldMap));
         ChunkRig.Set(map, "mapsize", new Vec3i(1024 * 32, 256, 1024 * 32));
         server.WorldMap = map;
-        var mapChunks = new System.Collections.Concurrent.ConcurrentDictionary<long, Vintagestory.Server.ServerMapChunk>();
+        var mapChunks = new ConcurrentDictionary<long, ServerMapChunk>();
         ChunkRig.Set(server, "loadedMapChunks", mapChunks);
-        var thread = RuntimeHelpers.GetUninitializedObject(AccessTools.TypeByName("Vintagestory.Server.ChunkServerThread"));
+        var thread =
+            RuntimeHelpers.GetUninitializedObject(AccessTools.TypeByName("Vintagestory.Server.ChunkServerThread"));
         ChunkRig.Set(thread, "additionalWorldGenThreadsCount", 2);
         var supply = RuntimeHelpers.GetUninitializedObject(supplyType);
         ChunkRig.Set(supply, "server", server);
@@ -160,13 +191,13 @@ public sealed class ChunkReadsSynth
         var requests = new object[64];
         for (var i = 0; i < requests.Length; i++)
         {
-            var mapChunk = (Vintagestory.Server.ServerMapChunk)RuntimeHelpers.GetUninitializedObject(typeof(Vintagestory.Server.ServerMapChunk));
+            var mapChunk = (ServerMapChunk)RuntimeHelpers.GetUninitializedObject(typeof(ServerMapChunk));
             ChunkRig.Set(mapChunk, "currentpass", 1);
             mapChunks[map.MapChunkIndex2D(i, 7)] = mapChunk;
             var request = RuntimeHelpers.GetUninitializedObject(requestType);
             ChunkRig.Set(request, "chunkX", i);
             ChunkRig.Set(request, "chunkZ", 7);
-            ChunkRig.Set(request, "Chunks", Array.CreateInstance(typeof(Vintagestory.Server.ServerChunk), 8));
+            ChunkRig.Set(request, "Chunks", new ServerChunk[8]);
             requests[i] = request;
         }
 
@@ -176,9 +207,14 @@ public sealed class ChunkReadsSynth
         {
             went = 0;
             for (var i = 0; i < ops; i++)
+            {
                 if (call(supply, requests[i & 63], 2)) went++;
+            }
         }, 6400, () => went);
-        using (new FeatureRig("ChunkThreadClosure")) Assert.That(Komet.Chunks.ChunkThreadClosure.Rewritten, Is.True);
+        using (new FeatureRig("ChunkThreadClosure"))
+        {
+            Assert.That(Komet.Chunks.ChunkThreadClosure.Rewritten, Is.True);
+        }
     }
 
     // supply.loadOrGenerateChunkColumn_OnChunkThread(request, stage), through the method's entry (patched when patched)
@@ -202,7 +238,11 @@ public sealed class ChunkReadsSynth
     {
         var chunk = ClientChunk.CreateNew(pool);
         var data = (ChunkData)chunk.Data;
-        for (var i = 0; i < Cells; i++) data[i] = r.Next(1, 30);
+        for (var i = 0; i < Cells; i++)
+        {
+            data[i] = r.Next(1, 30);
+        }
+
         return chunk;
     }
 

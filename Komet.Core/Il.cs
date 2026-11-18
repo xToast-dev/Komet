@@ -29,15 +29,20 @@ internal static class Il
     // A truncated body would be invalid IL: past the cap it is rejected, not cut.
     public static bool Take(IEnumerable<CodeInstruction> instructions, int max, out List<CodeInstruction> code)
     {
-        code = NotNull(instructions) ? [.. instructions] : [];
+        code = NotNull<object>(instructions) ? [.. instructions] : [];
         return Assert(max is > 0 and <= MaxInstructions) && code.Count <= max;
     }
 
     public static int Count(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match)
     {
         if (!NotNull(code) || !NotNull(match) || !Assert(code.Count <= MaxInstructions)) return -1;
+
         var count = 0;
-        for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++) count += match(code[i]) ? 1 : 0;
+        for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
+            count += match(code[i]) ? 1 : 0;
+        }
+
         return count;
     }
 
@@ -45,14 +50,19 @@ internal static class Il
     public static int CountLoop(List<CodeInstruction> code, FieldInfo field, MethodInfo count)
     {
         if (!NotNull(code) || !NotNull(field) || !NotNull(count)) return -1;
+
         var site = -1;
         for (var i = 1; i < Math.Min(code.Count - 2, MaxInstructions); i++)
         {
             if (!code[i].Calls(count) || !code[i - 1].LoadsField(field) || code[i + 1].opcode != OpCodes.Ldc_I4_0 ||
                 (code[i + 2].opcode != OpCodes.Bgt && code[i + 2].opcode != OpCodes.Bgt_S) ||
                 code[i + 2].operand is not Label target || code.FindIndex(0, i, c => c.labels.Contains(target)) < 0)
+            {
                 continue;
+            }
+
             if (site >= 0) return -1;
+
             site = i;
         }
 
@@ -62,11 +72,14 @@ internal static class Il
     public static int Single(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match)
     {
         if (!NotNull(code) || !NotNull(match) || !Assert(code.Count <= MaxInstructions)) return -1;
+
         var at = -1;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (!match(code[i])) continue;
+
             if (at >= 0) return -1;
+
             at = i;
         }
 
@@ -74,7 +87,8 @@ internal static class Il
     }
 
     // The one instruction that matches becomes a call of `method` (Single, then Substitute); false for none or several
-    public static bool SubstituteSingle(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match, MethodInfo? method)
+    public static bool SubstituteSingle(List<CodeInstruction> code, System.Func<CodeInstruction, bool> match,
+        MethodInfo? method)
     {
         var at = Single(code, match);
         return at >= 0 && NotNull(method) && Substitute(code, at, method);
@@ -84,8 +98,10 @@ internal static class Il
     public static bool Substitute(List<CodeInstruction> code, int at, MethodInfo method)
     {
         if (!NotNull(code) || !NotNull(method) || !Index(at, code.Count) || !Assert(method.IsStatic)) return false;
+
         var effect = Effect(code[at]);
         if (effect.Pops < 0 || Effect(new CodeInstruction(OpCodes.Call, method)) != effect) return false;
+
         (code[at].opcode, code[at].operand) = (OpCodes.Call, method);
         return true;
     }
@@ -94,9 +110,13 @@ internal static class Il
     public static bool WritesArgument(CodeInstruction code, int index)
     {
         if (!NotNull(code) || !Assert(index > 0)) return true;
+
         var op = code.opcode;
         if (op != OpCodes.Starg && op != OpCodes.Starg_S && op != OpCodes.Ldarga && op != OpCodes.Ldarga_S)
+        {
             return false;
+        }
+
         var at = code.operand switch
         {
             byte b => b,
@@ -112,16 +132,29 @@ internal static class Il
     public static int Local(CodeInstruction code, Uses uses = Uses.Any)
     {
         if (!NotNull(code)) return -1;
+
         var op = code.opcode;
         var use = Uses.None;
-        if (code.IsStloc()) use = Uses.Store;
+        if (code.IsStloc())
+        {
+            use = Uses.Store;
+        }
         // IsLdloc takes both
-        else if (code.IsLdloc()) use = op == OpCodes.Ldloca || op == OpCodes.Ldloca_S ? Uses.Address : Uses.Load;
+        else if (code.IsLdloc())
+        {
+            use = op == OpCodes.Ldloca || op == OpCodes.Ldloca_S ? Uses.Address : Uses.Load;
+        }
+
         if ((use & uses) == Uses.None) return -1;
+
         if (op == OpCodes.Ldloc_0 || op == OpCodes.Stloc_0) return 0;
+
         if (op == OpCodes.Ldloc_1 || op == OpCodes.Stloc_1) return 1;
+
         if (op == OpCodes.Ldloc_2 || op == OpCodes.Stloc_2) return 2;
+
         if (op == OpCodes.Ldloc_3 || op == OpCodes.Stloc_3) return 3;
+
         return code.operand switch
         {
             LocalBuilder builder => builder.LocalIndex,
@@ -137,16 +170,21 @@ internal static class Il
     public static (int At, int Operand) Consumer(List<CodeInstruction> code, int at, int reach = MaxReach)
     {
         if (!NotNull(code) || !Index(at, code.Count) || !Assert(reach is > 0 and <= MaxReach)) return (-1, -1);
+
         var height = 1; // the tracked value and everything pushed on top of it
         for (var step = 1; step <= Math.Min(Math.Min(code.Count - at - 1, reach), MaxReach); step++)
         {
             var i = at + step;
             var c = code[i];
             if (c.labels.Count > 0 || c.blocks.Count > 0) return (-1, -1);
+
             var (pops, pushes) = Effect(c);
             if (pops < 0) return (-1, -1);
+
             if (pops >= height) return (i, pops - height);
+
             if (c.opcode.FlowControl is not (FlowControl.Next or FlowControl.Call)) return (-1, -1);
+
             height += pushes - pops;
         }
 
@@ -157,10 +195,12 @@ internal static class Il
     public static (int Pops, int Pushes) Effect(CodeInstruction code)
     {
         if (!NotNull(code)) return (-1, -1);
+
         var op = code.opcode;
         if (op.FlowControl == FlowControl.Call || op == OpCodes.Newobj)
         {
             if (code.operand is not MethodBase m || op == OpCodes.Calli) return (-1, -1);
+
             var pops = m.GetParameters().Length + (m.IsStatic || op == OpCodes.Newobj ? 0 : 1);
             return (pops, op == OpCodes.Newobj || (m is MethodInfo i && i.ReturnType != typeof(void)) ? 1 : 0);
         }
@@ -191,15 +231,23 @@ internal static class Il
         Uses uses = Uses.Load, int reach = MaxReach)
     {
         if (!NotNull(code) || !NotNull(allowed) || !Index(store, code.Count) || !Assert(code[store].IsStloc()))
+        {
             return false;
+        }
+
         var local = Local(code[store]);
         if (local < 0 || !Assert(uses is Uses.Load or Uses.Address or (Uses.Load | Uses.Address)) ||
             !Assert(code.Count <= MaxInstructions))
+        {
             return false;
+        }
+
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
             if (i == store || Local(code[i]) != local) continue;
+
             if (Local(code[i], uses) != local) return false;
+
             var (use, operand) = Consumer(code, i, reach);
             if (use < 0 || !allowed(code[use], operand)) return false;
         }
@@ -211,8 +259,10 @@ internal static class Il
     public static bool Binds(MethodBase original, MethodInfo patch)
     {
         if (!NotNull(original) || !NotNull(patch)) return false;
+
         var (wanted, given) = (patch.GetParameters(), original.GetParameters());
         if (!Assert(wanted.Length <= MaxParameters) || !Assert(given.Length <= MaxParameters)) return false;
+
         for (var i = 0; i < Math.Min(wanted.Length, MaxParameters); i++)
         {
             var name = wanted[i].Name ?? "";

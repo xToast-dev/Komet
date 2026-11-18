@@ -1,21 +1,24 @@
 # Options pages
 
-<xref:Komet.Api.KometOptions> adds pages to Komet's options window. A page is a list of rows; each method of
-<xref:Komet.Api.OptionPage> adds one and returns the page, so calls chain.
+<xref:Komet.Api.KapiOptions> (`komet.Options`) adds pages to Komet's options window. A page is a list of rows; each
+method of <xref:Komet.Api.KapiPage> adds one and returns the page, so calls chain.
 
 ```csharp
-KometOptions.Page("mymod", "My mod", section: "Mods")
+komet.Options.Page("main", "My mod", section: "Mods")
     .Group("Look")
     .Switch("Warm picture", () => Config.Warm, v => Config.Warm = v, hint: "Turns the warm pass on.")
     .Slider("Warmth", 0, 1, 0.05, () => Config.Warmth, v => Config.Warmth = v).Default(0.7)
     .Choice("Quality", ["Fast", "Fine"], () => Config.Quality, v => Config.Quality = v)
-    .Slider("Distance", 0, 512, 32, () => Config.Distance, v => Config.Distance = v, unit: " blocks")
+    .Slider("Distance", 0, 512, 32, () => Config.Distance, v => Config.Distance = v)
         .Format(v => v >= 512 ? "unlimited" : v + " blocks")
         .EnabledWhen(() => Config.Warm)
     .Button("Settings file", "Open", OpenFolder);
 
-KometOptions.Applied += (_, _) => Config.Save();
+komet.Options.Applied += (_, _) => Config.Save();
 ```
+
+`Page(title)` gives the mod one page (id = mod id) in a section of its own; `Page(id, title, section)` one of several
+(id `modid:id`), with `section: null` for a section named like the title.
 
 | Row | Value |
 |---|---|
@@ -30,8 +33,9 @@ KometOptions.Applied += (_, _) => Config.Save();
 ## Rules
 
 - Texts are yours to translate: pass `Lang.Get(...)` results.
-- Setters run when the player changes a row; saving is yours, best in `Applied`.
-- Reusing a page id starts the page over: a rejoin does not double the rows.
-- At most 32 pages from all mods, 40 rows per page.
+- Setters run when the player applies; saving is yours, best in `Applied`.
+- Asking for the same page again starts it over: a rejoin does not double the rows.
+- At most 32 pages from all mods (`KapiOptions.MaxPages`), 40 rows per page (`KapiPage.MaxRows`).
+- `komet.Dispose()` and the world's end take the pages away.
 
 A shader mod gets a page from `komet.json` without code; see the [komet.json reference](komet-json.md).

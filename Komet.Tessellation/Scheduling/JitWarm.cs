@@ -33,12 +33,14 @@ internal static class JitWarm
     public static void Install(Harmony harmony, ILogger? logger)
     {
         var same = AccessTools.Method(typeof(JitWarm), nameof(Same));
-        if (!Enabled || !NotNull(harmony) || !NotNull(same)) return;
+        if (!Enabled || !NotNull(same)) return;
+
         var methods = Methods();
         // methods another mod already rebuilt are found, just not warmed: no warning for them
         foreach (var method in methods.Bounded(MaxMethods))
-            if (!EngineShape.Patched(method))
-                _ = harmony.Patch(method, transpiler: new HarmonyMethod(same));
+        {
+            if (!EngineShape.Patched(method)) _ = harmony.Patch(method, transpiler: new HarmonyMethod(same));
+        }
 
         if (methods.Count == 0) logger?.Warning("Komet JitWarm: none of the engine's tessellation methods was found");
     }
@@ -48,12 +50,21 @@ internal static class JitWarm
     {
         var methods = new List<MethodInfo>();
         foreach (var (type, name) in Hot.Bounded(MaxMethods))
+        {
             foreach (var method in AccessTools.GetDeclaredMethods(type).Bounded(256))
+            {
                 if (method.Name == name && !method.IsAbstract && method.GetMethodBody() is not null)
+                {
                     methods.Add(method);
+                }
+            }
+        }
+
         var json = AccessTools.GetDeclaredMethods(typeof(JsonTesselator))
-            .FirstOrDefault(static m => m.Name == nameof(JsonTesselator.AddJsonModelDataToMesh) && m.GetParameters().Length == 7);
+            .FirstOrDefault(static m =>
+                m.Name == nameof(JsonTesselator.AddJsonModelDataToMesh) && m.GetParameters().Length == 7);
         if (json is not null) methods.Add(json);
+
         return Assert(methods.Count <= MaxMethods) ? methods : [];
     }
 

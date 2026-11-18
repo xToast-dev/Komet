@@ -11,12 +11,12 @@ internal static class GlTexture
     private const int TextureDepth = 0x8071, InternalFormat = 0x1003, MaxLevel = 0x813D, CompareMode = 0x884C;
     private const int BorderColor = 0x1004;
 
-    public readonly record struct Description(int Kind, int Width, int Height, int Depth, int Format);
-
     public static Description Of(int texture)
     {
         if (!Assert(texture > 0) || !Assert(texture < int.MaxValue)) return default;
+
         if (GlTap.Described(texture) is { } recorded) return recorded;
+
         GL.GetTextureParameter(texture, (GetTextureParameter)TextureTarget, out int target);
         GL.GetTextureLevelParameter(texture, 0, (GetTextureParameter)TextureWidth, out int width);
         GL.GetTextureLevelParameter(texture, 0, (GetTextureParameter)TextureHeight, out int height);
@@ -29,12 +29,14 @@ internal static class GlTexture
     public static int Levels(int texture)
     {
         if (GlTap.LevelsOf(texture) is { } recorded) return recorded;
+
         GL.GetTextureParameter(texture, (GetTextureParameter)MaxLevel, out int max);
         var levels = 1;
         for (var level = 1; level < Math.Min(MaxLevels, max + 1); level++)
         {
             GL.GetTextureLevelParameter(texture, level, (GetTextureParameter)TextureWidth, out int width);
             if (width <= 0) break;
+
             levels++;
         }
 
@@ -44,7 +46,9 @@ internal static class GlTexture
     public static Samplers.State Sampling(int texture)
     {
         if (!Assert(texture > 0) || !Assert(texture < int.MaxValue)) return default;
+
         if (GlTap.SamplingOf(texture) is { } recorded) return recorded;
+
         GL.GetTextureParameter(texture, GetTextureParameter.TextureMinFilter, out int min);
         GL.GetTextureParameter(texture, GetTextureParameter.TextureMagFilter, out int mag);
         GL.GetTextureParameter(texture, GetTextureParameter.TextureWrapS, out int wrap);
@@ -58,13 +62,17 @@ internal static class GlTexture
     public static int Parameter(int texture, int name)
     {
         if (!Assert(texture > 0) || !Assert(name > 0)) return 0;
+
         if (GlTap.ParameterOf(texture, name) is { } recorded) return recorded;
+
         GL.GetTextureParameter(texture, (GetTextureParameter)name, out int value);
         return value;
     }
 
     public static bool Exists(int texture) =>
         Assert(texture >= 0) && (GlTap.TextureExists(texture) ?? GL.IsTexture(texture));
+
+    public readonly record struct Description(int Kind, int Width, int Height, int Depth, int Format);
 }
 
 // What an FBO really has attached (texture, level, layer, layered), asked from GL: the engine does not always attach
@@ -75,8 +83,6 @@ internal static class GlFramebuffer
     public const int Colors = 8, Depth = Colors; // the depth's index in Attachments' result
     private const int GlTexture = 0x1702, CubeFace = 0x8CD3, CubeFirst = 0x8515, CubeLast = 0x851A;
 
-    public readonly record struct Attached(int Texture, int Level, int Layer, bool Layered);
-
     public static Attached[] Attachments(int fbo) =>
         Assert(fbo > 0) && Assert(fbo < int.MaxValue)
             ? GlTap.AttachmentsOf(fbo) ?? Asked(fbo)
@@ -86,10 +92,12 @@ internal static class GlFramebuffer
     {
         var attached = new Attached[Colors + 1];
         if (!Assert(fbo > 0)) return attached;
+
         for (var i = 0; i <= Colors; i++)
         {
             var point = i == Depth ? FramebufferAttachment.DepthAttachment : FramebufferAttachment.ColorAttachment0 + i;
             if (Parameter(fbo, point, FramebufferParameterName.FramebufferAttachmentObjectType) != GlTexture) continue;
+
             var face = Parameter(fbo, point, (FramebufferParameterName)CubeFace); // a cube map's face is its layer
             attached[i] = new Attached(Parameter(fbo, point, FramebufferParameterName.FramebufferAttachmentObjectName),
                 Parameter(fbo, point, FramebufferParameterName.FramebufferAttachmentTextureLevel),
@@ -104,7 +112,9 @@ internal static class GlFramebuffer
 
     private static int Parameter(int fbo, FramebufferAttachment point, FramebufferParameterName name)
     {
-        GL.GetNamedFramebufferAttachmentParameter(fbo, point, name, out int value);
+        GL.GetNamedFramebufferAttachmentParameter(fbo, point, name, out var value);
         return value;
     }
+
+    public readonly record struct Attached(int Texture, int Level, int Layer, bool Layered);
 }

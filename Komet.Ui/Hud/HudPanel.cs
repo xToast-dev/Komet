@@ -21,10 +21,12 @@ internal sealed class HudPanel
     public HudPanel Value(string key, Func<double> value, string unit = "", bool sub = false, bool final = false) =>
         Line(KometText.Once("hud-" + key), value, unit, sub: sub, final: final);
 
-    public HudPanel Line(Func<string> label, Func<double>? value = null, string unit = "", Func<double>? percent = null, bool sub = false,
+    public HudPanel Line(Func<string> label, Func<double>? value = null, string unit = "", Func<double>? percent = null,
+        bool sub = false,
         bool final = false) =>
         Assert(unit.Length <= HudLine.MaxUnit)
-            ? Add(new HudLine { Label = label, Value = value, Unit = unit, Percent = percent, Sub = sub, Final = final })
+            ? Add(new HudLine
+                { Label = label, Value = value, Unit = unit, Percent = percent, Sub = sub, Final = final })
             : this;
 
     public HudPanel Section(string key, params object[] args) =>
@@ -45,37 +47,54 @@ internal sealed class HudPanel
     public HudPanel Rows(int count, Action<int> add)
     {
         if (!Assert(count > 0) || !Assert(count <= MaxRows)) return this;
-        for (var i = 0; i < Math.Min(count, MaxRows); i++) add(i);
+
+        for (var i = 0; i < Math.Min(count, MaxRows); i++)
+        {
+            add(i);
+        }
+
         return this;
     }
 
     private HudPanel Add(HudLine line)
     {
         if (Assert(_lines.Count < MaxLines)) _lines.Add(line);
+
         return this;
     }
 
     public void Accumulate()
     {
-        foreach (var line in _lines.Bounded(MaxLines)) line.Accumulate();
+        foreach (var line in _lines.Bounded(MaxLines))
+        {
+            line.Accumulate();
+        }
+
         _peaksRead = true;
     }
 
     public void ResetPeaks()
     {
         if (!_peaksRead) return;
+
         _peaksRead = false;
         _peaks?.Invoke();
     }
 
     public void ResetBench()
     {
-        foreach (var line in _lines.Bounded(MaxLines)) line.ResetBench();
+        foreach (var line in _lines.Bounded(MaxLines))
+        {
+            line.ResetBench();
+        }
     }
 
     public void Prime()
     {
-        foreach (var line in _lines.Bounded(MaxLines)) line.Prime();
+        foreach (var line in _lines.Bounded(MaxLines))
+        {
+            line.Prime();
+        }
     }
 
     public void AppendMeans(StringBuilder text)
@@ -85,8 +104,16 @@ internal sealed class HudPanel
         {
             var row = line.MeanText();
             if (row.Length == 0) continue;
-            if (!first) _ = text.Append('\n');
-            else if (text.Length > 0) _ = text.Append("\n\n");
+
+            if (!first)
+            {
+                _ = text.Append('\n');
+            }
+            else if (text.Length > 0)
+            {
+                _ = text.Append("\n\n");
+            }
+
             _ = text.Append(row);
             first = false;
         }

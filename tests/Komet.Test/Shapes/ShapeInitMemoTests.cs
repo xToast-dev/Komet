@@ -40,16 +40,12 @@ public sealed class ShapeInitMemoTests
         (Counting.Hud, _skipped) = (true, ShapeInitMemo.Skipped);
     }
 
-    private static void Init(Shape shape, string[]? disable = null, string[]? joints = null)
-    {
+    private static void Init(Shape shape, string[]? disable = null, string[]? joints = null) =>
         shape.InitForAnimations(AnimationShapes.Log, "test", disable, joints ?? Head);
-    }
 
-    private static object? Resolved(Shape shape)
-    {
-        return shape.Animations
+    private static object? Resolved(Shape shape) =>
+        shape.Animations
             .SelectMany(a => a.KeyFrames).Select(AnimationShapes.Table.GetValue).FirstOrDefault(t => t is not null);
-    }
 
     // An uncloned entity shape's life: ShapeTesselatorManager resolves it, the first entity of its type inits it twice
     // (AnimationCache.InitManager, then LoadAnimator on the cache miss), a gear-wearing or antlered relative clones it and inits
@@ -68,6 +64,7 @@ public sealed class ShapeInitMemoTests
                 .SelectMany(k => k.Elements?.Keys.AsEnumerable() ?? [])
                 .FirstOrDefault(name => name != "head");
             if (gone != null) clone.RemoveElements([gone]);
+
             Init(clone, gone == null ? null : [gone]);
             Init(shape);
             var second = shape.Clone();
@@ -99,6 +96,7 @@ public sealed class ShapeInitMemoTests
             shapes++;
             thrown += engine.Thrown is null ? 0 : 1;
             if (ShapeInitMemo.Skipped - before == 2) skipped++;
+
             if (memo.Thrown != engine.Thrown)
             {
                 failures.Add($"{domain}:{path}: engine threw {engine.Thrown}, memo {memo.Thrown}");
@@ -315,7 +313,10 @@ public sealed class ShapeInitMemoTests
 
     private static void Elsewhere(AnimationKeyFrame kf)
     {
-        foreach (var entry in kf.Elements?.Values.AsEnumerable() ?? []) entry.ForElement = null;
+        foreach (var entry in kf.Elements?.Values.AsEnumerable() ?? [])
+        {
+            entry.ForElement = null;
+        }
     }
 
     // The write-back resolves ForElement by the memo's own name lookup. A patch that changes what the engine writes there, applied

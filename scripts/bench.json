@@ -9,10 +9,13 @@
   ],
   "world": {
     "save": "testwelt",
-    "savegameId": "806d5110-14b7-4d83-abce-e5f36c65b931"
+    "savegameId": "dbf26a22-f085-478a-b9c3-83bab5524e4c"
   },
   "sandbox": {
-    "window": [1920, 1080],
+    "window": [
+      1920,
+      1080
+    ],
     "vsyncMode": 0,
     "maxFps": 241,
     "viewDistance": null,
@@ -22,80 +25,192 @@
   "profiles": {
     "quick": {
       "_comment": "about three minutes with loading: a quick look at one build, or a quick A/B with --arm twice (no statistics worth the name)",
-      "settle": { "seconds": 10, "lapSeconds": 3 },
-      "lap": { "still": 3, "rotate": 4, "leg": 12, "turn": 1 },
+      "settle": {
+        "seconds": 10,
+        "lapSeconds": 3
+      },
+      "lap": {
+        "still": 3,
+        "rotate": 4,
+        "leg": 12,
+        "turn": 1
+      },
       "laps": 2,
       "warmupLaps": 1,
-      "arms": [{ "name": "A" }]
+      "arms": [
+        {
+          "name": "A"
+        }
+      ]
     },
     "load": {
       "_comment": "how fast the world's terrain comes in: 90 s at the spawn, then one short lap; one arm a run (loading happens once a process)",
-      "settle": { "seconds": 90, "lapSeconds": 3 },
-      "lap": { "still": 3, "rotate": 3, "leg": 3, "turn": 1 },
+      "settle": {
+        "seconds": 90,
+        "lapSeconds": 3
+      },
+      "lap": {
+        "still": 3,
+        "rotate": 3,
+        "leg": 3,
+        "turn": 1
+      },
       "laps": 1,
       "warmupLaps": 0,
-      "arms": [{ "name": "A" }]
+      "arms": [
+        {
+          "name": "A"
+        }
+      ]
     },
     "debug": {
       "_comment": "the HUD's debug capture under the freeze watchdog: one of 15 s started at every lap, its end (files, clipboard, window) mid-lap",
-      "settle": { "seconds": 10, "lapSeconds": 3 },
-      "lap": { "still": 3, "rotate": 4, "leg": 12, "turn": 1 },
+      "settle": {
+        "seconds": 10,
+        "lapSeconds": 3
+      },
+      "lap": {
+        "still": 3,
+        "rotate": 4,
+        "leg": 12,
+        "turn": 1
+      },
       "laps": 4,
       "warmupLaps": 0,
       "gui": "debug",
-      "arms": [{ "name": "A" }]
+      "arms": [
+        {
+          "name": "A"
+        }
+      ]
     },
     "smoke": {
       "_comment": "about three minutes: proves the harness end to end, A/A so the two arms must agree",
-      "settle": { "seconds": 30, "lapSeconds": 5 },
-      "lap": { "still": 5, "rotate": 10, "leg": 15, "turn": 2 },
+      "settle": {
+        "seconds": 30,
+        "lapSeconds": 5
+      },
+      "lap": {
+        "still": 5,
+        "rotate": 10,
+        "leg": 15,
+        "turn": 2
+      },
       "laps": 2,
       "warmupLaps": 1,
-      "arms": [{ "name": "A" }, { "name": "A2" }]
+      "arms": [
+        {
+          "name": "A"
+        },
+        {
+          "name": "A2"
+        }
+      ]
     },
     "aa": {
       "_comment": "the noise floor: full length, both arms identical; |delta| here is what any A/B has to beat",
       "warmupLaps": 2,
-      "arms": [{ "name": "A" }, { "name": "A2" }]
+      "arms": [
+        {
+          "name": "A"
+        },
+        {
+          "name": "A2"
+        }
+      ]
     },
     "full": {
       "_comment": "Komet as configured against the engine (every knob at its engine value), A B B A A B B A",
       "warmupLaps": 2,
-      "arms": [{ "name": "komet" }, { "name": "engine", "engine": true }]
+      "arms": [
+        {
+          "name": "komet"
+        },
+        {
+          "name": "engine",
+          "engine": true
+        }
+      ]
     },
     "tess": {
       "_comment": "the tessellation fast paths and TessSchedule on against off, in one process; compare tessMsPerPass and tessNearAvg (marks near the player still waiting), where new chunks stream in",
       "warmupLaps": 2,
       "arms": [
-        { "name": "komet" },
+        {
+          "name": "komet"
+        },
         {
           "name": "engine",
-          "set": { "FaceLight": false, "OccludedChunks": false, "TessSchedule": false }
+          "set": {
+            "FaceLight": false,
+            "OccludedChunks": false,
+            "TessSchedule": false
+          }
         }
       ]
     },
     "gcreg": {
       "_comment": "the always-on features outside the tessellation fast paths (shape init memo, entity budget, particle light) on against off, in one process: frame time and GC pauses",
       "warmupLaps": 2,
-      "arms": [{ "name": "all" }, { "name": "lean", "set": { "ShapeInitMemo": false, "ParticleLight": false } }]
+      "arms": [
+        {
+          "name": "all"
+        },
+        {
+          "name": "lean",
+          "set": {
+            "ShapeInitMemo": false,
+            "ParticleLight": false
+          }
+        }
+      ]
     },
     "culling": {
       "_comment": "OcclusionCulling (terrain culled on the GPU against a depth pyramid, two passes; it culls only under VulkanOnly) off against on, in one process, A B B A A B B A: frame time, lows, the tessellation it must not disturb",
       "warmupLaps": 3,
       "laps": 8,
       "arms": [
-        { "name": "off", "set": { "OcclusionCulling": 0, "VulkanOnly": true } },
-        { "name": "on", "set": { "OcclusionCulling": 2, "VulkanOnly": true } }
+        {
+          "name": "off",
+          "set": {
+            "OcclusionCulling": 0,
+            "VulkanOnly": true
+          }
+        },
+        {
+          "name": "on",
+          "set": {
+            "OcclusionCulling": 2,
+            "VulkanOnly": true
+          }
+        }
       ]
     },
     "culling1440": {
       "_comment": "culling, but at 2560x1440 as the player plays, where the GPU is the limit more often",
-      "sandbox": { "window": [2560, 1440] },
+      "sandbox": {
+        "window": [
+          2560,
+          1440
+        ]
+      },
       "warmupLaps": 3,
       "laps": 8,
       "arms": [
-        { "name": "off", "set": { "OcclusionCulling": 0, "VulkanOnly": true } },
-        { "name": "on", "set": { "OcclusionCulling": 2, "VulkanOnly": true } }
+        {
+          "name": "off",
+          "set": {
+            "OcclusionCulling": 0,
+            "VulkanOnly": true
+          }
+        },
+        {
+          "name": "on",
+          "set": {
+            "OcclusionCulling": 2,
+            "VulkanOnly": true
+          }
+        }
       ]
     },
     "hud": {
@@ -111,20 +226,83 @@
         }
       },
       "hudWindow": "cycle",
-      "lap": { "still": 20, "rotate": 20, "leg": 30 },
+      "lap": {
+        "still": 20,
+        "rotate": 20,
+        "leg": 30
+      },
       "laps": 10,
       "warmupLaps": 0
     },
     "vulkan": {
       "_comment": "the world drawn by OpenGL (gl) and by Vulkan alone (vk), with a screenshot where every measured lap starts: the frames must look alike, the times say what Vulkan costs or saves",
-      "settle": { "seconds": 60, "lapSeconds": 5 },
+      "settle": {
+        "seconds": 60,
+        "lapSeconds": 5
+      },
       "shots": true,
       "warmupLaps": 2,
       "laps": 4,
       "arms": [
-        { "name": "gl", "set": { "VulkanOnly": false } },
-        { "name": "vk", "set": { "VulkanOnly": true } }
+        {
+          "name": "gl",
+          "set": {
+            "VulkanOnly": false
+          }
+        },
+        {
+          "name": "vk",
+          "set": {
+            "VulkanOnly": true
+          }
+        }
       ]
+    },
+    "map": {
+      "_comment": "the world map open full-screen from the first lap, a screenshot at every measured lap: map mods (FastMap) drawn by OpenGL (gl) and by Vulkan alone (vk) must look alike",
+      "settle": {
+        "seconds": 30,
+        "lapSeconds": 5
+      },
+      "gui": "map",
+      "shots": true,
+      "warmupLaps": 1,
+      "laps": 2,
+      "arms": [
+        {
+          "name": "gl",
+          "set": {
+            "VulkanOnly": false
+          }
+        },
+        {
+          "name": "vk",
+          "set": {
+            "VulkanOnly": true
+          }
+        }
+      ]
+    },
+    "shadertest": {
+      "_comment": "scripts/shadertest.sh: the bench only holds the world still while the Komet SDK's shader test runs and closes the game",
+      "settle": {
+        "seconds": 1800,
+        "lapSeconds": 1
+      },
+      "lap": {
+        "still": 1,
+        "rotate": 1,
+        "leg": 1,
+        "turn": 1
+      },
+      "laps": 1,
+      "warmupLaps": 0,
+      "arms": [
+        {
+          "name": "A"
+        }
+      ],
+      "anyWorld": true
     }
   }
 }

@@ -45,18 +45,27 @@ internal static class ChunkLoadBudget
     {
         (Rewritten, _seams, _closure, _packet, _start, _forced, Stops, Held) =
             (false, Seams(), null, null, 0, 0, 0, 0);
-        if (!NotNull(harmony) || !Assert(!Array.Exists(_seams, s => s is null))) return;
+        if (!Assert(!Array.Exists(_seams, s => s is null))) return;
+
         if (!EngineShape.Matches(_seams, fingerprint, nameof(ChunkLoadBudget), logger)) return;
+
         _closure = _seams[2]!.DeclaringType;
         if (_closure is null || AccessTools.DeclaredField(_closure, "p")?.FieldType != typeof(Packet_ServerChunk) ||
-            !Assert(AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue")?.FieldType == typeof(Queue<ClientTask>)) ||
+            !Assert(AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue")?.FieldType ==
+                    typeof(Queue<ClientTask>)) ||
             !Assert(AccessTools.DeclaredField(typeof(ProcessPacketTask), "packet")?.FieldType == typeof(Packet_Server)))
+        {
             return;
+        }
+
         _packet = AccessTools.FieldRefAccess<Packet_ServerChunk>(_closure, "p");
         _ = harmony.Patch(_seams[0], new HarmonyMethod(Begin), transpiler: new HarmonyMethod(Rewrite));
         if (!Rewritten)
-            logger?.Warning("Komet ChunkLoadBudget: ClientMain.ExecuteMainThreadTasks is not the loop it was written for; " +
-                            "every queued chunk loads at once, as in the engine");
+        {
+            logger?.Warning(
+                "Komet ChunkLoadBudget: ClientMain.ExecuteMainThreadTasks is not the loop it was written for; " +
+                "every queued chunk loads at once, as in the engine");
+        }
     }
 
     // Task loop, LoadChunkFromPacket ("loadchunk"), and that task's body (reads the chunk from the closure's p)
@@ -75,14 +84,12 @@ internal static class ChunkLoadBudget
     private static MethodInfo? Task(MethodBase load)
     {
         if (!Il.Take(PatchProcessor.GetOriginalInstructions(load), Il.MaxInstructions, out var code)) return null;
+
         var at = Il.Single(code, c => c.opcode == OpCodes.Ldftn);
         return at >= 0 ? code[at].operand as MethodInfo : null;
     }
 
-    internal static void Begin()
-    {
-        (_start, _forced) = (Stopwatch.GetTimestamp(), 0);
-    }
+    private static void Begin() => (_start, _forced) = (Stopwatch.GetTimestamp(), 0);
 
     // Replaces the loop's reversedQueue.Count: the count, or 0 to end the frame
     internal static int Gate(int count, ClientMain game) =>
@@ -94,10 +101,9 @@ internal static class ChunkLoadBudget
         Assert(Millis >= Engine) && queued > BoostAbove ? Math.Max(Millis, BoostMillis) : Millis;
 
     // Past the budget since Begin
-    private static bool Elapsed(int millis) =>
-        Stopwatch.GetTimestamp() - _start >= millis * Stopwatch.Frequency / 1000;
+    private static bool Elapsed(int millis) => Stopwatch.GetTimestamp() - _start >= millis * Stopwatch.Frequency / 1000;
 
-    internal static int Decide(Queue<ClientTask>? queue, int count, EntityPos? pos)
+    private static int Decide(Queue<ClientTask>? queue, int count, EntityPos? pos)
     {
         if (_forced > 0)
         {
@@ -107,48 +113,64 @@ internal static class ChunkLoadBudget
 
         var millis = Budget(count);
         if (!Assert(millis is > Engine and <= MaxMillis) || !Elapsed(millis)) return count;
+
         if (!NotNull(queue) || pos is null || !queue.TryPeek(out var next) || !Waits(next, pos)) return count;
+
         _forced = LastNear(queue, pos);
         if (_forced >= 0) return count;
+
         _forced = 0;
         if (Counting.Hud) (Stops, Held) = (Stops + 1, Held + count);
+
         return 0;
     }
 
     // A chunk unload, or the load of a chunk of the world (not a moving dimension's) more than NearChunks columns away
-    internal static bool Waits(ClientTask? task, EntityPos pos) => task?.Action?.Target switch
-    {
-        ProcessPacketTask packet => Packet(packet) is { Id: UnloadPacket },
-        { } target when target.GetType() == _closure && _packet is not null => Far(_packet(target), pos),
-        _ => false
-    };
+    private static bool Waits(ClientTask? task, EntityPos pos) =>
+        task?.Action?.Target switch
+        {
+            ProcessPacketTask packet => Packet(packet) is { Id: UnloadPacket },
+            { } target when target.GetType() == _closure && _packet is not null => Far(_packet(target), pos),
+            _ => false
+        };
 
     internal static bool Far(Packet_ServerChunk? chunk, EntityPos pos) =>
         chunk is { Y: >= 0 and < DimensionHeight } &&
-        Math.Max(Math.Abs(chunk.X - ((int)pos.X >> ChunkShift)), Math.Abs(chunk.Z - ((int)pos.Z >> ChunkShift))) > NearChunks;
+               Math.Max(Math.Abs(chunk.X - ((int)pos.X >> ChunkShift)),
+                   Math.Abs(chunk.Z - ((int)pos.Z >> ChunkShift))) > NearChunks;
 
     // The index of the last chunk load among the first MaxScan tasks that may not wait, -1 for none
     private static int LastNear(Queue<ClientTask> queue, EntityPos pos)
     {
         var (last, tasks) = (-1, queue.GetEnumerator());
         for (var i = 0; i < Math.Min(queue.Count, MaxScan) && tasks.MoveNext(); i++)
+        {
             if (tasks.Current?.Action?.Target is { } target && target.GetType() == _closure && _packet is not null &&
                 !Far(_packet(target), pos))
+            {
                 last = i;
+            }
+        }
+
         return last;
     }
 
     // Loop test: the one reversedQueue get_Count, ldc.i4.0, bgt back; Gate goes between, else engine IL
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         Rewritten = false;
         var queue = AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue");
         var count = AccessTools.PropertyGetter(typeof(Queue<ClientTask>), nameof(Queue<>.Count));
         var gate = AccessTools.DeclaredMethod(typeof(ChunkLoadBudget), nameof(Gate));
         if (!Il.Take(instructions, Il.MaxInstructions, out var code) || !NotNull(queue) || !NotNull(count) ||
-            !NotNull(gate)) return code;
+            !NotNull(gate))
+        {
+            return code;
+        }
+
         var site = Il.CountLoop(code, queue, count);
         if (site < 0) return code;
+
         code.InsertRange(site + 1, [new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Call, gate)]);
         Rewritten = true;
         return code;

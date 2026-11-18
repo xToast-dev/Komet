@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -7,55 +8,48 @@ namespace Komet.Vulkan;
 internal sealed partial class SceneRenderer
 {
     private const int MaxLayouts = 4096, MaxInputs = 16, MaxSamplers = 32, MaxPipelines = 4096, MaxBlocks = 32;
-    private const uint UnsignedInt = 0x1405, UnsignedShort = 0x1403, UnsignedByte = 0x1401, GlFloat = 0x1406, GlInt = 0x1404;
+
+    private const uint UnsignedInt = 0x1405,
+        UnsignedShort = 0x1403,
+        UnsignedByte = 0x1401,
+        GlFloat = 0x1406,
+        GlInt = 0x1404;
+
     private const uint GlPoints = 0;
     private const int LayoutDepthReadOnly = 4;
     private const uint GlLineLoop = 2, GlLine = 0x1B01, FirstLogicOp = 0x1500;
+    private readonly List<TerrainDraw.BlockBuffer> _blocks = [];
+    private readonly List<(int Unit, uint Kind, uint Texture, int Sampler)> _bound = [];
+    private readonly List<SharedImage> _fed = [];
+    private readonly Dictionary<string, Formats> _formats = new(StringComparer.Ordinal);
 
     private readonly Dictionary<(GlTap.VertexArray Array, long Changes, int Program), Layout?> _layouts = [];
-    private readonly Dictionary<string, Formats> _formats = new(StringComparer.Ordinal);
     private readonly PipelineSet<PipelineKey> _pipelines;
     private readonly Dictionary<QuickKey, TerrainPipeline?> _quick = [];
-    private readonly List<SharedImage> _sampled = [];
-    private readonly List<(int Unit, uint Kind, uint Texture, int Sampler)> _bound = [];
-    private readonly List<TerrainDraw.BlockBuffer> _blocks = [];
-    private readonly List<(uint Location, ulong Buffer, ulong Offset)> _vertices = [];
     private readonly TerrainDraw.Texture[] _resolved = new TerrainDraw.Texture[MaxSamplers];
-    private readonly List<SharedImage> _fed = [];
+    private readonly List<SharedImage> _sampled = [];
     private readonly TerrainDraw.Texture[] _unfed = new TerrainDraw.Texture[MaxSamplers];
+    private readonly List<(uint Location, ulong Buffer, ulong Offset)> _vertices = [];
     private bool _asked; // the call OpenGL is about to run was judged and left (Leave), so it is counted already
-
-    private sealed record Layout(Formats Formats, (int Location, uint Buffer, long Offset)[] Sources);
-
-    // One object per distinct format set, compared by reference
-    private sealed record Formats(string Key, TerrainPools.Attribute[] Attributes);
-
-    // Port (Drawn.Port): the next port's pipelines are made beside those in use
-    private readonly record struct PipelineKey(int Program, int Port, string Inputs, string Target, GlTap.Fixed State);
-
-    // Program, formats and target by reference (each made once), topology and state by value
-    private readonly record struct QuickKey(Drawn Used, Formats Inputs, uint Mode, VulkanFrame.Target Into,
-        GlTap.Fixed Held)
-    {
-        public bool Equals(QuickKey other) =>
-            ReferenceEquals(Used, other.Used) && ReferenceEquals(Inputs, other.Inputs) &&
-            Mode == other.Mode && ReferenceEquals(Into, other.Into) && Held.Equals(other.Held);
-
-        public override int GetHashCode() =>
-            HashCode.Combine(RuntimeHelpers.GetHashCode(Used), RuntimeHelpers.GetHashCode(Inputs), Mode,
-                RuntimeHelpers.GetHashCode(Into), Held.Caps, Held.Depth, Held.Blend.B0);
-    }
 
     public bool Draw(GlTap.DrawCall call)
     {
         if (!Framing || !Assert(call.Instances >= 0) || !Assert(call.Count >= 0)) return false;
-        var start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        var start = Stopwatch.GetTimestamp();
         var id = GlTap.Program;
         var known = id > 0 ? _programs.GetValueOrDefault(id) : null; // looked up once a draw
         var taken = Drawable(call, (id, known), out var why) && Taken(call, known, out why);
-        if (!taken && why.Length > 0) _ = Leave(why);
-        else if (!taken) Waited(); // its port or pipeline still being made
-        Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+        if (!taken && why.Length > 0)
+        {
+            _ = Leave(why);
+        }
+        else if (!taken)
+        {
+            Waited(); // its port or pipeline still being made
+        }
+
+        Ticks += Stopwatch.GetTimestamp() - start;
         return taken;
     }
 
@@ -67,42 +61,77 @@ internal sealed partial class SceneRenderer
         if (id <= 0 || !Takes(id, program.Known?.Name ?? ProgramPorts.Name(id))) return false;
         // points (their size written by the port, GlslPort.Sized), 8-bit indices, indirect draws
         if (Topology(call.Mode) > Vk.TopologyTriangleFan) return Refuse(out why, $"draw mode 0x{call.Mode:X}");
+
         if (call.IndexType is not (0 or UnsignedInt or UnsignedShort) &&
             (call.IndexType != UnsignedByte || !_terrain.Device.IndexUint8))
+        {
             return Refuse(out why, $"index type 0x{call.IndexType:X}");
-        if (call.Mode == GlLineLoop && call.IndexType == UnsignedByte) return Refuse(out why, "an indexed line loop");
-        if (call.Indirect is { } indirect && Unindirect(call, indirect) is { Length: > 0 } refused) return Refuse(out why, refused);
+        }
+
+        if (call is { Mode: GlLineLoop, IndexType: UnsignedByte }) return Refuse(out why, "an indexed line loop");
+
+        if (call.Indirect is { } indirect && Unindirect(call, indirect) is { Length: > 0 } refused)
+        {
+            return Refuse(out why, refused);
+        }
+
         return true;
     }
 
     private bool Taken(GlTap.DrawCall call, Drawn? known, out string why)
     {
         why = "";
-        if (call.Count == 0 || call.Instances == 0) return true; // OpenGL would draw nothing either
+        if (call.Count == 0 || call.Instances == 0)
+        {
+            return true; // OpenGL would draw nothing either
+        }
+
         var program = Current(known ?? ProgramFor(GlTap.Program, out why));
         if (program is null) return false;
+
         if (GlTap.BoundArray is not { } array) return Refuse(out why, "no vertex array bound");
+
         var gl = GlTap.State;
-        if ((gl.Caps & (uint)GlTap.Caps.Discard) != 0) return true; // rasterizer discard: OpenGL draws nothing
+        if ((gl.Capabilities & (uint)GlTap.Caps.Discard) != 0)
+        {
+            return true; // rasterizer discard: OpenGL draws nothing
+        }
+
         if (Rasterized(call.Mode, gl, out why) is not { } rasterized) return false;
-        var stencils = (rasterized.Caps & (uint)GlTap.Caps.Stencil) != 0; // may write the stencil, never read-only
+
+        var stencils =
+            (rasterized.Capabilities & (uint)GlTap.Caps.Stencil) != 0; // may write the stencil, never read-only
         var target = _terrain.Target(rasterized, out var refused, depthReadOnly: stencils ? false : null);
         // refused every frame with the same reason: formatted once (TerrainRenderer.Reason)
         if (target is null) return Refuse(out why, TerrainRenderer.Reason("{0} {1}", program.Name, refused));
+
         var state = Stenciled(rasterized, target);
         var recorded = Sampled(program, target, out why);
         if (recorded is not null) recorded = Unfed(program, recorded, target, out why);
+
         if (recorded is null) return false;
+
         var layout = LayoutFor(array, program);
         if (layout is null)
-            return Refuse(out why, TerrainRenderer.Reason("{0}'s vertex inputs have no Vulkan format here", program.Name));
+        {
+            return Refuse(out why,
+                TerrainRenderer.Reason("{0}'s vertex inputs have no Vulkan format here", program.Name));
+        }
+
         var topology = Topology(call.Mode);
         var pipeline = Pipeline(program, layout, (topology, target, state), out var waiting);
         if (pipeline is null)
-            return Refuse(out why, waiting ? "" : TerrainRenderer.Reason("no pipeline for {0} in this state (see the log)", program.Name));
+        {
+            return Refuse(out why,
+                waiting ? "" : TerrainRenderer.Reason("no pipeline for {0} in this state (see the log)", program.Name));
+        }
+
         if (!_terrain.Segment(target, _sampled, out why)) return false;
+
         if (!Buffers(program, (array, layout), call, out var indices, out why)) return false;
+
         if (!Recorded(call, (pipeline, recorded, indices), (target, state), out why)) return false;
+
         Settle(program);
         return true;
     }
@@ -113,18 +142,28 @@ internal sealed partial class SceneRenderer
     {
         why = "";
         var device = _terrain.Device;
-        var caps = state.Caps & ~(uint)GlTap.Caps.AlphaToCoverage;
+        var caps = state.Capabilities & ~(uint)GlTap.Caps.AlphaToCoverage;
         var wire = GlTap.PolygonMode != GlTap.Fill && Topology(mode) >= Vk.TopologyTriangles;
         if (wire && !device.NonSolidFill) return Unrasterized(out why, "wireframe, which the device does not draw");
+
         if (wire) caps |= (uint)(GlTap.PolygonMode == GlLine ? GlTap.Caps.WireLines : GlTap.Caps.WirePoints);
+
         var lined = Lines(mode) || (caps & (uint)GlTap.Caps.WireLines) != 0;
         if (!lined) caps &= ~(uint)GlTap.Caps.LineSmooth;
+
         if ((caps & (uint)GlTap.Caps.LineSmooth) != 0 && !device.SmoothLines)
+        {
             caps &= ~(uint)GlTap.Caps.LineSmooth; // plain lines rather than none (OpenGL's smoothing is a hint too)
+        }
+
         if ((caps & (uint)GlTap.Caps.LogicOp) != 0 && !device.LogicOps)
+        {
             return Unrasterized(out why, "a logic operation, which the device does not do");
+        }
+
         if ((caps & (uint)GlTap.Caps.LogicOp) != 0) caps |= ((GlTap.LogicOperation - FirstLogicOp) & 15) << 12;
-        return state with { Caps = caps };
+
+        return state with { Capabilities = caps };
     }
 
     private static GlTap.Fixed? Unrasterized(out string why, string reason)
@@ -140,14 +179,12 @@ internal sealed partial class SceneRenderer
         why = "";
         var frame = _terrain.Frame;
         if (frame.Uploads is not { } uploads || !Assert(with.Pipeline.Layout != 0))
+        {
             return Refuse(out why, "no uploads");
-        frame.Viewport(GlTap.Viewport);
-        frame.Scissor((into.State.Caps & (uint)GlTap.Caps.Scissor) != 0 ? GlTap.Scissor : null);
-        if (Lines(call.Mode) || (into.State.Caps & (uint)GlTap.Caps.WireLines) != 0)
-            frame.Post(new VulkanFrame.Op
-            {
-                Kind = VulkanFrame.OpKind.LineWidth, X = _terrain.Device.WideLines ? Math.Clamp(GlTap.LineWidth, 1, 8) : 1
-            });
+        }
+
+        Bounds(frame, call, into.State);
+
         var op = new VulkanFrame.Op
         {
             Kind = VulkanFrame.OpKind.Draw, Draw = VulkanFrame.DrawKind.Direct, Pipeline = with.Pipeline.Pipeline,
@@ -155,23 +192,54 @@ internal sealed partial class SceneRenderer
             First = (uint)call.First, BaseInstance = call.BaseInstance, BaseVertex = call.BaseVertex
         };
         if (with.Indices is { } indices)
+        {
             (op.Draw, op.Index, op.IndexOffset, op.IndexType) =
                 (VulkanFrame.DrawKind.Indexed, indices.Buffer, indices.Offset, indices.Type);
-        if (call.Mode == GlLineLoop && !(op.Draw == VulkanFrame.DrawKind.Indexed ? LoopedIndices(uploads, ref op) : Looped(uploads, ref op)))
+        }
+
+        if (call.Mode == GlLineLoop && !(op.Draw == VulkanFrame.DrawKind.Indexed
+                ? LoopedIndices(uploads, ref op)
+                : Looped(uploads, ref op)))
+        {
             return Refuse(out why, "no room for a line loop's indices");
-        if (call.Indirect is { } indirect && !Indirected(ref op, indirect)) return Refuse(out why, "an indirect draw's commands past their buffer");
+        }
+
+        if (call.Indirect is { } indirect && !Indirected(ref op, indirect))
+        {
+            return Refuse(out why, "an indirect draw's commands past their buffer");
+        }
+
         if (!TerrainDraw.Filled(frame, (uploads, with.Pipeline, with.Program), ref op, null,
                 CollectionsMarshal.AsSpan(_blocks)))
+        {
             return Refuse(out why, "the recorder refused the draw (a descriptor without its resource)");
+        }
+
         TerrainDraw.Bound(frame, CollectionsMarshal.AsSpan(_vertices), ref op);
         _terrain.Drawn(into.Target);
         _terrain.Unprepared();
         if (into.State.Stencil != 0) frame.Post(Stenciling(GlTap.StencilValues));
+
         var query = QueryBegin();
         Posted(frame, op);
         QueryEnd(query);
         Draws++;
         return true;
+    }
+
+    // GL's viewport and scissor, and its line width for a draw of lines
+    private void Bounds(VulkanFrame frame, GlTap.DrawCall call, GlTap.Fixed state)
+    {
+        frame.Viewport(GlTap.Viewport);
+        frame.Scissor((state.Capabilities & (uint)GlTap.Caps.Scissor) != 0 ? GlTap.Scissor : null);
+        if (Lines(call.Mode) || (state.Capabilities & (uint)GlTap.Caps.WireLines) != 0)
+        {
+            frame.Post(new VulkanFrame.Op
+            {
+                Kind = VulkanFrame.OpKind.LineWidth,
+                X = _terrain.Device.WideLines ? Math.Clamp(GlTap.LineWidth, 1, 8) : 1
+            });
+        }
     }
 
     private static bool Refuse(out string why, string reason)
@@ -184,12 +252,21 @@ internal sealed partial class SceneRenderer
     private static bool Looped(HostBuffer uploads, ref VulkanFrame.Op op)
     {
         var count = (int)op.Count;
-        if (!Assert(count is > 0 and < 1 << 24) || uploads.Take(4 * (count + 1), out var into, 16) is var at && at < 0)
+        if (!Assert(count is > 0 and < 1 << 24) ||
+            (uploads.Take(4 * (count + 1), out var into, 16) is var at && at < 0))
+        {
             return false;
+        }
+
         var indices = MemoryMarshal.Cast<byte, uint>(into);
-        for (var i = 0; i < Math.Min(count, 1 << 24); i++) indices[i] = (uint)i;
+        for (var i = 0; i < Math.Min(count, 1 << 24); i++)
+        {
+            indices[i] = (uint)i;
+        }
+
         indices[count] = 0;
-        (op.Draw, op.Index, op.IndexOffset, op.IndexType) = (VulkanFrame.DrawKind.Indexed, uploads.Buffer, (ulong)at, Vk.IndexUint32);
+        (op.Draw, op.Index, op.IndexOffset, op.IndexType) =
+            (VulkanFrame.DrawKind.Indexed, uploads.Buffer, (ulong)at, Vk.IndexUint32);
         (op.Count, op.BaseVertex) = ((uint)count + 1, (int)op.First);
         return true;
     }
@@ -212,21 +289,29 @@ internal sealed partial class SceneRenderer
     private static bool Lines(uint mode) => mode is 1 or 2 or 3;
 
     // Images both sampled and drawn into are sampled from snapshots made just before
-    private TerrainDraw.Program? Unfed(Drawn program, TerrainDraw.Program recorded, VulkanFrame.Target target, out string why)
+    private TerrainDraw.Program? Unfed(Drawn program, TerrainDraw.Program recorded, VulkanFrame.Target target,
+        out string why)
     {
         why = "";
         if (!TerrainRenderer.Fed(target, _sampled)) return recorded;
+
         _fed.Clear();
         _fed.AddRange(_sampled);
         if (!_terrain.Unfed(target, _sampled, out why)) return null;
+
         var count = Math.Min(program.Resolved.Length, MaxSamplers);
         program.Resolved.AsSpan(0, count).CopyTo(_unfed);
         for (var j = 0; j < Math.Min(_fed.Count, MaxSamplers); j++)
         {
             if (ReferenceEquals(_fed[j], _sampled[j])) continue;
+
             for (var i = 0; i < Math.Min(count, MaxSamplers); i++)
+            {
                 if (_unfed[i].View == _fed[j].Sampled || _unfed[i].View == _fed[j].View)
+                {
                     _unfed[i] = new TerrainDraw.Texture(_sampled[j].Sampled, _unfed[i].Sampler, Vk.LayoutShaderRead);
+                }
+            }
         }
 
         return Assert(_fed.Count == _sampled.Count) ? program.Program.Recorded(_unfed.AsSpan(0, count)) : null;
@@ -236,6 +321,7 @@ internal sealed partial class SceneRenderer
     public void Opened()
     {
         if (!Assert(_terrain.Frame.Open)) return;
+
         Mirrors.Opened();
         _terrain.PoolsOpened();
     }
@@ -259,6 +345,7 @@ internal sealed partial class SceneRenderer
         var asked = _asked;
         _asked = false;
         if (asked || !Framing) return;
+
         var what = kind switch
         {
             GlTap.Touch.Draw => "a multi-draw or an indirect draw",
@@ -268,5 +355,30 @@ internal sealed partial class SceneRenderer
             _ => ""
         };
         if (what.Length > 0) _terrain.Miss(what);
+    }
+
+    private sealed record Layout(Formats Formats, (int Location, uint Buffer, long Offset)[] Sources);
+
+    // One object per distinct format set, compared by reference
+    private sealed record Formats(string Key, TerrainPools.Attribute[] Attributes);
+
+    // Port (Drawn.Port): the next port's pipelines are made beside those in use
+    private readonly record struct PipelineKey(int Program, int Port, string Inputs, string Target, GlTap.Fixed State);
+
+    // Program, formats and target by reference (each made once), topology and state by value
+    private readonly record struct QuickKey(
+        Drawn Used,
+        Formats Inputs,
+        uint Mode,
+        VulkanFrame.Target Into,
+        GlTap.Fixed Held)
+    {
+        public bool Equals(QuickKey other) =>
+            ReferenceEquals(Used, other.Used) && ReferenceEquals(Inputs, other.Inputs) &&
+                   Mode == other.Mode && ReferenceEquals(Into, other.Into) && Held.Equals(other.Held);
+
+        public override int GetHashCode() =>
+            HashCode.Combine(RuntimeHelpers.GetHashCode(Used), RuntimeHelpers.GetHashCode(Inputs), Mode,
+                RuntimeHelpers.GetHashCode(Into), Held.Capabilities, Held.Depth, Held.Blend.B0);
     }
 }

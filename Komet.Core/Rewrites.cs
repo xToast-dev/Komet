@@ -12,19 +12,26 @@ internal sealed class Rewrites
     {
         get
         {
-            lock (_done) return _done.Count;
+            lock (_done)
+            {
+                return _done.Count;
+            }
         }
     }
 
     public void Clear()
     {
-        lock (_done) _done.Clear();
+        lock (_done)
+        {
+            _done.Clear();
+        }
     }
 
     // A re-run that finds no site takes the method out again
     public void Mark(MethodBase? original, bool rewritten)
     {
         if (original is null) return;
+
         lock (_done)
         {
             _ = rewritten ? _done.Add(original) : _done.Remove(original);

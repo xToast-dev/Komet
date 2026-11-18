@@ -38,18 +38,24 @@ internal static class PoolScale
             [typeof(MeshData), typeof(Vec3i), typeof(int), typeof(Sphere)]);
         var made = AccessTools.DeclaredConstructor(typeof(ChunkRenderer), [typeof(int[]), typeof(ClientMain)]);
         var atlas = AccessTools.DeclaredMethod(typeof(ChunkRenderer), "RuntimeAddBlockTextureAtlas", [typeof(int[])]);
-        if (!NotNull(harmony) || !NotNull(add) || !NotNull(made) || !NotNull(atlas)) return;
+        if (!NotNull(add) || !NotNull(made) || !NotNull(atlas)) return;
+
         _ = harmony.Patch(made, postfix: new HarmonyMethod(Registered));
         _ = harmony.Patch(atlas, postfix: new HarmonyMethod(Registered));
         _ = harmony.Patch(add, transpiler: new HarmonyMethod(Rewrite));
     }
 
-    internal static void Registered(ChunkRenderer __instance)
+    private static void Registered(ChunkRenderer __instance)
     {
         if (!NotNull(__instance) || __instance.poolsByRenderPass is not { } passes) return;
+
         foreach (var pass in passes.Bounded(MaxSites * MaxSites))
+        {
             foreach (var manager in (pass ?? []).Bounded(MaxSites * MaxSites))
+            {
                 if (manager is not null) Register(manager);
+            }
+        }
     }
 
     internal static void Register(MeshDataPoolManager manager)
@@ -58,22 +64,30 @@ internal static class PoolScale
     }
 
     // AddModel's pool-size reads go through Vertices, Indices or Parts
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         _sites = 0;
         var type = typeof(MeshDataPoolManager);
-        (string Field, string Method)[] reads = [("defaultVertexPoolSize", nameof(Vertices)),
-            ("defaultIndexPoolSize", nameof(Indices)), ("maxPartsPerPool", nameof(Parts))];
+        (string Field, string Method)[] reads =
+        [
+            ("defaultVertexPoolSize", nameof(Vertices)),
+            ("defaultIndexPoolSize", nameof(Indices)), ("maxPartsPerPool", nameof(Parts))
+        ];
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code))) return code;
+
         var found = 0;
         foreach (var (field, method) in reads.Bounded(MaxSites))
         {
             var (read, scaled) = (AccessTools.DeclaredField(type, field),
                 AccessTools.Method(typeof(PoolScale), method));
             if (!NotNull(read) || !NotNull(scaled)) return code;
+
             var before = found;
             for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+            {
                 if (code[i].LoadsField(read) && Il.Substitute(code, i, scaled)) found++;
+            }
+
             _ = Assert(found > before);
         }
 
@@ -82,13 +96,16 @@ internal static class PoolScale
     }
 
     internal static int Vertices(MeshDataPoolManager manager) => VertexSize(manager) * Factor(manager);
+
     internal static int Indices(MeshDataPoolManager manager) => IndexSize(manager) * Factor(manager);
+
     internal static int Parts(MeshDataPoolManager manager) => PartCount(manager) * Factor(manager);
 
-    internal static int Factor(MeshDataPoolManager manager)
+    private static int Factor(MeshDataPoolManager manager)
     {
         var scale = Math.Clamp(Scale, Engine, MaxScale);
         if (scale == Engine || !Chunks.TryGetValue(manager, out _) || Pools(manager) is not { } pools) return Engine;
+
         return pools.Count switch
         {
             0 => Engine,

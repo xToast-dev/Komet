@@ -13,14 +13,14 @@ internal enum HudLineKind
 internal sealed class HudLine
 {
     public const int MaxUnit = 2;
-
-    private double _valueSum, _percentSum;
     private bool _fresh;
 
     private double _read = double.NaN, _readPercent = double.NaN;
 
     // A share can be missing where its time is not
     private int _samples, _percentSamples;
+
+    private double _valueSum, _percentSum;
 
     public HudLineKind Kind { get; init; } = HudLineKind.Text;
     public Func<string> Label { get; init; } = static () => "";
@@ -33,7 +33,7 @@ internal sealed class HudLine
 
     private string NumberFormat => Unit switch { "ms" => "F2", "/s" => "F1", _ => "N0" };
 
-    public void Read()
+    private void Read()
     {
         (_read, _readPercent, _fresh) = (Value?.Invoke() ?? double.NaN, Percent?.Invoke() ?? double.NaN, true);
         _ = Assert(Kind == HudLineKind.Text || (Value == null && Percent == null)); // only text rows carry numbers
@@ -49,36 +49,40 @@ internal sealed class HudLine
     public void Accumulate()
     {
         if (!_fresh) Read();
+
         _fresh = false;
         if (double.IsFinite(_read)) (_valueSum, _samples) = (_valueSum + _read, _samples + 1);
+
         if (double.IsFinite(_readPercent))
+        {
             (_percentSum, _percentSamples) = (_percentSum + _readPercent, _percentSamples + 1);
+        }
     }
 
-    public void ResetBench()
-    {
-        (_valueSum, _percentSum, _samples, _percentSamples, _fresh) = (0, 0, 0, 0, false);
-    }
+    public void ResetBench() => (_valueSum, _percentSum, _samples, _percentSamples, _fresh) = (0, 0, 0, 0, false);
 
     // Label read once: a log row changes on a pool thread.
     public string MeanText()
     {
         var label = Label();
         if (Kind != HudLineKind.Text) return Text(label, null, null);
+
         double mean = _samples > 0 ? _valueSum / _samples : double.NaN,
             share = _percentSamples > 0 ? _percentSum / _percentSamples : double.NaN;
         if (Final) (mean, share) = (Value?.Invoke() ?? double.NaN, Percent?.Invoke() ?? double.NaN);
+
         return Text(label, Value is null ? null : KometText.Format(mean, NumberFormat),
             Percent is null ? null : KometText.Format(share, "F1"));
     }
 
-    private string Text(string label, string? value, string? percent) => Kind switch
-    {
-        HudLineKind.Header => $"[{label}]",
-        HudLineKind.Title => Titled(label),
-        HudLineKind.Text when label.Length > 0 => RowText(label, Sub, value, percent, Unit),
-        _ => ""
-    };
+    private string Text(string label, string? value, string? percent) =>
+        Kind switch
+        {
+            HudLineKind.Header => $"[{label}]",
+            HudLineKind.Title => Titled(label),
+            HudLineKind.Text when label.Length > 0 => RowText(label, Sub, value, percent, Unit),
+            _ => ""
+        };
 
     private string Titled(string label) => Badge is { } badge ? $"{label} – {badge()}" : label;
 
@@ -87,11 +91,15 @@ internal sealed class HudLine
     {
         var text = (sub ? "  " : "") + label;
         if (value == null && percent == null) return text;
+
         bool hasValue = value is { Length: > 0 }, hasPercent = percent is { Length: > 0 };
         if (!hasValue && !hasPercent) return "";
+
         text += ":";
         if (hasPercent) text += $" {percent} %";
+
         if (hasValue) text += $" {value} {unit}";
+
         return text.TrimEnd();
     }
 }

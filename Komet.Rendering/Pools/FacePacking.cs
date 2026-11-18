@@ -62,26 +62,44 @@ internal static class FacePacking
 
     public static void Install(Harmony harmony)
     {
-        var upload = AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.UpdateSSBOMesh));
+        var upload =
+            AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.UpdateSSBOMesh));
         var prefix = new HarmonyMethod(typeof(FacePacking), nameof(Uploading)) { priority = Priority.Last };
-        if (!NotNull(harmony) || !NotNull(upload) || !Assert(Il.Binds(upload, prefix.method)) ||
-            !Assert(Marshal.SizeOf<FaceData>() == 64)) return;
+        if (!NotNull(upload) || !Assert(Il.Binds(upload, prefix.method)) ||
+            !Assert(Marshal.SizeOf<FaceData>() == 64))
+        {
+            return;
+        }
+
         _ = harmony.Patch(upload, prefix);
     }
 
-    internal static bool Uploading(ClientPlatformWindows __instance, MeshRef modelRef, MeshData data)
+    internal static bool Uploading(ClientPlatformWindows __instance, MeshRef modelRef, MeshData? data)
     {
-        if (modelRef is VAO uploaded && data?.xyz is not null) FaceSorting.Uploaded(uploaded.VaoId, data); // whoever uploads it
+        if (modelRef is VAO uploaded && data?.xyz is not null)
+        {
+            FaceSorting.Uploaded(uploaded.VaoId, data); // whoever uploads it
+        }
+
         if (!Enabled || data?.xyz is null || modelRef is not VAO vao || !NotNull(__instance) ||
-            (__instance.GlErrorChecking && __instance.GlDebugMode)) return true;
+            __instance is { GlErrorChecking: true, GlDebugMode: true })
+        {
+            return true;
+        }
+
         var vertices = data.VerticesCount;
         var faces = vertices / 4;
-        if (!Readable(data, faces) || !Assert(vertices >= 0)) return true; // the engine throws as it would
+        if (!Readable(data, faces) || !Assert(vertices >= 0))
+        {
+            return true; // the engine throws as it would
+        }
+
         var (offset, bytes) = (data.XyzOffset / 12 * 16, 16 * vertices);
         _uploading = vao;
         var bound = false;
         var straight = Straight(vao, data, faces, (offset, bytes));
-        if (!straight && Pack(data, faces) && !Taken(vao.xyzVboId, offset, MemoryMarshal.AsBytes(_faces.AsSpan())[..bytes]))
+        if (!straight && Pack(data, faces) &&
+            !Taken(vao.xyzVboId, offset, MemoryMarshal.AsBytes(_faces.AsSpan())[..bytes]))
         {
             GL.BindBuffer((BufferTarget)ShaderStorage, vao.xyzVboId);
             GL.BufferSubData((BufferTarget)ShaderStorage, offset, bytes, _faces);
@@ -90,6 +108,7 @@ internal static class FacePacking
 
         // Unbind only after our bind: alone it held the main thread 9 % of a streaming frame; Vulkan uploads never bind
         if (bound) GL.BindBuffer((BufferTarget)ShaderStorage, 0);
+
         bool opengl;
         try
         {
@@ -100,7 +119,11 @@ internal static class FacePacking
             _uploading = null;
         }
 
-        if (opengl) GL.BindBuffer((BufferTarget)ArrayBuffer, 0); // bound only by an upload OpenGL made
+        if (opengl)
+        {
+            GL.BindBuffer((BufferTarget)ArrayBuffer, 0); // bound only by an upload OpenGL made
+        }
+
         vao.IndicesCount = data.IndicesCount;
         return false;
     }
@@ -108,10 +131,15 @@ internal static class FacePacking
     // Arrays long enough for the faces; else the engine's loop throws where it would
     private static bool Readable(MeshData data, int faces)
     {
-        if (!Assert(faces >= 0) || faces > MaxFaces || data.Uv is not { } uv || data.Flags is not { } flags) return false;
+        if (!Assert(faces >= 0) || faces > MaxFaces || data.Uv is not { } uv || data.Flags is not { } flags)
+        {
+            return false;
+        }
+
         var (ints, stride) = data.CustomInts is { Count: > 0 } c ? (c.Values, c.InterleaveStride / 4) : (null, 1);
         var last = 4 * faces - 4;
-        return faces == 0 || (data.xyz.Length >= 3 * last + 12 && uv.Length >= 2 * last + 6 && flags.Length >= last + 4 &&
+        return faces == 0 || (data.xyz.Length >= 3 * last + 12 && uv.Length >= 2 * last + 6 &&
+                              flags.Length >= last + 4 &&
                               (ints is null || (stride > 0 && ints.Length > last * stride)));
     }
 
@@ -120,19 +148,20 @@ internal static class FacePacking
     {
         if (Reserve is not { } reserve || Commit is not { } commit || faces == 0 ||
             !reserve(vao, vao.xyzVboId, at.Offset, at.Bytes, out var into) ||
-            into == IntPtr.Zero) return false;
+            into == IntPtr.Zero)
+        {
+            return false;
+        }
+
         var filled = PackInto(data, faces, (byte*)into);
         return filled && commit(); // false: the staging stays unused; the usual way packs again
     }
 
-    // The scratch's packed faces as bytes (tests compare it with PackInto's)
-    internal static ReadOnlySpan<byte> Packed(int faces) =>
-        Assert(faces >= 0) ? MemoryMarshal.AsBytes(_faces.AsSpan(0, Math.Min(faces, _faces.Length))) : default;
-
     // The faces packed into target (64 bytes a face), as the usual way packs them and the pool copy reads
-    internal static unsafe bool PackInto(MeshData data, int faces, byte* target)
+    private static unsafe bool PackInto(MeshData data, int faces, byte* target)
     {
         if (!Assert(target != null) || !Assert(faces >= 0) || !NotNull(data)) return false;
+
         _target = target;
         try
         {
@@ -146,7 +175,7 @@ internal static class FacePacking
 
     // The faces packed into the scratch (_faces), or into _target while PackInto runs. Staging leaves the scratch alone:
     // grown to the largest mesh it would pin MBs for the session, unused under Vulkan.
-    internal static unsafe bool Pack(MeshData data, int faces)
+    private static unsafe bool Pack(MeshData data, int faces)
     {
         if (_target != null)
         {
@@ -156,9 +185,11 @@ internal static class FacePacking
 
         var size = (16 * data.VerticesCount + 63) / 64; // what the upload reads
         if (_faces.Length < size) _faces = new FaceData[Math.Max(size, _faces.Length * 2)];
+
         fixed (FaceData* into = _faces)
         {
             if (!Assert(into != null)) return false;
+
             _into = into;
             Parts(data, faces);
             _into = null;
@@ -175,8 +206,15 @@ internal static class FacePacking
         var helped = faces >= ParallelFaces && _parts > 1 && WorkerPool.Free &&
                      WorkerPool.RunFrame(PackJob, _parts, _parts - 1) == WorkerPool.FrameResult.Done;
         if (helped && Counting.Hud) Parallel++;
+
         if (!helped)
-            for (var part = 0; part < Math.Min(_parts, MaxParts); part++) PackPart(part); // a failed batch runs again
+        {
+            for (var part = 0; part < Math.Min(_parts, MaxParts); part++)
+            {
+                PackPart(part); // a failed batch runs again
+            }
+        }
+
         (_xyz, _uv, _flags, _ints) = ([], [], [], null);
     }
 
@@ -184,21 +222,26 @@ internal static class FacePacking
     {
         var faces = _into;
         if (!Index(part, _parts)) return;
+
         var (from, to) = (_count * part / _parts, _count * (part + 1) / _parts);
         var (xyz, uv, flags, ints, stride) = (_xyz, _uv, _flags, _ints, _stride);
         var into = _target != null ? (FaceData*)_target : faces; // straight into staging while PackInto runs
         for (var f = from; f < Math.Min(to, MaxFaces); f++)
+        {
             into[f] = Face(xyz, uv, flags, ints is not null ? ints[4 * f * stride] : 0, f);
+        }
     }
 
     // As the engine's loop packs a face, after its UV checks
     private static FaceData Face(float[] xyz, float[] uv, int[] flags, int colorMap, int f)
     {
         var i = 4 * f;
-        float u1 = uv[i * 2], v1 = uv[i * 2 + 1], v1b = uv[i * 2 + 3], u2 = uv[i * 2 + 4], v2 = uv[i * 2 + 5];
+        float u1 = uv[i * 2], v1 = uv[i * 2 + 1], v1B = uv[i * 2 + 3], u2 = uv[i * 2 + 4], v2 = uv[i * 2 + 5];
         if (u1 < Low || u1 > High || v1 < Low || v1 > High) (u1, v1) = (0, 0);
+
         if (u2 < Low || u2 > High || v2 < Low || v2 > High) (u2, v2) = (0, 0);
-        var rotate = Same(v1, v1b) && Same(u2, uv[i * 2 + 2]);
+
+        var rotate = Same(v1, v1B) && Same(u2, uv[i * 2 + 2]);
         return new FaceData(xyz, i * 3, u1, v1, u2 - u1, v2 - v1, flags, i, colorMap, rotate);
     }
 
@@ -209,38 +252,64 @@ internal static class FacePacking
     private static bool Attributes(ClientPlatformWindows platform, VAO vao, MeshData data)
     {
         var (persistent, opengl) = (vao.Persistent, false);
-        if (data.Rgba is { } rgba && data.RgbaCount > 0)
+        if (data is { Rgba: { } rgba, RgbaCount: > 0 })
+        {
             opengl |= Send(platform, rgba, (data.RgbaOffset, data.RgbaCount), (vao.rgbaVboId, vao.rgbaPtr), persistent);
+        }
+
         if (data.CustomFloats is { Count: > 0 } floats)
+        {
             opengl |= Send(platform, floats.Values, (floats.BaseOffset, floats.Count),
                 (vao.customDataFloatVboId, vao.customDataFloatPtr), persistent);
+        }
+
         if (data.CustomShorts is { Count: > 0 } shorts)
+        {
             opengl |= Send(platform, shorts.Values, (shorts.BaseOffset, shorts.Count),
                 (vao.customDataShortVboId, vao.customDataShortPtr), persistent);
+        }
+
         if (data.CustomInts is { Count: > 0, InterleaveStride: > 4 } ints) opengl |= Pruned(platform, vao, ints);
+
         if (data.CustomBytes is { Count: > 0 } bytes)
+        {
             opengl |= Send(platform, bytes.Values, (bytes.BaseOffset, bytes.Count),
                 (vao.customDataByteVboId, vao.customDataBytePtr), persistent);
+        }
+
         return opengl;
     }
 
     // Two custom ints per vertex: the second of each goes up, at half the offset
     private static bool Pruned(ClientPlatformWindows platform, VAO vao, CustomMeshDataPartInt ints)
     {
-        if (ints.InterleaveStride / 4 != 2) throw new InvalidOperationException("We are assuming 2 customInts per vertex if it is not 1");
+        if (ints.InterleaveStride / 4 != 2)
+        {
+            throw new InvalidOperationException("We are assuming 2 customInts per vertex if it is not 1");
+        }
+
         var n = ints.Count / 2;
         if (!Assert(n >= 0) || !NotNull(ints.Values)) return false;
+
         if (_pruned.Length < n) _pruned = new int[n];
+
         var values = ints.Values;
-        for (var j = 0; j < Math.Min(n, MaxFaces * 4); j++) _pruned[j] = values[j * 2 + 1];
-        return Send(platform, _pruned, (ints.BaseOffset / 2, n), (vao.customDataIntVboId, vao.customDataIntPtr), vao.Persistent);
+        for (var j = 0; j < Math.Min(n, MaxFaces * 4); j++)
+        {
+            _pruned[j] = values[j * 2 + 1];
+        }
+
+        return Send(platform, _pruned, (ints.BaseOffset / 2, n), (vao.customDataIntVboId, vao.customDataIntPtr),
+            vao.Persistent);
     }
 
     // True when OpenGL uploaded (and bound GL_ARRAY_BUFFER)
-    private static bool Send<T>(ClientPlatformWindows platform, T[] data, (int Offset, int Count) at, (int Vbo, nint Ptr) to,
+    private static bool Send<T>(ClientPlatformWindows platform, T[] data, (int Offset, int Count) at,
+        (int Vbo, nint Ptr) to,
         bool persistent) where T : unmanaged
     {
         if (!NotNull(data) || !Assert(at.Count >= 0) || !Assert(at.Count <= data.Length)) return false;
+
         var values = data.AsSpan(0, at.Count);
         if (persistent && Mapped(to, at.Offset))
         {
@@ -249,12 +318,14 @@ internal static class FacePacking
         }
 
         if (!persistent && Taken(to.Vbo, at.Offset, MemoryMarshal.AsBytes(values))) return false;
+
         Upload(platform, data, at, to, persistent);
         return true;
     }
 
     // Engine updateVAO for its attribute array types (PoolUpdates routes GL uploads here too)
-    internal static void Upload(ClientPlatformWindows platform, Array data, (int Offset, int Count) at, (int Vbo, nint Ptr) to,
+    internal static void Upload(ClientPlatformWindows platform, Array data, (int Offset, int Count) at,
+        (int Vbo, nint Ptr) to,
         bool persistent)
     {
         switch (data)
@@ -270,6 +341,7 @@ internal static class FacePacking
     private static bool Taken(int buffer, long offset, ReadOnlySpan<byte> data)
     {
         if (Through is not { } through || _uploading is not { } vao || !Assert(offset >= 0)) return false;
+
         return Assert(buffer >= 0) && through(vao, buffer, offset, data);
     }
 
@@ -278,6 +350,6 @@ internal static class FacePacking
         to.Ptr != 0 && Assert(offset >= 0) && Assert(to.Vbo >= 0);
 
     // Mapping at the byte offset (updateVAO steps a typed pointer by offset / size), count elements
-    private static unsafe Span<T> Target<T>(nint pointer, (int Offset, int Count) at) where T : unmanaged
-        => new((T*)pointer + at.Offset / sizeof(T), at.Count);
+    private static unsafe Span<T> Target<T>(nint pointer, (int Offset, int Count) at) where T : unmanaged =>
+        new((T*)pointer + at.Offset / sizeof(T), at.Count);
 }

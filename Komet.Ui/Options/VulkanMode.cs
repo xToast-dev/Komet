@@ -12,28 +12,31 @@ internal static class VulkanMode
     // The settings' choices, each with its mode
     public static readonly (string Name, int Mode)[] Choices = [("opengl", 0), ("vulkan", 1)];
 
-    private static readonly string[] RendererKeys = ["hud-renderer-opengl", "hud-renderer-vulkan", "hud-renderer-failed"];
+    private static readonly string[] RendererKeys =
+        ["hud-renderer-opengl", "hud-renderer-vulkan", "hud-renderer-failed", "hud-renderer-safe"];
 
-    private static readonly Func<string>[] Renderers = Array.ConvertAll(RendererKeys, static key => KometText.Once(key));
+    private static readonly Func<string>[]
+        Renderers = Array.ConvertAll(RendererKeys, static key => KometText.Once(key));
 
-    private static int _knob = -1;
-
-    public static int Choice(int mode) => Index(mode, Choices.Length) ? mode : 0;
 
     // Found once: the built-in table is fixed
-    public static int CoreKnob
+    private static int CoreKnob
     {
         get
         {
-            if (_knob < 0) _knob = Knobs.Find(Knob);
-            return Assert(_knob >= 0) && Assert(_knob < Knobs.BuiltInCount) ? _knob : -1;
+            if (field < 0) field = Knobs.Find(Knob);
+
+            return Assert(field >= 0) && Assert(field < Knobs.BuiltInCount) ? field : -1;
         }
-    }
+    } = -1;
+
+    public static int Choice(int mode) => Index(mode, Choices.Length) ? mode : 0;
 
     public static int Of(System.Func<int, int> value)
     {
         var knob = CoreKnob;
         if (!NotNull(value) || knob < 0) return 0;
+
         return value(knob) != 0 ? 1 : 0;
     }
 
@@ -41,6 +44,7 @@ internal static class VulkanMode
     {
         var knob = CoreKnob;
         if (!NotNull(write) || !Index(mode, Choices.Length) || knob < 0) return;
+
         write(knob, mode);
     }
 
@@ -50,10 +54,13 @@ internal static class VulkanMode
 
     public static int RendererCode() => RendererIndex();
 
-    private static int RendererIndex() => VulkanRenderer.State switch
-    {
-        VulkanRenderer.Phase.Running => 1,
-        VulkanRenderer.Phase.Failed => RendererKeys.Length - 1,
-        _ => 0
-    };
+    private static int RendererIndex() =>
+        VulkanRenderer.SafetyReason.Length > 0
+            ? 3
+            : VulkanRenderer.State switch
+            {
+                VulkanRenderer.Phase.Running => 1,
+                VulkanRenderer.Phase.Failed => 2,
+                _ => 0
+            };
 }

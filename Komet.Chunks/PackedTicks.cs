@@ -33,8 +33,11 @@ internal static class PackedTicks
     private static IList<Block>? _blocks;
     private static int _built, _checkedAt;
     private static bool _checked, _foreign;
+
     private static readonly MethodBase? Base = AccessTools.DeclaredMethod(typeof(Block),
-        nameof(Block.ShouldReceiveServerGameTicks), [typeof(IWorldAccessor), typeof(BlockPos), typeof(Random), typeof(object).MakeByRefType()]);
+        nameof(Block.ShouldReceiveServerGameTicks),
+        [typeof(IWorldAccessor), typeof(BlockPos), typeof(Random), typeof(object).MakeByRefType()]);
+
     private static readonly ICompression? Zstd =
         AccessTools.DeclaredField(typeof(Compression), "Compression1")?.GetValue(null) as ICompression;
 
@@ -43,7 +46,7 @@ internal static class PackedTicks
     public static bool Rewritten { get; private set; }
 
     // Chunk ticks skipped, on the block simulation thread
-    public static long Skipped { get; private set; }
+    private static long Skipped { get; set; }
 
     private static bool Active => Installed && Enabled && ChunkViews.Enabled && ChunkViews.Usable;
 
@@ -56,16 +59,23 @@ internal static class PackedTicks
         var type = AccessTools.TypeByName(Simulation);
         return type is null
             ? [null, null]
-            : [AccessTools.DeclaredMethod(type, "tickChunk", [typeof(long), typeof(ServerChunk)]),
-                AccessTools.DeclaredMethod(type, "OnSeparateThreadTick", [])];
+            :
+            [
+                AccessTools.DeclaredMethod(type, "tickChunk", [typeof(long), typeof(ServerChunk)]),
+                AccessTools.DeclaredMethod(type, "OnSeparateThreadTick", [])
+            ];
     }
 
     public static void Install(Harmony harmony)
     {
         Stop();
         var seams = Seams();
-        if (!NotNull(harmony) || seams[0] is not MethodInfo tick || seams[1] is not MethodInfo loop || Base is null ||
-            Zstd is null || !typeof(ServerSystem).IsAssignableFrom(tick.DeclaringType)) return;
+        if (seams[0] is not MethodInfo tick || seams[1] is not MethodInfo loop || Base is null ||
+            Zstd is null || !typeof(ServerSystem).IsAssignableFrom(tick.DeclaringType))
+        {
+            return;
+        }
+
         _ = harmony.Patch(tick, new HarmonyMethod(typeof(PackedTicks), nameof(Ticking)));
         _ = harmony.Patch(loop, transpiler: new HarmonyMethod(typeof(PackedTicks), nameof(FreshIl)));
         Installed = true;
@@ -84,6 +94,7 @@ internal static class PackedTicks
         var mark = AccessTools.DeclaredMethod(typeof(WorldChunk), nameof(WorldChunk.MarkFresh), []);
         var fresh = AccessTools.Method(typeof(PackedTicks), nameof(Fresh));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(mark)) return code;
+
         Rewritten = Il.SubstituteSingle(code, c => c.Calls(mark), fresh);
         return code;
     }
@@ -95,10 +106,14 @@ internal static class PackedTicks
     }
 
     // tickChunk prefix: false (skipped) for a chunk none of whose blocks can take a random tick
-    private static bool Ticking(ServerSystem __instance, ServerChunk chunk)
+    private static bool Ticking(ServerSystem __instance, ServerChunk? chunk)
     {
         if (!Active || chunk is null || ServerOf(__instance)?.WorldMap?.Blocks is not { } blocks || !Ready(blocks) ||
-            !Quiet(chunk)) return true;
+            !Quiet(chunk))
+        {
+            return true;
+        }
+
         Skipped++;
         return false;
     }
@@ -107,7 +122,12 @@ internal static class PackedTicks
     internal static bool Quiet(WorldChunk chunk)
     {
         if (ChunkViews.Packed(chunk, out var blocks, out var fluids)) return !Ticks(blocks) && !Ticks(fluids);
-        if (ChunkViews.Live(chunk) is not { } data) return false; // disposed, or packed in an older format
+
+        if (ChunkViews.Live(chunk) is not { } data)
+        {
+            return false; // disposed, or packed in an older format
+        }
+
         return !Ticks(data.blocksLayer) && !Ticks(data.fluidsLayer);
     }
 
@@ -122,22 +142,34 @@ internal static class PackedTicks
         }
 
         if (_foreign) return false;
+
         if (_tickable is not null && ReferenceEquals(blocks, _blocks) && blocks.Count == _built) return true;
+
         var count = blocks.Count;
         if (!Assert(count <= MaxBlocks)) return false;
+
         var table = new bool[count];
-        for (var i = 0; i < Math.Min(count, MaxBlocks); i++) table[i] = Takes(blocks[i]);
+        for (var i = 0; i < Math.Min(count, MaxBlocks); i++)
+        {
+            table[i] = Takes(blocks[i]);
+        }
+
         (_tickable, _blocks, _built) = (table, blocks, count);
         Verdicts.Clear();
         return true;
     }
 
     // A block that can take a random tick: null (unknown), an override anywhere below Block, or its own snow cover
-    internal static bool Takes(Block? block)
+    private static bool Takes(Block? block)
     {
         if (block is null) return true;
+
         if (ReferenceEquals(block, block.snowCovered1) || ReferenceEquals(block, block.snowCovered2) ||
-            ReferenceEquals(block, block.snowCovered3)) return true;
+            ReferenceEquals(block, block.snowCovered3))
+        {
+            return true;
+        }
+
         var type = block.GetType();
         if (!Overrides.TryGetValue(type, out var own))
         {
@@ -153,11 +185,17 @@ internal static class PackedTicks
 
     private static bool Ticks(ChunkDataLayer? layer)
     {
-        if (layer?.palette is not { } palette) return false; // no layer: air
+        if (layer?.palette is not { } palette)
+        {
+            return false; // no layer: air
+        }
+
         var count = Math.Min(layer.paletteCount, palette.Length);
         for (var i = 0; i < Math.Min(count, MaxPalette); i++)
-            if (Ticks(palette[i]))
-                return true;
+        {
+            if (Ticks(palette[i])) return true;
+        }
+
         return count > MaxPalette;
     }
 
@@ -165,7 +203,9 @@ internal static class PackedTicks
     private static bool Ticks(byte[]? packed)
     {
         if (packed is null) return false;
+
         if (Verdicts.TryGetValue(packed, out var known)) return ReferenceEquals(known, Busy);
+
         var busy = Palette(packed);
         Verdicts.AddOrUpdate(packed, busy ? Busy : Calm);
         return busy;
@@ -174,26 +214,36 @@ internal static class PackedTicks
     private static bool Palette(byte[] packed)
     {
         if (packed.Length < 4) return true;
+
         var length = BinaryPrimitives.ReadInt32LittleEndian(packed);
-        if (length == 0) return false; // the empty layer
+        if (length == 0)
+        {
+            return false; // the empty layer
+        }
+
         ReadOnlySpan<byte> bytes;
         if (length < 0)
         {
             if (length == int.MinValue || -length > packed.Length - 4) return true;
+
             bytes = packed.AsSpan(4, -length);
         }
         else
         {
             if (length > packed.Length - 4 || Zstd is not { } zstd) return true;
+
             var size = zstd.DecompressAndSize(packed, 4, length, out var buffer);
             if (size < 0 || size > buffer.Length) return true;
+
             bytes = buffer.AsSpan(0, size);
         }
 
         var ids = MemoryMarshal.Cast<byte, int>(bytes); // native order, as the engine's ByteToInt copies them
         for (var i = 0; i < Math.Min(ids.Length, MaxPalette); i++)
-            if (Ticks(ids[i]))
-                return true;
+        {
+            if (Ticks(ids[i])) return true;
+        }
+
         return ids.Length > MaxPalette;
     }
 }

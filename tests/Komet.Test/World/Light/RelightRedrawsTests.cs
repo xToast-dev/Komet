@@ -27,5 +27,6 @@ public sealed class RelightRedrawsTests
     }
 
     // HSV value is the third byte
-    private static Block Made(int value, int absorption) => new() { LightHsv = new ThreeBytes(value << 16), LightAbsorption = absorption };
+    private static Block Made(int value, int absorption) =>
+        new() { LightHsv = new ThreeBytes(value << 16), LightAbsorption = absorption };
 }

@@ -1,7 +1,6 @@
 using System.Diagnostics;
-using OpenTK.Graphics.OpenGL;
 using Komet.Core;
-using Komet.Api;
+using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Diagnostics;
 
@@ -14,12 +13,12 @@ internal sealed class GpuStats : IDisposable
     // DEDICATED is the card's VRAM; TOTAL_AVAILABLE adds GTT on Mesa (21 GB "used" on 16 GB). CURRENT_AVAILABLE:
     // device-free.
     private const GetPName Dedicated = (GetPName)0x9047, Available = (GetPName)0x9049, Evictions = (GetPName)0x904A;
+
     private readonly int[] _queries = new int[Ring];
     private int _frame, _lastEvictions = -1;
     private long _lastVramSample;
     private bool _open;
     private bool? _vram;
-    private static int _glVersion;
 
     public double Ms { get; private set; }
     public double VramUsedMb { get; private set; } = double.NaN;
@@ -30,25 +29,33 @@ internal sealed class GpuStats : IDisposable
     {
         get
         {
-            if (_glVersion == 0)
-                _glVersion = 10 * GL.GetInteger(GetPName.MajorVersion) + GL.GetInteger(GetPName.MinorVersion);
-            return _glVersion;
+            if (field == 0) field = 10 * GL.GetInteger(GetPName.MajorVersion) + GL.GetInteger(GetPName.MinorVersion);
+
+            return field;
         }
     }
 
     public void Dispose()
     {
         if (_queries[0] != 0) GL.DeleteQueries(Ring, _queries);
+
         Array.Clear(_queries);
         _open = false;
     }
 
     public void Begin()
     {
-        if (KometShaders.VulkanDraws()) return;
-        if (_open) GL.EndQuery(QueryTarget.TimeElapsed); // the collectors went on mid-frame: the previous End() never ran
+        if (ShaderHub.VulkanDraws) return;
+
+        if (_open)
+        {
+            GL.EndQuery(QueryTarget.TimeElapsed); // the collectors went on mid-frame: the previous End() never ran
+        }
+
         if (_queries[0] == 0) GL.GenQueries(Ring, _queries);
+
         if (!Assert(_queries[0] != 0) || !Assert(_queries[Ring - 1] != 0)) return;
+
         GL.BeginQuery(QueryTarget.TimeElapsed, _queries[_frame % Ring]);
         _open = true;
     }
@@ -56,6 +63,7 @@ internal sealed class GpuStats : IDisposable
     public void End()
     {
         if (!_open) return;
+
         GL.EndQuery(QueryTarget.TimeElapsed);
         _open = false;
         _frame++;
@@ -63,14 +71,24 @@ internal sealed class GpuStats : IDisposable
 
     public void Sample()
     {
-        if (_frame < Ring || KometShaders.VulkanDraws()) return; // not three ended frames yet
+        if (_frame < Ring || ShaderHub.VulkanDraws)
+        {
+            return; // not three ended frames yet
+        }
+
         var oldest = _queries[(_frame + 1) % Ring];
         if (!Assert(oldest != 0)) return;
+
         GL.GetQueryObject(oldest, GetQueryObjectParam.QueryResultAvailable, out int ready);
         // After a stall the read would block the main thread
         if (!Assert(ready is 0 or 1) || ready == 0) return;
+
         GL.GetQueryObject(oldest, GetQueryObjectParam.QueryResult, out long nanoseconds);
-        if (!Assert(nanoseconds is >= 0 and < 60_000_000_000)) return; // a frame never takes a minute
+        if (!Assert(nanoseconds is >= 0 and < 60_000_000_000))
+        {
+            return; // a frame never takes a minute
+        }
+
         Ms = nanoseconds / 1e6;
     }
 
@@ -85,15 +103,20 @@ internal sealed class GpuStats : IDisposable
 
         _vram ??= Offered("GL_NVX_gpu_memory_info");
         if (_vram == false) return;
+
         GL.GetInteger(Dedicated, out var totalKb);
         GL.GetInteger(Available, out var freeKb);
         GL.GetInteger(Evictions, out var evictions); // cumulative since the device came up
         if (!Assert(totalKb > 0) || !Assert(freeKb >= 0) || !Assert(freeKb <= totalKb)) return;
+
         (VramTotalMb, VramUsedMb) = (totalKb / 1024.0, (totalKb - freeKb) / 1024.0);
         var now = Stopwatch.GetTimestamp();
         var seconds = (now - _lastVramSample) / (double)Stopwatch.Frequency;
         if (_lastEvictions >= 0 && evictions >= _lastEvictions && seconds > 0)
+        {
             EvictionsPerSec = (evictions - _lastEvictions) / seconds;
+        }
+
         (_lastEvictions, _lastVramSample) = (Math.Max(0, evictions), now); // a wrap starts the count over
     }
 

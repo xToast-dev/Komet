@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Komet.Core;
 using Komet.Rendering;
 using Komet.Vulkan;
 
@@ -10,21 +11,21 @@ namespace Komet.Test.Gpu;
 public sealed class ShaderCacheTests
 {
     private const string Vertex = """
-        #version 330 core
-        layout(location = 0) in vec3 xyz;
-        uniform mat4 mvp;
-        uniform vec3 origin;
-        uniform float fog = 0.5;
-        void main() { gl_Position = mvp * vec4(xyz + origin, fog); }
-        """;
+                                  #version 330 core
+                                  layout(location = 0) in vec3 xyz;
+                                  uniform mat4 mvp;
+                                  uniform vec3 origin;
+                                  uniform float fog = 0.5;
+                                  void main() { gl_Position = mvp * vec4(xyz + origin, fog); }
+                                  """;
 
     private const string Fragment = """
-        #version 330 core
-        uniform sampler2D tex;
-        uniform vec4 tint = vec4(1, 0.5, 0.25, 1);
-        out vec4 color;
-        void main() { color = texture(tex, vec2(0)) * tint; }
-        """;
+                                    #version 330 core
+                                    uniform sampler2D tex;
+                                    uniform vec4 tint = vec4(1, 0.5, 0.25, 1);
+                                    out vec4 color;
+                                    void main() { color = texture(tex, vec2(0)) * tint; }
+                                    """;
 
     private static readonly JsonSerializerOptions Json =
         new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
@@ -41,10 +42,34 @@ public sealed class ShaderCacheTests
     // The files ShaderCache has written so far are on disk
     private static void Flush() => Writes(null).Wait();
 
+    [Test]
+    public void DiagnosticRasterStatesAreNotRememberedForTheNextSession()
+    {
+        var developer = ClientSettings.DeveloperMode;
+        using var harmony = new TestHarmony("shader-cache-debug");
+        var supported = Services.Swap<IVulkanSide>(new NoVulkan { NonSolidFill = true });
+        try
+        {
+            ClientSettings.DeveloperMode = true;
+            RenderDebug.Install(harmony, Answers.NullClient);
+            RenderDebug.SetView(RenderDebug.View.Wireframe);
+            ShaderCache.Remember("diagnostic",
+                new ShaderCache.Recipe("debug", "target", Vk.TopologyTriangles, [], 0, [], []));
+            Assert.That(ShaderCache.Recipes("diagnostic"), Is.Empty);
+        }
+        finally
+        {
+            RenderDebug.Clear();
+            ClientSettings.DeveloperMode = developer;
+            _ = Services.Swap(supported);
+        }
+    }
+
     [SetUp]
     public void Folder()
     {
         if (!Shaderc.Load()) Assert.Ignore("libshaderc is not installed");
+
         _folder = Path.Join(Path.GetTempPath(), "komet-shadercache-" + Guid.NewGuid().ToString("N"));
         ShaderCache.Open(_folder);
         ShaderCache.Enabled = true;
@@ -90,7 +115,8 @@ public sealed class ShaderCacheTests
     {
         var state = new GlTap.Fixed(32, 0x4F, 0, 0, new GlTap.BlendState(1, 2, 3, 4, 5, 6, 7, 8), 0x2493);
         TerrainPools.Attribute[] attributes = [new(0, 0, 3, 0x1406, false, false) { Stride = 12 }];
-        var recipe = PipelineRecipes.Packed(("v|4", "37/130", 0), state, attributes, new TerrainPipeline.Target([37], 130));
+        var recipe = PipelineRecipes.Packed(("v|4", "37/130", 0), state, attributes,
+            new TerrainPipeline.Target([37], 130));
         Assert.That(PipelineRecipes.Unpacked(recipe)?.State, Is.EqualTo(state));
     }
 
@@ -139,7 +165,10 @@ public sealed class ShaderCacheTests
         ShaderCache.Keep(Sources(), Hot, Port(Hot));
         Flush();
         foreach (var file in Directory.GetFiles(_folder, "*.json", SearchOption.AllDirectories))
+        {
             File.WriteAllText(file, "{\"Name\":\"test\",\"Vertex\":[1,2");
+        }
+
         Assert.That(ShaderCache.Port(Sources(), Hot, "test"), Is.Null);
     }
 
@@ -160,9 +189,11 @@ public sealed class ShaderCacheTests
     {
         using var window = GlContext.Context();
         if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
+
         using (var rig = GpuRig.Start(GpuRig.Vulkan, out var why))
         {
             if (rig is null) Assert.Ignore(why);
+
             Assert.That(rig.Device!.PipelineCache, Is.Not.Zero);
             Assert.That(ShaderCache.PipelineBytes, Is.Zero, "nothing kept yet");
             Assert.That(rig.Backend!.Program(GpuShaders.HiZ, new QuietLogger()), Is.GreaterThan(0));

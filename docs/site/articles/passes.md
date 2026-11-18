@@ -2,7 +2,7 @@
 
 A pass is a fullscreen fragment shader of a mod's own. Komet draws it after the game's final composition and
 before the GUI, over the finished picture: tone mapped, with bloom, god rays and vignettes. Passes come from
-`komet.json` (`passes`) or from code (<xref:Komet.Api.KometShaders.AddPass*>).
+`komet.json` (`passes`) or from code (<xref:Komet.Api.KapiShaders.AddPass*>).
 
 ## The prelude
 
@@ -32,7 +32,7 @@ uniform float time;           // seconds, for animation
 | `depth` | The primary framebuffer's depth texture, raw window depth (not linear). 1.0 where nothing was drawn |
 | `uv` | Covers the whole picture; `uv * resolution` is the pixel |
 | `time` | Seconds since the passes were installed; it keeps running across frames, not across worlds |
-| your uniforms | Declared by you. Set by name before each draw: the pass's own (`komet.json` `uniform`, <xref:Komet.Api.KometPass.Uniforms>) and every <xref:Komet.Api.KometShaders.Uniform*> of any mod |
+| your uniforms | Declared by you. Set by name before each draw: the pass's own (`komet.json` `uniform`, <xref:Komet.Api.KapiPass.Uniforms>) and every <xref:Komet.Api.KapiShaders.Uniform*> of any mod |
 
 Uniforms Komet sets are `float`, `vec2`, `vec3` or `vec4`, by how many numbers the value has.
 
@@ -67,4 +67,4 @@ Under Vulkan, Komet compiles the pass with OpenGL first and ports the linked pro
 |---|---|
 | passes, all mods | 32 |
 | source of one pass | 64 KiB |
-| stages | `Final` only (<xref:Komet.Api.KometPassStage>) |
+| stages | `Final` only (<xref:Komet.Api.KapiStage>) |

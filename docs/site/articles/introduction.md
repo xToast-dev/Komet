@@ -16,7 +16,7 @@ world with Vulkan. Other mods meet Komet in three places:
 | | for | needs code |
 |---|---|---|
 | `assets/<modid>/config/komet.json` | shader mods, resource packs | no |
-| `Komet.Api` from C# | code mods | yes, with Komet optional |
+| KAPI 1.0 (`Komet.Api`) from C# | code mods | yes, with Komet optional |
 
 A mod can use both: `komet.json` for its settings and passes, code for what a file cannot say.
 

@@ -1,3 +1,4 @@
+using Komet.Rendering;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Vulkan;
@@ -7,6 +8,8 @@ namespace Komet.Vulkan;
 // and the frame ends at the swap, shown by Vulkan's swapchain.
 internal static partial class VulkanRenderer
 {
+    private const int EngineFramebuffers = 18; // EnumFrameBuffer: Primary 0 to SSAOBlurHorizontalHalfRes 17
+
     private static readonly Dictionary<string, Drawn> Parts = new(StringComparer.Ordinal)
     {
         ["sky"] = Drawn.Sky, ["nightsky"] = Drawn.Sky, ["celestialobject"] = Drawn.Sky, ["aurora"] = Drawn.Sky,
@@ -31,8 +34,6 @@ internal static partial class VulkanRenderer
     private static (SceneRenderer? Scene, TerrainRenderer? Renderer) _wired;
     private static TerrainRenderer.PoolSlot _slot; // the open reservation of ReservedFaces
 
-    private const int EngineFramebuffers = 18; // EnumFrameBuffer: Primary 0 to SSAOBlurHorizontalHalfRes 17
-
     private static readonly int[] EveryFramebuffer = [.. Enumerable.Range(0, EngineFramebuffers)],
         TerrainAndTransparent =
         [
@@ -42,20 +43,26 @@ internal static partial class VulkanRenderer
 
     private static bool SceneOn => _scene is not null && _parting;
 
-    internal static Drawn PartNamed(string name) =>
+    private static Drawn PartNamed(string name) =>
         NotNull(name) && Parts.TryGetValue(name, out var part) ? part : Drawn.Other;
 
     private static bool Takes(int program, string name)
     {
         if (!Assert(program > 0) || _api?.World is not ClientMain) return false;
+
         if (!PartOf.TryGetValue(program, out var part))
         {
             if (PartOf.Count >= 1024) PartOf.Clear();
+
             PartOf[program] = part = PartNamed(name);
         }
 
         var takes = _parting;
-        if (takes) Mark(part); // its draw is recorded next
+        if (takes)
+        {
+            Mark(part); // its draw is recorded next
+        }
+
         return takes;
     }
 
@@ -63,18 +70,20 @@ internal static partial class VulkanRenderer
     private static bool ClearsTaken() => _api?.World is ClientMain && _parting;
 
     // Every part: one left to OpenGL would be missing from the picture
-    private static void DecideScene()
-    {
-        _parting = Only;
-    }
+    private static void DecideScene() => _parting = Only;
 
     // A tap with a gap rebuilds all mirrors (writes went unheard); the record is always tapped
     private static bool Tapped()
     {
-        if (GlTap.Tapped) return Assert(!GlTap.Stranded); // Starting leaves a stranded GL alone
+        if (GlTap.Tapped)
+        {
+            return Assert(!GlTap.Stranded); // Starting leaves a stranded GL alone
+        }
+
         _watched = false;
         _scene?.Mirrors.Forget();
         if (GlTap.Tap()) return Assert(GlTap.Tapped);
+
         _logger?.Warning("Komet: OpenTK's GL table lacks {0}", GlTap.Missing);
         return false;
     }
@@ -83,18 +92,20 @@ internal static partial class VulkanRenderer
     {
         _scene ??= SceneRenderer.Create(renderer, _logger);
         if (_scene is { } wired && _wired == (wired, renderer) && ReferenceEquals(GlTap.Writes, wired)) return;
+
         if (_scene is { } scene)
         {
             _wired = (scene, renderer);
             (scene.Takes, scene.Clearing, scene.SamplerObject) = (Takes, ClearsTaken, Sampler);
-            (GlTap.Drawing, GlTap.Clearing, GlTap.Writes, GlTap.Blitting) = (scene.Draw, scene.Clear, scene, scene.Blit);
+            (GlTap.Drawing, GlTap.Clearing, GlTap.Writes, GlTap.Blitting) =
+                (scene.Draw, scene.Clear, scene, scene.Blit);
             (GlTap.Querying, GlTap.Answering, GlTap.Touching) = (scene.Querying, scene.Answer, Touched);
             GlTap.Reading = renderer.Answer; // OpenGL's reads answered from Vulkan's images
             GlTap.TextureClearing = renderer.TextureCleared; // and its images cleared by Vulkan
             (renderer.Frame.Opened, renderer.Frame.Ending) = (scene.Opened, FrameEnding);
             // the engine's own pool uploads, which OpenGL makes too, are copied by Vulkan (PoolWritten)
-            Rendering.FacePacking.Through = OnlyFaces;
-            (Rendering.FacePacking.Reserve, Rendering.FacePacking.Commit) = (ReservedFaces, CommittedFaces);
+            FacePacking.Through = OnlyFaces;
+            (FacePacking.Reserve, FacePacking.Commit) = (ReservedFaces, CommittedFaces);
         }
 
         (GlTap.ProgramGone, GlTap.Linking) = (Deleted, Linked);
@@ -116,11 +127,18 @@ internal static partial class VulkanRenderer
 
         var engine = render.FrameBuffers;
         WindowFramebuffers.Clear();
-        for (var i = 0; i < Math.Min(engine.Count, 63); i++) WindowFramebuffers.Add(engine[i]);
+        for (var i = 0; i < Math.Min(engine.Count, 63); i++)
+        {
+            WindowFramebuffers.Add(engine[i]);
+        }
+
         WindowFramebuffers.Add(window);
         var at = WindowFramebuffers.Count - 1;
         if (!ReferenceEquals(_windowShared.Of, shared) || _windowShared.Made[^1] != at)
+        {
             _windowShared = (shared, [.. shared, at]);
+        }
+
         return (WindowFramebuffers, _windowShared.Made);
     }
 
@@ -131,6 +149,7 @@ internal static partial class VulkanRenderer
     private static void FrameEnding()
     {
         if (_scene is not { } scene || !Assert(_renderer is not null)) return;
+
         scene.Mirrors.Ending();
         scene.Resolve();
         _renderer!.Ending();
@@ -140,8 +159,15 @@ internal static partial class VulkanRenderer
     // glBindBuffer calls and the tap the GL upload would take (3 % of the main thread at a join)
     private static unsafe bool OnlyFaces(VAO vao, int buffer, long offset, ReadOnlySpan<byte> faces)
     {
-        if (_renderer is not { } renderer || buffer <= 0 || !GlTap.LeanBuffer((uint)buffer) || !NotNull(vao)) return false;
-        fixed (byte* data = faces) return Assert(offset >= 0) && renderer.PoolWritten((uint)buffer, offset, faces.Length, (IntPtr)data);
+        if (_renderer is not { } renderer || buffer <= 0 || !GlTap.LeanBuffer((uint)buffer) || !NotNull(vao))
+        {
+            return false;
+        }
+
+        fixed (byte* data = faces)
+        {
+            return Assert(offset >= 0) && renderer.PoolWritten((uint)buffer, offset, faces.Length, (IntPtr)data);
+        }
     }
 
     // Faces packed straight into Vulkan's staging (one reservation open at a time, main thread): as OnlyFaces, without
@@ -150,7 +176,11 @@ internal static partial class VulkanRenderer
     {
         (into, _slot) = (IntPtr.Zero, default);
         if (_renderer is not { } renderer || buffer <= 0 || !GlTap.LeanBuffer((uint)buffer) || !NotNull(vao) ||
-            !renderer.PoolReserve((uint)buffer, offset, bytes, out var slot)) return false;
+            !renderer.PoolReserve((uint)buffer, offset, bytes, out var slot))
+        {
+            return false;
+        }
+
         (_slot, into) = (slot, slot.Into);
         return true;
     }
@@ -166,6 +196,7 @@ internal static partial class VulkanRenderer
     private static void Touched(GlTap.Touch kind, uint id)
     {
         if (_renderer is null) return;
+
         _scene?.Touching(kind, id);
     }
 
@@ -173,12 +204,17 @@ internal static partial class VulkanRenderer
     private static void Deleted(uint program)
     {
         if (!Assert(program > 0) || !Assert(program < int.MaxValue)) return;
+
         _ = PartOf.Remove((int)program);
         ProgramPorts.Forget((int)program);
         Guarded(static p =>
         {
             var at = Array.IndexOf(Built, p);
-            if (at >= 0) Unport(at, _renderer); // a rebuilt terrain program with the same name is ported anew
+            if (at >= 0)
+            {
+                Unport(at, _renderer); // a rebuilt terrain program with the same name is ported anew
+            }
+
             _scene?.Forget(p);
             _renderer?.Forget(p);
         }, (int)program);

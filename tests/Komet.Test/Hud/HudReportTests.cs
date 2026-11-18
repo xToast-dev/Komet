@@ -10,27 +10,22 @@ namespace Komet.Test.Hud;
 public sealed class HudReportTests
 {
     [TearDown]
-    public void Detach()
-    {
-        Contracts.Attach(null);
-    }
+    public void Detach() => Contracts.Attach(null);
 
     [TestCase(double.PositiveInfinity, "F1", "")]
     [TestCase(double.NaN, "F2", "")]
     [TestCase(1234.4, "N0", "1,234")]
     [TestCase(0.0, "F1", "0.0")] // a measured zero is a number
-    public void NumbersPrintCultureInvariantAndNothingWhenNotFinite(double value, string format, string expected)
-    {
+    public void NumbersPrintCultureInvariantAndNothingWhenNotFinite(double value, string format, string expected) =>
         Assert.That(KometText.Format(value, format), Is.EqualTo(expected));
-    }
 
     [Test]
     public void HeadersAndTitlesAreQuotedAsTheyAreNow()
     {
-        var name = "passes";
-        var header = new HudLine { Kind = HudLineKind.Header, Label = () => name };
+        string[] name = ["passes"];
+        var header = new HudLine { Kind = HudLineKind.Header, Label = () => name[0] };
         var title = new HudLine { Kind = HudLineKind.Title, Label = () => "Komet", Badge = () => "Release 1.2.3" };
-        name = "changed";
+        name[0] = "changed";
         Assert.Multiple(() =>
         {
             Assert.That(header.MeanText(), Is.EqualTo("[changed]"), "the bench report reads the label as it is");
@@ -63,8 +58,7 @@ public sealed class HudReportTests
     }
 
     [Test]
-    public void ANumberThatIsNotFiniteIsLeftOut()
-    {
+    public void ANumberThatIsNotFiniteIsLeftOut() =>
         Assert.Multiple(() =>
         {
             Assert.That(Shown(new HudLine
@@ -76,7 +70,6 @@ public sealed class HudReportTests
             Assert.That(Shown(new HudLine { Label = () => "update check failed", Sub = true }),
                 Is.EqualTo("  update check failed"), "a line of text has no number to miss");
         });
-    }
 
     [TestCase(null, null, "  label")]
     [TestCase("3.50", null, "  label: 3.50 ms")]
@@ -84,10 +77,8 @@ public sealed class HudReportTests
     [TestCase(null, "12.5", "  label: 12.5 %")]
     [TestCase(null, "", "")]
     [TestCase("3.50", "", "  label: 3.50 ms")]
-    public void RowsFormatAsTheReportPrintsThem(string? value, string? percent, string expected)
-    {
+    public void RowsFormatAsTheReportPrintsThem(string? value, string? percent, string expected) =>
         Assert.That(HudLine.RowText("label", true, value, percent, "ms"), Is.EqualTo(expected));
-    }
 
     // A bench averages the windows that had a number; a statistic that never had one in the whole bench is left out without
     // tripping an assertion
@@ -96,22 +87,26 @@ public sealed class HudReportTests
     {
         var logger = new CapturingLogger();
         Contracts.Attach(logger);
-        var current = 0.0;
-        var line = new HudLine { Label = () => "pause", Value = () => current, Unit = "ms" };
-        var share = new HudLine { Label = () => "mod", Value = () => 2, Percent = () => current, Unit = "ms" };
+        var current = new StrongBox<double>(0);
+        var line = new HudLine { Label = () => "pause", Value = () => current.Value, Unit = "ms" };
+        var share = new HudLine { Label = () => "mod", Value = () => 2, Percent = () => current.Value, Unit = "ms" };
         var never = new HudLine { Label = () => "never", Value = () => double.NaN, Unit = "ms" };
         // a share known in fewer windows than its value (no frame time to divide by): each mean is over its own windows
         var partly = new HudLine
         {
-            Label = () => "partly", Value = () => current, Percent = () => current > 5 ? current : double.NaN,
+            Label = () => "partly", Value = () => current.Value,
+            Percent = () => current.Value > 5 ? current.Value : double.NaN,
             Unit = "MB"
         };
         var shareless = new HudLine
-        { Label = () => "time", Value = () => current, Percent = () => double.NaN, Unit = "ms" };
+            { Label = () => "time", Value = () => current.Value, Percent = () => double.NaN, Unit = "ms" };
         foreach (var sample in (double[])[double.NaN, 4, double.PositiveInfinity, 6])
         {
-            current = sample;
-            foreach (var row in (HudLine[])[line, share, never, partly, shareless]) row.Accumulate();
+            current.Value = sample;
+            foreach (var row in (HudLine[])[line, share, never, partly, shareless])
+            {
+                row.Accumulate();
+            }
         }
 
         Assert.Multiple(() =>
@@ -131,7 +126,8 @@ public sealed class HudReportTests
     [Test]
     public void ASectionPrintsTheMeansOfItsRows()
     {
-        var panel = new HudPanel().Section("x").Value("y", () => 3.5, "ms").Line(() => "unmeasured", () => double.NaN, "ms");
+        var panel = new HudPanel().Section("x").Value("y", () => 3.5, "ms")
+            .Line(() => "unmeasured", () => double.NaN, "ms");
         panel.Accumulate();
         var text = new StringBuilder("[title]");
         panel.AppendMeans(text);
@@ -173,22 +169,22 @@ public sealed class HudReportTests
     [Test]
     public void GrowthIsTheSpanSinceTheRowLastRead()
     {
-        var total = 10.0;
-        var growth = new Growth(() => total);
+        var total = new StrongBox<double>(10);
+        var growth = new Growth(() => total.Value);
         var first = growth.Next();
-        total = 25;
+        total.Value = 25;
         var grown = growth.Next();
         Counting.Hud = false; // a pause
         Counting.Hud = true;
-        total = 40;
+        total.Value = 40;
         var paused = growth.Next();
-        total = 45;
+        total.Value = 45;
         var again = growth.Next();
-        total = 3;
+        total.Value = 3;
         var restarted = growth.Next();
         Counting.Bench = true;
         Counting.Hud = false; // hidden, the bench counts on
-        total = 30;
+        total.Value = 30;
         Counting.Hud = true;
         var hidden = growth.Next();
         (Counting.Hud, Counting.Bench) = (false, false);

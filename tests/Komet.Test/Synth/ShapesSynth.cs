@@ -15,6 +15,7 @@ public sealed class ShapesSynth
         var shape = AnimationShapes.Player("armored");
         var animations = shape.Animations.Where(a => a.KeyFrames is { Length: > 0 }).ToArray();
         var frames = 0;
+
         void Compile()
         {
             foreach (var animation in animations)
@@ -28,7 +29,10 @@ public sealed class ShapesSynth
         var result = Synth.Run("AnimationFrames", $"armored-player-{animations.Length}", ops =>
         {
             frames = 0;
-            for (var i = 0; i < ops; i++) Compile();
+            for (var i = 0; i < ops; i++)
+            {
+                Compile();
+            }
         }, 2, () => frames);
         using (new FeatureRig("AnimationFrames"))
         {
@@ -37,7 +41,8 @@ public sealed class ShapesSynth
             Compile();
             Compile();
             Counting.Hud = false;
-            Assert.That(Komet.Shapes.AnimationFrames.Hits - hits, Is.EqualTo(animations.Length), "the second set is the cache's");
+            Assert.That(Komet.Shapes.AnimationFrames.Hits - hits, Is.EqualTo(animations.Length),
+                "the second set is the cache's");
         }
 
         Assert.That(result.Feature, Is.EqualTo("AnimationFrames"));
@@ -59,9 +64,16 @@ public sealed class ShapesSynth
             string[] joints = ["head"];
             var result = Synth.Run("ShapeInitMemo", "wolf-reinit", ops =>
             {
-                for (var i = 0; i < ops; i++) SynthCalls.Init(shape, AnimationShapes.Log, path, joints);
+                for (var i = 0; i < ops; i++)
+                {
+                    SynthCalls.Init(shape, AnimationShapes.Log, path, joints);
+                }
             }, 50, () => shape.JointsById.Count);
-            using (new FeatureRig("ShapeInitMemo")) Assert.That(Komet.Shapes.ShapeInitMemo.Matched, Is.True);
+            using (new FeatureRig("ShapeInitMemo"))
+            {
+                Assert.That(Komet.Shapes.ShapeInitMemo.Matched, Is.True);
+            }
+
             Assert.That(result.Feature, Is.EqualTo("ShapeInitMemo"));
         }
         finally

@@ -38,33 +38,48 @@ internal static class WindowSize
     public static void Install(Harmony harmony)
     {
         _rewritten = 0;
-        if (!NotNull(harmony)) return;
+
         for (var i = 0; i < Frames.Length; i++)
-            if (AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), Frames[i].Name, Frames[i].Parameters) is { } method)
+        {
+            if (AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), Frames[i].Name, Frames[i].Parameters) is
+                { } method)
+            {
                 _ = harmony.Patch(method, transpiler: new HarmonyMethod(Rewrite));
+            }
+        }
     }
 
     // Every ClientSize read becomes Size; a method without one keeps the engine's IL
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase original)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase? original)
     {
         var (getter, size) = (AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)),
             AccessTools.Method(typeof(WindowSize), nameof(Size)));
         if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(getter) || !NotNull(size)) return code;
+
         var sites = 0;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
             if (code[i].Calls(getter) && Il.Substitute(code, i, size)) sites++;
+        }
+
         var frame = Array.FindIndex(Frames, f => f.Name == original?.Name);
         if (frame < 0) return code;
+
         _rewritten &= ~(1 << frame);
         if (sites > 0) _rewritten |= 1 << frame;
+
         return code;
     }
 
     internal static Vector2i Size(NativeWindow window)
     {
-        if (Enabled && ScreenManager.Platform is ClientPlatformWindows platform && ReferenceEquals(platform.window, window) &&
+        if (Enabled && ScreenManager.Platform is ClientPlatformWindows platform &&
+            ReferenceEquals(platform.window, window) &&
             window.WindowState != WindowState.Minimized && platform.WindowSize is { Width: > 0, Height: > 0 } kept)
+        {
             return new Vector2i(kept.Width, kept.Height);
+        }
+
         return window.ClientSize; // a null window throws as the engine's callvirt did
     }
 }

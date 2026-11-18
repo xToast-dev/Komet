@@ -22,4 +22,11 @@ own Vulkan renderer, and it opens both to other mods.
 ## Download
 
 [komet-vulkan-template.zip](downloads/komet-vulkan-template.zip): the shader template as a mod folder. In game,
-Modding › Templates › *Create Vulkan template* writes the same files.
+Modding › Templates › *Shader mod project with optional C# integration* writes the same files.
+
+## Shader Studio
+
+The Komet SDK (mod `kometsdk`, same version as Komet) adds the Shader Studio: **Ctrl+F8** or `.komet dev` in game.
+Edit copies of the game's shaders live, choose what the game runs (My version or Vanilla), force conditional effects
+into the picture, preview in 3D with climate and season sliders, and run `.komet shadertest` for pictures of every
+shader. The other tools sit in the dockable HUD window (**Ctrl+F7**).

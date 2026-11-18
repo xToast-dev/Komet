@@ -1,27 +1,30 @@
+using Komet.Ui.Hud;
+
 namespace Komet.Hud;
 
 // Shared by window and debug window: one canvas faded by HudMotion with hit boxes, sized to the game window and
 // recomposed only on change, a scroll bar and the wheel, snap-grid drag, close after the fade
 internal abstract class HudDialog : GuiDialog
 {
-    private const double Margin = 24;
-
-    private readonly HudSettings _settings;
-    private readonly SnapGrid _snap;
+    protected const double Margin = 24;
     private readonly float _depth;
     private readonly Action _finish;
-    private (double X, double Y) _grab;
-    private bool _dirty = true, _urgent = true;
-    private long _composed;
-    private int _epoch;
 
     // Clicks use the hit map painted with the shown picture (Canvas.Shown lags a background canvas): shown, waiting,
     // painted, free.
     private readonly List<HudUi.Hit>[] _hitMaps = [[], [], [], []];
 
-    protected HudDialog(ICoreClientAPI capi, HudSettings settings, HudUiFonts fonts, SnapGrid snap, float depth) : base(capi)
+    private readonly HudSettings _settings;
+    private readonly SnapGrid _snap;
+    private long _composed;
+    private bool _dirty = true, _urgent = true;
+    private int _epoch;
+    private (double X, double Y) _grab;
+
+    protected HudDialog(ICoreClientAPI capi, HudSettings settings, HudUiFonts fonts, SnapGrid snap, float depth) :
+        base(capi)
     {
-        Canvas = new HudCanvas(capi, background: true);
+        Canvas = new HudCanvas(capi, true);
         Motion = new HudMotion(capi);
         (_settings, Fonts, _snap, _depth) = (settings, fonts, snap, depth);
         _finish = Finish;
@@ -30,9 +33,9 @@ internal abstract class HudDialog : GuiDialog
     protected HudCanvas Canvas { get; }
     protected HudMotion Motion { get; }
     protected HudUiFonts Fonts { get; } // shared with the overlay
-    protected (double W, double H) Size { get; private set; } // of the page last composed
+    private (double W, double H) Size { get; set; } // of the page last composed
     protected List<HudUi.Hit> Hits { get; private set; } = [];
-    protected bool Moving { get; private set; }
+    private bool Moving { get; set; }
     private List<HudUi.Hit> ShownHits => Canvas.Shown as List<HudUi.Hit> ?? Hits;
 
     public override string? ToggleKeyCombinationCode => null;
@@ -43,12 +46,14 @@ internal abstract class HudDialog : GuiDialog
     private void NewHits()
     {
         foreach (var map in _hitMaps.Bounded(4))
+        {
             if (!Canvas.Holds(map))
             {
                 map.Clear();
                 Hits = map;
                 return;
             }
+        }
     }
 
     // Urgent: at the next frame (input), otherwise at most every refresh interval (new numbers)
@@ -59,7 +64,8 @@ internal abstract class HudDialog : GuiDialog
     {
         Fonts.Update(_settings.FontScale);
         int w = capi.Render.FrameWidth, h = capi.Render.FrameHeight;
-        return (Math.Min(w - 2 * scaled(Margin), scaled(maxW * Fonts.Scale)), Math.Min(h - 2 * scaled(Margin), scaled(maxH * Fonts.Scale)));
+        return (Math.Min(w - 2 * scaled(Margin), scaled(maxW * Fonts.Scale)),
+            Math.Min(h - 2 * scaled(Margin), scaled(maxH * Fonts.Scale)));
     }
 
     // True when a new page is due (invalidated and the interval passed, new fonts, new size): the canvas is blanked at size
@@ -68,7 +74,9 @@ internal abstract class HudDialog : GuiDialog
     {
         var due = _urgent || Environment.TickCount64 - _composed >= refreshMs;
         if (!(_dirty && due) && _epoch == Fonts.Epoch && size == Size) return false;
+
         if (!Assert(size.W > 0) || !Assert(size.H > 0)) return false;
+
         (_dirty, _urgent, _epoch, Size, _composed) = (false, false, Fonts.Epoch, size, Environment.TickCount64);
         Composing?.Invoke();
         NewHits();
@@ -79,6 +87,7 @@ internal abstract class HudDialog : GuiDialog
     protected void ScrollBar(double x, double width, double top, double height, double content, double scroll)
     {
         if (content <= height || !Assert(height > 0) || !Assert(width > 0)) return;
+
         var thumb = Math.Min(height, Math.Max(scaled(24), height * height / content));
         var at = top + (height - thumb) * Math.Clamp(scroll / (content - height), 0, 1);
         Canvas.Fill(x, top, width, height, Rgba.White(0.05), width / 2);
@@ -91,6 +100,7 @@ internal abstract class HudDialog : GuiDialog
     public override void OnMouseWheel(MouseWheelEventArgs args)
     {
         if (!NotNull(args) || !Contains(capi.Input.MouseX, capi.Input.MouseY) || !Finite(args.deltaPrecise)) return;
+
         Scrolled(-args.deltaPrecise);
         Invalidate(true);
         args.SetHandled();
@@ -98,9 +108,18 @@ internal abstract class HudDialog : GuiDialog
 
     protected void Show(bool close)
     {
-        if (!IsOpened()) _ = TryOpen();
-        else if (Motion.Closing) Motion.Open();
-        else if (close) _ = TryClose();
+        if (!IsOpened())
+        {
+            _ = TryOpen();
+        }
+        else if (Motion.Closing)
+        {
+            Motion.Open();
+        }
+        else if (close)
+        {
+            _ = TryClose();
+        }
     }
 
     public override void OnGuiOpened()
@@ -112,6 +131,7 @@ internal abstract class HudDialog : GuiDialog
     public override bool TryClose()
     {
         if (!IsOpened()) return false;
+
         Motion.Close();
         return true;
     }
@@ -120,6 +140,7 @@ internal abstract class HudDialog : GuiDialog
     public override bool OnEscapePressed()
     {
         if (IsOpened()) Motion.Close();
+
         return false;
     }
 
@@ -128,7 +149,7 @@ internal abstract class HudDialog : GuiDialog
         if (Motion.Closing && IsOpened()) _ = base.TryClose();
     }
 
-    public bool Contains(double px, double py) => IsOpened() && Canvas.Ready && Canvas.Contains(px, py);
+    private bool Contains(double px, double py) => IsOpened() && Canvas.Ready && Canvas.Contains(px, py);
 
     // At the saved place, NaN: centred. A place saved at a larger resolution would put the title bar, the only grip,
     // off-screen.
@@ -136,9 +157,11 @@ internal abstract class HudDialog : GuiDialog
     {
         int w = capi.Render.FrameWidth, h = capi.Render.FrameHeight;
         if (!Assert(w > 0) || !Assert(h > 0)) return;
+
         (x, y) = (double.IsFinite(x) ? x : (w - Size.W) / 2, double.IsFinite(y) ? y : (h - Size.H) / 2);
         (x, y) = (Math.Clamp(x, 0, Math.Max(0, w - Canvas.Width)), Math.Clamp(y, 0, Math.Max(0, h - Canvas.Height)));
         if (Moving) _snap.Draw();
+
         Motion.Draw(Canvas, Math.Round(x), Math.Round(y), _depth);
     }
 
@@ -155,8 +178,10 @@ internal abstract class HudDialog : GuiDialog
     public override void OnMouseDown(MouseEvent args)
     {
         if (!NotNull(args) || !Contains(args.X, args.Y)) return;
+
         args.Handled = true;
         if (Motion.Closing) return;
+
         var (x, y) = (args.X - Canvas.X, args.Y - Canvas.Y);
         if (HudUi.HitAt(ShownHits, x, y) is { } hit)
         {
@@ -164,12 +189,16 @@ internal abstract class HudDialog : GuiDialog
             hit.Click();
             Invalidate(true);
         }
-        else if (Grabs(x, y, args.Button)) (_grab, Moving) = ((x, y), true);
+        else if (Grabs(x, y, args.Button))
+        {
+            (_grab, Moving) = ((x, y), true);
+        }
     }
 
     public override void OnMouseMove(MouseEvent args)
     {
         if (!Moving || !NotNull(args)) return;
+
         Moved(HudMotion.Snap(args.X - _grab.X, Canvas.Width, capi.Render.FrameWidth),
             HudMotion.Snap(args.Y - _grab.Y, Canvas.Height, capi.Render.FrameHeight));
         args.Handled = true;
@@ -183,6 +212,7 @@ internal abstract class HudDialog : GuiDialog
     private void Drop()
     {
         if (!Moving) return;
+
         _snap.Release();
         Moving = false;
     }
@@ -217,19 +247,21 @@ internal sealed class SnapGrid(ICoreClientAPI capi, Action built) : IDisposable
     public void Release()
     {
         if (_canvas is null || !NotNull(capi.Event)) return;
+
         Cancel();
         _release = capi.Event.RegisterCallback(_ =>
         {
             _release = 0;
             Dispose();
-        }, KeepMs, permittedWhilePaused: true);
+        }, KeepMs, true);
     }
 
     public void Draw()
     {
         var key = (capi.Render.FrameWidth, capi.Render.FrameHeight,
             BitConverter.SingleToInt32Bits(RuntimeEnv.GUIScale));
-        if (!Assert(key.FrameWidth > 0 && key.FrameHeight > 0)) return;
+        if (!Assert(key is { FrameWidth: > 0, FrameHeight: > 0 })) return;
+
         Cancel();
         if (_canvas is null || key != _key)
         {
@@ -245,6 +277,7 @@ internal sealed class SnapGrid(ICoreClientAPI capi, Action built) : IDisposable
     private void Cancel()
     {
         if (_release == 0 || !NotNull(capi.Event)) return;
+
         capi.Event.UnregisterCallback(_release);
         _release = 0;
     }

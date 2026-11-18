@@ -43,8 +43,12 @@ internal static class TessAccounting
         var process = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.NowProcessChunk));
         HarmonyMethod begin = new(typeof(TessAccounting), nameof(Begin)),
             end = new(typeof(TessAccounting), nameof(End));
-        if (!NotNull(harmony) || !NotNull(target) || !NotNull(process) || !Assert(target.ReturnType == typeof(int)) ||
-            !Assert(Il.Binds(target, begin.method)) || !Assert(Il.Binds(target, end.method))) return;
+        if (!NotNull(target) || !NotNull(process) || !Assert(target.ReturnType == typeof(int)) ||
+            !Assert(Il.Binds(target, begin.method)) || !Assert(Il.Binds(target, end.method)))
+        {
+            return;
+        }
+
         _ = harmony.Patch(process, new HarmonyMethod(Entered) { priority = Priority.First });
         _ = harmony.Patch(target, begin, end);
         Installed = true;
@@ -56,7 +60,9 @@ internal static class TessAccounting
     public static TessBucket Classify(bool processed, bool requeue, bool priority, bool edge)
     {
         if (requeue) return TessBucket.Requeued;
+
         if (!processed) return TessBucket.Skipped;
+
         return (priority, edge) switch
         {
             (true, true) => TessBucket.PriorityEdge,
@@ -75,6 +81,7 @@ internal static class TessAccounting
     {
         var ticks = Stopwatch.GetTimestamp() - __state.Start;
         if (!Counting.On) return;
+
         var bucket = Classify(_entered != __state.Entries, requeue, priority, skipChunkCenter);
         Record(bucket, ticks, __result == 0);
     }
@@ -83,9 +90,11 @@ internal static class TessAccounting
     {
         var b = (int)bucket;
         if (!Assert(ticks >= 0)) return;
+
         Counts.Add(b, 1);
         Counts.Add(Buckets + b, ticks);
         if (!zeroVertices || bucket is not (TessBucket.Full or TessBucket.PriorityFull)) return;
+
         Counts.Add(Zero, 1);
         Counts.Add(ZeroTicks, ticks);
     }
@@ -95,21 +104,25 @@ internal static class TessAccounting
     {
         long passes = 0, ticks = 0;
         for (var b = 0; b < PassBuckets; b++)
+        {
             (passes, ticks) = (passes + Counts.Total(b), ticks + Counts.Total(Buckets + b));
+        }
+
         var edge = Counts.Total((int)TessBucket.Edge) + Counts.Total((int)TessBucket.PriorityEdge);
         return new TessTotals(passes, ticks, edge);
     }
 
     public static long Count(TessBucket bucket) => Counts.Total((int)bucket);
 
-    internal readonly record struct Pass(long Start, int Entries);
+    private readonly record struct Pass(long Start, int Entries);
 }
 
 internal readonly record struct TessTotals(long Passes, long Ticks, long Edge)
 {
     public double Ms => Ticks * FrameClock.TickMs;
 
-    public TessTotals Since(TessTotals earlier) => Assert(Passes >= earlier.Passes) && Assert(Ticks >= earlier.Ticks)
-        ? new TessTotals(Passes - earlier.Passes, Ticks - earlier.Ticks, Edge - earlier.Edge)
-        : default;
+    public TessTotals Since(TessTotals earlier) =>
+        Assert(Passes >= earlier.Passes) && Assert(Ticks >= earlier.Ticks)
+            ? new TessTotals(Passes - earlier.Passes, Ticks - earlier.Ticks, Edge - earlier.Edge)
+            : default;
 }

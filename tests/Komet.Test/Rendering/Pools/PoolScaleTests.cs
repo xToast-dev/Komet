@@ -32,6 +32,7 @@ public sealed class PoolScaleTests
         var manager =
             new MeshDataPoolManager(master, new FrustumCulling(), Answers.NullClient, Vertices, Indices, Parts);
         if (chunks) PoolScale.Register(manager);
+
         var mesh = new MeshData(false)
         {
             xyz = new float[3 * 4 * Quads], Indices = new int[6 * Quads],
@@ -39,7 +40,10 @@ public sealed class PoolScaleTests
         };
         var pools = AccessTools.FieldRefAccess<MeshDataPoolManager, List<MeshDataPool>>("pools")(manager);
         for (var i = 0; i < 200 && pools.Count < factors.Length; i++)
+        {
             _ = manager.AddModel(mesh, new Vec3i(0, 0, 0), 0, new Sphere(16, 16, 16, 20, 20, 20));
+        }
+
         Assert.Multiple(() =>
         {
             Assert.That(pools.Select(p => p.VerticesPoolSize), Is.EqualTo(factors.Select(f => f * Vertices)));

@@ -1,8 +1,9 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
+using Komet.Rendering;
 using Vintagestory.API.Client.Tesselation;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
@@ -45,12 +46,19 @@ internal static class OccludedChunks
 
     public static long Hits => Counts.Total(0);
 
+    // ChunkLookup lives in the arrival module, which depends on this module.
+    internal static Type? NeighbourLookup { private get; set; }
+
     public static void Install(Harmony harmony, ILogger? logger = null, ulong shape = Shape)
     {
         (Installed, StoodDown) = (false, false);
         var shaped = Shaped();
-        if (!NotNull(harmony) || !NotNull(shaped[0]) || !Accessible(nameof(OccludedChunks), logger) ||
-            !EngineShape.Matches(shaped, shape, nameof(OccludedChunks), logger)) return;
+        if (!NotNull(shaped[0]) || !Accessible(nameof(OccludedChunks), logger) ||
+            !EngineShape.Matches(shaped, shape, nameof(OccludedChunks), logger))
+        {
+            return;
+        }
+
         if (AccessTools.DeclaredField(typeof(ChunkTesselator), "mapsizeChunksy")?.FieldType != typeof(int))
         {
             logger?.Warning(
@@ -68,11 +76,17 @@ internal static class OccludedChunks
     internal static void Recheck()
     {
         if (!Installed) return;
-        // Komet's own change nothing for a faceless chunk (no part for FaceSorting)
-        var foreign = EngineShape.Foreign(_skipped.AsSpan(0, 1), PatchKinds.Body, null) ||
-                      EngineShape.Foreign(_skipped.AsSpan(1), PatchKinds.All, null, typeof(TessSafety),
-                          typeof(Rendering.FaceSorting));
-        StoodDown = EngineShape.Report(Logger, nameof(OccludedChunks), StoodDown, foreign);
+        // These Komet hooks only change how the engine reads or draws an ordinary pass. Enclosed checks the raw
+        // data itself and the prefix still defers at a terrain LOD seam.
+        ReadOnlySpan<Type> own =
+        [
+            typeof(TessSafety), typeof(FaceSorting), typeof(NeighbourReads), typeof(JitWarm), typeof(FarLod),
+            typeof(FarFoliage), NeighbourLookup ?? typeof(OccludedChunks)
+        ];
+        var foreign = EngineShape.Foreign(_skipped.AsSpan(0, 1), KapiPatchKinds.Body, null) ||
+                      EngineShape.Foreign(_skipped.AsSpan(1), KapiPatchKinds.All, null, own);
+        StoodDown = EngineShape.Report(Logger, nameof(OccludedChunks), StoodDown, foreign, _skipped, KapiPatchKinds.All,
+            null, own);
     }
 
     // NowProcessChunk, then the bodies whose result it returns: BeginProcessChunk (Leave), extended copy with palette
@@ -130,11 +144,14 @@ internal static class OccludedChunks
         TesselatedChunk tessChunk, bool skipChunkCenter, ref int __result)
     {
         if (!Enabled || StoodDown || !NotNull(tessChunk)) return true;
+
         if (!Enclosed(__instance, chunkX, chunkY, chunkZ, tessChunk)) return true;
         // enclosed, but next to a chunk drawn at another resolution: its open sides draw the seam, else a hole
         if (FarLod.Seam(chunkX, chunkY, chunkZ)) return true;
+
         __result = Apply(__instance, chunkX, chunkY, chunkZ, tessChunk, skipChunkCenter);
         if (Counting.Hud) Counts.Add(0, 1);
+
         return false;
     }
 
@@ -144,7 +161,9 @@ internal static class OccludedChunks
     {
         var empty = EmptyParts(tesselator);
         if (!NotNull(empty) || !Assert(empty.Length == 0)) empty = [];
+
         if (!skipChunkCenter) CenterParts(tessChunk) = empty;
+
         EdgeParts(tessChunk) = empty;
         // BeginProcessChunk's start values, which no tesselator moved
         SetBounds(tessChunk, Start, End, Start, End, Start, End);
@@ -159,32 +178,52 @@ internal static class OccludedChunks
     {
         var map = Game(tesselator)?.WorldMap;
         if (!NotNull(map)) return;
+
         ClimateMap(tesselator) = map.LoadOrCreateLerpedClimateMapOffthread(x, z);
         if (map.LoadOceanityCorners(x, z) is { Length: >= 4 } corners)
+        {
             (OceanTl(tesselator), OceanTr(tesselator), OceanBl(tesselator), OceanBr(tesselator)) =
                 (corners[0], corners[1], corners[2], corners[3]);
+        }
+
         _ = TmpPos(tesselator)?.SetDimension(y / 1024);
     }
 
     internal static bool Enclosed(ChunkTesselator tesselator, int x, int y, int z, TesselatedChunk tessChunk)
     {
         if (!Started(tesselator) || Reload(tesselator)) return false;
+
         var (blocks, game) = (BlocksFast(tesselator), Game(tesselator));
         var (map, count) = (game?.WorldMap, game?.Blocks?.Count ?? 0);
         if (blocks is not { Length: > 0 } || map is null || !Assert(count <= blocks.Length)) return false;
+
         if (x < 0 || y < 0 || z < 0 || x >= MapX(tesselator) || y >= MapY(tesselator) ||
-            z >= MapZ(tesselator)) return false;
+            z >= MapZ(tesselator))
+        {
+            return false;
+        }
+
         var chunk = Chunk(tessChunk);
         if (chunk is not { Empty: false } || !NoDecors(chunk) ||
-            !ReferenceEquals(map.GetChunk(x, y, z), chunk)) return false;
+            !ReferenceEquals(map.GetChunk(x, y, z), chunk))
+        {
+            return false;
+        }
+
         if (Read(chunk) is not { } data || !Fits(data.blocksLayer, blocks, count, AllSides) ||
-            !Fits(data.fluidsLayer, blocks, count, AllSides, true)) return false;
+            !Fits(data.fluidsLayer, blocks, count, AllSides, true))
+        {
+            return false;
+        }
+
         for (var side = 0; side < Faces; side++)
         {
             // BuildBlockPolygons clears the down faces of the world's bottom layer
             if (side == Down && y == 0) continue;
+
             var (dx, dy, dz) = Offsets[side];
             if (map.GetChunk(x + dx, y + dy, z + dz) is not ClientChunk { Empty: false } neighbour) return false;
+
             if (Read(neighbour) is not { } near || !Fits(near.blocksLayer, blocks, count, side)) return false;
         }
 
@@ -195,6 +234,7 @@ internal static class OccludedChunks
     private static ChunkData? Read(ClientChunk chunk)
     {
         if (NeighbourReads.Packed && ChunkViews.Open(chunk) is { } view) return view;
+
         _ = chunk.Unpack_ReadOnly();
         return chunk.Data as ChunkData;
     }
@@ -203,20 +243,27 @@ internal static class OccludedChunks
     {
         var decors = chunk.Decors;
         if (decors is null) return true;
-        lock (decors) return decors.Count == 0; // the engine reads them under this lock
+
+        lock (decors)
+        {
+            return decors.Count == 0; // the engine reads them under this lock
+        }
     }
 
     // No index failing Good in the layer (AllSides) or touching slab (0-5); fluids: no used index maps to non-air
     internal static bool Fits(ChunkDataLayer? layer, Block[] blocks, int count, int side, bool fluids = false)
     {
         if (layer?.palette is not { } palette) return fluids;
+
         Span<int> bad = stackalloc int[MaxBad];
         layer.readWriteLock.AcquireReadLock();
         try
         {
             var (bits, planes) = (Bitsize(layer), DataBits(layer));
             if (bits <= 0) return fluids;
+
             if (!Planes(planes, bits)) return false;
+
             var n = Bad(palette, layer.paletteCount, bits, blocks, count, side, fluids, bad);
             var (first, step, words, mask) = side == AllSides ? (0, 1, Words, -1) : Slabs[side];
             return n >= 0 && !Uses(planes!, bits, bad[..n], first, step, words, mask);
@@ -237,8 +284,13 @@ internal static class OccludedChunks
             var value = i < palette.Length ? palette[i] : -1;
             if (fluids
                     ? value >= 0 && value < blocks.Length && ReferenceEquals(blocks[value], blocks[0])
-                    : i < used && i < palette.Length && Good(Lookup(blocks, value, count), side)) continue;
+                    : i < used && i < palette.Length && Good(Lookup(blocks, value, count), side))
+            {
+                continue;
+            }
+
             if (n >= MaxBad) return -1;
+
             bad[n++] = i;
         }
 
@@ -249,6 +301,7 @@ internal static class OccludedChunks
     private static Block? Lookup(Block[] blocks, int value, int count)
     {
         if (value < 0 || value >= count) return blocks[0];
+
         return Index(value, blocks.Length) ? blocks[value] : null;
     }
 
@@ -256,18 +309,29 @@ internal static class OccludedChunks
     internal static bool Good(Block? block, int side)
     {
         if (block is null) return false;
+
         if (side != AllSides)
+        {
             return block.SideOpaque[TileSideEnum.GetOpposite(side)] &&
                    (side != Up || block.DrawType != EnumDrawType.JSONAndSnowLayer);
-        return block.FaceCullMode == EnumFaceCullMode.Default && block.SideOpaque.All &&
-               block.DrawType is not (EnumDrawType.JSONAndWater or EnumDrawType.JSONAndSnowLayer);
+        }
+
+        return block is
+        {
+            FaceCullMode: EnumFaceCullMode.Default, SideOpaque.All: true,
+            DrawType: not (EnumDrawType.JSONAndWater or EnumDrawType.JSONAndSnowLayer)
+        };
     }
 
     private static bool Planes(int[]?[]? planes, int bits)
     {
         if (planes is null || !Assert(bits is > 0 and <= MaxBits) || planes.Length < bits) return false;
+
         for (var l = 0; l < Math.Min(bits, MaxBits); l++)
+        {
             if (planes[l] is not { Length: >= Words }) return false;
+        }
+
         return true;
     }
 
@@ -275,6 +339,7 @@ internal static class OccludedChunks
     private static bool Uses(int[]?[] planes, int bits, ReadOnlySpan<int> bad, int first, int step, int words, int mask)
     {
         if (bad.IsEmpty) return false;
+
         for (var k = 0; k < Math.Min(words, Words); k++)
         {
             var w = first + k * step;
@@ -282,7 +347,10 @@ internal static class OccludedChunks
             {
                 var hit = mask;
                 for (var l = 0; l < Math.Min(bits, MaxBits) && hit != 0; l++)
+                {
                     hit &= ((bad[b] >> l) & 1) != 0 ? planes[l]![w] : ~planes[l]![w];
+                }
+
                 if (hit != 0) return true;
             }
         }

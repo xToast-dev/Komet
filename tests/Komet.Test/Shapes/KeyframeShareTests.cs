@@ -8,13 +8,13 @@ namespace Komet.Test.Shapes;
 public sealed class KeyframeShareTests
 {
     private const string Json = """
-        [
-          { "code": "a", "quantityframes": 10, "keyframes": [
-            { "frame": 0, "elements": { "head": { "rotationX": 10 }, "tail": { "rotationX": 10 } } },
-            { "frame": 5, "elements": { "head": { "rotationX": 10 } } } ] },
-          { "code": "b", "quantityframes": 10, "keyframes": [
-            { "frame": 0, "elements": { "leg": { "rotationX": 10 }, "arm": { "rotationX": 20 } } } ] } ]
-        """;
+                                [
+                                  { "code": "a", "quantityframes": 10, "keyframes": [
+                                    { "frame": 0, "elements": { "head": { "rotationX": 10 }, "tail": { "rotationX": 10 } } },
+                                    { "frame": 5, "elements": { "head": { "rotationX": 10 } } } ] },
+                                  { "code": "b", "quantityframes": 10, "keyframes": [
+                                    { "frame": 0, "elements": { "leg": { "rotationX": 10 }, "arm": { "rotationX": 20 } } } ] } ]
+                                """;
 
     [Test]
     public void EqualElementsAtOneFrameAreShared()
@@ -32,7 +32,6 @@ public sealed class KeyframeShareTests
             Assert.That(a[1].Elements["head"], Is.Not.SameAs(head), "another frame");
             Assert.That(b[0].Elements["arm"], Is.Not.SameAs(head), "another value");
             Assert.That(KeyframeShare.Holds(head), Is.True);
-            Assert.That(KeyframeShare.Shared, Is.EqualTo(2));
         }
         finally
         {

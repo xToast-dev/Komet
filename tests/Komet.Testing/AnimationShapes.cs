@@ -76,11 +76,13 @@ public static class AnimationShapes
         {
             var root = Path.Combine(GameInstall.Assets, domain, "shapes");
             if (!Directory.Exists(root)) continue;
+
             foreach (var file in Directory.EnumerateFiles(root, "*.json", SearchOption.AllDirectories)
                          .Order(StringComparer.Ordinal))
             {
                 var text = File.ReadAllText(file);
                 if (!text.Contains("\"animations\"", StringComparison.OrdinalIgnoreCase)) continue;
+
                 yield return (domain, Path.GetRelativePath(root, file)[..^5], text);
             }
         }
@@ -93,7 +95,7 @@ public static class AnimationShapes
         return shape;
     }
 
-    public static Shape PlayerUninitialised(string outfit) => Compose(Seraph(), outfit);
+    private static Shape PlayerUninitialised(string outfit) => Compose(Seraph(), outfit);
 
     // The shared shape every player is cloned from, resolved as ShapeTesselatorManager leaves it
     public static Shape Seraph()
@@ -138,7 +140,10 @@ public static class AnimationShapes
         {
             var element = stack.Pop();
             elements.Add(element);
-            foreach (var child in (element.Children ?? []).Reverse()) stack.Push(child);
+            foreach (var child in (element.Children ?? []).Reverse())
+            {
+                stack.Push(child);
+            }
         }
 
         return elements;
@@ -153,7 +158,10 @@ public static class AnimationShapes
         {
             var pose = stack.Pop();
             poses.Add(pose);
-            foreach (var child in Enumerable.Reverse(pose.ChildElementPoses)) stack.Push(child);
+            foreach (var child in Enumerable.Reverse(pose.ChildElementPoses))
+            {
+                stack.Push(child);
+            }
         }
 
         return poses;
@@ -162,13 +170,15 @@ public static class AnimationShapes
     // A body with a head and an arm with a hand; "wave" moves the arm and the hand and names "gone", which no element has, and "cape"
     public static Shape Synthetic()
     {
-        static ShapeElement Element(string name, params ShapeElement[] children) => new()
-        {
-            Name = name, From = [1, 2, 3], To = [2, 3, 4], RotationOrigin = [0, 0, 0],
-            Children = children.Length == 0 ? null : children
-        };
+        static ShapeElement Element(string name, params ShapeElement[] children) =>
+            new()
+            {
+                Name = name, From = [1, 2, 3], To = [2, 3, 4], RotationOrigin = [0, 0, 0],
+                Children = children.Length == 0 ? null : children
+            };
 
-        static AnimationKeyFrameElement Rotated(double x) => new() { RotationX = x, RotationY = 0, RotationZ = 0 };
+        static AnimationKeyFrameElement Rotated(double x) =>
+            new() { RotationX = x, RotationY = 0, RotationZ = 0 };
 
         var shape = new Shape
         {
@@ -222,7 +232,9 @@ public static class AnimationShapes
         string Id(object? o)
         {
             if (o is null) return "null";
+
             if (!ids.TryGetValue(o, out var id)) ids[o] = id = ids.Count;
+
             return "#" + id;
         }
 
@@ -237,9 +249,16 @@ public static class AnimationShapes
                     $"  point {point.Code} parent={Id(point.ParentElement)}"));
             }
 
-            foreach (var (id, joint) in shape.JointsById) state.Add($"joint {id}: {joint.JointId} {Id(joint.Element)}");
+            foreach (var (id, joint) in shape.JointsById)
+            {
+                state.Add($"joint {id}: {joint.JointId} {Id(joint.Element)}");
+            }
+
             foreach (var (crc, animation) in shape.AnimationsByCrc32.OrderBy(pair => pair.Key))
+            {
                 state.Add($"crc {crc}: {Id(animation)}");
+            }
+
             foreach (var animation in shape.Animations ?? [])
             {
                 state.Add($"animation {Id(animation)} {animation.Code} {animation.Version} {animation.CodeCrc32} " +
@@ -251,8 +270,10 @@ public static class AnimationShapes
                         .Select(p => $"{Id(p.Key)}>{Id(p.Value)}");
                     state.Add($"  key {key.Frame} {table?.GetType().Name} [{string.Join(" ", pairs ?? [])}]");
                     foreach (var (name, element) in key.Elements ?? [])
+                    {
                         state.Add($"    {name} {Id(element)} frame={Frame.GetValue(element)} " +
                                   $"for={Id(element.ForElement)} {element.ForElement?.Name}");
+                    }
                 }
             }
         }
@@ -267,20 +288,29 @@ public static class AnimationShapes
     public static string? Diff(AnimationFrame[][]? engine, AnimationFrame[][]? fast, bool byName = false)
     {
         if (engine is null || fast is null) return engine is null == fast is null ? null : "null";
+
         if (engine.Length != fast.Length) return $"length {engine.Length} vs {fast.Length}";
+
         var seenEngine = new Dictionary<AnimationFrame, int>(ReferenceEqualityComparer.Instance);
         var seenFast = new Dictionary<AnimationFrame, int>(ReferenceEqualityComparer.Instance);
         for (var frame = 0; frame < engine.Length; frame++)
         {
             if (engine[frame].Length != 2 || fast[frame].Length != 2) return $"frame {frame}: not a pair";
+
             for (var side = 0; side < 2; side++)
             {
                 var (a, b) = (engine[frame][side], fast[frame][side]);
                 if (!seenEngine.TryGetValue(a, out var ia)) seenEngine[a] = ia = seenEngine.Count;
+
                 if (!seenFast.TryGetValue(b, out var ib)) seenFast[b] = ib = seenFast.Count;
+
                 if (ia != ib) return $"frame {frame}/{side}: shares a different AnimationFrame";
+
                 if (a.FrameNumber != b.FrameNumber)
+                {
                     return $"frame {frame}/{side}: FrameNumber {a.FrameNumber} vs {b.FrameNumber}";
+                }
+
                 var diff = Poses(a, b, $"frame {frame}/{side}", byName);
                 if (diff != null) return diff;
             }
@@ -297,10 +327,12 @@ public static class AnimationShapes
         {
             var (x, y, at) = stack.Pop();
             if (x.Count != y.Count) return $"{at}: {x.Count} vs {y.Count} poses";
+
             for (var i = x.Count - 1; i >= 0; i--)
             {
                 var diff = Pose(x[i], y[i], $"{at}/{i}", byName);
                 if (diff != null) return diff;
+
                 stack.Push((x[i].ChildElementPoses, y[i].ChildElementPoses, $"{at}/{i}"));
             }
         }
@@ -311,8 +343,12 @@ public static class AnimationShapes
     private static string? Pose(ElementPose a, ElementPose b, string where, bool byName)
     {
         if (byName ? a.ForElement?.Name != b.ForElement?.Name : !ReferenceEquals(a.ForElement, b.ForElement))
+        {
             return $"{where}: ForElement";
+        }
+
         if (a.AnimModelMatrix != null || b.AnimModelMatrix != null) return $"{where}: AnimModelMatrix";
+
         float[] x =
         [
             a.degX, a.degY, a.degZ, a.degOffX, a.degOffY, a.degOffZ, a.scaleX, a.scaleY, a.scaleZ, a.translateX,
@@ -324,10 +360,19 @@ public static class AnimationShapes
             b.translateY, b.translateZ
         ];
         for (var i = 0; i < x.Length; i++)
+        {
             if (Bits(x[i]) != Bits(y[i]))
+            {
                 return $"{where}: float {i} {x[i]} vs {y[i]} ({Bits(x[i]):X8} vs {Bits(y[i]):X8})";
+            }
+        }
+
         if (a.RotShortestDistanceX != b.RotShortestDistanceX || a.RotShortestDistanceY != b.RotShortestDistanceY ||
-            a.RotShortestDistanceZ != b.RotShortestDistanceZ) return $"{where}: RotShortestDistance";
+            a.RotShortestDistanceZ != b.RotShortestDistanceZ)
+        {
+            return $"{where}: RotShortestDistance";
+        }
+
         return null;
     }
 }

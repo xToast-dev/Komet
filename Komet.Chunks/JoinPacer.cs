@@ -1,3 +1,4 @@
+using Komet.Core;
 using Vintagestory.Client;
 using Vintagestory.Server;
 
@@ -15,8 +16,9 @@ internal static class JoinPacer
 {
     // Loading should not show: the server is slowed as soon as collections take 3 % of the time (a quiet world: ~1-2 %),
     // not from 8 % (a user's exploring protocol: 5.5 % went unchecked); far terrain arrives later for it
-    private const int TickMs = 250, MaxBacklog = 3000, CalmBacklog = 1000;
-    private const double HighPause = 0.03, CalmPause = 0.015, Down = 0.6, Up = 1.2, MinScale = 0.125;
+    private const int TickMs = 250, CriticalBacklog = 6000, MaxBacklog = 3000, CalmBacklog = 1000;
+    private const double HighPause = 0.03, CriticalPause = 0.12, CalmPause = 0.015;
+    private const double InitialScale = 0.25, Down = 0.6, Up = 1.2, MinScale = 1.0 / 256;
 
     private static ICoreClientAPI? _api;
     private static long _listener;
@@ -24,7 +26,7 @@ internal static class JoinPacer
     private static (TimeSpan Pause, long At) _last;
     private static bool _enabled = true;
 
-    public static double Scale { get; private set; } = 1;
+    private static double Scale { get; set; } = 1;
 
     public static bool Enabled
     {
@@ -39,17 +41,19 @@ internal static class JoinPacer
     public static void Install(ICoreClientAPI api)
     {
         Stop();
-        if (!NotNull(api) || !NotNull(api.Event)) return;
+        if (!NotNull(api.Event)) return;
+
         _api = api;
         _engine = (MagicNum.ChunksColumnsToRequestPerTick, MagicNum.ChunksToSendPerTick);
         (_last, Scale) = ((GC.GetTotalPauseDuration(), Environment.TickCount64), 1);
         _listener = api.Event.RegisterGameTickListener(Step, TickMs);
+        if (_enabled) Apply(InitialScale);
     }
 
     // The world ends or the feature stops: the server's numbers as they were
     public static void Stop()
     {
-        Komet.Core.Listeners.Unregister(_api?.Event, _listener);
+        Listeners.Unregister(_api?.Event, _listener);
         Apply(1);
         (_api, _listener, _engine) = (null, 0, null);
     }
@@ -60,18 +64,34 @@ internal static class JoinPacer
         var (wall, paused) = (now - _last.At, (pause - _last.Pause).TotalMilliseconds);
         _last = (pause, now);
         if (!_enabled || wall <= 0) return;
-        var (share, backlog) = (paused / wall, RuntimeStats.chunksAwaitingTesselation);
-        var scale = Scale;
-        if (share > HighPause || backlog > MaxBacklog) scale *= Down;
-        else if (share < CalmPause && backlog < CalmBacklog) scale *= Up;
-        Apply(Math.Clamp(scale, MinScale, 1));
+
+        Apply(NextScale(Scale, paused / wall, RuntimeStats.chunksAwaitingTesselation));
+    }
+
+    internal static double NextScale(double scale, double pauseShare, int backlog)
+    {
+        if (backlog >= CriticalBacklog && pauseShare >= CriticalPause) return MinScale;
+
+        if (pauseShare > HighPause || backlog > MaxBacklog)
+        {
+            return Math.Max(MinScale, scale * Down);
+        }
+
+        return pauseShare < CalmPause && backlog < CalmBacklog ? Math.Min(1, scale * Up) : scale;
     }
 
     private static void Apply(double scale)
     {
         if (_engine is not var (request, send)) return;
+
         Scale = scale;
+        if (scale >= 1)
+        {
+            (MagicNum.ChunksColumnsToRequestPerTick, MagicNum.ChunksToSendPerTick) = (request, send);
+            return;
+        }
+
         MagicNum.ChunksColumnsToRequestPerTick = Math.Max(1, (int)Math.Round(request * scale));
-        MagicNum.ChunksToSendPerTick = Math.Max(8, (int)Math.Round(send * scale));
+        MagicNum.ChunksToSendPerTick = Math.Max(1, (int)Math.Round(send * scale));
     }
 }

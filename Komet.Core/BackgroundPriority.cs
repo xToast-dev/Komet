@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Komet.Core;
@@ -16,7 +18,8 @@ internal static partial class BackgroundPriority
     private const int Niceness = 5, EveryMs = 5000, MaxThreads = 1024, NameLength = 64;
     private const int BelowNormal = -1, QueryLimited = 0x0800, SetLimited = 0x0400;
 
-    private static readonly Regex Background = new(
+    // The thread names of the background work lowered
+    internal static readonly Regex Background = new(
         "^(SingleplayerSer|physicsManager|UdpSending|tesselateterrai|snowlayerScanne|ServerBlockTick|Relight|relight|" +
         "komet-worker|CompressChunks|compresschunks|collecttextures|clientPacketsPa|chunkvis|chunkdbthread|CheckLeafDecay|" +
         "blockticking|asyncparticles|ai-pathfinding|Vintage:disk|Vintag:sh_opt|Vintagesto:sh)", RegexOptions.Compiled,
@@ -31,6 +34,7 @@ internal static partial class BackgroundPriority
     {
         Stop();
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows()) return;
+
         _timer = new Timer(static _ => Scan(), null, 0, EveryMs);
     }
 
@@ -39,18 +43,28 @@ internal static partial class BackgroundPriority
         _timer?.Dispose();
         _timer = null;
         lock (Lowered)
+        {
             Lowered.Clear();
+        }
     }
 
     private static void Scan()
     {
         if (!Enabled) return;
+
         try
         {
-            if (OperatingSystem.IsLinux()) ScanLinux();
-            else if (OperatingSystem.IsWindows()) ScanWindows();
+            if (OperatingSystem.IsLinux())
+            {
+                ScanLinux();
+            }
+            else if (OperatingSystem.IsWindows())
+            {
+                ScanWindows();
+            }
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or DllNotFoundException or EntryPointNotFoundException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or DllNotFoundException
+                                      or EntryPointNotFoundException)
         {
             Enabled = false; // the platform does not let us: everything stays at normal priority
         }
@@ -65,10 +79,12 @@ internal static partial class BackgroundPriority
     {
         var tasks = Directory.GetDirectories("/proc/self/task");
         if (!Assert(tasks.Length <= MaxThreads * 4)) return;
+
         Span<char> buffer = stackalloc char[NameLength];
         foreach (var task in tasks.Bounded(MaxThreads))
         {
             if (!long.TryParse(Path.GetFileName(task), out var tid) || Seen(tid)) continue;
+
             bool background;
             try
             {
@@ -90,20 +106,22 @@ internal static partial class BackgroundPriority
         Span<byte> bytes = stackalloc byte[NameLength];
         using var handle = File.OpenHandle(Path.Join(task, "comm"));
         var read = Math.Clamp(RandomAccess.Read(handle, bytes, 0), 0, Math.Min(NameLength, name.Length));
-        var chars = System.Text.Encoding.UTF8.GetChars(bytes[..read], name);
+        var chars = Encoding.UTF8.GetChars(bytes[..read], name);
         return name[..chars].Trim();
     }
 
     private static void ScanWindows()
     {
-        using var process = System.Diagnostics.Process.GetCurrentProcess();
-        foreach (var thread in process.Threads.Cast<System.Diagnostics.ProcessThread>().Bounded(MaxThreads))
+        using var process = Process.GetCurrentProcess();
+        foreach (var thread in process.Threads.Cast<ProcessThread>().Bounded(MaxThreads))
         {
             var id = thread.Id;
             thread.Dispose();
             if (Seen(id)) continue;
+
             var handle = OpenThread(QueryLimited | SetLimited, false, (uint)id);
             if (handle == IntPtr.Zero) continue;
+
             try
             {
                 if (GetThreadDescription(handle, out var text) >= 0 && text != IntPtr.Zero)
@@ -124,24 +142,27 @@ internal static partial class BackgroundPriority
     private static int Length(IntPtr text)
     {
         for (var n = 0; n < NameLength; n++)
-            if (Marshal.ReadInt16(text, 2 * n) == 0)
-                return n;
+        {
+            if (Marshal.ReadInt16(text, 2 * n) == 0) return n;
+        }
+
         return NameLength;
     }
 
-    // A thread name of the background work lowered (tests)
-    internal static bool IsBackground(string name) => NotNull(name) && Background.IsMatch(name);
-
     private static bool Seen(long id)
     {
-        lock (Lowered) return Lowered.Contains(id);
+        lock (Lowered)
+        {
+            return Lowered.Contains(id);
+        }
     }
 
     private static void Lower(long id)
     {
         lock (Lowered)
-            if (Lowered.Count < MaxThreads * 4)
-                _ = Lowered.Add(id);
+        {
+            if (Lowered.Count < MaxThreads * 4) _ = Lowered.Add(id);
+        }
     }
 
     [LibraryImport("kernel32.dll", EntryPoint = "OpenThread", SetLastError = true)]
@@ -181,6 +202,7 @@ internal static partial class ThreadNice
     public static bool Lower(long tid, int nice)
     {
         if (!Assert(tid is > 0 and <= uint.MaxValue) || !Assert(nice is > 0 and <= MaxNice)) return false;
+
         return SetPriority(PrioProcess, (uint)tid, nice) == 0;
     }
 

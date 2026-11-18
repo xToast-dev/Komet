@@ -1,32 +1,33 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <!-- The mod the game loads (Komet.dll: KometModSystem, MapTracking, Modules.cs) with modinfo.json and the assets; the
          code lives in the module projects it references, which the build copies beside it and Package ships in the zip.
          Settings, game references and the analyzer: ../Komet.Module.props -->
-    <Import Project="../Komet.Module.props"/>
+    <Import Project="../Komet.Module.props" />
 
     <PropertyGroup>
         <OutputPath>bin\$(Configuration)\Mods\mod</OutputPath>
-    </PropertyGroup>
+      <UserSecretsId>56cdb37a-e548-44a3-8218-e338b8dccdf0</UserSecretsId>
+  </PropertyGroup>
 
     <!-- Every module, top down; the mod names them all (Modules.cs) -->
     <ItemGroup>
-        <ProjectReference Include="../Komet.Ui/Komet.Ui.csproj"/>
-        <ProjectReference Include="../Komet.Vulkan/Komet.Vulkan.csproj"/>
-        <ProjectReference Include="../Komet.World/Komet.World.csproj"/>
-        <ProjectReference Include="../Komet.Shapes/Komet.Shapes.csproj"/>
-        <ProjectReference Include="../Komet.Chunks/Komet.Chunks.csproj"/>
-        <ProjectReference Include="../Komet.Tessellation/Komet.Tessellation.csproj"/>
-        <ProjectReference Include="../Komet.Rendering/Komet.Rendering.csproj"/>
-        <ProjectReference Include="../Komet.Diagnostics/Komet.Diagnostics.csproj"/>
-        <ProjectReference Include="../Komet.Core/Komet.Core.csproj"/>
+        <ProjectReference Include="../Komet.Ui/Komet.Ui.csproj" />
+        <ProjectReference Include="../Komet.Vulkan/Komet.Vulkan.csproj" />
+        <ProjectReference Include="../Komet.World/Komet.World.csproj" />
+        <ProjectReference Include="../Komet.Shapes/Komet.Shapes.csproj" />
+        <ProjectReference Include="../Komet.Chunks/Komet.Chunks.csproj" />
+        <ProjectReference Include="../Komet.Tessellation/Komet.Tessellation.csproj" />
+        <ProjectReference Include="../Komet.Rendering/Komet.Rendering.csproj" />
+        <ProjectReference Include="../Komet.Diagnostics/Komet.Diagnostics.csproj" />
+        <ProjectReference Include="../Komet.Core/Komet.Core.csproj" />
     </ItemGroup>
 
     <!-- Stamped by CI (see .github/workflows/build.yml); a local build carries neither and the HUD shows plain Release -->
     <ItemGroup>
-        <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''"/>
-        <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''"/>
-        <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''"/>
+        <AssemblyMetadata Include="Channel" Value="$(KometChannel)" Condition="'$(KometChannel)' != ''" />
+        <AssemblyMetadata Include="Commit" Value="$(KometCommit)" Condition="'$(KometCommit)' != ''" />
+        <AssemblyMetadata Include="Built" Value="$(KometBuilt)" Condition="'$(KometBuilt)' != ''" />
     </ItemGroup>
 
     <!-- The edition the HUD names, from modinfo.json's version at every build: a Debug build (VS Code's launch) is Development, a
@@ -37,55 +38,63 @@
             <KometModInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/modinfo.json'))</KometModInfo>
             <KometVersion>$([System.Text.RegularExpressions.Regex]::Match($(KometModInfo), '(?&lt;="version"\s*:\s*")[^"]*'))</KometVersion>
             <KometSuffix>$([System.Text.RegularExpressions.Regex]::Match($(KometVersion), '(?&lt;=^\d+\.\d+\.\d+-).+$'))</KometSuffix>
-            <KometEdition Condition="'$(Configuration)' == 'Debug'">dev</KometEdition>
+            <KometEdition Condition="'$(Configuration)' == 'Debug' or $([System.String]::Copy('$(KometSuffix)').StartsWith('dev.'))">dev</KometEdition>
             <KometEdition Condition="'$(KometEdition)' == '' and '$(KometSuffix)' != ''">pre</KometEdition>
             <KometEdition Condition="'$(KometEdition)' == ''">release</KometEdition>
         </PropertyGroup>
-        <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch($(KometVersion), '^\d+\.\d+\.\d+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'))"
-               Text="modinfo.json: version '$(KometVersion)' is not major.minor.patch with an optional suffix (3.0.0, 3.0.0-pre1, 3.0.0-rc.2)"/>
+        <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch($(KometVersion), '^\d+\.\d+\.\d+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$'))" Text="modinfo.json: version '$(KometVersion)' is not major.minor.patch with an optional suffix (3.0.0, 3.0.0-pre1, 3.0.0-rc.2)" />
         <ItemGroup>
-            <AssemblyMetadata Include="Edition" Value="$(KometEdition)"/>
+            <AssemblyMetadata Include="Edition" Value="$(KometEdition)" />
         </ItemGroup>
-        <Message Importance="high" Text="Komet $(KometVersion): $(KometEdition) build"/>
+        <Message Importance="high" Text="Komet $(KometVersion): $(KometEdition) build" />
     </Target>
 
     <ItemGroup>
         <!-- the templates' code is the mods' own, compiled by them; not part of Komet -->
-        <Compile Remove="assets/**"/>
+        <Compile Remove="assets/**" />
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest"/>
-        <Content Include="modicon.png" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="modicon.png" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
     <!-- `dotnet build -c Release -t:Package` (build.sh) builds, lays the mod out in ../Releases/<modid> (scripts/bench.sh loads it from
          there, beside the benchmark mod from Komet.Bench) and zips it as <modid>_<version>.zip. An explicit target, not one after every Release build: a Release build of the tests
          must neither replace the gate's zip nor delete the folder a bench is running from. -->
     <Target Name="Package" DependsOnTargets="ValidateJson;Build;KometEdition">
-        <Error Condition="'$(Configuration)' != 'Release'" Text="Package takes a Release build: dotnet build -c Release -t:Package"/>
+        <Error Condition="'$(Configuration)' != 'Release'" Text="Package takes a Release build: dotnet build -c Release -t:Package" />
         <PropertyGroup>
             <ModId>$([System.Text.RegularExpressions.Regex]::Match($(KometModInfo), '(?&lt;="modid"\s*:\s*")[^"]+'))</ModId>
             <ReleaseRoot>$(MSBuildProjectDirectory)/../Releases</ReleaseRoot>
             <ReleaseDir>$(ReleaseRoot)/$(ModId)</ReleaseDir>
+            <ShadercPackage>$(MSBuildProjectDirectory)/obj/native/silk.net.shaderc.native.2.23.0.nupkg</ShadercPackage>
+            <ShadercUnpacked>$(MSBuildProjectDirectory)/obj/native/unpacked</ShadercUnpacked>
         </PropertyGroup>
-        <Error Condition="'$(ModId)' == '' or '$(KometVersion)' == ''" Text="modinfo.json: modid and version must not be empty"/>
+        <Error Condition="'$(ModId)' == '' or '$(KometVersion)' == ''" Text="modinfo.json: modid and version must not be empty" />
         <ItemGroup>
             <!-- the mod and every module assembly the build copied beside it, with their pdbs for stack-trace lines -->
-            <ReleaseFile Include="$(TargetDir)Komet*.dll;$(TargetDir)Komet*.pdb;@(Content)"/>
-            <ReleaseAsset Include="assets/**"/>
+            <ReleaseFile Include="$(TargetDir)Komet*.dll;$(TargetDir)Komet*.pdb;@(Content)" />
+            <ReleaseAsset Include="assets/**" />
         </ItemGroup>
         <!-- only this mod's folder and zips: Komet.Bench lays the developer benchmark out beside it (Releases/kometbench) -->
         <ItemGroup>
-            <ReleaseZip Include="$(ReleaseRoot)/$(ModId)_*.zip"/>
+            <ReleaseZip Include="$(ReleaseRoot)/$(ModId)_*.zip" />
         </ItemGroup>
-        <RemoveDir Directories="$(ReleaseDir)"/>
-        <Delete Files="@(ReleaseZip)"/>
-        <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)"/>
-        <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset->'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')"/>
+        <RemoveDir Directories="$(ReleaseDir)" />
+        <Delete Files="@(ReleaseZip)" />
+        <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)" />
+        <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset-&gt;'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')" />
         <!-- Windows has no shaderc of its own: Vulkan-only must not wait for a download there (Shaderc.Shipped) -->
-        <Exec Command="bash &quot;$(MSBuildProjectDirectory)/../scripts/shaderc-native.sh&quot; &quot;$(ReleaseDir)/native&quot;"/>
-        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip"/>
+        <DownloadFile SourceUrl="https://api.nuget.org/v3-flatcontainer/silk.net.shaderc.native/2.23.0/silk.net.shaderc.native.2.23.0.nupkg" DestinationFolder="$(MSBuildProjectDirectory)/obj/native" DestinationFileName="silk.net.shaderc.native.2.23.0.nupkg" Retries="3" Condition="!Exists('$(ShadercPackage)')" />
+        <GetFileHash Files="$(ShadercPackage)" Algorithm="SHA256">
+            <Output TaskParameter="Hash" PropertyName="ShadercHash" />
+        </GetFileHash>
+        <Error Condition="'$(ShadercHash)' != '50F67D5EBAEFE97BD55F9B0EED4044F57C925675D55100D35A51718CCAB948BE'" Text="shaderc package hash mismatch: delete $(ShadercPackage) and build again" />
+        <Unzip SourceFiles="$(ShadercPackage)" DestinationFolder="$(ShadercUnpacked)" Include="runtimes/win-x64/native/shaderc_shared.dll" />
+        <Copy SourceFiles="$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll" DestinationFolder="$(ReleaseDir)/native/win-x64" />
+        <WriteLinesToFile File="$(ReleaseDir)/native/win-x64/NOTICE.txt" Overwrite="true" Lines="shaderc_shared.dll: shaderc by Google (https://github.com/google/shaderc), Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0), unmodified, as built in the nuget package Silk.NET.Shaderc.Native 2.23.0." />
+        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip" />
     </Target>
 
     <!-- The zip carries modinfo.json and the assets as they are, and the game parses them with Newtonsoft. The analyzer reads the lang
@@ -93,19 +102,19 @@
          fails the package. -->
     <Target Name="ValidateJson">
         <ItemGroup>
-            <JsonFile Include="modinfo.json;assets/**/*.json"/>
+            <JsonFile Include="modinfo.json;assets/**/*.json" />
         </ItemGroup>
-        <ValidateJson Library="$(VsInstall)/Lib/Newtonsoft.Json.dll" Files="@(JsonFile)"/>
+        <ValidateJson Library="$(VsInstall)/Lib/Newtonsoft.Json.dll" Files="@(JsonFile)" />
     </Target>
 
     <!-- An inline task compiles against netstandard, which cannot see the game's net6 Newtonsoft; so the parser is bound at run time -->
     <UsingTask TaskName="ValidateJson" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
         <ParameterGroup>
-            <Library Required="true"/>
-            <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true"/>
+            <Library Required="true" />
+            <Files ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
         </ParameterGroup>
         <Task>
-            <Using Namespace="System.Reflection"/>
+            <Using Namespace="System.Reflection" />
             <Code Type="Fragment" Language="cs"><![CDATA[
                 var parse = Assembly.LoadFrom(Library).GetType("Newtonsoft.Json.Linq.JToken", true).GetMethod("Parse", new[] { typeof(string) });
                 foreach (var file in Files)

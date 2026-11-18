@@ -1,3 +1,5 @@
+using Vintagestory.GameContent;
+
 namespace Komet.Test;
 
 // Before any fixture, as the game before it starts: its own dependencies resolve from the installation. A fixture that reaches
@@ -11,11 +13,13 @@ public sealed class GameAssemblies
     public void ResolveLikeTheGame()
     {
         GameInstall.ResolveAssemblies();
-        Komet.Modules.Register(); // the feature table, as the mod's StartPre fills it
+        Modules.Register(); // the feature table, as the mod's StartPre fills it
         // the essentials mod, loaded before Komet as in the game: features find its types by name
-        _ = typeof(Vintagestory.GameContent.MultiChunkMapComponent).Assembly;
+        _ = typeof(MultiChunkMapComponent).Assembly;
         if (Environment.GetEnvironmentVariable("XDG_SESSION_TYPE") == "wayland" &&
             Environment.GetEnvironmentVariable("OPENTK_4_USE_WAYLAND") is null)
+        {
             Environment.SetEnvironmentVariable("OPENTK_4_USE_WAYLAND", "0");
+        }
     }
 }

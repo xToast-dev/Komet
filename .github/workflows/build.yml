@@ -1,7 +1,7 @@
 name: build
 
-# Gate: build.sh (JSON check, Komet.Rules, warnings as errors, package) and the portable tests on Linux, the build and the
-# portable tests on Windows. The full suite (tests/Komet.Test) needs a game install and runs locally only.
+# Package Komet and the SDK, then run the portable tests on Linux and Windows.
+# The full suite (tests/Komet.Test) needs a game install and runs locally only.
 on:
   push:
     branches: [main, nightly]
@@ -42,8 +42,11 @@ jobs:
         working-directory: .github/vintagestory
         run: sha256sum --check --strict SHA256SUMS
 
-      - name: Build, check and pack
-        run: ./build.sh
+      - name: Build and package Komet
+        run: dotnet build Komet/Komet.csproj -c Release -t:Package --nologo
+
+      - name: Build and package Komet SDK
+        run: dotnet build Komet.Sdk/Komet.Sdk.csproj -c Release -t:Package --nologo
 
       - name: Portable tests
         run: dotnet test tests/Komet.Portable -c Release --nologo
@@ -51,7 +54,7 @@ jobs:
       - name: Report checksums
         run: |
           cd Releases
-          sha256sum komet_*.zip > komet.sha256
+          sha256sum komet_*.zip kometsdk_*.zip > komet.sha256
           {
             echo '### sha256'
             echo
@@ -61,11 +64,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat komet.sha256
 
-      - uses: actions/upload-artifact@v7
+      - name: Upload Komet and Komet SDK
+        uses: actions/upload-artifact@v7
         with:
           name: komet
           path: |
             Releases/komet_*.zip
+            Releases/kometsdk_*.zip
             Releases/komet.sha256
           if-no-files-found: error
 
@@ -87,8 +92,11 @@ jobs:
         shell: bash
         run: tr -d '\r' < SHA256SUMS | sha256sum --check --strict - # the checkout turns text files to CRLF here
 
-      - name: Build
-        run: dotnet build Komet/Komet.csproj -c Release --nologo
+      - name: Build and package Komet
+        run: dotnet build Komet/Komet.csproj -c Release -t:Package --nologo
+
+      - name: Build and package Komet SDK
+        run: dotnet build Komet.Sdk/Komet.Sdk.csproj -c Release -t:Package --nologo
 
       - name: Portable tests
         run: dotnet test tests/Komet.Portable -c Release --nologo
@@ -185,6 +193,7 @@ jobs:
           make_latest: ${{ steps.what.outputs.preview == 'true' && 'false' || 'legacy' }}
           files: |
             dist/komet_*.zip
+            dist/kometsdk_*.zip
             dist/komet.sha256
           fail_on_unmatched_files: true
 

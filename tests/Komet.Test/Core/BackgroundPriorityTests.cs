@@ -14,5 +14,5 @@ public sealed class BackgroundPriorityTests
     [TestCase("komet-frame-bri", false)]
     [TestCase("chunkculling", false)]
     public void ThreadNamesAreTold(string name, bool background) =>
-        Assert.That(BackgroundPriority.IsBackground(name), Is.EqualTo(background));
+        Assert.That(BackgroundPriority.Background.IsMatch(name), Is.EqualTo(background));
 }

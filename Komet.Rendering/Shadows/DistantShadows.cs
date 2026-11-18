@@ -1,14 +1,14 @@
-using HarmonyLib;
-using Komet.Core;
-using OpenTK.Graphics.OpenGL;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using HarmonyLib;
+using Komet.Core;
+using Komet.Diagnostics;
+using OpenTK.Graphics.OpenGL;
 using Vintagestory.API.MathTools;
-using Vintagestory.Client.NoObf;
 using Vintagestory.Client;
+using Vintagestory.Client.NoObf;
 using Vintagestory.Common;
 using static Komet.Rendering.Fields;
-using Komet.Diagnostics;
 
 namespace Komet.Rendering;
 
@@ -25,7 +25,6 @@ internal static partial class DistantShadows
     private const double MaxAngle = 0.3 * Math.PI / 180, Margin = 96, MinRadius = 256, MaxRadius = 2048, Bias = 1.5;
     private const long MaxAge = 20000;
 
-    private static bool _shaped, _injected, _failed;
     private static ILogger? _logger;
     private static string? _rejected; // the vertex include last found not to be the engine's ("" when missing)
 
@@ -35,62 +34,76 @@ internal static partial class DistantShadows
     private static int _front, _size, _tile = -1;
 
     // For the shaders: matrix into the front map for this frame's camera (_version bumps on change)
-    private static readonly float[] Matrix = new float[16], Mvp = new float[16], OnTexel = new float[3];
+    private static readonly float[] Matrix = new float[16], Mvp = new float[16];
 
     // Per-frame matrix scratch (no allocation); main thread
     private static readonly double[] Lit = new double[3], Cam = new double[3], Eye = new double[3];
     private static readonly double[] Step1 = Mat4d.Create(), Step2 = Mat4d.Create(), Clip = Mat4d.Create();
     private static readonly double[] Sample = Mat4d.Create(), Part = Mat4d.Create(), World = Mat4d.Create();
+
     private static readonly double[] Offset =
         Mat4d.Scale(Mat4d.Create(), Mat4d.Translate(Mat4d.Create(), Mat4d.Create(), 0.5, 0.5, 0.5), [0.5, 0.5, 0.5]);
+
     private static readonly double[] Up = [0, 1, 0], North = [0, 0, 1], Origin = [0, 0, 0];
     private static float _on;
     private static int _version = 1, _bound, _maps = 1; // _maps: new whenever the front texture's content changes
     private static readonly Dictionary<int, Program> Programs = [];
 
     public static bool Enabled { get; set; } = true;
-    internal static bool Matched => _shaped;
-    internal static bool Injected => _injected;
-    internal static bool Failed => _failed;
+    internal static bool Matched { get; private set; }
+
+    internal static bool Injected { get; private set; }
+
+    internal static bool Failed { get; private set; }
 
     // Map being drawn: kept across frames, so its casters are not the view's (ShadowView)
     internal static bool Drawing { get; private set; }
 
-
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
-        (_shaped, _injected, _failed, _logger, _tile, _rejected) = (false, false, false, logger, -1, null);
+        (Matched, Injected, Failed, _logger, _tile, _rejected) = (false, false, false, logger, -1, null);
         Programs.Clear();
         var seams = Seams();
-        if (!NotNull(harmony) || seams[0] is not MethodInfo done ||
-            seams[1] is not MethodInfo load || seams[3] is not MethodInfo use) return;
-        _shaped = EngineShape.Matches(seams, fingerprint, nameof(DistantShadows), logger);
-        if (!_shaped) return;
+        if (seams[0] is not MethodInfo done ||
+            seams[1] is not MethodInfo load || seams[3] is not MethodInfo use)
+        {
+            return;
+        }
+
+        Matched = EngineShape.Matches(seams, fingerprint, nameof(DistantShadows), logger);
+        if (!Matched) return;
+
         _ = harmony.Patch(load, new HarmonyMethod(Inject), new HarmonyMethod(Define));
         _ = harmony.Patch(done, postfix: new HarmonyMethod(Frame));
         _ = harmony.Patch(use, postfix: new HarmonyMethod(Use));
     }
 
     internal static MethodBase?[] Seams() =>
-    [
-        AccessTools.DeclaredMethod(typeof(SystemRenderShadowMap), "OnRenderShadowFarDone", [typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
-            [typeof(ShaderProgram), typeof(bool)]),
-        AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]),
-        AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))
-    ];
+        [
+            AccessTools.DeclaredMethod(typeof(SystemRenderShadowMap), "OnRenderShadowFarDone", [typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
+                [typeof(ShaderProgram), typeof(bool)]),
+            AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]),
+            AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))
+        ];
 
     // Once per full shader load (reload re-reads assets), both includes or neither. Includes found foreign are
     // remembered by reference, so the programs after the first of a load neither search nor log again.
-    internal static void Inject()
+    private static void Inject()
     {
         if (ShaderEdits.Includes() is not { } includes) return;
+
         var vertex = includes.GetValueOrDefault(VertexFile);
-        if (ReferenceEquals(vertex ?? "", _rejected) || vertex is not null && vertex.Contains(Marker, StringComparison.Ordinal)) return;
+        if (ReferenceEquals(vertex ?? "", _rejected) ||
+            (vertex is not null && vertex.Contains(Marker, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
         Programs.Clear(); // programs are rebuilt
         var (v, f) = (Vertex(vertex), Fragment(includes.GetValueOrDefault(FragmentFile)));
-        _injected = v is not null && f is not null;
-        if (!_injected)
+        Injected = v is not null && f is not null;
+        if (!Injected)
         {
             _rejected = vertex ?? "";
             // nothing samples the maps from here (2 x 64 MiB at 4096²); Vulkan lets go of deleted GL textures (GlTap)
@@ -102,14 +115,17 @@ internal static partial class DistantShadows
         (includes[VertexFile], includes[FragmentFile]) = (v!, f!);
     }
 
-    internal static void Define(ShaderProgram program)
+    private static void Define(ShaderProgram program)
     {
-        if (!_injected || !NotNull(program) || program.FragmentShader is not { } fragment) return;
+        if (!Injected || !NotNull(program) || program.FragmentShader is not { } fragment) return;
+
         if (program.includes.Contains(VertexFile) && program.includes.Contains(FragmentFile))
+        {
             fragment.PrefixCode = (fragment.PrefixCode ?? "") + Definition;
+        }
     }
 
-    internal static void Frame(SystemRenderShadowMap __instance, float dt)
+    private static void Frame(SystemRenderShadowMap __instance, float dt)
     {
         if (NotNull(__instance) && Game(__instance) is { } game) Tick(game, dt);
     }
@@ -117,16 +133,24 @@ internal static partial class DistantShadows
     // Also where FarShadowReuse leaves the far pass out
     internal static void Tick(ClientMain game, float dt)
     {
-        if (!_injected || !NotNull(game)) return;
+        if (!Injected || !NotNull(game)) return;
+
         try
         {
-            if (_failed) Placeheld();
-            else Step(game, dt);
+            if (Failed)
+            {
+                Placeheld();
+            }
+            else
+            {
+                Step(game, dt);
+            }
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {
-            if (!_failed) _logger?.Error("Komet: distant shadows failed, they stay off: {0}", e);
-            (_failed, _on) = (true, 0);
+            if (!Failed) _logger?.Error("Komet: distant shadows failed, they stay off: {0}", e);
+
+            (Failed, _on) = (true, 0);
             _version++;
         }
     }
@@ -143,30 +167,36 @@ internal static partial class DistantShadows
         }
 
         if (!Ready(quality >= 3 ? 4096 : 2048)) return;
+
         (Cam[0], Cam[1], Cam[2]) = (player.CameraPos.X, player.CameraPos.Y, player.CameraPos.Z);
         Light(game, Lit);
         var radius = Math.Clamp(FrameSettings.ViewDistance, MinRadius, MaxRadius) + Margin;
         if (_tile < 0 && Due(Maps[_front], Lit, Cam, radius))
+        {
             (_tile, Maps[1 - _front]) = (0, Plan(Lit, Cam, radius, _size));
+        }
+
         if (_tile >= 0) Draw(game, Maps[1 - _front], dt);
+
         Publish(Maps[_front], Cam);
     }
 
     // As the engine: stronger of moon and sun, normalised
     internal static void Light(ClientMain game, Span<double> into)
     {
-        var calendar = game.Calendar as ClientGameCalendar;
-        var v = calendar is not null && calendar.MoonLightStrength > calendar.SunLightStrength
+        var v = game.Calendar is ClientGameCalendar calendar && calendar.MoonLightStrength > calendar.SunLightStrength
             ? game.Calendar.MoonPosition
             : game.Calendar.SunPosition;
         var length = Math.Sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z);
         if (!Assert(into.Length == 3)) return;
+
         (into[0], into[1], into[2]) = Assert(length > 0) ? (v.X / length, v.Y / length, v.Z / length) : (0d, 1d, 0d);
     }
 
     internal static bool Due(Map map, double[] light, double[] camera, double radius)
     {
         if (!map.Valid || Math.Abs(map.Radius - radius) > 0.5) return true;
+
         var dot = light[0] * map.Direction[0] + light[1] * map.Direction[1] + light[2] * map.Direction[2];
         var (dx, dz) = (camera[0] - map.Center[0], camera[2] - map.Center[2]);
         return Math.Acos(Math.Clamp(dot, -1, 1)) > MaxAngle || dx * dx + dz * dz > Margin * Margin ||
@@ -178,6 +208,7 @@ internal static partial class DistantShadows
     {
         var map = new Map { Radius = radius, Depth = 4 * radius + 1024, Drawn = Environment.TickCount64 };
         if (!Assert(size > 0) || !Assert(radius > 0)) return map;
+
         _ = Mat4d.LookAt(map.View, light, Origin, Math.Abs(light[1]) > 0.999 ? North : Up);
         _ = Mat4d.Ortho(map.Projection, -radius, radius, -radius, radius, -map.Depth, map.Depth);
         var texel = 2 * radius / size;
@@ -186,7 +217,11 @@ internal static partial class DistantShadows
         var (x, y) = (right[0] * camera[0] + right[1] * camera[1] + right[2] * camera[2],
             above[0] * camera[0] + above[1] * camera[1] + above[2] * camera[2]);
         var (dx, dy) = (Math.Round(x / texel) * texel - x, Math.Round(y / texel) * texel - y);
-        for (var i = 0; i < 3; i++) map.Center[i] = camera[i] + right[i] * dx + above[i] * dy;
+        for (var i = 0; i < 3; i++)
+        {
+            map.Center[i] = camera[i] + right[i] * dx + above[i] * dy;
+        }
+
         (map.Direction[0], map.Direction[1], map.Direction[2]) = (light[0], light[1], light[2]);
         return map;
     }
@@ -195,6 +230,7 @@ internal static partial class DistantShadows
     internal static double[] Transform(Map map, double[] camera)
     {
         if (!Assert(camera.Length == 3) || !NotNull(map)) return Clip;
+
         _ = Mat4d.Identity(Step1);
         var c = map.Center;
         _ = Mat4d.Translate(Step1, Step1, camera[0] - c[0], camera[1] - c[1], camera[2] - c[2]);
@@ -229,7 +265,8 @@ internal static partial class DistantShadows
         if (Textures[0] != 0 && Textures[1] != 0) return;
         // half a pair (Ready threw on the first map's framebuffer): a front of 1 would bind no texture at all
         if (Textures[0] != 0 || Textures[1] != 0) Forget();
-        GL.GetInteger(GetPName.TextureBinding2D, out int bound);
+
+        GL.GetInteger(GetPName.TextureBinding2D, out var bound);
         var depth = new float[Placeholder * Placeholder];
         Array.Fill(depth, 1f);
         try
@@ -238,7 +275,8 @@ internal static partial class DistantShadows
             {
                 Textures[i] = GL.GenTexture();
                 GL.BindTexture(TextureTarget.Texture2D, Textures[i]);
-                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.DepthComponent32f, Placeholder, Placeholder, 0,
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.DepthComponent32f, Placeholder,
+                    Placeholder, 0,
                     PixelFormat.DepthComponent, PixelType.Float, depth);
                 Parameters();
             }
@@ -255,6 +293,7 @@ internal static partial class DistantShadows
     private static void Off()
     {
         if (!Differ(_on, 0)) return;
+
         (_on, _tile) = (0, -1);
         _version++;
     }
@@ -262,9 +301,11 @@ internal static partial class DistantShadows
     private static void Draw(ClientMain game, Map map, float dt)
     {
         if (!Index(_tile, Tiles * Tiles)) return;
+
         var (tx, ty, step) = (_tile % Tiles, _tile / Tiles, _size / Tiles);
         var (culler, shader, terrain) = (game.frustumCuller, ShaderPrograms.Chunkshadowmap, TerrainOf(game));
         if (!NotNull(culler) || !NotNull(shader) || !NotNull(terrain)) return;
+
         var (rangeX, rangeZ, stage) = (culler.shadowRangeX, culler.shadowRangeZ, Stage(game));
         Cull(game, map, tx, ty);
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, Buffers[1 - _front]);
@@ -279,7 +320,11 @@ internal static partial class DistantShadows
             GL.Clear(ClearBufferMask.DepthBufferBit);
             shader.Use();
             var clip = Transform(map, Cam);
-            for (var i = 0; i < 16; i++) Mvp[i] = (float)clip[i];
+            for (var i = 0; i < 16; i++)
+            {
+                Mvp[i] = (float)clip[i];
+            }
+
             shader.MvpMatrix = Mvp;
             Drawing = true;
             terrain.RenderShadow(dt);
@@ -303,7 +348,11 @@ internal static partial class DistantShadows
         var (r, part) = (map.Radius, 2 * map.Radius / Tiles);
         _ = Mat4d.Ortho(Part, -r + tx * part, -r + (tx + 1) * part, -r + ty * part, -r + (ty + 1) * part, -map.Depth,
             map.Depth);
-        for (var i = 0; i < 3; i++) Eye[i] = map.Center[i] + map.Direction[i];
+        for (var i = 0; i < 3; i++)
+        {
+            Eye[i] = map.Center[i] + map.Direction[i];
+        }
+
         _ = Mat4d.LookAt(World, Eye, map.Center, Math.Abs(map.Direction[1]) > 0.999 ? North : Up);
         (game.frustumCuller.shadowRangeX, game.frustumCuller.shadowRangeZ) = (r, r);
         game.frustumCuller.CalcFrustumEquations(game.EntityPlayer.Pos.AsBlockPos, Part, World);
@@ -312,23 +361,34 @@ internal static partial class DistantShadows
     private static void Tiled(Map map)
     {
         if (++_tile < Tiles * Tiles) return;
+
         (_tile, map.Valid, _front) = (-1, true, 1 - _front);
         (_version, _maps) = (_version + 1, _maps + 1);
     }
 
-    internal static void Use(ShaderProgramBase __instance)
+    private static void Use(ShaderProgramBase __instance)
     {
-        if (!_injected || !NotNull(__instance) || Programs.Count > MaxPrograms) return;
-        if (Textures[_front] == 0) Placeheld(); // before the first far shadow pass, or a night without one
+        if (!Injected || !NotNull(__instance) || Programs.Count > MaxPrograms) return;
+
+        if (Textures[_front] == 0)
+        {
+            Placeheld(); // before the first far shadow pass, or a night without one
+        }
+
         if (!Programs.TryGetValue(__instance.ProgramId, out var p))
+        {
             Programs[__instance.ProgramId] = p = Locate(__instance);
+        }
+
         if (p.SamplerAt < 0 || p.Version == _version) return;
+
         GL.UniformMatrix4(p.MatrixAt, 1, false, Matrix);
         GL.Uniform1(p.OnAt, _on);
         GL.Uniform2(p.TexelAt, 1f / Math.Max(1, _size), (float)(Bias / (2 * Maps[_front].Depth)));
         GL.Uniform1(p.SamplerAt, Unit);
         p.Version = _version;
         if (_bound == _version) return;
+
         GL.ActiveTexture(TextureUnit.Texture0 + Unit);
         GL.BindTexture(TextureTarget.Texture2D, Textures[_front]);
         GL.ActiveTexture(TextureUnit.Texture0); // engine code binds to unit 0 without selecting it
@@ -336,13 +396,10 @@ internal static partial class DistantShadows
     }
 
     // For a non-GL reader (VulkanRenderer); version changes per redraw, not on matrix moves alone
-    internal static bool Published(out int texture, out int version, out float[] matrix, out float[] onTexel)
+    internal static bool Published(out int texture, out int version)
     {
-        (texture, version, matrix, onTexel) = (Textures[_front], _maps, Matrix, []);
-        if (!_injected || texture == 0) return false;
-        (OnTexel[0], OnTexel[1], OnTexel[2], onTexel) =
-            (_on, 1f / Math.Max(1, _size), (float)(Bias / (2 * Maps[_front].Depth)), OnTexel); // called every frame
-        return true;
+        (texture, version) = (Textures[_front], _maps);
+        return Injected && texture != 0;
     }
 
     private static Program Locate(ShaderProgramBase program)
@@ -360,6 +417,7 @@ internal static partial class DistantShadows
     private static bool Ready(int size)
     {
         if (_size == size && Textures[0] != 0) return true;
+
         Forget();
         try
         {
@@ -377,8 +435,12 @@ internal static partial class DistantShadows
                     TextureTarget.Texture2D, Textures[i], 0);
                 GL.DrawBuffer(DrawBufferMode.None);
                 GL.ReadBuffer(ReadBufferMode.None);
-                if (GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer) != FramebufferErrorCode.FramebufferComplete)
+                if (GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer) !=
+                    FramebufferErrorCode.FramebufferComplete)
+                {
                     throw new InvalidOperationException("the distant shadow framebuffer is incomplete");
+                }
+
                 GL.Clear(ClearBufferMask.DepthBufferBit);
             }
         }
@@ -411,7 +473,9 @@ internal static partial class DistantShadows
         for (var i = 0; i < 2; i++)
         {
             if (Textures[i] != 0) GL.DeleteTexture(Textures[i]);
+
             if (Buffers[i] != 0) GL.DeleteFramebuffer(Buffers[i]);
+
             (Textures[i], Buffers[i]) = (0, 0);
         }
 
@@ -423,8 +487,8 @@ internal static partial class DistantShadows
     {
         public readonly double[] Direction = new double[3], Center = new double[3];
         public readonly double[] View = Mat4d.Create(), Projection = Mat4d.Create();
-        public double Radius, Depth;
         public long Drawn;
+        public double Radius, Depth;
         public bool Valid;
     }
 
@@ -439,65 +503,70 @@ internal static partial class DistantShadows
 internal static partial class DistantShadows
 {
     internal const string VertexFile = "shadowcoords.vsh", FragmentFile = "fogandlight.fsh", Marker = "kometDistant";
-    internal const string DistantDefine = "KOMET_DISTANT", Definition = "#define " + DistantDefine + " 1\r\n",
+
+    internal const string DistantDefine = "KOMET_DISTANT",
+        Definition = "#define " + DistantDefine + " 1\r\n",
         DistantMatrix = "kometDistantMatrix";
 
     private const string VertexDeclarations = """
-        #if SHADOWQUALITY > 0
-        uniform highp mat4 kometDistantMatrix;
-        uniform highp float kometDistantOn;
-        out vec4 shadowCoordsDistant;
-        #endif
+                                              #if SHADOWQUALITY > 0
+                                              uniform highp mat4 kometDistantMatrix;
+                                              uniform highp float kometDistantOn;
+                                              out vec4 shadowCoordsDistant;
+                                              #endif
 
-        """;
+                                              """;
 
     // After the far cascade: shadowCoordsFar.w already lost the near weight, so the three sum to at most 1
     private const string VertexBody = """
 
-        #if SHADOWQUALITY > 0
-        	shadowCoordsDistant = kometDistantMatrix * worldPos;
-        	float kometEdge = smoothstep(0.75, 0.97, length((shadowCoordsDistant.xy - 0.5) * 2.0)); // a round fade, no edge
-        	shadowCoordsDistant.w = kometDistantOn * max(0.0, 1.0 - kometEdge - shadowCoordsFar.w - nearSub);
-        	if (shadowCoordsDistant.z >= 0.999) shadowCoordsDistant.w = 0.0;
-        #endif
+                                      #if SHADOWQUALITY > 0
+                                      	shadowCoordsDistant = kometDistantMatrix * worldPos;
+                                      	float kometEdge = smoothstep(0.75, 0.97, length((shadowCoordsDistant.xy - 0.5) * 2.0)); // a round fade, no edge
+                                      	shadowCoordsDistant.w = kometDistantOn * max(0.0, 1.0 - kometEdge - shadowCoordsFar.w - nearSub);
+                                      	if (shadowCoordsDistant.z >= 0.999) shadowCoordsDistant.w = 0.0;
+                                      #endif
 
-        """;
+                                      """;
 
     private const string FragmentDeclarations = """
 
-        #if SHADOWQUALITY > 0 && defined(KOMET_DISTANT)
-        in vec4 shadowCoordsDistant;
-        uniform highp sampler2DShadow kometDistantMap;
-        uniform highp vec2 kometDistantTexel;
-        #endif
+                                                #if SHADOWQUALITY > 0 && defined(KOMET_DISTANT)
+                                                in vec4 shadowCoordsDistant;
+                                                uniform highp sampler2DShadow kometDistantMap;
+                                                uniform highp vec2 kometDistantTexel;
+                                                #endif
 
-        """;
+                                                """;
 
     // kometDistantTexel: x the size of a texel, y the depth bias. Nine filtered taps a texel apart: far away a pixel covers
     // more than a texel, and fewer taps let edges crawl as the camera moves
     private const string FragmentBody = """
 
-        	#if defined(KOMET_DISTANT)
-        	if (shadowCoordsDistant.w > 0) {
-        		float kometLit = 0.0;
-        		for (int x = -1; x <= 1; x++) {
-        			for (int y = -1; y <= 1; y++) {
-        				kometLit += texture(kometDistantMap, vec3(shadowCoordsDistant.xy + vec2(x, y) * kometDistantTexel.x,
-        					shadowCoordsDistant.z - kometDistantTexel.y));
-        			}
-        		}
-        		b -= shadowIntensity * (1.0 - kometLit / 9.0) * shadowCoordsDistant.w * 0.5;
-        	}
-        	#endif
+                                        	#if defined(KOMET_DISTANT)
+                                        	if (shadowCoordsDistant.w > 0) {
+                                        		float kometLit = 0.0;
+                                        		for (int x = -1; x <= 1; x++) {
+                                        			for (int y = -1; y <= 1; y++) {
+                                        				kometLit += texture(kometDistantMap, vec3(shadowCoordsDistant.xy + vec2(x, y) * kometDistantTexel.x,
+                                        					shadowCoordsDistant.z - kometDistantTexel.y));
+                                        			}
+                                        		}
+                                        		b -= shadowIntensity * (1.0 - kometLit / 9.0) * shadowCoordsDistant.w * 0.5;
+                                        	}
+                                        	#endif
 
-        """;
+                                        """;
 
     // Anchors: after the far cascade's declarations, and after the statement setting its weight or brightness
     private static readonly Regex VertexDeclared = Pattern(@"out vec4 shadowCoordsFar;\s*#endif[^\n]*\n");
+
     private static readonly Regex VertexWeighted =
         Pattern(@"shadowCoordsFar\.w = max\(0\.0, clamp\(1\.0 - distanceFar, 0\.0, 1\.0\) - nearSub\);[^\n]*\n" +
                 @"\s*if \(shadowCoordsFar\.z >= 0\.999\) shadowCoordsFar\.w = 0\.0;[^\n]*\n\s*#endif[^\n]*\n");
+
     private static readonly Regex FragmentDeclared = Pattern(@"uniform float shadowMapHeightInv;\s*#endif[^\n]*\n");
+
     private static readonly Regex FragmentShaded =
         Pattern(@"float b = 1\.0 - shadowIntensity \* totalFar \* shadowCoordsFar\.w \* 0\.5;[^\n]*\n");
 
@@ -513,8 +582,10 @@ internal static partial class DistantShadows
     private static string? Add(string? source, Regex declared, string declarations, Regex anchor, string body)
     {
         if (source is null || source.Contains(Marker, StringComparison.Ordinal)) return null;
+
         var (first, second) = (declared.Matches(source), anchor.Matches(source));
         if (first.Count != 1 || second.Count != 1 || !Assert(first[0].Index < second[0].Index)) return null;
+
         var (at, to) = (first[0].Index + first[0].Length, second[0].Index + second[0].Length);
         return Assert(at <= to) ? source[..at] + declarations + source[at..to] + body + source[to..] : null;
     }

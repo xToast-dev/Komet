@@ -12,7 +12,9 @@ public sealed class ChunkLoadBudgetTests
     private static readonly FieldInfo Reversed = AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue");
     private static readonly MethodInfo Record = AccessTools.DeclaredMethod(typeof(ChunkLoadBudgetTests), nameof(Ran));
     private static readonly List<string> Order = [];
-    private static readonly Dictionary<object, (string Name, double Spin)> Names = new(ReferenceEqualityComparer.Instance);
+
+    private static readonly Dictionary<object, (string Name, double Spin)> Names =
+        new(ReferenceEqualityComparer.Instance);
 
     private TestHarmony? _harmony;
     private int _mainThread;
@@ -40,8 +42,7 @@ public sealed class ChunkLoadBudgetTests
     }
 
     [Test]
-    public void InstallGatesTheTaskLoop()
-    {
+    public void InstallGatesTheTaskLoop() =>
         Assert.Multiple(() =>
         {
             Assert.That(ChunkLoadBudget.Rewritten, Is.True, "no single loop test on reversedQueue.Count");
@@ -49,7 +50,6 @@ public sealed class ChunkLoadBudgetTests
                 $"not the bodies verified: 0x{EngineShape.Of(ChunkLoadBudget.Seams()):X16}UL");
             Assert.That(ChunkLoadBudget.Seams()[2]?.Name, Does.Contain("LoadChunkFromPacket"));
         });
-    }
 
     // Over budget the queue stops in front of a far chunk and an unload, never in front of anything else, and every task runs once,
     // in the order it was queued, ahead of what arrived meanwhile
@@ -126,7 +126,8 @@ public sealed class ChunkLoadBudgetTests
     private static ClientMain Game(bool spawned = true)
     {
         var game = (ClientMain)RuntimeHelpers.GetUninitializedObject(typeof(ClientMain));
-        (game.GameLaunchTasks, game.MainThreadTasks, game.MainThreadTasksLock, game.Spawned) = (new(), new(), new object(), spawned);
+        (game.GameLaunchTasks, game.MainThreadTasks, game.MainThreadTasksLock, game.Spawned) = (new Queue<ClientTask>(),
+            new Queue<ClientTask>(), new object(), spawned);
         Reversed.SetValue(game, new Queue<ClientTask>());
         var data = (ClientWorldPlayerData)RuntimeHelpers.GetUninitializedObject(typeof(ClientWorldPlayerData));
         data.EntityPlayer = (EntityPlayer)RuntimeHelpers.GetUninitializedObject(typeof(EntityPlayer));
@@ -140,7 +141,10 @@ public sealed class ChunkLoadBudgetTests
 
     private static void Queue(ClientMain game, params ClientTask[] tasks)
     {
-        foreach (var task in tasks) game.MainThreadTasks.Enqueue(task);
+        foreach (var task in tasks)
+        {
+            game.MainThreadTasks.Enqueue(task);
+        }
     }
 
     // A delegate whose Target is the given object and whose body records the task's name
@@ -158,9 +162,11 @@ public sealed class ChunkLoadBudgetTests
     }
 
     private static ClientTask Other(string name) => Task(new object(), name);
+
     private static ClientTask Slow(string name) => Task(new object(), name, 2);
 
     private static ClientTask Slow(string name, int column) => Task(Closure(column), name, 2);
+
     private static ClientTask Load(string name, int column) => Task(Closure(column), name);
 
     private static object Closure(int column)

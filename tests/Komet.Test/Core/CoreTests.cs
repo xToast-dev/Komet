@@ -1,11 +1,12 @@
-using Komet.Api;
 using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
+using Komet.Api;
 using Komet.Rendering;
 using Komet.Tessellation;
 using Komet.World;
 using OpenTK.Windowing.Desktop;
+using Vintagestory.GameContent;
 
 namespace Komet.Test.Core;
 
@@ -50,7 +51,7 @@ public sealed class EngineSeamTests
         yield return Case<ClientMain>("ExecuteMainThreadTasks", null);
         yield return Case<ClientChunk>("InitBlockEntitiesFromPacket", [typeof(ClientMain)]);
         yield return Case<ClientWorldMap>("GetClientChunk", Coords);
-        yield return Case<Vintagestory.GameContent.BlockEntityGroundStorage>("UpdateIgnitable", NoArgs);
+        yield return Case<BlockEntityGroundStorage>("UpdateIgnitable", NoArgs);
     }
 
     private static IEnumerable<TestCaseData> Fields()
@@ -83,8 +84,9 @@ public sealed class EngineSeamTests
         }
     }
 
-    private static TestCaseData Case<T>(string member, Type[]? args) => new TestCaseData(typeof(T), member, args).SetName(
-        $"{typeof(T).Name}.{member}{(args == null ? "" : $"({args.Length})")}");
+    private static TestCaseData Case<T>(string member, Type[]? args) =>
+        new TestCaseData(typeof(T), member, args).SetName(
+            $"{typeof(T).Name}.{member}{(args == null ? "" : $"({args.Length})")}");
 
     // A field type is given where an UnsafeAccessor binds it, which needs the exact type
     private static TestCaseData Field<T>(string member, Type? type = null) =>
@@ -105,7 +107,9 @@ public sealed class EngineSeamTests
         var field = fieldType is null ? AccessTools.Field(type, name) : AccessTools.DeclaredField(type, name);
         Assert.That(field, Is.Not.Null, $"{type.FullName}.{name} is gone, the Komet feature that reads it stands down");
         if (fieldType is not null)
+        {
             Assert.That(field.FieldType, Is.EqualTo(fieldType), $"{type.FullName}.{name} changed its type");
+        }
     }
 
     private static IEnumerable<TestCaseData> Patches()
@@ -143,7 +147,7 @@ public sealed class EngineSeamTests
         yield return Patch<ClientEventAPI>("RegisterEventBusListener", null, typeof(ListenerSlots), "Listened");
         yield return Patch<ClientEventAPI>("UnregisterEventBusListener", null, typeof(ListenerSlots), "Unlistening");
         yield return Patch<ClientEventAPI>("UnregisterEventBusListener", null, typeof(ListenerSlots), "Unlistened");
-        yield return Patch<Vintagestory.GameContent.BlockEntityFirepit>("getOrCreateMesh", null, typeof(BlockEntityCaches),
+        yield return Patch<BlockEntityFirepit>("getOrCreateMesh", null, typeof(BlockEntityCaches),
             "Mesh");
     }
 
@@ -169,15 +173,13 @@ public sealed class EngineSeamTests
     }
 
     [Test]
-    public void ClientSizeIsStillAPropertyOnTheWindow()
-    {
+    public void ClientSizeIsStillAPropertyOnTheWindow() =>
         Assert.Multiple(() =>
         {
             Assert.That(AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)), Is.Not.Null);
             Assert.That(AccessTools.PropertySetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)), Is.Not.Null);
             Assert.That(AccessTools.Method(typeof(NativeWindow), "OnResize"), Is.Not.Null);
         });
-    }
 }
 
 // The features' fingerprints are pinned in FeaturesTests, each feature tests its own stand-down.
@@ -222,15 +224,16 @@ public sealed class EngineShapeTests
         Assert.That(Harmony.GetPatchInfo(target!)?.Owners, Is.Null.Or.Empty, "a patch another test left behind");
         using var other = new TestHarmony("komet-test-foreign-other");
         using var own = new TestHarmony("komet-test-foreign-own");
-        const PatchKinds replacing = PatchKinds.Replacing, all = PatchKinds.All,
-            body = PatchKinds.Body;
+        const KapiPatchKinds replacing = KapiPatchKinds.Replacing,
+            all = KapiPatchKinds.All,
+            body = KapiPatchKinds.Body;
         Assert.Multiple(() =>
         {
             Assert.That(EngineShape.Foreign([target], all, null), Is.False, "no patch");
             Assert.That(EngineShape.Foreign([target, null], all, null), Is.True, "a missing seam");
         });
         _ = own.Patch(target, new HarmonyMethod(typeof(EngineShapeTests), nameof(RunOriginal)));
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(EngineShape.Foreign([target], replacing, null, typeof(EngineShapeTests)), Is.False,
                 "its own class");
@@ -239,21 +242,21 @@ public sealed class EngineShapeTests
             Assert.That(EngineShape.Foreign([target], all, own.Id), Is.False, "its own id");
             Assert.That(EngineShape.Foreign([target], body, null), Is.False, "a prefix leaves the body");
             Assert.That(EngineShape.Foreign([target], all, null), Is.True, "any patch");
-        });
+        }
         _ = other.Patch(target, postfix: Foreign.Postfix);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(EngineShape.Foreign([target], replacing, own.Id), Is.False, "a postfix sees the same result");
             Assert.That(EngineShape.Foreign([target], all, own.Id), Is.True);
             Assert.That(EngineShape.Foreign([target], all, null, typeof(EngineShapeTests), typeof(Foreign)), Is.False,
                 "both classes own");
-        });
+        }
         _ = other.Patch(target, transpiler: Foreign.Transpiler);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(EngineShape.Foreign([target], body, null), Is.True, "a rewritten body");
             Assert.That(EngineShape.Foreign([target], body, other.Id), Is.False);
-        });
+        }
     }
 
     [Test]
@@ -283,12 +286,12 @@ public sealed class EngineShapeTests
         using var harmony = new TestHarmony($"komet-test-{name}-changed");
         var logger = new CapturingLogger();
         install(harmony, logger);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(installed(), Is.False);
             Assert.That(harmony.GetPatchedMethods(), Is.Empty);
             Assert.That(logger.Lines, Has.Count.EqualTo(1).And.All.Contains("1.22.7"));
-        });
+        }
     }
 
     private static IEnumerable<TestCaseData> Declining()
@@ -361,8 +364,11 @@ public sealed class WorkerPoolTests
     {
         WorkerPool.Resize(null, 4);
         for (var batch = 0; batch < 50; batch++)
+        {
             Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
                 Is.EqualTo(WorkerPool.FrameResult.Done));
+        }
+
         Assert.Multiple(() =>
         {
             Assert.That(Hits.All(n => n == 50), Is.True, "each item once per batch");
@@ -475,7 +481,10 @@ public sealed class WorkerPoolTests
     {
         var seen = Volatile.Read(ref _most);
         for (var i = 0; i < 64 && value > seen; i++)
+        {
             seen = Interlocked.CompareExchange(ref _most, value, seen) == seen ? value : Volatile.Read(ref _most);
+        }
+
         return seen;
     }
 

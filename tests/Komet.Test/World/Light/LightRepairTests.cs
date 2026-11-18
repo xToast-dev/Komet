@@ -27,7 +27,8 @@ public sealed class LightRepairTests
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Waiting")]
     private static extern ref Queue<(int Dimension, int X, int Z)> Waiting(
-        [UnsafeAccessorType("Komet.World.LightRepair, Komet.World")] object? repair);
+        [UnsafeAccessorType("Komet.World.LightRepair, Komet.World")]
+        object? repair);
 
     [Test]
     public void Installs()
@@ -35,7 +36,7 @@ public sealed class LightRepairTests
         using var harmony = new TestHarmony("komet-test-lightrepair");
         LightRepair.Install(harmony, new QuietLogger());
         var seams = LightRepair.Seams();
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(LightRepair.Matched, Is.True, "the load, the illuminator or the tick is not the body verified");
             Assert.That(Harmony.GetPatchInfo(seams[0])?.Prefixes.Select(p => p.owner), Is.EqualTo([harmony.Id]));
@@ -44,7 +45,7 @@ public sealed class LightRepairTests
                 "FullRelight");
             Assert.That(Harmony.GetPatchInfo(seams[6])?.Postfixes.Select(p => p.owner), Is.EqualTo([harmony.Id]),
                 "the sweep's tick");
-        });
+        }
     }
 
     [TestCaseSource(nameof(Broken))]
@@ -64,7 +65,8 @@ public sealed class LightRepairTests
         Assert.Multiple(() =>
         {
             Assert.That(broken, Has.Length.EqualTo(lost).And.Length.GreaterThan(0));
-            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty,
+                "sunlight that is not the reference's");
             Assert.That(Differences(found, expected), Is.Empty, "light that is not the intact world's");
         });
     }
@@ -89,7 +91,8 @@ public sealed class LightRepairTests
         {
             Assert.That(untouched, Is.Zero, "a column with its light");
             Assert.That(lit, Is.EqualTo(lost).And.GreaterThan(0));
-            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty,
+                "sunlight that is not the reference's");
             Assert.That(Differences(found, intact.Light()), Is.Empty, "light that is not the intact world's");
             Assert.That(changed, Is.SupersetOf(Reported), "the column reported");
         });
@@ -124,10 +127,8 @@ public sealed class LightRepairTests
     [TestCase(40, 40, 40, 1, 1, 1, 0)]
     [TestCase(31, 40, 40, 1, 1, 1, 1)]
     [TestCase(70, 20, 40, 1, 1, 1, 7 + 12)]
-    public void TheReachOfASourceIsItsStepsToTheChunk(int x, int y, int z, int cx, int cy, int cz, int reach)
-    {
+    public void TheReachOfASourceIsItsStepsToTheChunk(int x, int y, int z, int cx, int cy, int cz, int reach) =>
         Assert.That(LightRepair.Reach(new BlockPos(x, y, z), cx, cy, cz), Is.EqualTo(reach));
-    }
 
     // Over a world loaded whole the relight is the engine's but for its sources: the same sunlight, every source where it is and
     // none added, and the light of the intact world after every source was placed again in the order the relight places them.
@@ -143,13 +144,18 @@ public sealed class LightRepairTests
         var engine = Lit();
         engine.Illuminator.FullRelight(Low, High);
         var intact = Lit();
-        foreach (var (hsv, x, y, z) in order) _ = intact.Illuminator.PlaceBlockLight(hsv, x, y, z);
+        foreach (var (hsv, x, y, z) in order)
+        {
+            _ = intact.Illuminator.PlaceBlockLight(hsv, x, y, z);
+        }
+
         var found = world.Light();
         Assert.Multiple(() =>
         {
             Assert.That(relit, Is.True);
             Assert.That(Sources(world), Is.EqualTo(before), "a light source added or moved");
-            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty, "sunlight that is not the reference's");
+            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty,
+                "sunlight that is not the reference's");
             Assert.That(Differences(Sun(found), Sun(engine.Light())), Is.Empty, "sunlight that is not the engine's");
             Assert.That(Sources(engine).Except(before).ToList(), Is.Not.Empty.And.Contains("2,2,2:13312"),
                 "the engine's FullRelight: a source of chunk 1,1,1 placed in chunk 2,2,2");
@@ -206,6 +212,7 @@ public sealed class LightRepairTests
         {
             // wholly below the rain height: its light may be missing rightly
             if (rain.Min() + 1 > y * 32 + 31) continue;
+
             chunks[y].Lighting.ClearLight();
             lost++;
         }
@@ -227,8 +234,9 @@ public sealed class LightRepairTests
         for (var c = 0; c < found.Length; c++)
         {
             for (var i = 0; i < found[c].Length && differences.Count < 12; i++)
-                if (found[c][i] != expected[c][i])
-                    differences.Add($"{c}:{i} {expected[c][i]} -> {found[c][i]}");
+            {
+                if (found[c][i] != expected[c][i]) differences.Add($"{c}:{i} {expected[c][i]} -> {found[c][i]}");
+            }
         }
 
         return differences;
@@ -247,8 +255,12 @@ public sealed class LightRepairTests
         for (var c = 0; c < lit.Length; c++)
         {
             if (lit[c] is not { } light) continue;
+
             var cells = Cells(world, c);
-            for (var i = 0; i < light.Length; i++) cells.SetLight(i, (uint)light[i]);
+            for (var i = 0; i < light.Length; i++)
+            {
+                cells.SetLight(i, (uint)light[i]);
+            }
         }
 
         return world;
@@ -261,7 +273,9 @@ public sealed class LightRepairTests
         for (var x = 0; x < LightWorld.ChunksX; x++)
         {
             for (var z = 0; z < LightWorld.ChunksZ; z++)
+            {
                 _ = LightRepair.Sunlight(world.Illuminator, Column(world, x, z), x, z, 0);
+            }
         }
 
         var light = world.Light();
@@ -312,7 +326,7 @@ public sealed class LightRepairTests
     {
         WorldChunk[] column =
             [.. Enumerable.Range(0, LightWorld.ChunksY).Select(y => (WorldChunk)world.GetChunk(x, y, z))];
-        return column;
+        return [.. column];
     }
 
     private static ushort[] Rain(LightWorld world, int cx, int cz)
@@ -326,6 +340,7 @@ public sealed class LightRepairTests
                 {
                     var (wx, wz) = (cx * 32 + x, cz * 32 + z);
                     if (world.BlockAt(wx, y, wz) == LightWorld.Air && world.Fluid(wx, y, wz) == 0) continue;
+
                     rain[z * 32 + x] = (ushort)y;
                     break;
                 }

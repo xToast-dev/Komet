@@ -10,14 +10,16 @@ public sealed class SnowPeekTests
     [Test]
     public void TheScansReadsAreRewritten()
     {
-        Assert.That(typeof(WeatherSimulationSnowAccum).Assembly, Is.Not.Null); // Komet finds it by name once VSEssentials is loaded
+        Assert.That(typeof(WeatherSimulationSnowAccum).Assembly,
+            Is.Not.Null); // Komet finds it by name once VSEssentials is loaded
         using var harmony = new TestHarmony("komet-test-snowpeek");
         SnowPeek.Install(harmony);
-        Assert.That(SnowPeek.Rewritten, Is.True, "UpdateSnowLayer no longer reads its blocks through four GetLocalBlockAtBlockPos");
+        Assert.That(SnowPeek.Rewritten, Is.True,
+            "UpdateSnowLayer no longer reads its blocks through four GetLocalBlockAtBlockPos");
     }
 
-    // A chunk's blocks and fluids compressed by the engine read back as the engine's own ChunkData reads them, for palettes
-    // of one to eight bits
+    // A packed chunk's blocks and fluids read without unpacking as the engine's own ChunkData reads them, for palettes of
+    // one to eight bits
     [TestCase(1)]
     [TestCase(40)]
     [TestCase(300)]
@@ -25,22 +27,33 @@ public sealed class SnowPeekTests
     {
         using var harmony = new TestHarmony("komet-test-snowpeek");
         SnowPeek.Install(harmony);
-        var pool = new ChunkDataPool(32, null!);
-        var data = ChunkData.CreateNew(32, pool);
+        const int fluids = 400;
+        var game = (ClientMain)RuntimeHelpers.GetUninitializedObject(typeof(ClientMain));
+        game.Blocks = [.. Enumerable.Range(0, fluids + 3).Select(id => new Block { BlockId = id })];
+        var chunk = ClientChunk.CreateNew(new ClientChunkDataPool(32, null!));
+        var data = (ChunkData)chunk.Data;
         var random = new Random(kinds);
         for (var i = 0; i < 32768; i++)
         {
             if (random.Next(3) > 0) data.SetBlockUnsafe(i, 1 + random.Next(kinds));
-            if (random.Next(8) == 0) data.SetFluid(i, 5000 + random.Next(3));
+
+            if (random.Next(8) == 0) data.SetFluid(i, fluids + random.Next(3));
         }
 
-        object?[] packed = [null, null, null, null, 2];
-        _ = typeof(ChunkData).GetMethod("CompressInto", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(data, packed);
-        var (blocks, fluids) = ((byte[])packed[0]!, (byte[]?)packed[3]);
+        var expected = Enumerable.Range(0, 32768 / 7 + 1)
+            .Select(n => (data.GetBlockId(7 * n, 0), data.GetBlockId(7 * n, 2))).ToArray();
+        chunk.lastReadOrWrite = Environment.TickCount - 60_000;
+        chunk.TryPackAndCommit(0);
+        Assert.That(chunk.IsPacked(), Is.True, "precondition");
         for (var i = 0; i < 32768; i += 7)
         {
-            Assert.That(SnowPeek.PeekId(blocks, fluids, i, 0), Is.EqualTo(data.GetBlockId(i, 0)), $"layer 0 at {i}");
-            Assert.That(SnowPeek.PeekId(blocks, fluids, i, 2), Is.EqualTo(data.GetBlockId(i, 2)), $"fluid at {i}");
+            var (x, y, z) = (i % 32, i / 1024, i / 32 % 32);
+            Assert.That(SnowPeek.Read(chunk, game, x, y, z, 0).BlockId, Is.EqualTo(expected[i / 7].Item1),
+                $"layer 0 at {i}");
+            Assert.That(SnowPeek.Read(chunk, game, x, y, z, 2).BlockId, Is.EqualTo(expected[i / 7].Item2),
+                $"fluid at {i}");
         }
+
+        Assert.That(chunk.IsPacked(), Is.True, "read without unpacking");
     }
 }

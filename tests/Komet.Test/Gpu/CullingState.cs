@@ -10,7 +10,7 @@ internal static class CullingState
     private const string Culling = "Komet.Rendering.OcclusionCulling, Komet.Rendering";
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_Gpu")]
-    public static extern IGpuBackend Gpu([UnsafeAccessorType(Culling)] object? culling);
+    private static extern IGpuBackend Gpu([UnsafeAccessorType(Culling)] object? culling);
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "CounterBuffers")]
     public static extern ref int[] CounterBuffers([UnsafeAccessorType(Culling)] object? culling);
@@ -32,7 +32,7 @@ internal static class CullingState
         return counters;
     }
 
-    public static void Counters(Span<uint> counters)
+    private static void Counters(Span<uint> counters)
     {
         var buffers = CounterBuffers(null);
         Gpu(null).Read(buffers[(FrameCount(null) - 1) % buffers.Length], 0, counters);
@@ -52,6 +52,7 @@ internal static class CullingState
     public static void Frame(Span<uint> counters, Span<uint> first, Span<uint> late, bool shadow = false)
     {
         if (!OcclusionCulling.Supported) return;
+
         var (gpu, commands) = (Gpu(null), CommandBuffer(null));
         Counters(counters);
         gpu.Read(commands, (shadow ? 2 * OcclusionCulling.MaxRanges : 0) * CommandUints, first);

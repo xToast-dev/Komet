@@ -5,6 +5,33 @@ namespace Komet.Test.Gpu;
 
 public sealed class GlslPortTests
 {
+    private const string Vertex = """
+                                  #version 330 core
+                                  layout(location = 0) in vec3 xyz;
+                                  uniform mat4 mvp;
+                                  uniform float fog = 0.5;
+                                  uniform vec3 lights[2 * 2];
+                                  uniform sampler2D tex;
+                                  out vec4 a;
+                                  out vec2 b;
+                                  flat out int c;
+                                  void main() {
+                                      a = texture(tex, xyz.xy) * fog + vec4(lights[3], 1); b = xyz.xy; c = gl_VertexID;
+                                      gl_Position = mvp * vec4(xyz, 1); }
+                                  """;
+
+    private const string Fragment = """
+                                    #version 330 core
+                                    uniform sampler2D tex;
+                                    uniform sampler2D glow;
+                                    uniform vec4 tint = vec4(1, 0.5, 0.25, 1);
+                                    flat in int c;
+                                    in vec4 a;
+                                    layout(location = 0) out vec4 color;
+                                    layout(location = 1) out vec4 bright;
+                                    void main() { color = a * tint * float(c); bright = texture(glow, vec2(0)) + texture(tex, vec2(0)); }
+                                    """;
+
     private static readonly (string, int, int, int)[] Laid =
         [("mvp", 0, 0, 1), ("fog", 64, 0, 1), ("lights", 80, 16, 4)];
 
@@ -18,33 +45,6 @@ public sealed class GlslPortTests
     private static readonly (string, int)[] Columns = [("vec4", 4), ("vec4", 5), ("vec4", 6), ("vec4", 7), ("vec4", 8)];
     private static readonly GlslPort.BlockBinding[] Faces = [new("faces", true, 3, GlslPort.FirstStorage + 3)];
 
-    private const string Vertex = """
-        #version 330 core
-        layout(location = 0) in vec3 xyz;
-        uniform mat4 mvp;
-        uniform float fog = 0.5;
-        uniform vec3 lights[2 * 2];
-        uniform sampler2D tex;
-        out vec4 a;
-        out vec2 b;
-        flat out int c;
-        void main() {
-            a = texture(tex, xyz.xy) * fog + vec4(lights[3], 1); b = xyz.xy; c = gl_VertexID;
-            gl_Position = mvp * vec4(xyz, 1); }
-        """;
-
-    private const string Fragment = """
-        #version 330 core
-        uniform sampler2D tex;
-        uniform sampler2D glow;
-        uniform vec4 tint = vec4(1, 0.5, 0.25, 1);
-        flat in int c;
-        in vec4 a;
-        layout(location = 0) out vec4 color;
-        layout(location = 1) out vec4 bright;
-        void main() { color = a * tint * float(c); bright = texture(glow, vec2(0)) + texture(tex, vec2(0)); }
-        """;
-
     [OneTimeSetUp]
     public void RequireShaderc()
     {
@@ -55,7 +55,8 @@ public sealed class GlslPortTests
     public void TheVertexStageWritesOpenGLsPointSize()
     {
         Assert.That(Translated(Vertex).Vertex, Does.Contain("komet_main(); gl_PointSize = 1.0;"));
-        var sized = Vertex.Replace("gl_Position = mvp", "gl_PointSize = 4.0; gl_Position = mvp", StringComparison.Ordinal);
+        var sized = Vertex.Replace("gl_Position = mvp", "gl_PointSize = 4.0; gl_Position = mvp",
+            StringComparison.Ordinal);
         Assert.That(Translated(sized).Vertex, Does.Not.Contain("komet_main"), "the shader's own size stays");
     }
 

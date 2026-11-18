@@ -55,6 +55,7 @@ internal static class Statements
     private static void For(SyntaxNodeAnalysisContext context)
     {
         if (Symbols.InContracts(context.ContainingSymbol)) return;
+
         var problem = ForLoop.Check((ForStatementSyntax)context.Node, context.SemanticModel, context.CancellationToken);
         if (problem is var (reason, where)) context.ReportDiagnostic(Diagnostic.Create(Rules.For, where, reason));
     }
@@ -62,9 +63,14 @@ internal static class Statements
     private static void ForEach(SyntaxNodeAnalysisContext context)
     {
         if (Symbols.InContracts(context.ContainingSymbol)) return;
+
         var collection = ((CommonForEachStatementSyntax)context.Node).Expression;
         var inner = Symbols.Unparenthesized(collection);
-        while (inner is CastExpressionSyntax cast) inner = Symbols.Unparenthesized(cast.Expression);
+        while (inner is CastExpressionSyntax cast)
+        {
+            inner = Symbols.Unparenthesized(cast.Expression);
+        }
+
         var bounded = inner switch
         {
             CollectionExpressionSyntax literal => literal.Elements.All(e =>
@@ -74,13 +80,16 @@ internal static class Statements
             _ => IsBounded(context, inner)
         };
         if (!bounded)
+        {
             context.ReportDiagnostic(Diagnostic.Create(Rules.ForEach, collection.GetLocation(), collection.ToString()));
+        }
     }
 
     // A call of Contracts.Bounded: the collection itself, or a spread `[.. items.Bounded(n)]` in a collection expression
     private static bool IsBounded(SyntaxNodeAnalysisContext context, ExpressionSyntax expression) =>
         Symbols.Unparenthesized(expression) is InvocationExpressionSyntax call &&
-        Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol, "Bounded");
+               Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol,
+                   "Bounded");
 
     private static void Length(SyntaxNodeAnalysisContext context)
     {
@@ -99,19 +108,23 @@ internal static class Statements
             _ => ("", default)
         };
         if (name.Length == 0) return;
+
         var span = context.Node.GetLocation().GetLineSpan();
         var lines = span.EndLinePosition.Line - span.StartLinePosition.Line + 1;
         if (lines > Rules.MaxLines)
+        {
             Report(context, Rules.Length, at, name, lines.ToString(CultureInfo.InvariantCulture),
                 Rules.MaxLines.ToString(CultureInfo.InvariantCulture));
+        }
     }
 
-    private static string Owner(AccessorDeclarationSyntax accessor) => accessor.Parent?.Parent switch
-    {
-        PropertyDeclarationSyntax p => p.Identifier.ValueText,
-        EventDeclarationSyntax e => e.Identifier.ValueText,
-        _ => "this[]"
-    };
+    private static string Owner(AccessorDeclarationSyntax accessor) =>
+        accessor.Parent?.Parent switch
+        {
+            PropertyDeclarationSyntax p => p.Identifier.ValueText,
+            EventDeclarationSyntax e => e.Identifier.ValueText,
+            _ => "this[]"
+        };
 }
 
 // A for loop is bounded when its integer variable, declared in the initializer and not a ref local, is compared with less-than or
@@ -129,34 +142,62 @@ internal static class ForLoop
         CancellationToken token)
     {
         if (loop.Declaration is not { } declaration || loop.Condition is not { } condition)
+        {
             return ("declare the loop variable in the initializer and compare it with a bound (`i < B` or `i <= B`)",
                 loop.ForKeyword.GetLocation());
+        }
+
         var (variable, last) = Bound(declaration, condition, model, token);
         if (variable is null)
+        {
             return (
                 "the condition must compare the variable declared in the initializer with < or <= against a constant, the Length of " +
                 "a static readonly array, a static property returning one of those, or Math.Min of anything and one of those",
                 condition.GetLocation());
+        }
 
         if (MaxValue(variable.Type) is not { } max)
+        {
             return ($"the loop variable '{variable.Name}' must be an integer", declaration.Type.GetLocation());
+        }
+
         if (variable.RefKind != RefKind.None)
+        {
             return ($"the loop variable '{variable.Name}' must not be a ref local", declaration.Type.GetLocation());
+        }
+
         var (step, problem) = Step(loop, variable, model, token);
         if (problem is not null) return problem;
+
         if (last + step > max)
+        {
             return ($"'{variable.Name}' overflows {variable.Type} before it passes the bound", condition.GetLocation());
+        }
+
         foreach (var declarator in declaration.Variables)
+        {
             if (declarator.Initializer is { } initializer && Writes(model.AnalyzeDataFlow(initializer.Value), variable))
+            {
                 return ($"an initializer writes '{variable.Name}'", initializer.Value.GetLocation());
+            }
+        }
 
         if (Writes(model.AnalyzeDataFlow(condition), variable))
+        {
             return ($"the condition writes '{variable.Name}'", condition.GetLocation());
+        }
+
         if (Escape(loop, variable, model, token) is { } escape)
+        {
             return ($"the address of '{variable.Name}' is taken", escape);
+        }
+
         var body = model.AnalyzeDataFlow(loop.Statement);
         if (body is not { Succeeded: true })
+        {
             return ("data flow analysis of the body failed", loop.Statement.GetLocation());
+        }
+
         return Writes(body, variable)
             ? ($"the body writes the loop variable '{variable.Name}'",
                 WriteSite(loop.Statement, variable, model, token))
@@ -173,6 +214,7 @@ internal static class ForLoop
         {
             var conjunct = Symbols.Unparenthesized(pending.Pop());
             if (conjunct is not BinaryExpressionSyntax binary) continue;
+
             if (binary.IsKind(SyntaxKind.LogicalAndExpression))
             {
                 pending.Push(binary.Right);
@@ -182,10 +224,18 @@ internal static class ForLoop
 
             var inclusive = binary.IsKind(SyntaxKind.LessThanOrEqualExpression);
             if (!inclusive && !binary.IsKind(SyntaxKind.LessThanExpression)) continue;
+
             if (model.GetSymbolInfo(Symbols.Unparenthesized(binary.Left), token).Symbol is not ILocalSymbol local)
+            {
                 continue;
+            }
+
             if (!declaration.Variables.Any(v =>
-                    SymbolEqualityComparer.Default.Equals(model.GetDeclaredSymbol(v, token), local))) continue;
+                    SymbolEqualityComparer.Default.Equals(model.GetDeclaredSymbol(v, token), local)))
+            {
+                continue;
+            }
+
             if (Limit(binary.Right, model, token) is { } limit) return (local, inclusive ? limit : limit - 1);
         }
 
@@ -196,28 +246,37 @@ internal static class ForLoop
     private static decimal? Limit(ExpressionSyntax bound, SemanticModel model, CancellationToken token)
     {
         if (Fixed(bound, model, token) is { } limit) return limit;
+
         if (bound is not InvocationExpressionSyntax { ArgumentList.Arguments: { Count: 2 } arguments } ||
             model.GetSymbolInfo(bound, token).Symbol is not IMethodSymbol
             {
                 Name: "Min",
                 ContainingType:
                 { Name: "Math", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
-            }) return null;
+            })
+        {
+            return null;
+        }
+
         var (x, y) = (Fixed(arguments[0].Expression, model, token), Fixed(arguments[1].Expression, model, token));
         if (x is null || y is null) return x ?? y;
+
         return Math.Min(x.Value, y.Value);
     }
 
     private static decimal? Fixed(ExpressionSyntax bound, SemanticModel model, CancellationToken token)
     {
         if (Constant(bound, model, token) is { } constant) return constant;
+
         var symbol = model.GetSymbolInfo(bound, token).Symbol;
         if (symbol is IPropertySymbol { Name: "Length", ContainingType.SpecialType: SpecialType.System_Array })
+        {
             return bound is MemberAccessExpressionSyntax access &&
                    model.GetSymbolInfo(access.Expression, token).Symbol is IFieldSymbol field &&
                    IsStaticArray(field)
                 ? MaxArrayLength
                 : null;
+        }
 
         return symbol is IPropertySymbol property ? Getter(property, token) : null;
     }
@@ -232,7 +291,11 @@ internal static class ForLoop
                 IsStatic: true, IsVirtual: false, IsAbstract: false, IsOverride: false, IsExtern: false, SetMethod: null
             } ||
             property.ContainingType.TypeKind is not (TypeKind.Class or TypeKind.Struct) ||
-            property.DeclaringSyntaxReferences.Length != 1) return null;
+            property.DeclaringSyntaxReferences.Length != 1)
+        {
+            return null;
+        }
+
         var body = property.DeclaringSyntaxReferences[0].GetSyntax(token) switch
         {
             PropertyDeclarationSyntax { ExpressionBody.Expression: var expression } => expression,
@@ -242,6 +305,7 @@ internal static class ForLoop
             _ => null
         };
         if (body is null) return null;
+
         var type = property.ContainingType;
         return Symbols.Unparenthesized(body) switch
         {
@@ -261,34 +325,38 @@ internal static class ForLoop
         field is { IsStatic: true, IsReadOnly: true, Type: IArrayTypeSymbol };
 
     private static decimal? Constant(ExpressionSyntax expression, SemanticModel model, CancellationToken token) =>
-        model.GetConstantValue(expression, token) is { HasValue: true, Value: var value } ? Integer(value) : null;
+        model.GetConstantValue(expression, token) is { HasValue: true, Value: var value }
+            ? Integer(value)
+            : null;
 
-    private static decimal? Integer(object? value) => value switch
-    {
-        int i => i,
-        long l => l,
-        uint u => u,
-        ulong ul => ul,
-        short s => s,
-        ushort us => us,
-        byte b => b,
-        sbyte sb => sb,
-        char c => c,
-        _ => null
-    };
+    private static decimal? Integer(object? value) =>
+        value switch
+        {
+            int i => i,
+            long l => l,
+            uint u => u,
+            ulong ul => ul,
+            short s => s,
+            ushort us => us,
+            byte b => b,
+            sbyte sb => sb,
+            char c => c,
+            _ => null
+        };
 
-    private static decimal? MaxValue(ITypeSymbol type) => type.SpecialType switch
-    {
-        SpecialType.System_SByte => sbyte.MaxValue,
-        SpecialType.System_Byte => byte.MaxValue,
-        SpecialType.System_Int16 => short.MaxValue,
-        SpecialType.System_UInt16 or SpecialType.System_Char => ushort.MaxValue,
-        SpecialType.System_Int32 => int.MaxValue,
-        SpecialType.System_UInt32 => uint.MaxValue,
-        SpecialType.System_Int64 => long.MaxValue,
-        SpecialType.System_UInt64 => ulong.MaxValue,
-        _ => null
-    };
+    private static decimal? MaxValue(ITypeSymbol type) =>
+        type.SpecialType switch
+        {
+            SpecialType.System_SByte => sbyte.MaxValue,
+            SpecialType.System_Byte => byte.MaxValue,
+            SpecialType.System_Int16 => short.MaxValue,
+            SpecialType.System_UInt16 or SpecialType.System_Char => ushort.MaxValue,
+            SpecialType.System_Int32 => int.MaxValue,
+            SpecialType.System_UInt32 => uint.MaxValue,
+            SpecialType.System_Int64 => long.MaxValue,
+            SpecialType.System_UInt64 => ulong.MaxValue,
+            _ => null
+        };
 
     private static (decimal Step, (string, Location)? Problem) Step(ForStatementSyntax loop, ILocalSymbol variable,
         SemanticModel model, CancellationToken token)
@@ -301,15 +369,20 @@ internal static class ForLoop
             if (Increment(incrementor, variable, model, token) is not { } by)
             {
                 if (Writes(model.AnalyzeDataFlow(incrementor), variable)) return (0, (rule, incrementor.GetLocation()));
+
                 continue;
             }
 
             if (step > 0)
+            {
                 return (0, ($"'{variable.Name}' may change only once per iteration", incrementor.GetLocation()));
+            }
+
             step = by;
         }
 
         if (step > 0) return (step, null);
+
         return (0,
             (rule,
                 loop.Incrementors.Count > 0 ? loop.Incrementors[0].GetLocation() : loop.CloseParenToken.GetLocation()));
@@ -344,7 +417,9 @@ internal static class ForLoop
                     ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true }
                 }
             }
-        } ? MaxVectorCount : 0m;
+        }
+            ? MaxVectorCount
+            : 0m;
 
     // The references data flow does not follow: `&i` and `__makeref(i)`
     private static Location? Escape(ForStatementSyntax loop, ILocalSymbol variable, SemanticModel model,
@@ -394,6 +469,7 @@ internal static class ForLoop
 
     private static bool Is(ExpressionSyntax expression, ILocalSymbol variable, SemanticModel model,
         CancellationToken token) =>
-        Symbols.Unparenthesized(expression) is IdentifierNameSyntax name && name.Identifier.ValueText == variable.Name &&
-        SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
+        Symbols.Unparenthesized(expression) is IdentifierNameSyntax name &&
+               name.Identifier.ValueText == variable.Name &&
+               SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
 }

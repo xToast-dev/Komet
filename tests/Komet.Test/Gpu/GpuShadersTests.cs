@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Komet.Rendering;
 
 namespace Komet.Test.Gpu;
@@ -9,10 +10,8 @@ public sealed class GpuShadersTests
     private static readonly string Folder = Path.Combine(Paths.Repo, "Komet.Rendering", "Gpu", "Shaders");
 
     [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
-    public void TheAssemblyCarriesTheFile(string name)
-    {
+    public void TheAssemblyCarriesTheFile(string name) =>
         Assert.That(GpuShaders.Source(name), Is.EqualTo(File.ReadAllText(Path.Combine(Folder, name))));
-    }
 
     [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
     public void ItCompilesForOpenGl(string name)
@@ -30,7 +29,7 @@ public sealed class GpuShadersTests
         {
             process = Process.Start(info);
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (Win32Exception)
         {
             Assert.Ignore("glslangValidator is not installed");
             return;

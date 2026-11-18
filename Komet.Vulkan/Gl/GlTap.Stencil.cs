@@ -21,40 +21,38 @@ internal static unsafe partial class GlTap
     private const uint GlFrontFace = 0x404, GlBackFace = 0x405;
 
     // A renderbuffer's name in the textures' namespace (above any name OpenGL gives a texture)
-    public const uint RenderbufferBase = 1u << 30;
-
-    public static uint RenderbufferName(uint renderbuffer) =>
-        Assert(renderbuffer < RenderbufferBase) && Assert(renderbuffer > 0) ? RenderbufferBase + renderbuffer : 0;
-
-    public static bool IsRenderbuffer(int texture) => texture >= RenderbufferBase;
-
-    // Per face (front, back): compare function, reference, value mask, fail, depth-fail and pass ops, write mask
-    private struct StencilFace
-    {
-        public uint Func, Mask, Fail, DepthFail, Pass, Write;
-        public int Reference;
-    }
+    private const uint RenderbufferBase = 1u << 30;
 
     private static readonly StencilFace[] Stencils = new StencilFace[2];
     private static int _clearStencil;
 
     // The dynamic part a draw sets: reference, compare mask and write mask of each face
-    public static ((uint Reference, uint Compare, uint Write) Front, (uint Reference, uint Compare, uint Write) Back) StencilValues =>
+    public static ((uint Reference, uint Compare, uint Write) Front, (uint Reference, uint Compare, uint Write) Back)
+        StencilValues =>
         (((uint)Stencils[0].Reference & 0xFF, Stencils[0].Mask & 0xFF, Stencils[0].Write & 0xFF),
             ((uint)Stencils[1].Reference & 0xFF, Stencils[1].Mask & 0xFF, Stencils[1].Write & 0xFF));
 
+    public static System.Func<TextureClear, bool>? TextureClearing { get; set; }
+
+    private static uint RenderbufferName(uint renderbuffer) =>
+        Assert(renderbuffer < RenderbufferBase) && Assert(renderbuffer > 0)
+            ? RenderbufferBase + renderbuffer
+            : 0;
+
+    public static bool IsRenderbuffer(int texture) => texture >= RenderbufferBase;
+
     private static Entry[] StencilEntries() =>
-    [
-        new("glStencilFunc", (nint)(StencilFuncFn)(&StencilFunc), Optional: true),
-        new("glStencilFuncSeparate", (nint)(StencilFuncSeparateFn)(&StencilFuncSeparate), Optional: true),
-        new("glStencilOp", (nint)(StencilOpFn)(&StencilOp), Optional: true),
-        new("glStencilOpSeparate", (nint)(StencilOpSeparateFn)(&StencilOpSeparate), Optional: true),
-        new("glStencilMask", (nint)(StencilMaskFn)(&StencilMask), Optional: true),
-        new("glStencilMaskSeparate", (nint)(StencilMaskSeparateFn)(&StencilMaskSeparate), Optional: true),
-        new("glClearStencil", (nint)(ClearStencilFn)(&ClearStencil), Optional: true),
-        new("glDeleteRenderbuffers", (nint)(DeleteNamesFn)(&DeleteRenderbuffers), Optional: true),
-        new("glClearTexSubImage", (nint)(ClearTexSubImageFn)(&ClearTexSubImage), Optional: true)
-    ];
+        [
+            new("glStencilFunc", (nint)(StencilFuncFn)(&StencilFunc), true),
+            new("glStencilFuncSeparate", (nint)(StencilFuncSeparateFn)(&StencilFuncSeparate), true),
+            new("glStencilOp", (nint)(StencilOpFn)(&StencilOp), true),
+            new("glStencilOpSeparate", (nint)(StencilOpSeparateFn)(&StencilOpSeparate), true),
+            new("glStencilMask", (nint)(StencilMaskFn)(&StencilMask), true),
+            new("glStencilMaskSeparate", (nint)(StencilMaskSeparateFn)(&StencilMaskSeparate), true),
+            new("glClearStencil", (nint)(ClearStencilFn)(&ClearStencil), true),
+            new("glDeleteRenderbuffers", (nint)(DeleteNamesFn)(&DeleteRenderbuffers), true),
+            new("glClearTexSubImage", (nint)(ClearTexSubImageFn)(&ClearTexSubImage), true)
+        ];
 
     // The faces a GL_FRONT, GL_BACK or GL_FRONT_AND_BACK names: bit 0 the front, bit 1 the back
     private static int Faces(uint face) => face switch { GlFrontFace => 1, GlBackFace => 2, _ => 3 };
@@ -63,6 +61,7 @@ internal static unsafe partial class GlTap
     private static void StencilFunc(uint func, int reference, uint mask)
     {
         if (Kept(StencilAt)) ((StencilFuncFn)Original[RecordsAt + StencilAt])(func, reference, mask);
+
         StencilSet(GlFrontAndBack, func, reference, mask);
     }
 
@@ -70,17 +69,26 @@ internal static unsafe partial class GlTap
     private static void StencilFuncSeparate(uint face, uint func, int reference, uint mask)
     {
         if (Kept(StencilAt + 1) && Assert(face > 0))
+        {
             ((StencilFuncSeparateFn)Original[RecordsAt + StencilAt + 1])(face, func, reference, mask);
+        }
+
         StencilSet(face, func, reference, mask);
     }
 
     private static void StencilSet(uint face, uint func, int reference, uint mask)
     {
         if (!Assert(face > 0) || func is < 0x200 or > 0x207) return;
+
         var faces = Faces(face);
         for (var i = 0; i < 2; i++)
+        {
             if ((faces & (1 << i)) != 0)
+            {
                 (Stencils[i].Func, Stencils[i].Reference, Stencils[i].Mask) = (func, reference, mask);
+            }
+        }
+
         Version++;
     }
 
@@ -88,6 +96,7 @@ internal static unsafe partial class GlTap
     private static void StencilOp(uint fail, uint depthFail, uint pass)
     {
         if (Kept(StencilAt + 2)) ((StencilOpFn)Original[RecordsAt + StencilAt + 2])(fail, depthFail, pass);
+
         StencilOps(GlFrontAndBack, (fail, depthFail, pass));
     }
 
@@ -95,17 +104,23 @@ internal static unsafe partial class GlTap
     private static void StencilOpSeparate(uint face, uint fail, uint depthFail, uint pass)
     {
         if (Kept(StencilAt + 3) && Assert(face > 0))
+        {
             ((StencilOpSeparateFn)Original[RecordsAt + StencilAt + 3])(face, fail, depthFail, pass);
+        }
+
         StencilOps(face, (fail, depthFail, pass));
     }
 
     private static void StencilOps(uint face, (uint Fail, uint DepthFail, uint Pass) ops)
     {
         if (!Assert(face > 0)) return;
+
         var faces = Faces(face);
         for (var i = 0; i < 2; i++)
-            if ((faces & (1 << i)) != 0)
-                (Stencils[i].Fail, Stencils[i].DepthFail, Stencils[i].Pass) = ops;
+        {
+            if ((faces & (1 << i)) != 0) (Stencils[i].Fail, Stencils[i].DepthFail, Stencils[i].Pass) = ops;
+        }
+
         Version++;
     }
 
@@ -113,23 +128,31 @@ internal static unsafe partial class GlTap
     private static void StencilMask(uint mask)
     {
         if (Kept(StencilAt + 4)) ((StencilMaskFn)Original[RecordsAt + StencilAt + 4])(mask);
+
         StencilWrites(GlFrontAndBack, mask);
     }
 
     [UnmanagedCallersOnly]
     private static void StencilMaskSeparate(uint face, uint mask)
     {
-        if (Kept(StencilAt + 5) && Assert(face > 0)) ((StencilMaskSeparateFn)Original[RecordsAt + StencilAt + 5])(face, mask);
+        if (Kept(StencilAt + 5) && Assert(face > 0))
+        {
+            ((StencilMaskSeparateFn)Original[RecordsAt + StencilAt + 5])(face, mask);
+        }
+
         StencilWrites(face, mask);
     }
 
     private static void StencilWrites(uint face, uint mask)
     {
         if (!Assert(face > 0)) return;
+
         var faces = Faces(face);
         for (var i = 0; i < 2; i++)
-            if ((faces & (1 << i)) != 0)
-                Stencils[i].Write = mask;
+        {
+            if ((faces & (1 << i)) != 0) Stencils[i].Write = mask;
+        }
+
         Version++;
     }
 
@@ -137,6 +160,7 @@ internal static unsafe partial class GlTap
     private static void ClearStencil(int value)
     {
         if (Kept(StencilAt + 6)) ((ClearStencilFn)Original[RecordsAt + StencilAt + 6])(value);
+
         _clearStencil = value;
     }
 
@@ -145,10 +169,14 @@ internal static unsafe partial class GlTap
     {
         Version++; // as for textures: a bound framebuffer may lose an attachment
         for (var i = 0; names != null && i < Math.Min(count, MaxDeleted); i++)
-            if (names[i] is > 0 and < RenderbufferBase)
-                Heard(static n => RenderbufferGone(n), names[i]);
+        {
+            if (names[i] is > 0 and < RenderbufferBase) Heard(static n => RenderbufferGone(n), names[i]);
+        }
+
         if (Kept(StencilAt + 7) && Assert(Tapped) && Assert(count >= 0))
+        {
             ((DeleteNamesFn)Original[RecordsAt + StencilAt + 7])(count, names);
+        }
     }
 
     // Its image goes as a deleted texture's does
@@ -158,7 +186,9 @@ internal static unsafe partial class GlTap
         _ = RenderbufferRecords.Remove(renderbuffer);
         _ = TextureRecords.Remove(name);
         if (Deleting is { } deleting) deleting(name);
+
         if (_renderbuffer == renderbuffer) _renderbuffer = 0;
+
         RenderbufferDetached(_framebuffer, renderbuffer);
         if (_readFramebuffer != _framebuffer) RenderbufferDetached(_readFramebuffer, renderbuffer);
     }
@@ -169,20 +199,20 @@ internal static unsafe partial class GlTap
         uint format, uint type, nint data)
     {
         var taken = TextureClearing is { } clearing && _quiet == 0 &&
-                    Asked(clearing, new TextureClear(texture, level, (x, y, z, width, height, depth), (format, type), data), false);
+                    Asked(clearing,
+                        new TextureClear(texture, level, (x, y, z, width, height, depth), (format, type), data), false);
         if (taken) return;
+
         Touched(Touch.ClearTexture, texture);
         if (!Rests) Changed(texture);
+
         if (!Rests && Kept(StencilAt + 8) && Assert(Tapped) && Assert(level >= 0))
-            ((ClearTexSubImageFn)Original[RecordsAt + StencilAt + 8])(texture, level, x, y, z, width, height, depth, format,
+        {
+            ((ClearTexSubImageFn)Original[RecordsAt + StencilAt + 8])(texture, level, x, y, z, width, height, depth,
+                format,
                 type, data);
+        }
     }
-
-    // glClearTexImage (Box Width -1: whole level) or glClearTexSubImage: level/box set to data's value (null: 0)
-    public readonly record struct TextureClear(uint Name, int Level, (int X, int Y, int Z, int Width, int Height, int Depth) Box,
-        (uint Format, uint Type) Data, nint Value);
-
-    public static System.Func<TextureClear, bool>? TextureClearing { get; set; }
 
     // OpenGL's stencil state and bound renderbuffer as the record starts: asked once. A renderbuffer bound before the
     // tap is the one glRenderbufferStorage names (left 0, its storage went unrecorded)
@@ -198,7 +228,8 @@ internal static unsafe partial class GlTap
                 Reference = GL.GetInteger(back ? GetPName.StencilBackRef : GetPName.StencilRef),
                 Mask = (uint)GL.GetInteger(back ? GetPName.StencilBackValueMask : GetPName.StencilValueMask),
                 Fail = (uint)GL.GetInteger(back ? GetPName.StencilBackFail : GetPName.StencilFail),
-                DepthFail = (uint)GL.GetInteger(back ? GetPName.StencilBackPassDepthFail : GetPName.StencilPassDepthFail),
+                DepthFail = (uint)GL.GetInteger(
+                    back ? GetPName.StencilBackPassDepthFail : GetPName.StencilPassDepthFail),
                 Pass = (uint)GL.GetInteger(back ? GetPName.StencilBackPassDepthPass : GetPName.StencilPassDepthPass),
                 Write = (uint)GL.GetInteger(back ? GetPName.StencilBackWritemask : GetPName.StencilWritemask)
             };
@@ -211,6 +242,7 @@ internal static unsafe partial class GlTap
     private static uint StencilWord()
     {
         if ((_caps & Caps.Stencil) == 0) return 0;
+
         var word = 0u;
         for (var i = 0; i < 2; i++)
         {
@@ -225,5 +257,23 @@ internal static unsafe partial class GlTap
 
     // GL_KEEP, GL_ZERO, GL_REPLACE, GL_INCR, GL_DECR, GL_INVERT, GL_INCR_WRAP, GL_DECR_WRAP as VkStencilOp
     private static uint StencilOperation(uint gl) =>
-        gl switch { 0 => 1u, 0x1E01 => 2u, 0x1E02 => 3u, 0x1E03 => 4u, 0x150A => 5u, 0x8507 => 6u, 0x8508 => 7u, _ => 0u };
+        gl switch
+        {
+            0 => 1u, 0x1E01 => 2u, 0x1E02 => 3u, 0x1E03 => 4u, 0x150A => 5u, 0x8507 => 6u, 0x8508 => 7u, _ => 0u
+        };
+
+    // Per face (front, back): compare function, reference, value mask, fail, depth-fail and pass ops, write mask
+    private struct StencilFace
+    {
+        public uint Func, Mask, Fail, DepthFail, Pass, Write;
+        public int Reference;
+    }
+
+    // glClearTexImage (Box Width -1: whole level) or glClearTexSubImage: level/box set to data's value (null: 0)
+    public readonly record struct TextureClear(
+        uint Name,
+        int Level,
+        (int X, int Y, int Z, int Width, int Height, int Depth) Box,
+        (uint Format, uint Type) Data,
+        nint Value);
 }

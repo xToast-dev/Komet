@@ -18,7 +18,8 @@ internal sealed class JsonMesh
     public const int BlockLight = Lights - 1;
 
     // The custom data a face's pass takes, and what its pool needs for them
-    public const int Ints = 0, LiquidZero = 1, LiquidOwn = 2, Shorts = 3, NeedsFloats = 1, NeedsShorts = 2;
+    public const int Ints = 0, LiquidZero = 1, LiquidOwn = 2, NeedsFloats = 1, NeedsShorts = 2;
+    private const int Shorts = 3;
 
     private const int LiquidPass = (int)EnumChunkRenderPass.Liquid, TopSoilPass = (int)EnumChunkRenderPass.TopSoil;
     private const int PassBits = 0x3FF, MaxAtlases = 256, Coordinates = 9, Planes = 3;
@@ -26,20 +27,20 @@ internal sealed class JsonMesh
 
     // JsonTesselator's faceCoordLookup, axesByFacingLookup, indexesByFacingLookup (1.22.7) flattened; Tables verifies
     public static readonly int[] FaceCoord = [2, 0, 2, 0, 1, 1];
-    public static readonly int[] Axes = [0, 1, 1, 2, 0, 1, 1, 2, 0, 2, 0, 2];
+    private static readonly int[] Axes = [0, 1, 1, 2, 0, 1, 1, 2, 0, 2, 0, 2];
     public static readonly int[] CornerOrder = [3, 2, 1, 0, 3, 1, 2, 0, 2, 3, 0, 1, 2, 0, 3, 1, 3, 2, 1, 0, 1, 0, 3, 2];
+    private readonly int[] _flags, _indices, _textureIds;
+    private readonly bool[]? _frost;
+    private readonly object? _ints, _floats, _shorts;
 
     private readonly MeshData _mesh;
     private readonly Block _owner;
-    private readonly EnumWindBitMode _wind;
-    private readonly float _waveMinY;
-    private readonly int _vertices, _faces, _quantity;
-    private readonly float[] _xyz, _uv;
-    private readonly int[] _flags, _indices, _textureIds;
-    private readonly byte[] _xyzFaces, _textureIndices, _climate, _season;
     private readonly short[]? _passes;
-    private readonly bool[]? _frost;
-    private readonly object? _ints, _floats, _shorts;
+    private readonly int _vertices, _faces, _quantity;
+    private readonly float _waveMinY;
+    private readonly EnumWindBitMode _wind;
+    private readonly float[] _xyz, _uv;
+    private readonly byte[] _xyzFaces, _textureIndices, _climate, _season;
     private int[] _atlases;
 
     private JsonMesh(MeshData mesh, Block owner, int[] atlases, int quantity)
@@ -85,17 +86,23 @@ internal sealed class JsonMesh
                    Flat(axes, 2).AsSpan().SequenceEqual(Axes) &&
                    AccessTools.DeclaredField(json, "indexesByFacingLookup")?.GetValue(null) is int[][] corners &&
                    Flat(corners, Corners).AsSpan().SequenceEqual(CornerOrder);
-        if (!same) logger?.Warning("Komet OwnTessellation: JsonTesselator's tables changed, the engine draws the JSON blocks");
+        if (!same)
+        {
+            logger?.Warning("Komet OwnTessellation: JsonTesselator's tables changed, the engine draws the JSON blocks");
+        }
+
         return same;
     }
 
     private static int[] Flat(int[][] rows, int width)
     {
         if (!Assert(rows.Length == TessSeams.Faces)) return [];
+
         var flat = new int[TessSeams.Faces * width];
         for (var f = 0; f < TessSeams.Faces; f++)
         {
             if (rows[f] is not { } row || row.Length != width) return [];
+
             row.CopyTo(flat, f * width);
         }
 
@@ -107,7 +114,11 @@ internal sealed class JsonMesh
     {
         var (faces, vertices) = (mesh.XyzFacesCount, mesh.VerticesCount);
         if (mesh.VerticesPerFace != Corners || mesh.IndicesPerFace != Indices || !Index(faces, MaxFaces + 1) ||
-            vertices < Corners * faces || vertices > Corners * MaxFaces) return false;
+            vertices < Corners * faces || vertices > Corners * MaxFaces)
+        {
+            return false;
+        }
+
         return mesh.xyz?.Length >= 3 * vertices && mesh.Uv?.Length >= 2 * vertices && mesh.Flags?.Length >= vertices &&
                mesh.Indices?.Length >= Indices * faces && mesh.XyzFaces?.Length >= faces &&
                mesh.TextureIndices?.Length >= faces && mesh.TextureIds is not null &&
@@ -120,17 +131,28 @@ internal sealed class JsonMesh
     public static JsonMesh? Build(MeshData mesh, Block owner, int[] atlases, int quantity)
     {
         if (!Shaped(mesh) || owner.VertexFlags is null) return null;
+
         var built = new JsonMesh(mesh, owner, atlases, quantity);
         var uses = new List<Use>();
         for (var l = 0; l < Math.Min(built._faces, MaxFaces); l++)
         {
             if (built.Take(mesh, l) is not { } face) return built;
+
             built.Faces[l] = face;
             var needs = face.Custom switch { LiquidZero or LiquidOwn => NeedsFloats, Shorts => NeedsShorts, _ => 0 };
             var at = Find(uses, face.Pass, face.Atlas);
-            if (at >= 0) uses[at] = uses[at] with { Needs = uses[at].Needs | needs };
-            else if (uses.Count < MaxUses) uses.Add(new Use(face.Pass, face.Atlas, needs));
-            else return built;
+            if (at >= 0)
+            {
+                uses[at] = uses[at] with { Needs = uses[at].Needs | needs };
+            }
+            else if (uses.Count < MaxUses)
+            {
+                uses.Add(new Use(face.Pass, face.Atlas, needs));
+            }
+            else
+            {
+                return built;
+            }
         }
 
         built.Uses = [.. uses];
@@ -142,8 +164,10 @@ internal sealed class JsonMesh
     private static int Find(List<Use> uses, int pass, int atlas)
     {
         for (var i = 0; i < Math.Min(uses.Count, MaxUses); i++)
-            if (uses[i].Pass == pass && uses[i].Atlas == atlas)
-                return i;
+        {
+            if (uses[i].Pass == pass && uses[i].Atlas == atlas) return i;
+        }
+
         return -1;
     }
 
@@ -153,18 +177,29 @@ internal sealed class JsonMesh
     {
         if (!ReferenceEquals(mesh, _mesh) || !ReferenceEquals(owner, _owner) || quantity != _quantity ||
             owner.VertexFlags?.WindMode != _wind ||
-            BitConverter.SingleToInt32Bits(WaveMinY(owner)) != BitConverter.SingleToInt32Bits(_waveMinY)) return false;
+            BitConverter.SingleToInt32Bits(WaveMinY(owner)) != BitConverter.SingleToInt32Bits(_waveMinY))
+        {
+            return false;
+        }
+
         if (mesh.VerticesCount != _vertices || mesh.XyzFacesCount != _faces || mesh.VerticesPerFace != Corners ||
             mesh.IndicesPerFace != Indices || !ReferenceEquals(mesh.xyz, _xyz) || !ReferenceEquals(mesh.Uv, _uv) ||
             !ReferenceEquals(mesh.Flags, _flags) || !ReferenceEquals(mesh.Indices, _indices) ||
             !ReferenceEquals(mesh.TextureIds, _textureIds) || !ReferenceEquals(mesh.XyzFaces, _xyzFaces) ||
-            !ReferenceEquals(mesh.TextureIndices, _textureIndices) || !ReferenceEquals(mesh.ClimateColorMapIds, _climate) ||
-            !ReferenceEquals(mesh.SeasonColorMapIds, _season) || !ReferenceEquals(mesh.RenderPassesAndExtraBits, _passes) ||
+            !ReferenceEquals(mesh.TextureIndices, _textureIndices) ||
+            !ReferenceEquals(mesh.ClimateColorMapIds, _climate) ||
+            !ReferenceEquals(mesh.SeasonColorMapIds, _season) ||
+            !ReferenceEquals(mesh.RenderPassesAndExtraBits, _passes) ||
             !ReferenceEquals(mesh.FrostableBits, _frost) || !ReferenceEquals(mesh.CustomInts, _ints) ||
-            !ReferenceEquals(mesh.CustomFloats, _floats) || !ReferenceEquals(mesh.CustomShorts, _shorts)) return false;
+            !ReferenceEquals(mesh.CustomFloats, _floats) || !ReferenceEquals(mesh.CustomShorts, _shorts))
+        {
+            return false;
+        }
+
         if (ReferenceEquals(atlases, _atlases)) return true;
         // a ChunkTesselator of the same thread with the same atlases
         if (!atlases.AsSpan().SequenceEqual(_atlases)) return false;
+
         _atlases = atlases;
         return true;
     }
@@ -176,10 +211,12 @@ internal sealed class JsonMesh
         var facing = mesh.XyzFaces[l] - 1;
         var texture = mesh.TextureIndices[l];
         if (facing >= TessSeams.Faces || !Index(texture, mesh.TextureIds.Length)) return null;
+
         var atlas = Search(_atlases, _quantity, mesh.TextureIds[texture]);
         var pass = mesh.RenderPassesAndExtraBits is { Length: > 0 } passes ? passes[l] : -1;
         var fixedXz = pass >= JsonTesselator.DisableRandomsFlag;
         if (fixedXz) pass &= PassBits;
+
         var custom = pass switch
         {
             LiquidPass when mesh.CustomFloats is null => LiquidZero,
@@ -188,9 +225,15 @@ internal sealed class JsonMesh
             _ => Ints
         };
         if (atlas < 0 || !Copied(mesh, custom, first)) return null;
-        for (var k = 0; k < Indices; k++) Relative[Indices * l + k] = mesh.Indices[Indices * l + k] - first;
+
+        for (var k = 0; k < Indices; k++)
+        {
+            Relative[Indices * l + k] = mesh.Indices[Indices * l + k] - first;
+        }
+
         var even = true;
         if (facing >= 0)
+        {
             for (var k = 0; k < Corners; k++)
             {
                 var v = first + k;
@@ -199,31 +242,33 @@ internal sealed class JsonMesh
                 (Lerp[2 * v], Lerp[2 * v + 1]) = (lx, ly);
                 even &= !float.IsNaN(lx) && !float.IsNaN(ly);
             }
+        }
 
         var frost = -1;
         if (mesh.FrostableBits is { } bits) frost = bits[l] ? 1 : 0;
+
         return new Face(facing, facing >= 0 && OnBoundary(xyz, l, facing), fixedXz, pass >= 0 ? pass : -1, atlas,
             mesh.SeasonColorMapIds[l], mesh.ClimateColorMapIds[l], frost, custom, even);
     }
 
     // The custom data the engine copies from the source mesh for the face's four vertices are there
-    private static bool Copied(MeshData mesh, int custom, int first)
-    {
-        return custom switch
+    private static bool Copied(MeshData mesh, int custom, int first) =>
+        custom switch
         {
             LiquidOwn => mesh.CustomInts?.Values?.Length >= first + Corners &&
                          mesh.CustomFloats?.Values?.Length >= 2 * (first + Corners),
             Shorts => mesh.CustomShorts?.Values?.Length >= 2 * (first + Corners),
             _ => true
         };
-    }
 
     // GetMeshPoolForPass's search: the texture's first atlas, the first looked at whatever the count; -1 for none
     private static int Search(int[] atlases, int quantity, int texture)
     {
         for (var i = 0; i < Math.Min(quantity, MaxAtlases); i++)
-            if (atlases[i] == texture)
-                return i;
+        {
+            if (atlases[i] == texture) return i;
+        }
+
         return -1;
     }
 
@@ -234,13 +279,20 @@ internal sealed class JsonMesh
         var at = 3 * Corners * l + FaceCoord[facing];
         var first = flip ? 1f - xyz[at] : xyz[at];
         if (float.IsNaN(first) || first > Edge) return false;
+
         var second = flip ? 1f - xyz[at + 2 * Planes] : xyz[at + 2 * Planes];
         if (float.IsNaN(second) || second > Edge) return false;
+
         for (var m = 0; m < Coordinates; m++)
         {
-            if (m is >= Planes and < 2 * Planes) continue; // the engine skips vertex 1
+            if (m is >= Planes and < 2 * Planes)
+            {
+                continue; // the engine skips vertex 1
+            }
+
             var i = 3 * Corners * l + m;
             if (i == at || i == at + 2 * Planes) continue;
+
             if (xyz[i] < Below || xyz[i] > Above) return false;
         }
 

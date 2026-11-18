@@ -23,8 +23,6 @@ internal static partial class OcclusionCulling
     public static long BatchedCalls { get; private set; }
     public static long UnbatchedCalls { get; private set; }
 
-    private readonly record struct Batched(MeshDataPoolManager Manager, int First, int Count, bool Surface);
-
     private static void BeginBatch()
     {
         (_batched, _batchCall, _laterFirst, _laterCount, _laterMaxRows) = (0, -1, 0, 0, 0);
@@ -43,17 +41,22 @@ internal static partial class OcclusionCulling
     {
         _batchTried = true;
         if (_renderer is null || PassPools(_renderer) is not { } passes || culler is null || _frameDraws != 0 ||
-            _frameRanges != 0) return false;
+            _frameRanges != 0)
+        {
+            return false;
+        }
+
         var (cursor, draws) = (0, 0);
         var surfaceRows = LayPasses(passes, SurfacePasses, (culler, camera), (true, backFaces), ref cursor, ref draws);
         var (surfaceRanges, surfaceDraws) = (cursor, draws);
         if (surfaceDraws == 0) return false;
+
         _laterFirst = draws;
         _laterMaxRows = LayPasses(passes, LaterPasses, (culler, camera), (false, false), ref cursor, ref draws);
         _laterCount = draws - _laterFirst;
         var counters = CounterBuffers[_frame % Ring];
         UploadRows((0, draws), culler, camera, (0, backFaces));
-        Prime((0, draws), counters, both: true);
+        Prime((0, draws), counters, true);
         BindRows(counters);
         var shift = (camera.X - _px, camera.Y - _py, camera.Z - _pz);
         RowsPass(Previous, shift, (0, _previousReady ? Test : Keep, StatUints, 0), (0, surfaceDraws), surfaceRows);
@@ -65,36 +68,49 @@ internal static partial class OcclusionCulling
     }
 
     // Each pass's atlases as their calls will draw them; returns the most rows a pool of them has
-    private static int LayPasses(MeshDataPoolManager[][] passes, int[] which, (FrustumCulling Culler, Vec3d Camera) at,
+    private static int LayPasses(MeshDataPoolManager?[]?[] passes, int[] which, (FrustumCulling Culler, Vec3d Camera) at,
         (bool Surface, bool BackFaces) how, ref int cursor, ref int draws)
     {
         var most = 0;
         foreach (var pass in which.Bounded(MaxPasses))
         {
             if (!Index(pass, Math.Min(passes.Length, MaxPasses)) || passes[pass] is not { } atlases) continue;
+
             foreach (var manager in atlases.Bounded(MaxAtlases))
+            {
                 if (manager is not null && _batched < MaxBatched &&
                     LayCall(manager, at, (how.BackFaces ? Runs : 1, MaxDraws), ref cursor, ref draws) is { } laid)
                 {
                     Batch[_batched++] = new Batched(manager, laid.First, laid.Count, how.Surface);
                     most = Math.Max(most, _callMaxRows);
                 }
+            }
         }
 
         return most;
     }
 
     // One call's draws as Lay makes them when its Render hands them to Hold (factor commands a row, draws before end)
-    private static (int First, int Count)? LayCall(MeshDataPoolManager manager, (FrustumCulling Culler, Vec3d Camera) at,
+    private static (int First, int Count)? LayCall(MeshDataPoolManager manager,
+        (FrustumCulling Culler, Vec3d Camera) at,
         (int Factor, int End) how, ref int cursor, ref int draws)
     {
         if (Pools(manager) is not { } pools || !ReferenceEquals(Culler(manager), at.Culler) ||
             cursor + Scan(pools) * how.Factor > MaxRanges || draws + pools.Count > how.End ||
-            !Rowed(at.Culler, pools, true)) return null;
+            !Rowed(at.Culler, pools, true))
+        {
+            return null;
+        }
+
         Held.Clear(); // the VAOs the call's Render will hand Hold: its pools with locations (Bypassed lets each draw)
         for (var i = 0; i < Math.Min(pools.Count, MaxPools); i++)
+        {
             if (Dimension(pools[i]) == 0 && Locations(pools[i]) is { Count: > 0 } && ModelRef(pools[i]) is VAO vao)
+            {
                 Held.Add(vao);
+            }
+        }
+
         var first = draws;
         draws = Lay(pools, at.Camera, ref cursor, (draws, how.End), how.Factor);
         return (first, draws - first);
@@ -105,13 +121,19 @@ internal static partial class OcclusionCulling
         (string Origin, bool Surface, bool Last, bool BackFaces) call)
     {
         if (_camera is null)
+        {
             (Eye.X, Eye.Y, Eye.Z, _camera, _view) = (playerpos.X, playerpos.Y, playerpos.Z, Eye, Seen());
+        }
+
         if (!Capture()) return false;
+
         if (!_batchTried && call.Surface) _ = Prepare(Culler(manager), _camera, call.BackFaces);
+
         var entry = Batching(manager, playerpos, call.Surface, call.BackFaces);
         if (entry < 0) return false;
+
         _ = Scan(pools); // Mini, for Hold
-        (_holding, _rowsCall, _batchCall, _origin) = (true, true, entry, call.Origin);
+        (_holding, Bypassing, _batchCall, _origin) = (true, true, entry, call.Origin);
         (_surface, _lastSurface, _backFaces) = (call.Surface, call.Last, call.BackFaces);
         Held.Clear();
         return true;
@@ -121,11 +143,18 @@ internal static partial class OcclusionCulling
     private static int Batching(MeshDataPoolManager manager, Vec3d playerpos, bool surface, bool backFaces)
     {
         if (_batchCuller is null || !ReferenceEquals(Culler(manager), _batchCuller) || _camera is not { } camera ||
-            !Same((camera.X, camera.Y, camera.Z), playerpos)) return -1;
+            !Same((camera.X, camera.Y, camera.Z), playerpos))
+        {
+            return -1;
+        }
+
         if (surface ? backFaces != _surfaceBackFaces : !_laterReady) return -1;
+
         for (var b = 0; b < Math.Min(_batched, MaxBatched); b++)
-            if (ReferenceEquals(Batch[b].Manager, manager))
-                return Batch[b].Surface == surface ? b : -1;
+        {
+            if (ReferenceEquals(Batch[b].Manager, manager)) return Batch[b].Surface == surface ? b : -1;
+        }
+
         return -1;
     }
 
@@ -134,21 +163,30 @@ internal static partial class OcclusionCulling
     {
         var batched = Batch[entry];
         if (!Matches(batched)) return false;
+
         var draws = (batched.First, batched.Count);
         var counters = CounterBuffers[_frame % Ring];
-        Issue(draws, (0, StatUints), counters, sorted: !batched.Surface && _laterSorted && Orderless());
-        if (batched.Surface && batched.Count > 0) Remember(draws); // a pool with nothing to draw this frame (at the start)
+        Issue(draws, (0, StatUints), counters, !batched.Surface && _laterSorted && Orderless());
+        if (batched is { Surface: true, Count: > 0 })
+        {
+            Remember(draws); // a pool with nothing to draw this frame (at the start)
+        }
+
         return true;
     }
 
     private static bool Same((double X, double Y, double Z) camera, Vec3d playerpos) =>
-        Math.Abs(camera.X - playerpos.X) + Math.Abs(camera.Y - playerpos.Y) + Math.Abs(camera.Z - playerpos.Z) < 1e-6;
+        Math.Abs(camera.X - playerpos.X) + Math.Abs(camera.Y - playerpos.Y) + Math.Abs(camera.Z - playerpos.Z) <
+               1e-6;
 
     private static bool Matches(Batched batched)
     {
         var matches = Held.Count == batched.Count;
         for (var i = 0; i < Math.Min(Held.Count, MaxPools) && matches; i++)
+        {
             matches = ReferenceEquals(Held[i], Draws[batched.First + i].Vao);
+        }
+
         if (!matches)
         {
             UnbatchedCalls++;
@@ -164,12 +202,15 @@ internal static partial class OcclusionCulling
     private static void CullLater(int counters)
     {
         if (_laterCount == 0 || _batchCuller is not { } culler || _camera is not { } camera) return;
+
         Frustum(culler, camera, (0, false));
         BindRows(counters);
         RowsPass(ViewProjection, (0, 0, 0), (1, Test, StatUints, 0), (_laterFirst, _laterCount), _laterMaxRows);
         _laterSorted = _laterMaxRows > 0 && Sorted((_laterFirst, _laterCount));
         _laterReady = true;
     }
+
+    private readonly record struct Batched(MeshDataPoolManager Manager, int First, int Count, bool Surface);
 }
 
 // A shadow stage's rows calls, likewise one dispatch at its first call instead of one break each (RenderShadow draws four
@@ -201,35 +242,48 @@ internal static partial class OcclusionCulling
     private static void PrepareShadow(FrustumCulling? culler, Vec3d camera, int mode)
     {
         if (_shadowTried) return;
+
         _shadowTried = true;
         if (_shadowRenderer is null || PassPools(_shadowRenderer) is not { } passes || culler is null) return;
+
         var (cursor, draws, most) = (_shadowRanges, _shadowDraws, 0);
         foreach (var pass in ShadowPasses.Bounded(MaxPasses))
         {
             if (!Index(pass, Math.Min(passes.Length, MaxPasses)) || passes[pass] is not { } atlases) continue;
+
             foreach (var manager in atlases.Bounded(MaxAtlases))
+            {
                 if (manager is not null && _shadowBatched < MaxBatched &&
                     LayCall(manager, (culler, camera), (1, 2 * MaxDraws), ref cursor, ref draws) is { } laid)
                 {
                     ShadowBatch[_shadowBatched++] = new Batched(manager, laid.First, laid.Count, false);
                     most = Math.Max(most, _callMaxRows);
                 }
+            }
         }
 
         if (draws == _shadowDraws) return;
+
         _shadowMode = mode;
-        CullShadow((_shadowRanges, cursor - _shadowRanges), (_shadowDraws, draws - _shadowDraws), (culler, camera, most),
-            issue: false);
+        CullShadow((_shadowRanges, cursor - _shadowRanges), (_shadowDraws, draws - _shadowDraws),
+            (culler, camera, most),
+            false);
         (_shadowBatchCuller, _shadowBatchCamera) = (culler, (camera.X, camera.Y, camera.Z));
     }
 
     private static int ShadowBatching(MeshDataPoolManager manager, Vec3d playerpos)
     {
         if (_shadowBatchCuller is null || !ReferenceEquals(Culler(manager), _shadowBatchCuller) ||
-            _shadowBatchCamera is not { } camera || !Same(camera, playerpos)) return -1;
+            _shadowBatchCamera is not { } camera || !Same(camera, playerpos))
+        {
+            return -1;
+        }
+
         for (var b = 0; b < Math.Min(_shadowBatched, MaxBatched); b++)
-            if (ReferenceEquals(ShadowBatch[b].Manager, manager))
-                return b;
+        {
+            if (ReferenceEquals(ShadowBatch[b].Manager, manager)) return b;
+        }
+
         return -1;
     }
 
@@ -237,6 +291,7 @@ internal static partial class OcclusionCulling
     {
         var batched = ShadowBatch[entry];
         if (!Matches(batched)) return false;
+
         Issue((batched.First, batched.Count), (ShadowBase, StatUints + MaxDraws), CounterBuffers[_frame % Ring]);
         return true;
     }

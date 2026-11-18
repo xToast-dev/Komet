@@ -34,9 +34,6 @@ internal static class IndirectDraw
     // Sees every draw first, feature on or off: true holds it (OcclusionCulling issues it later)
     internal static System.Func<MeshRef, bool, bool>? Intercept { get; set; }
 
-    // Renderer drawing the pool itself (Vulkan); true when it did. Starts are int pairs, as glMultiDrawElements takes.
-    internal delegate bool Drawing(MeshRef modelRef, int[] indices, int[] sizes, int count, bool useSSBOs);
-
     internal static Drawing? Takeover { get; set; }
 
     // Vulkan-only: untaken pools draw the engine way (glMultiDrawElements), not via Komet's GL buffer Vulkan can't see
@@ -48,36 +45,61 @@ internal static class IndirectDraw
         var render = AccessTools.Method(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.RenderMesh),
             [typeof(MeshRef), typeof(int[]), typeof(int[]), typeof(int), typeof(bool)]);
         var prefix = new HarmonyMethod(RenderMesh);
-        if (!NotNull(harmony) || !NotNull(render) || !Assert(Unsafe.SizeOf<Command>() == CommandBytes) ||
-            !Assert(Il.Binds(render, prefix.method))) return;
+        if (!NotNull(render) || !Assert(Unsafe.SizeOf<Command>() == CommandBytes) ||
+            !Assert(Il.Binds(render, prefix.method)))
+        {
+            return;
+        }
+
         _ = harmony.Patch(render, prefix);
     }
 
+    // ReSharper disable once InconsistentNaming Harmony binds the engine's parameter name
     private static bool RenderMesh(MeshRef modelRef, int[] indices, int[] indicesSizes, int groupCount, bool useSSBOs)
     {
-        if (Intercept?.Invoke(modelRef, useSSBOs) == true) return false;
-        if (Takeover?.Invoke(modelRef, indices, indicesSizes, groupCount, useSSBOs) == true) return false;
+        if (Intercept?.Invoke(modelRef, useSSBOs) == true ||
+            Takeover?.Invoke(modelRef, indices, indicesSizes, groupCount, useSSBOs) == true)
+        {
+            return false;
+        }
+
         if (!Enabled || Plain || modelRef is not VAO vao) return true;
+
         if (!Detected) (Supported, Detected) = (Detect(), true);
+
         if (!Supported) return true;
-        if (!Assert(groupCount >= 0) || !Assert(indices.Length >= 2 * groupCount) ||
-            !Assert(indicesSizes.Length >= groupCount) || groupCount > MaxRanges) return true;
+
         if (groupCount == 0)
         {
             RuntimeStats.drawCallsCount++;
             return false;
         }
 
+        if (!Assert(groupCount >= 0) || !Assert(indices.Length >= 2 * groupCount) ||
+            !Assert(indicesSizes.Length >= groupCount) || groupCount > MaxRanges)
+        {
+            return true;
+        }
+
         var at = Upload(indices, indicesSizes, groupCount);
         if (at < 0) return true;
+
         RuntimeStats.drawCallsCount++;
         if (Counting.Hud) (Draws, Ranges) = (Draws + 1, Ranges + groupCount);
+
+        return DrawIndirect(vao, at, groupCount, useSSBOs);
+    }
+
+    private static bool DrawIndirect(VAO vao, int at, int groupCount, bool useSsbos)
+    {
         GL.BindVertexArray(vao.VaoId);
         GL.BindBuffer(BufferTarget.ElementArrayBuffer,
-            useSSBOs ? ClientPlatformAbstract.singleIndexBufferId : vao.vboIdIndex);
-        if (useSSBOs) GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 3, vao.xyzVboId);
+            useSsbos ? ClientPlatformAbstract.singleIndexBufferId : vao.vboIdIndex);
+        if (useSsbos) GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 3, vao.xyzVboId);
+
         GL.MultiDrawElementsIndirect(vao.drawMode, DrawElementsType.UnsignedInt, at, groupCount, 0);
-        if (useSSBOs) GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 3, 0);
+        if (useSsbos) GL.BindBufferBase(BufferRangeTarget.ShaderStorageBuffer, 3, 0);
+
         GL.BindBuffer(BufferTarget.ElementArrayBuffer, 0);
         GL.BindVertexArray(0);
         return false;
@@ -89,12 +111,19 @@ internal static class IndirectDraw
     {
         var bytes = groupCount * CommandBytes;
         if (!Assert(bytes <= SegmentBytes)) return -1;
+
         if (_commands.Length < groupCount)
+        {
             _commands = new Command[Math.Min(MaxRanges, Math.Max(groupCount, 2 * _commands.Length))];
+        }
+
         var staged = _commands.AsSpan(0, groupCount);
         // staged in cached memory: the mapping is write combined, partial line stores are slow
         for (var i = 0; i < Math.Min(staged.Length, MaxRanges); i++)
+        {
             staged[i] = new Command { Count = indicesSizes[i], InstanceCount = 1, FirstIndex = indices[2 * i] / 4 };
+        }
+
         if (_mapped == IntPtr.Zero)
         {
             GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
@@ -103,6 +132,7 @@ internal static class IndirectDraw
         }
 
         if (_used + bytes > SegmentBytes) Lap();
+
         var at = _segment * SegmentBytes + _used;
         staged.CopyTo(new Span<Command>((void*)(_mapped + at), groupCount));
         _used += bytes;
@@ -114,10 +144,12 @@ internal static class IndirectDraw
     private static void Lap()
     {
         if (Fences[_segment] != IntPtr.Zero) GL.DeleteSync(Fences[_segment]);
+
         Fences[_segment] = GL.FenceSync(SyncCondition.SyncGpuCommandsComplete, WaitSyncFlags.None);
         (_segment, _used) = ((_segment + 1) % Segments, 0);
         var fence = Fences[_segment];
         if (fence == IntPtr.Zero) return;
+
         _ = GL.ClientWaitSync(fence, ClientWaitSyncFlags.SyncFlushCommandsBit, SyncTimeoutNs);
         GL.DeleteSync(fence);
         Fences[_segment] = IntPtr.Zero;
@@ -126,9 +158,12 @@ internal static class IndirectDraw
     private static bool Detect()
     {
         if (!GpuStats.Offered("GL_ARB_multi_draw_indirect")) return false;
+
         _buffer = GL.GenBuffer();
         if (!Assert(_buffer != 0)) return false;
+
         if (!GpuStats.Offered("GL_ARB_buffer_storage")) return true;
+
         Array.Clear(Fences);
         (_segment, _used) = (0, 0);
         GL.BindBuffer(BufferTarget.DrawIndirectBuffer, _buffer);
@@ -136,10 +171,16 @@ internal static class IndirectDraw
                                            MapBufferAccessMask.MapCoherentBit;
         var storage = (BufferStorageFlags)access; // same bits; OpenTK's BufferStorageFlags lacks [Flags]
         for (var drain = 0; drain < MaxErrors && GL.GetError() != ErrorCode.NoError; drain++)
+        {
             _ = Assert(false); // a pending error would be read as ours; report it once
+        }
+
         GL.BufferStorage(BufferTarget.DrawIndirectBuffer, Segments * SegmentBytes, IntPtr.Zero, storage);
         if (GL.GetError() == ErrorCode.NoError)
+        {
             _mapped = GL.MapBufferRange(BufferTarget.DrawIndirectBuffer, IntPtr.Zero, Segments * SegmentBytes, access);
+        }
+
         Persistent = _mapped != IntPtr.Zero;
         if (Persistent) return true;
         // BufferStorage may have made the store immutable before failing, which would refuse BufferData
@@ -148,6 +189,9 @@ internal static class IndirectDraw
         _buffer = GL.GenBuffer();
         return true;
     }
+
+    // Renderer drawing the pool itself (Vulkan); true when it did. Starts are int pairs, as glMultiDrawElements takes.
+    internal delegate bool Drawing(MeshRef modelRef, int[] indices, int[] sizes, int count, bool useSsbos);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Command // DrawElementsIndirectCommand

@@ -6,7 +6,8 @@ namespace Komet.Test.World;
 // instead of in a world, and a game update that changes the method's shape turns the feature off here first.
 public sealed class CloudTileScratchTests
 {
-    private static readonly string[] Renderers = ["FluffyClouds.CloudRendererMap", "Vintagestory.GameContent.CloudRenderer"];
+    private static readonly string[] Renderers =
+        ["FluffyClouds.CloudRendererMap", "Vintagestory.GameContent.CloudRenderer"];
 
     [OneTimeSetUp]
     public void LoadEssentials()
@@ -24,10 +25,14 @@ public sealed class CloudTileScratchTests
         var at = AccessTools.Method(typeof(CloudTileScratch), nameof(CloudTileScratch.At));
         Assert.Multiple(() =>
         {
-            Assert.That(CloudTileScratch.Rewritten, Is.True, "UpdateCloudTilesOffThread no longer builds exactly one Vec3d");
+            Assert.That(CloudTileScratch.Rewritten, Is.True,
+                "UpdateCloudTilesOffThread no longer builds exactly one Vec3d");
             foreach (var renderer in Renderers)
-                Assert.That(PatchProcessor.GetCurrentInstructions(CloudTileScratch.Target(renderer)).Count(c => c.Calls(at)),
+            {
+                Assert.That(
+                    PatchProcessor.GetCurrentInstructions(CloudTileScratch.Target(renderer)).Count(c => c.Calls(at)),
                     Is.EqualTo(1), renderer);
+            }
         });
     }
 

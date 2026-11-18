@@ -1,5 +1,6 @@
 using Komet.Core;
 using Komet.World;
+using Vintagestory.API.Server;
 
 namespace Komet.Test.World;
 
@@ -8,11 +9,11 @@ namespace Komet.Test.World;
 [NonParallelizable]
 public sealed class EventBusSweepTests
 {
+    private ICoreClientAPI _capi = null!;
+    private ClientMain _game = null!;
     private TestHarmony? _harmony;
     private int _mainThread;
     private FrameProfilerUtil? _profiler;
-    private ClientMain _game = null!;
-    private ICoreClientAPI _capi = null!;
 
     private List<EventBusListener> Listeners => _game.eventManager.EventBusListeners;
 
@@ -26,13 +27,14 @@ public sealed class EventBusSweepTests
         EventBusSweep.Install(_harmony, new QuietLogger());
         (EventBusSweep.Enabled, Counting.Hud) = (true, true);
         _game = (ClientMain)RuntimeHelpers.GetUninitializedObject(typeof(ClientMain));
-        (_game.GameLaunchTasks, _game.MainThreadTasks, _game.MainThreadTasksLock) = (new(), new(), new object());
+        (_game.GameLaunchTasks, _game.MainThreadTasks, _game.MainThreadTasksLock) =
+            (new Queue<ClientTask>(), new Queue<ClientTask>(), new object());
         AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue").SetValue(_game, new Queue<ClientTask>());
         _game.eventManager = (ClientEventManager)RuntimeHelpers.GetUninitializedObject(typeof(ClientEventManager));
         _game.eventManager.EventBusListeners = [];
         var events = (ClientEventAPI)RuntimeHelpers.GetUninitializedObject(typeof(ClientEventAPI));
         AccessTools.Field(typeof(ClientEventAPI), "game").SetValue(events, _game);
-        _capi = Answers.Of<ICoreClientAPI>(new()
+        _capi = Answers.Of<ICoreClientAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["get_Event"] = _ => events, ["get_World"] = _ => Answers.Of<IClientWorldAccessor>([]),
             ["get_Side"] = _ => EnumAppSide.Client
@@ -49,15 +51,13 @@ public sealed class EventBusSweepTests
     }
 
     [Test]
-    public void InstallFindsTheVerifiedBodies()
-    {
+    public void InstallFindsTheVerifiedBodies() =>
         Assert.Multiple(() =>
         {
             Assert.That(EventBusSweep.Installed, Is.True);
             Assert.That(EngineShape.Of(EventBusSweep.Seams()), Is.EqualTo(EventBusSweep.Fingerprint),
                 $"not the bodies verified: 0x{EngineShape.Of(EventBusSweep.Seams()):X16}UL");
         });
-    }
 
     // Unloaded, removed, a behaviour of an unloaded one: their listeners go at the end of the frame's tasks. A live block entity's, a
     // live one's behaviour's and anything else's stay, in their order.
@@ -67,7 +67,7 @@ public sealed class EventBusSweepTests
         var (unloaded, removed, live, owner) = (Display(), Display(), Display(), Display());
         var (_, alive) = (Behavior(owner), Behavior(live));
         var other = new Block();
-        _capi.Event.RegisterEventBusListener((string _, ref EnumHandling _, IAttribute _) => _ = other.Id);
+        _capi.Event.RegisterEventBusListener((_, ref _, _) => _ = other.Id);
         var closure = Listeners[^1].handler.Target;
         unloaded.OnBlockUnloaded();
         removed.OnBlockRemoved();
@@ -102,7 +102,7 @@ public sealed class EventBusSweepTests
         entity.OnBlockUnloaded();
         EventBusSweep.Enabled = true;
         var server = Display();
-        server.Api = Answers.Of<Vintagestory.API.Server.ICoreServerAPI>([]);
+        server.Api = Answers.Of<ICoreServerAPI>([]);
         server.OnBlockRemoved();
         _game.ExecuteMainThreadTasks(0);
         Assert.That(Listeners, Has.Count.EqualTo(2));
@@ -127,23 +127,23 @@ public sealed class EventBusSweepTests
 
     private sealed class Shelf : BlockEntity
     {
+        private int Events { get; set; }
+
         public override void Initialize(ICoreAPI api)
         {
             base.Initialize(api);
             (api as ICoreClientAPI)?.Event.RegisterEventBusListener(OnEvent);
         }
 
-        public int Events { get; private set; }
-
-        public void OnEvent(string eventName, ref EnumHandling handling, IAttribute data) =>
+        public void OnEvent(string eventName, ref EnumHandling handling, IAttribute? data) =>
             (Events, handling) = (Events + eventName.Length + (data is null ? 0 : 1), EnumHandling.PassThrough);
     }
 
     private sealed class Behaviour(BlockEntity owner) : BlockEntityBehavior(owner)
     {
-        public int Events { get; private set; }
+        private int Events { get; set; }
 
-        public void OnEvent(string eventName, ref EnumHandling handling, IAttribute data) =>
+        public void OnEvent(string eventName, ref EnumHandling handling, IAttribute? data) =>
             (Events, handling) = (Events + eventName.Length + (data is null ? 0 : 1), EnumHandling.PassThrough);
     }
 }

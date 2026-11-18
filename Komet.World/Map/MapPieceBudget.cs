@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Reflection.Emit;
 using HarmonyLib;
 using Komet.Core;
@@ -25,20 +26,25 @@ internal static class MapPieceBudget
         Rewritten = false;
         var layer = AccessTools.TypeByName("Vintagestory.GameContent.ChunkMapLayer");
         var tick = layer is null ? null : AccessTools.DeclaredMethod(layer, "OnTick", [typeof(float)]);
-        if (!NotNull(harmony) || tick is null) return;
-        _ = harmony.Patch(tick, transpiler: new HarmonyMethod(AccessTools.Method(typeof(MapPieceBudget), nameof(Rewrite))));
+        if (tick is null) return;
+
+        _ = harmony.Patch(tick,
+            transpiler: new HarmonyMethod(AccessTools.Method(typeof(MapPieceBudget), nameof(Rewrite))));
         var offThread = AccessTools.DeclaredMethod(layer, "OnOffThreadTick", [typeof(float)]);
         if (offThread is not null && AccessTools.Field(layer, "diskSaveAccum")?.FieldType == typeof(float) &&
             AccessTools.Field(layer, "mapdb") is not null &&
-            typeof(System.Collections.ICollection).IsAssignableFrom(AccessTools.Field(layer, "toSaveList")?.FieldType))
+            typeof(ICollection).IsAssignableFrom(AccessTools.Field(layer, "toSaveList")?.FieldType))
+        {
             _ = harmony.Patch(offThread, new HarmonyMethod(AccessTools.Method(typeof(MapPieceBudget), nameof(Saving))));
+        }
     }
 
     // The save clock the engine declares and never advances; only where a database is open (the server's layer has none:
     // a save there threw, the world crashed on loading) and pieces wait
-    internal static void Saving(float dt, ref float ___diskSaveAccum, object? ___mapdb, System.Collections.ICollection? ___toSaveList)
+    internal static void Saving(float dt, ref float ___diskSaveAccum, object? ___mapdb, ICollection? ___toSaveList)
     {
         if (!Enabled || ___mapdb is null || ___toSaveList is not { Count: > 0 } || !Finite(dt) || dt < 0) return;
+
         ___diskSaveAccum += dt;
     }
 
@@ -47,9 +53,14 @@ internal static class MapPieceBudget
     {
         var pieces = AccessTools.Method(typeof(MapPieceBudget), nameof(Pieces));
         if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(pieces)) return code;
+
         Rewritten = Il.SubstituteSingle(code, static c => c.opcode == OpCodes.Ldc_I4 && c.operand is Engine, pieces);
         return code;
     }
 
-    internal static int Pieces() => Enabled ? PerTick : Engine; // called from the rewritten tick alone
+    internal static int Pieces()
+    {
+        return Enabled ? PerTick : Engine;
+        // called from the rewritten tick alone
+    }
 }

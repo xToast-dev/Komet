@@ -7,11 +7,11 @@ How Komet is built and how you change it. Code, comments and these pages are Eng
 
 ## The layout in one picture
 
-Komet is one mod made of ten projects, each its own DLL in the same mod zip. A project may only use projects **below**
+Komet is one mod made of ten projects (the mod project and nine modules), each its own DLL in the same mod zip. A project may only use projects **below**
 it; a reference upwards does not build.
 
 ```text
-Komet            the mod: entry (KometModSystem), server part (Host/), module list (Modules.cs), modinfo.json, assets/
+Komet            the mod: entry (KometModSystem, ClientRuntime), module list and services (Modules.cs, Bridges.cs), modinfo.json, assets/
   └─ Komet.Ui          HUD and options menu (Hud/, Options/)
        └─ Komet.Vulkan     the Vulkan renderer
             ├─ Komet.Shapes     shapes, animations, inventory
@@ -26,22 +26,24 @@ Komet            the mod: entry (KometModSystem), server part (Host/), module li
 Bottom to top: Core, Diagnostics, Rendering, Tessellation, Chunks, Shapes, World, Vulkan, Ui, Komet. Who may use whom is
 stated in the `ProjectReference` lines of each `<Module>.csproj` and in `tests/Komet.Test/Core/ModulesTests.cs`.
 
-Alongside: `Komet.Bench` (the benchmark, a mod of its own, never in a release), `tests/`, `tools/Komet.Rules` (the
-analyzer, runs on every build).
+Alongside: `Komet.Sdk` (the Shader Studio for shader authors, mod `kometsdk` with a zip of its own; it sits on top of
+`Komet` and joins through `StudioHooks` and `SdkLink`), `Komet.Bench` (the benchmark, a mod of its own, never in a
+release), `tests/`, `tools/Komet.Rules` (the analyzer, runs on every build).
 
 ## Where things are
 
 | You are looking for | There |
 |---|---|
-| Which features exist, in which order they start | `Komet/Modules.cs` (`InstallOrder`) |
+| Which features exist, in which order they start | the modules' `*Features.cs`: each entry's `Order`, `Requires`, `After`, `Before` (`Komet.Core/Features/FeatureOrder.cs` sorts them) |
 | A feature and its switch | the module's `*Features.cs` (the entry `new("Name")`) and the class `Name.cs` in the module |
-| The public API for other mods | `Komet.Core/Api/` (namespace `Komet.Api`, DLL `Komet.Core.dll`) |
+| The public API for other mods (KAPI) | `Komet.Core/Api/` (namespace `Komet.Api`, DLL `Komet.Core.dll`); it forwards to the internal registries in `Komet.Core/Registry/` and `Komet.Core/Features/` |
 | The contracts `Assert`, `NotNull`, `Finite`, `Index`, `Bounded` | `Komet.Core/Contracts.cs` |
 | Texts in the menu and HUD | `Komet/assets/komet/lang/de.json` and `en.json` (keys `settings-…`, `hud-…`) |
-| The in-game help pages | `Komet/assets/komet/config/komet-docs/<de|en>/*.md` |
+| The in-game help pages (players) | `Komet/assets/komet/config/komet-docs/<de|en>/*.md` |
+| The Modding pages (mod authors, shipped with the SDK) | `Komet.Sdk/assets/kometsdk/config/komet-docs/<de|en>/*.md` |
 | The developer site (API reference, articles) | `docs/site`, built with `scripts/apidocs.sh` |
-| Templates for mod authors | `Komet/assets/komet/config/komet-templates/` |
-| What a module needs from a higher one | `<Module>/Links.cs` and `Komet/Modules.cs` (`Wire`) |
+| Templates for mod authors (shipped with the SDK) | `Komet.Sdk/assets/kometsdk/config/komet-templates/` |
+| What a module needs from a higher one | the interfaces in `<Module>/Links.cs`, answered in `Komet/Bridges.cs`, registered in `Komet/Modules.cs` (`Bind`) |
 | Build settings shared by all modules | `Komet.Module.props` |
 
 ## Build and test
@@ -87,15 +89,17 @@ on entering a world (stutter).
 ## Adding a feature
 
 1. Create the class in the fitting module (see the picture above: where would it belong? what does it need?).
-2. Add it to the module's `*Features.cs`, at its install position within the module.
-3. Add its name to `InstallOrder` in `Komet/Modules.cs`. If it is missing, Komet does not start and says in the log which
-   name is missing.
+2. Add it to the module's `*Features.cs`.
+3. Give it an `Order` no other feature has: its place at install and in `komet.json` and the menu. Name what it must
+   come after in `Requires` (must exist) or `After`. A duplicate `Order`, an unknown name or a cycle stops Komet at
+   start, and the log says which.
 4. Add the texts: `settings-<name>` and `settings-<name>-hint` in `de.json` **and** `en.json`.
 5. Build and write a short test under `tests/Komet.Test/<Module>/`.
 
 ## Removing a feature
 
-1. Delete the entry in `*Features.cs`, the name in `Modules.cs` (`InstallOrder`), the class and the lang keys.
+1. Delete the entry in `*Features.cs`, the class and the lang keys. Another feature that names it in `Requires`,
+   `After` or `Before` loses that name too (`FeatureOrder` refuses an unknown id at start).
 2. Build. The compiler names every place that still uses the feature (usually the HUD in `Komet.Ui`).
 3. A player's old `komet.json` with the switch does no harm: unknown keys are ignored.
 
@@ -103,20 +107,22 @@ on entering a world (stutter).
 
 1. Delete the project folder and its line in `Komet.slnx`.
 2. Remove its `ProjectReference` from `Komet/Komet.csproj` and from the modules that used it.
-3. Remove its list from `Modules.cs` (`All`), its feature names from `InstallOrder` and its lines from `Wire`.
-4. Build. The compiler names every place that still uses the module. Whatever a lower module needed from it had a
-   hook (`Links.cs`); the hook keeps its "without the module" answer.
+3. Remove its list from `Modules.cs` (`All`), its registrations from `Bind` and its bridge from `Bridges.cs`.
+4. Build. The compiler names every place that still uses the module. Whatever a lower module asked of it is an
+   interface in that module's `Links.cs`; its null object keeps the "without the module" answer.
 
-## Hooks instead of upward references (`Links.cs`)
+## Services instead of upward references (`Links.cs`)
 
 If a low module needs something from a higher one (`Komet.Rendering` asks, for example, whether the Vulkan renderer is
-drawing), it has a **hook**: a `Func<…>` or `Action<…>` in its `Links.cs` with an answer for the case that the upper
-module is missing. At start (`Wire`), `Komet/Modules.cs` sets every hook to the real method.
+drawing), it declares an **interface** in its `Links.cs`, with a null object for the answer when the upper module is
+missing. `Komet/Bridges.cs` implements the interface by forwarding to the upper module, and `Modules.Bind` registers
+it in `Services` before anything starts; the world's end clears the registrations.
 
 New upward dependency? Never a `using` on the upper module, instead:
 
-1. Create the hook in the low module's `Links.cs`, with a comment and an answer for "without the module".
-2. Set it in `Wire` in `Modules.cs`.
+1. Add the question to an interface in the low module's `Links.cs` (or a new interface with its null object and a
+   property on `Links`).
+2. Answer it in the bridge in `Komet/Bridges.cs`; a new interface also gets its `Services.Register` line in `Bind`.
 
 ## The rules (Komet.Rules)
 
@@ -137,13 +143,18 @@ everywhere.
 
 | Message | Means | Fix |
 |---|---|---|
-| `CS0234: The type or namespace name 'X' does not exist in the namespace 'Komet'` | A module reaches upwards | Hook in `Links.cs` (see above) or move the class into the lower module |
+| `CS0234: The type or namespace name 'X' does not exist in the namespace 'Komet'` | A module reaches upwards | Service in `Links.cs` (see above) or move the class into the lower module |
 | `CS0122: '…' is inaccessible due to its protection level` | An `internal` from another module | All Komet projects see each other (`InternalsVisibleTo` in `Komet.Module.props`); if your project is missing there, add it |
 | `IDE0005: Using directive is unnecessary` | A `using` without use | Delete the line |
 | `Found multiple .dll files with ModSystems` (in the game log) | A module contains a class `: ModSystem` | It belongs in the project `Komet` (`ModulesTests` checks this) |
 
 ## For mod authors
 
-Other mods reference **`Komet.Core.dll`**, not `Komet.dll`: that is where the public API (`Komet.Api`) lives. Whatever
-is `public` in `Komet.Core/Api/` is part of the API and changes only with care; its XML comments become the API
-reference on `docs/site`.
+Other mods reference **`Komet.Core.dll`**, not `Komet.dll`: that is where the public API, KAPI (`Komet.Api`), lives.
+Mods connect with `Kapi.Connect(this, "1.0")`. Whatever is `public` in `Komet.Core/Api/` is part of KAPI; its XML
+comments are the source of truth and become the API reference on `docs/site`. `Komet.Core/Registry/` is internal.
+
+KAPI is versioned `major.minor` (`Kapi.Major`, `Minor` in `Kapi.cs`). Adding a type, member or overload raises
+the minor version; changing or removing anything public raises the major version and needs a migration table in
+`CHANGELOG.md`. Update the docs on every change: the Modding pages (`api*.md`, `integration.md`, both languages), the
+templates' C# code and `docs/site/articles`.

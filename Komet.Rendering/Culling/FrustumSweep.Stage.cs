@@ -71,6 +71,7 @@ internal static partial class FrustumSweep
 
         Record(manager);
         if (_open && Consume(manager, pools)) return true;
+
         Shut(); // this stage now culls call by call
         return false;
     }
@@ -84,7 +85,10 @@ internal static partial class FrustumSweep
         var player = PlayerPos(culler);
         _stagePlayer = player is not null;
         if (player is not null)
+        {
             (_stageX, _stageY, _stageZ, _stageDimension) = (player.X, player.Y, player.Z, player.dimension);
+        }
+
         (_stageView, _stageLod0, _stageLod2) = (culler.ViewDistanceSq, culler.lod0BiasSq, culler.lod2BiasSq);
         (_stageRangeX, _stageRangeZ) = (culler.shadowRangeX, culler.shadowRangeZ);
     }
@@ -94,11 +98,17 @@ internal static partial class FrustumSweep
     {
         var (planes, player) = (Planes(culler), PlayerPos(culler));
         if (!ReferenceEquals(culler, _stageCuller) || mode != _stageMode || !NotNull(planes) ||
-            !Assert(planes.Length >= PlaneCount) || (player is not null) != _stagePlayer || Casting != _stageCasting)
+            !Assert(planes.Length >= PlaneCount) || player is not null != _stagePlayer || Casting != _stageCasting)
+        {
             return false;
+        }
+
         if (player is not null &&
             (player.X != _stageX || player.Y != _stageY || player.Z != _stageZ || player.dimension != _stageDimension))
+        {
             return false;
+        }
+
         return culler.ViewDistanceSq == _stageView && Same(culler.lod0BiasSq, _stageLod0) &&
                Same(culler.lod2BiasSq, _stageLod2) && Same(culler.shadowRangeX, _stageRangeX) &&
                Same(culler.shadowRangeZ, _stageRangeZ) &&
@@ -112,6 +122,7 @@ internal static partial class FrustumSweep
     private static void Record(MeshDataPoolManager manager)
     {
         if (Array.IndexOf(Called, manager, 0, _called) >= 0) return;
+
         if (_called < MaxStage) Called[_called++] = manager;
     }
 
@@ -122,7 +133,10 @@ internal static partial class FrustumSweep
         var rows = Add(first);
         var plan = Plan(mode, _ordinal);
         for (var i = 0; plan >= 0 && i < Math.Min(PlanLengths[plan], MaxStage); i++)
+        {
             if (Plans[plan * MaxStage + i] is { } manager && !ReferenceEquals(manager, first)) rows += Add(manager);
+        }
+
         if (rows < ParallelRows || _jobCount < 2)
         {
             Forget();
@@ -132,6 +146,7 @@ internal static partial class FrustumSweep
         (_jobCuller, _jobMode, _stage) = (culler, mode, _stage + 1);
         _open = WorkerPool.OpenFrame(StageJob, _jobCount, Math.Max(1, rows / RowsPerHelper));
         if (!_open) Forget();
+
         return _open;
     }
 
@@ -139,9 +154,10 @@ internal static partial class FrustumSweep
     {
         var pools = Pools(manager);
         if (!NotNull(pools) || _batched >= MaxStage || !ReferenceEquals(Culler(manager), _stageCuller)) return 0;
+
         var k = _batched++;
         (Batched[k], BatchPools[k], BatchDone[k], BatchStart[k]) = (manager, pools.Count, 0, _jobCount);
-        var rows = Collect(pools, k, deferred: true);
+        var rows = Collect(pools, k, true);
         BatchStart[k + 1] = _jobCount;
         return rows;
     }
@@ -151,13 +167,24 @@ internal static partial class FrustumSweep
     {
         var k = Array.IndexOf(Batched, manager, 0, _batched);
         if (k < 0 || pools.Count != BatchPools[k]) return false;
+
         var (from, to) = (BatchStart[k], BatchStart[k + 1]);
         _ = WorkerPool.ClaimBelow(to);
         var spin = new SpinWait();
-        for (var i = 0; i < MaxWaits && Volatile.Read(ref BatchDone[k]) < to - from; i++) spin.SpinOnce(-1);
+        for (var i = 0; i < MaxWaits && Volatile.Read(ref BatchDone[k]) < to - from; i++)
+        {
+            spin.SpinOnce(-1);
+        }
+
         if (!Assert(Volatile.Read(ref BatchDone[k]) == to - from)) return false;
-        for (var j = from; j < Math.Min(to, MaxJobs); j++) Stamp(j);
+
+        for (var j = from; j < Math.Min(to, MaxJobs); j++)
+        {
+            Stamp(j);
+        }
+
         if (Counting.Hud) StagedCalls++;
+
         return true;
     }
 
@@ -166,8 +193,10 @@ internal static partial class FrustumSweep
     {
         var (pool, m) = (_jobPools[j], _jobMirrors[j]);
         if (!NotNull(pool) || !NotNull(m) || m.Batch != _stage) return;
+
         var locations = Locations(pool);
         if (!ReferenceEquals(m.Owner, locations) || Version(locations) != m.ListVersion) return;
+
         (pool.indicesGroupsCount, pool.RenderedTriangles, pool.AllocatedTris) = (m.Groups, m.Rendered, m.AllocatedTris);
         m.Pass = _pass;
         if (Counting.Hud) (Skipped, m.SkippedRows) = (Skipped + m.SkippedRows, 0);
@@ -181,8 +210,10 @@ internal static partial class FrustumSweep
         {
             var (pool, m, culler) = k >= 0 ? (_jobPools[j], _jobMirrors[j], _jobCuller) : (null, null, null);
             if (pool is null || m is null || culler is null) return;
+
             var locations = Locations(pool);
-            if (locations is null || !ReferenceEquals(Update(m, locations)?.Owner, locations)) return;
+            if (!ReferenceEquals(Update(m, locations)?.Owner, locations)) return;
+
             var groups = Swept(m, culler, _jobMode, pool.indicesStartsByte, pool.indicesSizes, out var rendered);
             if (groups >= 0) (m.Groups, m.Rendered, m.Batch) = (groups, rendered, _stage);
         }
@@ -197,6 +228,7 @@ internal static partial class FrustumSweep
     {
         Shut();
         if (!_staged) return;
+
         var plan = Plan(_stageMode, _ordinal);
         if (plan >= 0)
         {
@@ -213,18 +245,22 @@ internal static partial class FrustumSweep
     private static void Shut()
     {
         if (!_open) return;
+
         _open = false;
         var result = WorkerPool.CloseFrame();
         if (result == WorkerPool.FrameResult.Failed)
+        {
             _logger?.Error(
                 "Komet: frustum culling on the worker threads failed, those pools cull on the main thread{0}: {1}",
                 WorkerPool.FrameOff ? " from now on" : "", WorkerPool.LastError);
+        }
+
         Forget();
     }
 
     private static void Forget()
     {
-        Tally(drawn: false);
+        Tally(false);
         Array.Clear(Batched, 0, _batched);
         _batched = 0;
     }

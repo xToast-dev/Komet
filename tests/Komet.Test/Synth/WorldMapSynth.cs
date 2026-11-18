@@ -1,3 +1,4 @@
+using Komet.World;
 using Microsoft.Data.Sqlite;
 using Newtonsoft.Json.Linq;
 using Vintagestory.GameContent;
@@ -29,7 +30,11 @@ public sealed class WorldMapSynth
         slots.SetString("1", "game:waterportion");
         var bytes = tree.ToBytes();
         TreeAttribute? last = null;
-        using (new FeatureRig("TreeKeys")) Assert.That(global::Komet.World.TreeKeys.Rewritten, Is.True);
+        using (new FeatureRig("TreeKeys"))
+        {
+            Assert.That(Komet.World.TreeKeys.Rewritten, Is.True);
+        }
+
         _ = Synth.Run("TreeKeys", "fromBytes", ops =>
         {
             for (var i = 0; i < ops; i++)
@@ -51,12 +56,18 @@ public sealed class WorldMapSynth
             tree.SetString("entityName", "player" + i);
             return tree;
         }).ToArray();
-        var sum = 0;
-        using (new FeatureRig("TreeKeys")) Assert.That(global::Komet.World.TreeKeys.Reads, Is.True);
+        using (new FeatureRig("TreeKeys"))
+        {
+            Assert.That(Komet.World.TreeKeys.Reads, Is.True);
+        }
+
         _ = Synth.Run("TreeKeys", "getString", ops =>
         {
-            for (var i = 0; i < ops; i++) sum += trees[i & 7].GetString("playerUID").Length;
-        }, 20000, () => trees[3].GetString("playerUID"), () => sum = 0);
+            for (var i = 0; i < ops; i++)
+            {
+                _ = trees[i & 7].GetString("playerUID").Length;
+            }
+        }, 20000, () => trees[3].GetString("playerUID"));
     }
 
     // A join decodes every sound: the survival mod's block sounds of 8 to 64 KB, one decoded per op
@@ -65,19 +76,25 @@ public sealed class WorldMapSynth
     {
         GameInstall.RequireAssets();
         var files = Directory.GetFiles(Path.Combine(GameInstall.Assets, "survival", "sounds", "block"), "*.ogg",
-                SearchOption.AllDirectories).Where(f => new FileInfo(f).Length is > 8 << 10 and < 64 << 10).Order().Take(24)
+                SearchOption.AllDirectories).Where(f => new FileInfo(f).Length is > 8 << 10 and < 64 << 10).Order()
+            .Take(24)
             .Select(File.ReadAllBytes).ToArray();
         Assert.That(files, Is.Not.Empty);
         var at = 0;
         var length = 0L;
-        using (new FeatureRig("SoundScratch")) Assert.That(global::Komet.World.SoundScratch.Rewritten, Is.True);
+        using (new FeatureRig("SoundScratch"))
+        {
+            Assert.That(Komet.World.SoundScratch.Rewritten, Is.True);
+        }
+
         _ = Synth.Run("SoundScratch", "blockSounds", ops =>
         {
             for (var i = 0; i < ops; i++)
             {
                 var ogg = files[at++ % files.Length];
                 length += new OggDecoder()
-                    .OggToWav(new MemoryStream(ogg), new Asset(ogg, new AssetLocation("game", "sounds/test.ogg"), null)).Pcm.Length;
+                    .OggToWav(new MemoryStream(ogg), new Asset(ogg, new AssetLocation("game", "sounds/test.ogg"), null))
+                    .Pcm.Length;
             }
         }, 8, () => length, () => (at, length) = (0, 0));
     }
@@ -91,10 +108,13 @@ public sealed class WorldMapSynth
         var kinds = Enumerable.Range(0, 6).Select(k => new Block
         {
             BlockId = 10 + k, Code = new AssetLocation("game", "kind" + k),
-            Attributes = new JsonObject(JObject.Parse(k == 5 ? """{ "killPlantRadius": 1 }""" : """{ "handbook": { "groupBy": ["a"] } }"""))
+            Attributes =
+                new JsonObject(JObject.Parse(k == 5
+                    ? """{ "killPlantRadius": 1 }"""
+                    : """{ "handbook": { "groupBy": ["a"] } }"""))
         }).ToArray();
         var air = new Block { BlockId = 0, Code = new AssetLocation("game", "air"), SideSolid = new SmallBoolArray(0) };
-        var accessor = Answers.Of<IBlockAccessor>(new()
+        var accessor = Answers.Of<IBlockAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
         {
             ["GetBlock"] = _ => air,
             ["WalkBlocks"] = args =>
@@ -106,22 +126,28 @@ public sealed class WorldMapSynth
                 for (var c = 0; c < cells; c++)
                 {
                     var (x, y, z) = (min.X + c % dx, min.Y + c / dx % dy, min.Z + c / dx / dy);
-                    visit(kinds[c == cells - 1 ? kinds.Length - 1 : (c * 7) % (kinds.Length - 1)], x, y, z);
+                    visit(kinds[c == cells - 1 ? kinds.Length - 1 : c * 7 % (kinds.Length - 1)], x, y, z);
                 }
 
                 return null;
             }
         });
-        var world = Answers.Of<IWorldAccessor>(new() { ["get_BlockAccessor"] = _ => accessor });
+        var world = Answers.Of<IWorldAccessor>(new Dictionary<string, System.Func<object?[]?, object?>>
+            { ["get_BlockAccessor"] = _ => accessor });
         var random = new Random(1);
         var pos = new BlockPos(512000, 110, 512000);
         var ticked = 0;
-        using (new FeatureRig("TickScratch")) Assert.That(global::Komet.World.TickScratch.Rewritten, Is.EqualTo(2));
+        using (new FeatureRig("TickScratch"))
+        {
+            Assert.That(TickScratch.Rewritten, Is.EqualTo(2));
+        }
+
         _ = Synth.Run("TickScratch", "soilWalk", ops =>
         {
             for (var i = 0; i < ops; i++)
-                if (soil.ShouldReceiveServerGameTicks(world, pos, random, out _))
-                    ticked++;
+            {
+                if (soil.ShouldReceiveServerGameTicks(world, pos, random, out _)) ticked++;
+            }
         }, 500, () => ticked, () => ticked = 0);
     }
 
@@ -140,8 +166,9 @@ public sealed class WorldMapSynth
         _ = Synth.Run("TickScratch", "barrelPairs", ops =>
         {
             for (var i = 0; i < ops; i++)
-                if (recipes[i % recipes.Length].Matches(slots, out _))
-                    matched++;
+            {
+                if (recipes[i % recipes.Length].Matches(slots, out _)) matched++;
+            }
         }, 4000, () => matched, () => matched = 0);
     }
 
@@ -161,12 +188,17 @@ public sealed class WorldMapSynth
         }
 
         var found = 0;
-        using (new FeatureRig("WeatherLock")) Assert.That(global::Komet.World.WeatherLock.Patched, Is.True);
+        using (new FeatureRig("WeatherLock"))
+        {
+            Assert.That(Komet.World.WeatherLock.Patched, Is.True);
+        }
+
         _ = Synth.Run("WeatherLock", "knownRegions", ops =>
         {
             for (var i = 0; i < ops; i++)
-                if (weather.getOrCreateWeatherSimForRegion(keys[(i * 7) & 63], null) is not null)
-                    found++;
+            {
+                if (weather.getOrCreateWeatherSimForRegion(keys[(i * 7) & 63], null) is not null) found++;
+            }
         }, 20000, () => found, () => found = 0);
     }
 
@@ -182,11 +214,24 @@ public sealed class WorldMapSynth
         {
             var random = new Random(3);
             var pieces = Enumerable.Range(0, 8).ToDictionary(i => new FastVec2i(100 + i, 200 - i),
-                _ => new MapPieceDB { Pixels = [.. Enumerable.Range(0, 1024).Select(_ => unchecked((int)0xFF000000) | random.Next(1 << 24))] });
-            using (new FeatureRig("MapSaveScratch")) Assert.That(global::Komet.World.MapSaveScratch.Matched, Is.True);
+                _ => new MapPieceDB
+                {
+                    Pixels =
+                    [
+                        .. Enumerable.Range(0, 1024).Select(_ => unchecked((int)0xFF000000) | random.Next(1 << 24))
+                    ]
+                });
+            using (new FeatureRig("MapSaveScratch"))
+            {
+                Assert.That(Komet.World.MapSaveScratch.Matched, Is.True);
+            }
+
             _ = Synth.Run("MapSaveScratch", "save8", ops =>
             {
-                for (var i = 0; i < ops; i++) db.SetMapPieces(pieces);
+                for (var i = 0; i < ops; i++)
+                {
+                    db.SetMapPieces(pieces);
+                }
             }, 20, () => db.GetMapPiece(new FastVec2i(103, 197)).Pixels.Sum(p => (long)p));
         }
         finally

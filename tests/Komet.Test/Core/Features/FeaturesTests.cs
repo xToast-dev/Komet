@@ -1,6 +1,6 @@
-using Komet.Api;
 using Komet.Core;
 using Komet.Hud;
+using Komet.Api;
 using Komet.Options;
 using Komet.Rendering;
 using Komet.Vulkan;
@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.Core;
 
-// The built-in table pins what KometModSystem hardcoded before it: the install order (also the knobs' order in komet.json, the
+// The built-in table pins the install order FeatureOrder makes of the features' declarations (also the knobs' order in komet.json, the
 // settings pages and bench.json) and the file's keys; the rest are invariants of the modules' lists.
 [NonParallelizable]
 public sealed class FeaturesTests
@@ -17,14 +17,23 @@ public sealed class FeaturesTests
     private static readonly string[] InstallOrder =
     [
         "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows",
-        "LeanVaryings", "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse", "NearShadowReuse", "EntityCasters", "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache", "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "TerrainRebuild", "PoolTrim",
-        "VulkanTerrain", "AnimatableCulling", "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling", "MapTileUpload",
+        "LeanVaryings", "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse",
+        "NearShadowReuse", "EntityCasters", "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache",
+        "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "TerrainRebuild", "PoolTrim",
+        "VulkanTerrain", "AnimatableCulling", "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling",
+        "MapTileUpload",
         "IdleAnimators", "PoolScale", "WindowSize", "ChunkLookup", "MeshRecycle",
-        "FacePacking", "FaceSorting", "ClimateCache", "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch", "AnimationFrames", "ShapeInitMemo", "KeyframeShare", "HeldItemsLast", "EntityTimes", "ChunkBudget", "ChunkLoadBudget", "JoinPacer", "ChunkPacking", "JsonValues", "EventBusSweep",
+        "FacePacking", "FaceSorting", "ClimateCache", "PartitionReuse", "DirtyBlocks", "CookingMatch", "AlloyMatch",
+        "AnimationFrames", "ShapeInitMemo", "KeyframeShare", "HeldItemsLast", "EntityTimes", "ChunkBudget",
+        "ChunkLoadBudget", "JoinPacer", "ChunkPacking", "JsonValues", "EventBusSweep",
         "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure", "CloudTileScratch", "CloudUploads",
-        "DecompressScratch", "DirectChunks", "PackedTicks", "BushShapes", "MapPixels", "TreeKeys", "MapPieceBudget", "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
+        "DecompressScratch", "DirectChunks", "PackedTicks", "BushShapes", "MapPixels", "TreeKeys", "MapPieceBudget",
+        "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
         "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation",
-        "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm", "OccludedChunks", "DeepCulling", "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes", "WorldGenScratch", "IconBudget", "SnowPeek", "TickScratch", "SoundScratch", "SoundsOnDemand", "TickerCommit", "ProfilerPool", "WeatherLock", "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
+        "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm", "OccludedChunks", "DeepCulling",
+        "FarLod", "FarFoliage", "BackgroundPriority", "GcLatency", "InventoryShapes", "WorldGenScratch", "IconBudget",
+        "SnowPeek", "TickScratch", "SoundScratch", "SoundsOnDemand", "TickerCommit", "ProfilerPool", "WeatherLock",
+        "FramePacer", "GcIdle", "PointLights", "FrameScratch", "FrameClock", "HangWatch"
     ];
 
     // komet.json as Komet writes it without a knob set by the player: the display settings, the preset and the layout
@@ -33,34 +42,30 @@ public sealed class FeaturesTests
         "Visible:Boolean", "Corner:String", "Opacity:Float", "Interval:Float", "BenchSeconds:Float", "ShowFps:Boolean",
         "ShowLows:Boolean", "ShowFrametime:Boolean", "ShowGraph:Boolean", "ShowMods:Boolean",
         "ToastMs:Float", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String",
-        "WindowX:String", "WindowY:String", "DebugX:String", "DebugY:String", "DebugLanguage:String", "DebugOnJoin:Boolean", "UpdateCheck:Boolean",
+        "WindowX:String", "WindowY:String", "DebugLanguage:String",
+        "DebugOnJoin:Boolean", "UpdateCheck:Boolean",
         "UpdateAsked:Boolean", "FontScale:Float", "ShowAdvanced:Boolean", "MenuStyle:String",
         "MenuOpacity:Float", "MenuMotion:Integer"
     ];
 
-    private static readonly string[] Last = [], Unpatched = ["TessSafety"];
+    private static readonly string[] Unpatched = ["TessSafety"];
 
     [OneTimeSetUp]
     public void LoadALanguage() => GameLang.EnsureLoaded();
 
     [TearDown]
-    public void Close() => Features.Close();
+    public void Close() => FeatureLifecycle.Close();
 
-    private static Feature[] All() => Features.All.ToArray();
+    private static Feature[] All() => BuiltIns.All();
 
     [Test]
-    public void TheFeaturesInstallInTheirOrder()
-    {
-        Assert.That(All().Select(f => f.Id), Is.EqualTo(InstallOrder));
-    }
+    public void TheFeaturesInstallInTheirOrder() => Assert.That(All().Select(f => f.Id), Is.EqualTo(InstallOrder));
 
     // The HUD switches these on while it is built, from komet.json; each one's Install clears it, so it has to come first
     [TestCase("ModTimes")]
     [TestCase("RenderCost")]
-    public void WhatTheHudSwitchesOnInstallsBeforeIt(string id)
-    {
+    public void WhatTheHudSwitchesOnInstallsBeforeIt(string id) =>
         Assert.That(Array.IndexOf(InstallOrder, id), Is.LessThan(Array.IndexOf(InstallOrder, "Hud")));
-    }
 
     [Test]
     public void EveryRequiredFeatureComesEarlier()
@@ -71,33 +76,21 @@ public sealed class FeaturesTests
         {
             Assert.That(requires, Is.Not.Empty);
             foreach (var (id, required, at) in requires)
+            {
                 Assert.That(ids.IndexOf(required), Is.InRange(0, at - 1), $"{id} requires {required}");
-        });
-    }
-
-    // no built-in feature waits for the HUD's renderers; the stages install in table order
-    [Test]
-    public void TheLateStagesAreFew()
-    {
-        var all = All();
-        Assert.Multiple(() =>
-        {
-            Assert.That(all.Where(f => f.Stage == FeatureStage.Last).Select(f => f.Id), Is.EqualTo(Last));
-            Assert.That(all.Select(f => f.Stage), Is.Ordered, "the stages install in table order");
+            }
         });
     }
 
     // Komet's own fill at most MaxBuiltIn slots, so MaxExternal stay for other mods' features, and their knobs fit too
     [Test]
-    public void OtherModsHaveTheirSlots()
-    {
+    public void OtherModsHaveTheirSlots() =>
         Assert.Multiple(() =>
         {
-            Assert.That(All(), Has.Length.LessThanOrEqualTo(Features.MaxBuiltIn));
+            Assert.That(All(), Has.Length.LessThanOrEqualTo(FeatureTable.MaxBuiltIn));
             Assert.That(Features.MaxFeatures - All().Length, Is.GreaterThanOrEqualTo(Features.MaxExternal));
             Assert.That(Knobs.MaxKnobs - Knobs.BuiltInCount, Is.GreaterThanOrEqualTo(Features.MaxExternal));
         });
-    }
 
     // One key and one saved name a knob, each in its owner's list and starting at a value in its range
     [Test]
@@ -121,7 +114,7 @@ public sealed class FeaturesTests
     [TestCase("VulkanTerrain", "VulkanCore")]
     public void AStopRunsBeforeThoseOfTheFeaturesBeforeIt(string first, string then)
     {
-        var stops = Enumerable.Reverse(All()).Where(f => f.Stop is not null).Select(f => f.Id).ToList();
+        var stops = All().Reverse().Where(f => f.Stop is not null).Select(f => f.Id).ToList();
         Assert.Multiple(() =>
         {
             Assert.That(stops.IndexOf(first), Is.GreaterThanOrEqualTo(0).And.LessThan(stops.IndexOf(then)));
@@ -130,15 +123,13 @@ public sealed class FeaturesTests
     }
 
     [Test]
-    public void AFeatureIsFoundByItsIdOrItsKnob()
-    {
+    public void AFeatureIsFoundByItsIdOrItsKnob() =>
         Assert.Multiple(() =>
         {
             Assert.That(Features.Find("UploadCap"), Is.EqualTo(Features.Find("ChunkBudget")).And.GreaterThan(0));
             Assert.That(Features.Find("MenuBlur"), Is.EqualTo(Array.IndexOf(InstallOrder, "MenuBlur")));
             Assert.That(Features.Find("Nothing"), Is.EqualTo(-1));
         });
-    }
 
     // Each feature pins the bodies it reproduces, skips or replays to those of Vintage Story 1.22.7: a game update that fails here
     // needs the feature's proof checked again or its golden tests re-run (the rebuilt graphics tabs looked at again: new controls,
@@ -169,7 +160,8 @@ public sealed class FeaturesTests
                 Assert.That(Knobs.Write(index, before[index]), Is.False, "the same value is not written");
                 Assert.That(Knobs.Write(index, other), Is.True);
                 Assert.That((knob.Get(), Knobs.Snapshot()[index]), Is.EqualTo((other, other)));
-                Assert.That(Knobs.Snapshot().Where((v, i) => i != index && v != before[i]).Count(), Is.Zero, "no other knob moved");
+                Assert.That(Knobs.Snapshot().Where((v, i) => i != index && v != before[i]).Count(), Is.Zero,
+                    "no other knob moved");
             });
         }
         finally
@@ -193,8 +185,12 @@ public sealed class FeaturesTests
         var before = Knobs.Snapshot();
         try
         {
-            foreach (var k in knobs) _ = Knobs.Write(k, Other(Knobs.At(k)));
-            Assert.That((Features.Hold(feature), Features.Hold(feature)), Is.EqualTo((true, true)));
+            foreach (var k in knobs)
+            {
+                _ = Knobs.Write(k, Other(Knobs.At(k)));
+            }
+
+            Assert.That((FeatureHolds.Hold(feature), FeatureHolds.Hold(feature)), Is.EqualTo((true, true)));
             Assert.Multiple(() =>
             {
                 Assert.That(knobs.Select(k => Knobs.At(k).Get()), Is.EqualTo(knobs.Select(k => Knobs.At(k).Engine)));
@@ -208,20 +204,20 @@ public sealed class FeaturesTests
                 Assert.That(Knobs.Write(k, Later(Knobs.At(k))), Is.False);
             }
 
-            Assert.That(Features.Release(feature), Is.True);
+            Assert.That(FeatureHolds.Release(feature), Is.True);
             Assert.That(knobs.Select(k => Knobs.At(k).Get()), Is.EqualTo(knobs.Select(k => Knobs.At(k).Engine)),
                 "one holds");
-            Assert.That(Features.Release(feature), Is.True);
+            Assert.That(FeatureHolds.Release(feature), Is.True);
             Assert.Multiple(() =>
             {
                 Assert.That(knobs.Select(k => Knobs.At(k).Get()), Is.EqualTo(knobs.Select(k => Later(Knobs.At(k)))));
                 Assert.That(knobs.Select(Features.LockText), Has.All.Null);
-                Assert.That(Features.Release(feature), Is.False, "nothing left to release");
+                Assert.That(FeatureHolds.Release(feature), Is.False, "nothing left to release");
             });
         }
         finally
         {
-            Features.Close();
+            FeatureLifecycle.Close();
             _ = Knobs.Apply(before);
         }
     }
@@ -236,29 +232,27 @@ public sealed class FeaturesTests
     }
 
     [Test]
-    public void AFeatureWithoutAKnobCannotBeHeld()
-    {
+    public void AFeatureWithoutAKnobCannotBeHeld() =>
         Assert.Multiple(() =>
         {
-            Assert.That(Features.Hold(Features.Find("TessSafety")), Is.False);
+            Assert.That(FeatureHolds.Hold(Features.Find("TessSafety")), Is.False);
             Assert.That(Features.HoldsText(), Is.EqualTo("none"));
         });
-    }
 
     [Test]
     public void ClosingEndsTheHolds()
     {
         var (feature, knob) = (Features.Find("FrustumSweep"), Knobs.Find("FrustumSweep"));
         Assert.That(FrustumSweep.Enabled, Is.True);
-        _ = Features.Hold(feature);
-        _ = Features.Hold(feature);
+        _ = FeatureHolds.Hold(feature);
+        _ = FeatureHolds.Hold(feature);
         Assert.Multiple(() =>
         {
-            Assert.That((FrustumSweep.Enabled, Features.Held(knob)), Is.EqualTo((false, true)));
+            Assert.That((FrustumSweep.Enabled, FeatureHolds.Held(knob)), Is.EqualTo((false, true)));
             Assert.That(Features.HoldsText(), Is.EqualTo("FrustumSweep (2)"));
         });
-        Features.Close();
-        Assert.That((FrustumSweep.Enabled, Features.Held(knob), Features.HoldsText()),
+        FeatureLifecycle.Close();
+        Assert.That((FrustumSweep.Enabled, FeatureHolds.Held(knob), Features.HoldsText()),
             Is.EqualTo((true, false, "none")));
     }
 
@@ -272,7 +266,7 @@ public sealed class FeaturesTests
         var row = Enumerable.Range(0, render.Count).Select(i => render[i])
             .Single(r => r.Label == OptionsText.T("distantshadows"));
         Assert.That((row.IsEnabled, row.Locked?.Invoke()), Is.EqualTo((true, (string?)null)));
-        _ = Features.Hold(Features.Find("DistantShadows"));
+        _ = FeatureHolds.Hold(Features.Find("DistantShadows"));
         Assert.Multiple(() =>
         {
             Assert.That(row.IsEnabled, Is.False);
@@ -291,18 +285,18 @@ public sealed class FeaturesTests
         {
             Backdrop.Enabled = true;
             Features.Poll();
-            var (active, troubled) = (Features.NotActive, Features.Troubled);
-            Assert.That((rig.State, Features.StateOf(rig.Feature)), Is.EqualTo((FeatureState.Active, FeatureState.Active)));
+            var troubled = Features.Troubled;
+            Assert.That(rig.State, Is.EqualTo(KapiFeatureState.Active));
             Backdrop.Enabled = false;
             Features.Poll();
-            Assert.That((rig.State, Features.NotActive, Features.Troubled), Is.EqualTo((FeatureState.Off, active + 1, troubled)));
-            _ = Features.Hold(rig.Feature);
+            Assert.That((rig.State, Features.Troubled), Is.EqualTo((KapiFeatureState.Off, troubled)));
+            _ = FeatureHolds.Hold(rig.Feature);
             Features.Poll();
-            Assert.That((Features.StateOf(rig.Feature), Features.Troubled), Is.EqualTo((FeatureState.HeldOff, troubled)));
+            Assert.That((rig.State, Features.Troubled), Is.EqualTo((KapiFeatureState.HeldOff, troubled)));
         }
         finally
         {
-            Features.Close();
+            FeatureLifecycle.Close();
             Backdrop.Enabled = before;
         }
     }
@@ -315,20 +309,20 @@ public sealed class FeaturesTests
     {
         ArgumentNullException.ThrowIfNull(id);
         using var rig = new FeatureRig(id);
-        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+        Assert.That(rig.State, Is.EqualTo(KapiFeatureState.Active));
         var method = All()[rig.Feature].Replaces!()[0]!;
         using (var foreign = new TestHarmony("komet-test-feature-foreign"))
         {
-            _ = foreign.Patch(method, prefix: Foreign.Prefix);
+            _ = foreign.Patch(method, Foreign.Prefix);
             Features.Recheck();
-            Assert.That(rig.State, Is.EqualTo(rewrites ? FeatureState.Active : FeatureState.StoodDown), "a prefix");
+            Assert.That(rig.State, Is.EqualTo(rewrites ? KapiFeatureState.Active : KapiFeatureState.StoodDown), "a prefix");
             _ = foreign.Patch(method, transpiler: Foreign.Transpiler);
             Features.Recheck();
-            Assert.That(rig.State, Is.EqualTo(FeatureState.StoodDown), "a transpiler");
+            Assert.That(rig.State, Is.EqualTo(KapiFeatureState.StoodDown), "a transpiler");
         }
 
         Features.Recheck();
-        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+        Assert.That(rig.State, Is.EqualTo(KapiFeatureState.Active));
     }
 
     // A transpiler of another mod on the body the feature replaces stands it down at the recheck, and it comes back once that is gone
@@ -340,18 +334,18 @@ public sealed class FeaturesTests
     {
         ArgumentNullException.ThrowIfNull(id);
         using var rig = new FeatureRig(id);
-        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+        Assert.That(rig.State, Is.EqualTo(KapiFeatureState.Active));
         var seam = All()[rig.Feature].Shapes[0].Methods()[0];
         using (var foreign = new TestHarmony("komet-test-feature-foreign"))
         {
             _ = foreign.Patch(seam, transpiler: Foreign.Transpiler);
             Features.Recheck();
-            Assert.That(rig.State, Is.EqualTo(FeatureState.StoodDown));
+            Assert.That(rig.State, Is.EqualTo(KapiFeatureState.StoodDown));
             Assert.That(Features.FirstTroubled(), Does.StartWith(id + ": "), "the HUD's warning names it");
         }
 
         Features.Recheck();
-        Assert.That(rig.State, Is.EqualTo(FeatureState.Active));
+        Assert.That(rig.State, Is.EqualTo(KapiFeatureState.Active));
     }
 
     [Test]
@@ -359,12 +353,12 @@ public sealed class FeaturesTests
     {
         using var harmony = new TestHarmony("komet-test-feature-remote");
         var feature = Features.Find("ColumnNoiseScratch");
-        Features.InstallAt(new FeatureContext(harmony, null!, new QuietLogger(), false), feature);
-        Assert.Multiple(() =>
+        FeatureLifecycle.InstallAt(new FeatureContext(harmony, null!, new QuietLogger(), false), feature);
+        using (Assert.EnterMultipleScope())
         {
-            Assert.That(Features.Evaluate(feature), Is.EqualTo(FeatureState.NotApplicable));
+            Assert.That(Features.Evaluate(feature), Is.EqualTo(KapiFeatureState.NotApplicable));
             Assert.That(harmony.GetPatchedMethods(), Is.Empty);
-        });
+        }
     }
 
     // Only the knobs the player set, under their saved names, a switch as a bool; a file read back and saved again is the
@@ -378,17 +372,19 @@ public sealed class FeaturesTests
         loaded.Knobs.Apply(logger, HudSettings.FileName);
         var (packing, shadows) = (Knobs.Find("ChunkPacking"), Knobs.Find("DistantShadows"));
         loaded.Knobs.SetKnob(packing, 3);
-        loaded.Knobs.SetKnob(shadows, 1 - KometSettings.KnobDefault(shadows));
+        loaded.Knobs.SetKnob(shadows, 1 - KnobSettings.KnobDefault(shadows));
         var chosen = JObject.Parse(JsonConvert.SerializeObject(loaded));
         Assert.Multiple(() =>
         {
-            Assert.That(JObject.Parse(json).Properties().Select(p => p.Name + ":" + p.Value.Type), Is.EqualTo(SettingsFile));
+            Assert.That(JObject.Parse(json).Properties().Select(p => p.Name + ":" + p.Value.Type),
+                Is.EqualTo(SettingsFile));
             Assert.That(logger.Lines, Is.Empty);
             Assert.That(chosen.Properties().Select(p => p.Name + ":" + p.Value.Type),
-                Is.EqualTo(SettingsFile.Append("DistantShadows:Boolean").Append("ChunkPacking:Integer")), "in the knobs' order");
+                Is.EqualTo(SettingsFile.Append("DistantShadows:Boolean").Append("ChunkPacking:Integer")),
+                "in the knobs' order");
         });
-        loaded.Knobs.SetKnob(packing, KometSettings.KnobDefault(packing));
-        loaded.Knobs.SetKnob(shadows, KometSettings.KnobDefault(shadows));
+        loaded.Knobs.SetKnob(packing, KnobSettings.KnobDefault(packing));
+        loaded.Knobs.SetKnob(shadows, KnobSettings.KnobDefault(shadows));
         Assert.That(JsonConvert.SerializeObject(loaded), Is.EqualTo(json), "back to following: out of the file");
     }
 
@@ -404,7 +400,8 @@ public sealed class FeaturesTests
         {
             Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
             Assert.That(loaded.Knobs.Knob(Knobs.Find("ChunkPacking")), Is.EqualTo(3));
-            Assert.That(JObject.Parse(JsonConvert.SerializeObject(loaded))["ChunkPacking"]?.Value<int>(), Is.EqualTo(3));
+            Assert.That(JObject.Parse(JsonConvert.SerializeObject(loaded))["ChunkPacking"]?.Value<int>(),
+                Is.EqualTo(3));
         });
     }
 
@@ -421,9 +418,10 @@ public sealed class FeaturesTests
         {
             Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
             Assert.That(loaded.Knobs.Knob(packing), Is.EqualTo(3));
-            Assert.That(loaded.Profiled, Is.EqualTo(KometSettings.Layout));
+            Assert.That(loaded.Profiled, Is.EqualTo(KnobSettings.Layout));
         });
-        loaded.Knobs.SetKnob(packing, KometSettings.KnobDefault(packing)); // back to the default: follows the computer again
+        loaded.Knobs.SetKnob(packing,
+            KnobSettings.KnobDefault(packing)); // back to the default: follows the computer again
         Assert.That(loaded.Chosen, Is.Empty);
     }
 
@@ -433,17 +431,18 @@ public sealed class FeaturesTests
     public void AListedFileKeepsTheListedKnobs()
     {
         var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
-        (file["Profiled"], file["Chosen"], file["ChunkPacking"], file["ChunkLoadBudget"]) = (1, new JArray("ChunkPacking"), 3, 2);
+        (file["Profiled"], file["Chosen"], file["ChunkPacking"], file["ChunkLoadBudget"]) =
+            (1, new JArray("ChunkPacking"), 3, 2);
         var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
         loaded.Knobs.Apply(new CapturingLogger(), HudSettings.FileName);
         var (saved, trim) = (JObject.Parse(JsonConvert.SerializeObject(loaded)), Knobs.Find("ChunkLoadBudget"));
         Assert.Multiple(() =>
         {
             Assert.That(loaded.Chosen, Is.EquivalentTo((string[])["ChunkPacking"]));
-            Assert.That(loaded.Knobs.Knob(trim), Is.EqualTo(KometSettings.KnobDefault(trim)), "not listed: follows");
+            Assert.That(loaded.Knobs.Knob(trim), Is.EqualTo(KnobSettings.KnobDefault(trim)), "not listed: follows");
             Assert.That(saved.ContainsKey("ChunkLoadBudget"), Is.False);
             Assert.That(saved["Chosen"]?.ToObject<string[]>(), Is.EquivalentTo((string[])["ChunkPacking"]));
-            Assert.That(saved["Profiled"]?.Value<int>(), Is.EqualTo(KometSettings.Layout));
+            Assert.That(saved["Profiled"]?.Value<int>(), Is.EqualTo(KnobSettings.Layout));
         });
     }
 
@@ -455,9 +454,14 @@ public sealed class FeaturesTests
     public void AnOldRendererBecomesOpenGlOrVulkan(bool only, bool parts, int expected)
     {
         var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
-        foreach (var part in (string[])["VulkanCore", "VulkanTerrain", "VulkanScene"]) file[part] = parts;
+        foreach (var part in (string[])["VulkanCore", "VulkanTerrain", "VulkanScene"])
+        {
+            file[part] = parts;
+        }
+
         file["VulkanOnly"] = only;
-        (file["Profiled"], file["Chosen"]) = (1, new JArray("VulkanCore", "VulkanTerrain", "VulkanScene", "VulkanOnly"));
+        (file["Profiled"], file["Chosen"]) =
+            (1, new JArray("VulkanCore", "VulkanTerrain", "VulkanScene", "VulkanOnly"));
         var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
         try
         {
@@ -482,7 +486,7 @@ public sealed class FeaturesTests
     public void OldCullingSwitchesBecomeALevel(bool culling, bool rows, int expected)
     {
         var file = JObject.Parse(JsonConvert.SerializeObject(new HudSettings()));
-        (file["OcclusionCulling"], file["GpuTerrainCulling"], file["Profiled"]) = (culling, rows, KometSettings.Layout);
+        (file["OcclusionCulling"], file["GpuTerrainCulling"], file["Profiled"]) = (culling, rows, KnobSettings.Layout);
         var loaded = JsonConvert.DeserializeObject<HudSettings>(file.ToString())!;
         var level = Knobs.Find("OcclusionCulling");
         try

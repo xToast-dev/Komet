@@ -14,7 +14,8 @@ namespace Komet.Tessellation;
 // growing at a face's first vertex would change lengths.
 internal static class OwnQuads
 {
-    public const int Corners = 4, AllFaces = (1 << Faces) - 1, Offsets = 8; // q7 is the last quad offset a face reads
+    public const int Corners = 4, AllFaces = (1 << Faces) - 1; // q7 is the last quad offset a face reads
+    private const int Offsets = 8;
     public const int Unknown = int.MinValue; // a texture id where the engine would fault
     private const int XyzFloats = 3 * Corners, UvFloats = 2 * Corners, QuadIndices = 6;
 
@@ -31,12 +32,19 @@ internal static class OwnQuads
     {
         rgbs = null;
         var (tct, quads, corners) = (vars.tct, vars.blockFaceVertices, vars.CurrentLightRGBByCorner);
-        if (tct is null || quads is not { Length: >= Faces } || !NotNull(corners) || !Assert(corners.Length >= Corners) ||
+        if (tct is null || quads is not { Length: >= Faces } || !NotNull(corners) ||
+            !Assert(corners.Length >= Corners) ||
             !Standard(TileSideEnum.MoveIndex) || !Index(vars.extIndex3d - Origin, ExtCells - 2 * Origin) ||
-            RgbsExt(tct) is not { Length: ExtCells } light) return false;
+            RgbsExt(tct) is not { Length: ExtCells } light)
+        {
+            return false;
+        }
+
         for (var i = 0; i < Faces; i++)
-            if ((faces & (1 << i)) != 0 && quads[i] is not { Length: >= Offsets })
-                return false;
+        {
+            if ((faces & (1 << i)) != 0 && quads[i] is not { Length: >= Offsets }) return false;
+        }
+
         rgbs = light;
         return true;
     }
@@ -47,6 +55,7 @@ internal static class OwnQuads
     {
         var lods = Lods(tesselator);
         if (!NotNull(lods) || !Index(lod, lods.Length) || lods[lod] is not { } passes) return null;
+
         return Index((int)pass, passes.Length) ? passes[(int)pass] : null;
     }
 
@@ -55,10 +64,16 @@ internal static class OwnQuads
     public static int Texture(BakedCompositeTexture[][]? variants, int[] fast, int i, int hash, bool lenient)
     {
         if (!Index(i, fast.Length)) return Unknown;
+
         if (variants is null) return fast[i];
+
         if (i >= variants.Length) return lenient ? fast[i] : Unknown;
+
         if (variants[i] is not { } choices) return fast[i];
-        return choices.Length > 0 && choices[GameMath.Mod(hash, choices.Length)] is { } baked ? baked.TextureSubId : Unknown;
+
+        return choices.Length > 0 && choices[GameMath.Mod(hash, choices.Length)] is { } baked
+            ? baked.TextureSubId
+            : Unknown;
     }
 
     // positions[id] and its atlas pool mesh with colour map ints (all passes but Liquid); false where the engine faults
@@ -68,8 +83,13 @@ internal static class OwnQuads
     {
         (position, mesh) = (null, null);
         if ((uint)id >= (uint)positions.Length || positions[id] is not { } found) return false;
+
         if (!Index(found.atlasNumber, pools.Length) || pools[found.atlasNumber] is not { } pool ||
-            !NotNull(pool.CustomInts)) return false;
+            !NotNull(pool.CustomInts))
+        {
+            return false;
+        }
+
         (position, mesh) = (found, pool);
         return true;
     }
@@ -79,6 +99,12 @@ internal static class OwnQuads
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Light(TCTCache vars, Block block, int t, int front, int[] rgbs, int[] corners)
     {
+        if (OwnTessellation.UsePatchedFaceLight)
+        {
+            _ = FaceLight.Calc(vars, t, front);
+            return;
+        }
+
         if (!vars.aoAndSmoothShadows || (block.SideAo & (1 << t)) == 0)
         {
             if (block.DrawType != EnumDrawType.JSON && Index(front, rgbs.Length))
@@ -87,14 +113,18 @@ internal static class OwnQuads
                 return;
             }
         }
-        else if (FaceLight.Lit(vars, t, front)) return;
+        else if (FaceLight.Lit(vars, t, front))
+        {
+            return;
+        }
 
         _ = FaceLight.Calc(vars, t, front); // the engine's, through its entry and so through FaceLight's prefix
     }
 
     // DrawBlockFace for face i, height h, corners lit: sides take that texture share; v as the engine's, even at 1f
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static void Face(TCTCache vars, int i, FastVec3f[] q, TextureAtlasPosition position, MeshData mesh, int flags,
+    public static void Face(TCTCache vars, int i, FastVec3f[] q, TextureAtlasPosition position, MeshData mesh,
+        int flags,
         int colorMap, float h, float x, float y, float z)
     {
         var quad = default(Quad);
@@ -139,8 +169,11 @@ internal static class OwnQuads
         if (!Fits(mesh, n))
         {
             for (var k = 0; k < Corners; k++)
+            {
                 mesh.AddVertexWithFlags(quad.Xyz[3 * k], quad.Xyz[3 * k + 1], quad.Xyz[3 * k + 2], quad.Uv[2 * k],
                     quad.Uv[2 * k + 1], color, k is 0 or 3 ? low : high);
+            }
+
             return;
         }
 
@@ -155,7 +188,8 @@ internal static class OwnQuads
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Fits(MeshData mesh, int n) =>
         n >= 0 && n + Corners <= mesh.VerticesMax && mesh.xyz?.Length >= (n + Corners) * 3 &&
-        mesh.Uv?.Length >= (n + Corners) * 2 && mesh.Rgba?.Length >= (n + Corners) * 4 && mesh.Flags?.Length >= n + Corners;
+               mesh.Uv?.Length >= (n + Corners) * 2 && mesh.Rgba?.Length >= (n + Corners) * 4 &&
+               mesh.Flags?.Length >= n + Corners;
 
     // The quad's positions and texture coordinates at vertex n, where Fits holds
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -168,8 +202,10 @@ internal static class OwnQuads
     private static void Engine(MeshData mesh, ref Quad quad, int[] corners, int flags)
     {
         for (var k = 0; k < Corners; k++)
+        {
             mesh.AddVertexWithFlags(quad.Xyz[3 * k], quad.Xyz[3 * k + 1], quad.Xyz[3 * k + 2], quad.Uv[2 * k],
                 quad.Uv[2 * k + 1], corners[(CornerOrder >> (2 * k)) & 3], flags);
+        }
     }
 
     // CustomInts.Add4(value)
@@ -193,7 +229,8 @@ internal static class OwnQuads
     public static void Indices(MeshData mesh, int first)
     {
         var (count, indices) = (mesh.IndicesCount, mesh.Indices);
-        if (count < 0 || count + QuadIndices > mesh.IndicesMax || indices is null || count + QuadIndices > indices.Length)
+        if (count < 0 || count + QuadIndices > mesh.IndicesMax || indices is null ||
+            count + QuadIndices > indices.Length)
         {
             mesh.AddQuadIndices(first);
             return;
@@ -208,12 +245,32 @@ internal static class OwnQuads
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Bounds(TCTCache vars, float x, float y, float z)
     {
-        if (x < vars.xMin) vars.xMin = x;
-        else if (x > vars.xMax) vars.xMax = x;
-        if (y < vars.yMin) vars.yMin = y;
-        else if (y > vars.yMax) vars.yMax = y;
-        if (z < vars.zMin) vars.zMin = z;
-        else if (z > vars.zMax) vars.zMax = z;
+        if (x < vars.xMin)
+        {
+            vars.xMin = x;
+        }
+        else if (x > vars.xMax)
+        {
+            vars.xMax = x;
+        }
+
+        if (y < vars.yMin)
+        {
+            vars.yMin = y;
+        }
+        else if (y > vars.yMax)
+        {
+            vars.yMax = y;
+        }
+
+        if (z < vars.zMin)
+        {
+            vars.zMin = z;
+        }
+        else if (z > vars.zMax)
+        {
+            vars.zMax = z;
+        }
     }
 
     [InlineArray(XyzFloats)]
@@ -266,7 +323,7 @@ internal static class OwnQuads
 // last world's) is a miss. It grows to the id asked for, doubling, up to MaxBlocks; higher ids are never kept.
 internal sealed class BlockTable<T>
 {
-    public const int MaxBlocks = 1 << 20;
+    private const int MaxBlocks = 1 << 20;
 
     private (Block? Owner, T Value)[] _entries = [];
 
@@ -282,8 +339,10 @@ internal sealed class BlockTable<T>
     {
         var id = block.BlockId;
         if (!Index(id, MaxBlocks)) return;
+
         var entries = _entries;
         if (id >= entries.Length) Array.Resize(ref entries, Math.Min(Math.Max(id + 1, 2 * entries.Length), MaxBlocks));
+
         entries[id] = (block, value);
         _entries = entries;
     }

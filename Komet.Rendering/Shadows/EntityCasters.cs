@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.Client.NoObf;
 using static Komet.Rendering.Fields;
 using Plane = Vintagestory.API.Client.Plane;
@@ -17,7 +17,7 @@ internal static class EntityCasters
     internal const ulong Fingerprint = 0x6E29B039DF02BB75UL;
 
     private static readonly Plane[] Casters = new Plane[ShadowView.MaxCasters];
-    private static readonly SeamGuard Guard = new(nameof(EntityCasters), PatchKinds.Body, [typeof(EntityCasters)]);
+    private static readonly SeamGuard Guard = new(nameof(EntityCasters), KapiPatchKinds.Body, [typeof(EntityCasters)]);
     private static bool _rewritten;
     private static int _count;
 
@@ -39,10 +39,15 @@ internal static class EntityCasters
         // Install runs once per world (Features clears Installed on leave): totals count this world's entities only
         (_rewritten, _count, Tested, Culled) = (false, 0, 0, 0);
         var seams = Guard.Reset(Seams(), logger);
-        if (!NotNull(harmony) || seams[0] is null || !Guard.Match(seams, fingerprint)) return;
+        if (seams[0] is null || !Guard.Match(seams, fingerprint)) return;
+
         _ = harmony.Patch(seams[0], new HarmonyMethod(Opening), new HarmonyMethod(Closing),
             new HarmonyMethod(Rewrite));
-        if (!_rewritten) logger?.Warning("Komet EntityCasters: the entities' shadow test was not found; every entity casts");
+        if (!_rewritten)
+        {
+            logger?.Warning("Komet EntityCasters: the entities' shadow test was not found; every entity casts");
+        }
+
         Recheck();
     }
 
@@ -56,19 +61,21 @@ internal static class EntityCasters
         var test = AccessTools.DeclaredMethod(typeof(FrustumCulling), nameof(FrustumCulling.SphereInFrustum),
             [typeof(double), typeof(double), typeof(double), typeof(double)]);
         _rewritten = NotNull(test) &&
-                     Il.SubstituteSingle(code, c => c.Calls(test), AccessTools.DeclaredMethod(typeof(EntityCasters), nameof(InView)));
+                     Il.SubstituteSingle(code, c => c.Calls(test),
+                         AccessTools.DeclaredMethod(typeof(EntityCasters), nameof(InView)));
         return code;
     }
 
-    internal static void Opening(ClientMain ___game)
+    private static void Opening(ClientMain? ___game)
     {
         var passed = ShadowView.Take();
-        _count = Enabled && !Blocked && passed && ___game?.frustumCuller is { } culler && Planes(culler) is { Length: 6 } planes
+        _count = Enabled && !Blocked && passed && ___game?.frustumCuller is { } culler &&
+                 Planes(culler) is { Length: 6 } planes
             ? ShadowView.Casters(planes[0], Casters)
             : 0;
     }
 
-    internal static void Closing()
+    private static void Closing()
     {
         _ = Assert(!ShadowView.Casting);
         _count = 0;
@@ -77,10 +84,13 @@ internal static class EntityCasters
     internal static bool InView(FrustumCulling culler, double x, double y, double z, double radius)
     {
         if (!culler.SphereInFrustum(x, y, z, radius) || !Finite(radius)) return false;
+
         if (_count > 0) Tested++;
+
         for (var p = 0; p < Math.Min(_count, Casters.Length); p++)
         {
             if (Casters[p].distanceOfPoint(x, y, z) > -radius) continue;
+
             Culled++;
             return false;
         }

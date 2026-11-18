@@ -1,4 +1,5 @@
 using Komet.Rendering;
+using Newtonsoft.Json.Linq;
 
 namespace Komet.Test.Options;
 
@@ -8,12 +9,14 @@ public sealed class ShaderPackTests
     private static readonly string[] ExampleTypes = ["group", "switch", "slider"];
 
     private static string Example([CallerFilePath] string here = "") =>
-        Path.GetFullPath(Path.Join(Path.GetDirectoryName(here), "../../../Komet/assets/komet/config/komet-templates/shader-example"));
+        Path.GetFullPath(Path.Join(Path.GetDirectoryName(here),
+            "../../../Komet.Sdk/assets/kometsdk/config/komet-templates/shader-example"));
 
     [Test]
     public void TheExamplePackParsesWhole()
     {
-        var pack = ShaderPacks.Parsed(null, File.ReadAllText(Path.Join(Example(), ShaderPacks.PackFile)), "example", "example")!;
+        var pack = ShaderPacks.Parsed(null, File.ReadAllText(Path.Join(Example(), ShaderPacks.PackFile)), "example",
+            "example")!;
         Assert.Multiple(() =>
         {
             Assert.That(pack.Id, Is.EqualTo("example"));
@@ -39,22 +42,31 @@ public sealed class ShaderPackTests
     public void TheVulkanTemplateHangsTogether()
     {
         var mod = Path.Join(Example(), "../vulkan-example/myshaders/assets/myshaders");
-        var pack = ShaderPacks.Parsed(null, File.ReadAllText(Path.Join(mod, "config/komet.json")), "myshaders", "myshaders")!;
+        var pack = ShaderPacks.Parsed(null, File.ReadAllText(Path.Join(mod, "config/komet.json")), "myshaders",
+            "myshaders")!;
         var sources = string.Concat(pack.Passes.Select(p => File.ReadAllText(Path.Join(mod, p.Fragment))));
         var keys = pack.Settings.SelectMany(s => s.Options.Append(s.Label).Append(s.Hint)).OfType<string>()
-            .Where(k => k.StartsWith("myshaders:", StringComparison.Ordinal)).Select(k => k["myshaders:".Length..]).ToList();
+            .Where(k => k.StartsWith("myshaders:", StringComparison.Ordinal)).Select(k => k["myshaders:".Length..])
+            .ToList();
         Assert.Multiple(() =>
         {
             Assert.That(pack.Passes.Select(p => "pass:" + p.Id), Is.EquivalentTo(pack.Programs));
             Assert.That(pack.Settings.Where(s => s.Uniform is not null).Select(s => "uniform float " + s.Uniform + ";"),
                 Has.All.Matches<string>(u => sources.Contains(u, StringComparison.Ordinal)));
             foreach (var lang in (string[])["en", "de"])
-                Assert.That(keys, Is.SubsetOf(Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Join(mod, "lang", lang + ".json"))).Properties().Select(p => p.Name)), lang);
-            Assert.That(Directory.GetFiles(Path.Join(Example(), "../../../.."), "*.cs", SearchOption.AllDirectories), Is.Empty,
+            {
+                Assert.That(keys,
+                    Is.SubsetOf(JObject.Parse(File.ReadAllText(Path.Join(mod, "lang", lang + ".json"))).Properties()
+                        .Select(p => p.Name)), lang);
+            }
+
+            Assert.That(Directory.GetFiles(Path.Join(Example(), "../../../.."), "*.cs", SearchOption.AllDirectories),
+                Is.Empty,
                 "the game refuses a zipped mod (Komet itself) with .cs files outside src/: templates keep them as .cs.txt");
         });
     }
 
     [Test]
-    public void ABrokenFileGivesNoPack() => Assert.That(ShaderPacks.Parsed(null, "{ \"settings\": [", "x", "x"), Is.Null);
+    public void ABrokenFileGivesNoPack() =>
+        Assert.That(ShaderPacks.Parsed(null, "{ \"settings\": [", "x", "x"), Is.Null);
 }

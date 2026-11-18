@@ -16,16 +16,21 @@ namespace Komet.Rendering;
 //   the reach it was 10 % bright: the amulet's light was gone).
 internal static class PointLights
 {
-    internal const string File = "fogandlight.vsh", Marker = "kometPointLight";
+    internal const string File = "fogandlight.vsh";
+    private const string Marker = "kometPointLight";
     private const int MaxLights = 100; // DefaultShaderUniforms.PointLights3: 300 floats
     private const double Order = -1; // before every opaque renderer
 
-    internal const string Reach = "\t\tfloat range = plc.r / color.r;";
-    internal const string Falloff = "\t\trange = min(25, range);\r\n\t\tif (lightDistance > range) continue;\r\n\t\t\t\r\n" +
-                                    "\t\tfloat bright = (color.r + color.g + color.b) / 3;";
+    private const string Reach = "\t\tfloat range = plc.r / color.r;";
 
-    internal const string KometReach = "\t\tfloat range = length(plc); // " + Marker + ": a light without red has a reach too";
-    internal const string KometFalloff = "\t\trange = min(25, range);\r\n" +
+    private const string Falloff =
+        "\t\trange = min(25, range);\r\n\t\tif (lightDistance > range) continue;\r\n\t\t\t\r\n" +
+        "\t\tfloat bright = (color.r + color.g + color.b) / 3;";
+
+    private const string KometReach =
+        "\t\tfloat range = length(plc); // " + Marker + ": a light without red has a reach too";
+
+    private const string KometFalloff = "\t\trange = min(25, range);\r\n" +
                                          "\t\trange = max(range, 2.0); // kometReach: a weak light as bright, softly over 2 blocks\r\n" +
                                          "\t\tif (lightDistance > range) continue;\r\n\t\t\t\r\n" +
                                          "\t\tfloat bright = (color.r + color.g + color.b) / 3;";
@@ -43,13 +48,16 @@ internal static class PointLights
         set
         {
             if (field == value) return;
+
             field = value;
             ShaderEdits.Reload();
         }
     } = true;
 
     public static bool Patched { get; private set; }
-    public static bool Injected { get; private set; } // the shader edit found its lines (the join's reload comes after Install)
+
+    public static bool
+        Injected { get; private set; } // the shader edit found its lines (the join's reload comes after Install)
 
     public static void Install(Harmony harmony, ICoreClientAPI? api, ILogger? logger)
     {
@@ -57,8 +65,10 @@ internal static class PointLights
         var type = typeof(SystemRenderPlayerEffects);
         var (hsv, color) = (AccessTools.DeclaredMethod(type, "AddPointLight", [typeof(byte[]), typeof(EntityPos)]),
             AccessTools.DeclaredMethod(type, "AddPointLight", [typeof(Vec3f), typeof(Vec3d)]));
-        var load = AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram", [typeof(ShaderProgram), typeof(bool)]);
-        if (!NotNull(harmony) || api is null) return;
+        var load = AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
+            [typeof(ShaderProgram), typeof(bool)]);
+        if (api is null) return;
+
         if (hsv is null || color is null || load is null)
         {
             logger?.Warning("Komet PointLights: the engine's light methods were not found; lights stay as in vanilla");
@@ -84,36 +94,26 @@ internal static class PointLights
     private static void Note(double x, double y, double z)
     {
         if (_api?.Render.ShaderUniforms is not { } uniforms) return;
+
         var at = uniforms.PointLightsCount;
-        if (at is < 0 or >= MaxLights) return; // the engine adds none past its own limit either
+        if (at is < 0 or >= MaxLights)
+        {
+            return; // the engine adds none past its own limit either
+        }
+
         (World[at * 3], World[at * 3 + 1], World[at * 3 + 2]) = (x, y, z);
         Noted[at] = _frame;
-    }
-
-    // As the opaque stage begins the modelview matrix is this frame's camera. Only the slots noted this frame: a light a mod
-    // wrote straight into ShaderUniforms has no world position here and keeps the engine's
-    internal static void Reproject()
-    {
-        var frame = _frame;
-        _frame++;
-        if (!Enabled || _api?.Render is not { } render || render.ShaderUniforms is not { } uniforms || render.MvMatrix?.Top is not { } camera)
-            return;
-        var lights = uniforms.PointLights3;
-        var count = Math.Min(uniforms.PointLightsCount, Math.Min(MaxLights, lights.Length / 3));
-        for (var i = 0; i < Math.Min(count, MaxLights); i++)
-        {
-            if (Noted[i] != frame) continue;
-            In.Set(World[i * 3], World[i * 3 + 1], World[i * 3 + 2], 1.0);
-            Mat4d.MulWithVec4(camera, In, Out);
-            (lights[i * 3], lights[i * 3 + 1], lights[i * 3 + 2]) = ((float)Out.X, (float)Out.Y, (float)Out.Z);
-        }
     }
 
     // Prefix on ShaderRegistry.LoadShaderProgram: the include's two lines, once per load (a reload re-reads the assets)
     internal static void Inject()
     {
         if (!Enabled || ShaderEdits.Includes() is not { } includes ||
-            includes.GetValueOrDefault(File) is not { } code || code.Contains(Marker, StringComparison.Ordinal)) return;
+            includes.GetValueOrDefault(File) is not { } code || code.Contains(Marker, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         var edited = Edit(code);
         Injected = edited is not null;
         if (edited is not null) includes[File] = edited;
@@ -123,6 +123,7 @@ internal static class PointLights
     internal static string? Edit(string code)
     {
         if (!NotNull(code)) return null;
+
         return Edit(code, "\r\n") ?? Edit(code, "\n");
     }
 
@@ -132,11 +133,17 @@ internal static class PointLights
         var (kometReach, kometFalloff) = (Ends(KometReach, line), Ends(KometFalloff, line));
         var (r, f) = (code.IndexOf(reach, StringComparison.Ordinal), code.IndexOf(falloff, StringComparison.Ordinal));
         if (r < 0 || f < 0 || code.IndexOf(reach, r + 1, StringComparison.Ordinal) >= 0 ||
-            code.IndexOf(falloff, f + 1, StringComparison.Ordinal) >= 0) return null;
-        return code.Replace(falloff, kometFalloff, StringComparison.Ordinal).Replace(reach, kometReach, StringComparison.Ordinal);
+            code.IndexOf(falloff, f + 1, StringComparison.Ordinal) >= 0)
+        {
+            return null;
+        }
+
+        return code.Replace(falloff, kometFalloff, StringComparison.Ordinal)
+            .Replace(reach, kometReach, StringComparison.Ordinal);
     }
 
-    private static string Ends(string text, string line) => line == "\r\n" ? text : text.Replace("\r\n", line, StringComparison.Ordinal);
+    private static string Ends(string text, string line) =>
+        line == "\r\n" ? text : text.Replace("\r\n", line, StringComparison.Ordinal);
 
     private sealed class Stage : IRenderer
     {
@@ -144,6 +151,30 @@ internal static class PointLights
         public int RenderRange => 0;
 
         public void OnRenderFrame(float deltaTime, EnumRenderStage stage) => Reproject();
+
+        // As the opaque stage begins the modelview matrix is this frame's camera. Only the slots noted this frame: a light a mod
+        // wrote straight into ShaderUniforms has no world position here and keeps the engine's
+        private static void Reproject()
+        {
+            var frame = _frame;
+            _frame++;
+            if (!Enabled || _api?.Render is not { } render || render.ShaderUniforms is not { } uniforms ||
+                render.MvMatrix?.Top is not { } camera)
+            {
+                return;
+            }
+
+            var lights = uniforms.PointLights3;
+            var count = Math.Min(uniforms.PointLightsCount, Math.Min(MaxLights, lights.Length / 3));
+            for (var i = 0; i < Math.Min(count, MaxLights); i++)
+            {
+                if (Noted[i] != frame) continue;
+
+                In.Set(World[i * 3], World[i * 3 + 1], World[i * 3 + 2], 1.0);
+                Mat4d.MulWithVec4(camera, In, Out);
+                (lights[i * 3], lights[i * 3 + 1], lights[i * 3 + 2]) = ((float)Out.X, (float)Out.Y, (float)Out.Z);
+            }
+        }
 
         public void Dispose()
         {

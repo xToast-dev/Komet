@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using Komet.Core;
 using Komet.Tessellation;
 using Vintagestory.GameContent;
@@ -39,8 +40,14 @@ public sealed class FaceLightGoldenTests
             for (var t = 0; t < 6; t++)
             {
                 var front = r.Next(16) == 0 ? e + TessRig.Moves[r.Next(6)] : e + TessRig.Moves[t];
-                if (Face(rig, t, front)) fast++;
-                else engine++;
+                if (Face(rig, t, front))
+                {
+                    fast++;
+                }
+                else
+                {
+                    engine++;
+                }
             }
         }
 
@@ -76,7 +83,10 @@ public sealed class FaceLightGoldenTests
 
             rig.Vars.block = picks[mask % 5];
             (rig.Vars.aoAndSmoothShadows, rig.Vars.occ, rig.Vars.halfoccInverted) = (true, 0.67f, 0.0196875f);
-            for (var t = 0; t < 6; t++, cases++) _ = Face(rig, t, e + TessRig.Moves[t]);
+            for (var t = 0; t < 6; t++, cases++)
+            {
+                _ = Face(rig, t, e + TessRig.Moves[t]);
+            }
         }
 
         Assert.That(cases, Is.EqualTo(6 << 10));
@@ -117,7 +127,7 @@ public sealed class FaceLightGoldenTests
             }
 
             fused++;
-            Assert.Multiple(() =>
+            using (Assert.EnterMultipleScope())
             {
                 Assert.That(sum, Is.EqualTo(engineSum), $"sum of case {i}");
                 Assert.That(mine, Is.EqualTo(engineJson), $"json light of case {i}");
@@ -126,7 +136,7 @@ public sealed class FaceLightGoldenTests
                     Is.EqualTo(engineNeighbours.AsSpan(1).ToArray()), $"neighbours of case {i}");
                 Assert.That(AoRecordingBlock.Log, Is.EqualTo(engineLog),
                     "the engine's faces called the same, in the same order");
-            });
+            }
         }
 
         AoRecordingBlock.Log = null;
@@ -165,21 +175,24 @@ public sealed class FaceLightGoldenTests
         using var rig = new TessRig(palette);
         var e = Neighbourhood(rig, r, palette);
         for (var i = 0; i < 27; i++)
+        {
             rig.Solid[e + Around(i)] = palette[1];
+        }
+
         rig.Fluid.AsSpan().Fill(palette[0]);
         (rig.Vars.block, rig.Vars.aoAndSmoothShadows) = (palette[1], true);
         palette[1].SideAo = new SmallBoolArray(63);
         rig.Solid[e + TessRig.Plane + 1] = micro; // a sample of the up face
         int[] corners = [Filler, Filler, Filler, Filler];
         var neighbours = Enumerable.Repeat(Filler, 9).ToArray();
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That(FaceLight.Face(rig.Vars, 4, e + TessRig.Plane, corners, neighbours, out _), Is.False);
             Assert.That(corners, Is.All.EqualTo(Filler));
             Assert.That(neighbours, Is.All.EqualTo(Filler));
             Assert.That(FaceLight.Face(rig.Vars, 5, e - TessRig.Plane, corners, neighbours, out _), Is.True,
                 "the down face does not see it");
-        });
+        }
     }
 
     [Test]
@@ -221,17 +234,18 @@ public sealed class FaceLightGoldenTests
         using var harmony = new TestHarmony("komet-test-facelight-changed");
         var logger = new CapturingLogger();
         FaceLight.Install(harmony, logger, FaceLight.Shape ^ 1);
-        Assert.Multiple(() =>
+        using (Assert.EnterMultipleScope())
         {
             Assert.That((FaceLight.Installed, FaceLight.FusedInstalled), Is.EqualTo((false, false)));
             Assert.That(harmony.GetPatchedMethods(), Is.Empty);
-        });
+        }
         FaceLight.Install(harmony, logger, FaceLight.Shape, FaceLight.FusedShape ^ 1);
         Assert.Multiple(() =>
         {
             Assert.That((FaceLight.Installed, FaceLight.FusedInstalled), Is.EqualTo((true, false)),
                 "the faces without the fused block");
-            Assert.That(Harmony.GetPatchInfo(FaceLight.FusedTarget())?.Owners ?? [], Is.Empty, "unpatched, or an empty record a test before left");
+            Assert.That(Harmony.GetPatchInfo(FaceLight.FusedTarget())?.Owners ?? [], Is.Empty,
+                "unpatched, or an empty record a test before left");
             Assert.That(logger.Lines, Has.Count.EqualTo(2).And.All.Contains("1.22.7"));
         });
     }
@@ -369,18 +383,28 @@ public sealed class FaceLightGoldenTests
     {
         var palette = new Block[3];
         for (var i = 0; i < palette.Length; i++)
+        {
             palette[i] = new Block
             {
                 BlockId = i, EmitSideAo = (byte)(i == 0 ? 0 : 63), LightAbsorption = i == 0 ? 0 : 99,
                 SideAo = new SmallBoolArray(63)
             };
+        }
+
         var rig = new TessRig(palette);
         rig.Solid.AsSpan().Fill(palette[0]);
         rig.Fluid.AsSpan().Fill(palette[0]);
-        for (var i = 0; i < TessRig.ExtCells; i++) rig.Rgb[i] = TessMix.Hash(i, 3, 5);
+        for (var i = 0; i < TessRig.ExtCells; i++)
+        {
+            rig.Rgb[i] = TessMix.Hash(i, 3, 5);
+        }
+
         e = (17 * TessRig.Ext + 17) * TessRig.Ext + 17;
         for (var i = 0; i < 27; i += 2)
+        {
             rig.Solid[e + Around(i)] = palette[1];
+        }
+
         (rig.Vars.extIndex3d, rig.Vars.block, rig.Vars.aoAndSmoothShadows) = (e, palette[2], true);
         return rig;
     }
@@ -409,9 +433,11 @@ public sealed class FaceLightGoldenTests
         var engineNeighbours = TessRig.Neighbours(vars);
         if (sum != engine || !corners.AsSpan().SequenceEqual(vars.CurrentLightRGBByCorner) ||
             !neighbours.AsSpan().SequenceEqual(engineNeighbours))
+        {
             Assert.Fail(
                 $"face {t} front {front} self {vars.block.BlockId}: sum {sum} vs {engine}, corners [{string.Join(",", corners)}] vs " +
                 $"[{string.Join(",", vars.CurrentLightRGBByCorner)}], neighbours [{string.Join(",", neighbours)}] vs [{string.Join(",", engineNeighbours)}]");
+        }
 
         return true;
     }
@@ -422,20 +448,25 @@ public sealed class FaceLightGoldenTests
     {
         var vars = rig.Vars;
         if (!vars.aoAndSmoothShadows || !vars.block.SideAo[t]) return false;
+
         var full = Math.Min(vars.occ, 1f - vars.halfoccInverted * GameMath.Clamp(vars.block.LightAbsorption, 0, 32));
         if (vars.occ is not (>= 0 and <= 16) || full is not (>= 0 and <= 16)) return false;
+
         var asked = rig.Fluid[front].LightAbsorption > 0 ? rig.Fluid[front] : rig.Solid[front];
         if (!Plain(asked)) return false;
+
         foreach (var vec in CubeFaceVertices.blockFaceVerticesCentered[t].Take(8))
-            if (!Plain(rig.Solid[vars.extIndex3d + vec.extIndexOffset]))
-                return false;
+        {
+            if (!Plain(rig.Solid[vars.extIndex3d + vec.extIndexOffset])) return false;
+        }
+
         return true;
     }
 
     private static bool Plain(Block block) =>
         block.GetType() == typeof(Block) || block is BlockForFluidsLayer or FalseFluidsBlock;
 
-    private static long[] Outputs(TessRig rig, Func<long> call, JsonTesselator json)
+    private static long[] Outputs(TessRig rig, [InstantHandle] Func<long> call, JsonTesselator json)
     {
         Junk(rig.Vars);
         TessRig.JsonLight(json).AsSpan().Fill(Filler);
@@ -505,6 +536,7 @@ public sealed class FaceLightGoldenTests
             block.LightAbsorption = i == 0 ? 0 : Absorptions[r.Next(Absorptions.Length)];
             block.BlockMaterial = r.Next(3) == 0 ? EnumBlockMaterial.Leaves : EnumBlockMaterial.Stone;
             if (i == 0) block.BlockMaterial = EnumBlockMaterial.Air;
+
             block.SideAo = new SmallBoolArray(r.Next(3) == 0 ? r.Next(64) : 63);
             block.DrawType = r.Next(2) == 0 ? EnumDrawType.JSON : EnumDrawType.Cube;
             palette[i] = block;

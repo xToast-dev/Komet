@@ -16,6 +16,8 @@
     href: vulkan-rules.md
   - name: Shaders from code
     href: shaders-code.md
+  - name: Render steps and connected mods
+    href: render-steps.md
 - name: Options, features and styles
   items:
   - name: Options pages

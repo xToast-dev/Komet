@@ -9,12 +9,21 @@ namespace Komet.Test.Rendering;
 [NonParallelizable]
 public sealed class HearthCullingTests
 {
-    private readonly List<string> _state = [];
     private static readonly object Mesh = new();
+    private readonly List<string> _state = [];
+    private TestHarmony _harmony = null!;
+
+    [SetUp]
+    public void Install()
+    {
+        _harmony = new TestHarmony("komet-test-hearthculling");
+        HearthCulling.Install(_harmony, new QuietLogger());
+    }
 
     [TearDown]
     public void Restore()
     {
+        _harmony.Dispose();
         HearthCulling.Enabled = true;
         Counting.Hud = false;
     }
@@ -22,11 +31,10 @@ public sealed class HearthCullingTests
     [Test]
     public void Installs()
     {
-        using var harmony = new TestHarmony("komet-test-hearthculling");
-        HearthCulling.Install(harmony, new QuietLogger());
         Assert.Multiple(() =>
         {
-            Assert.That(HearthCulling.Matched, Is.True, "the firepit's and forge's OnRenderFrame are not the bodies verified");
+            Assert.That(HearthCulling.Matched, Is.True,
+                "the firepit's and forge's OnRenderFrame are not the bodies verified");
             Assert.That(HearthCulling.Blocked, Is.False);
             Assert.That(HearthCulling.Seams().Select(s => Harmony.GetPatchInfo(s)?.Prefixes.Count), Is.EqualTo([1, 1]));
         });
@@ -35,34 +43,38 @@ public sealed class HearthCullingTests
     [Test]
     public void CullsOnlyWhatCannotReachTheView()
     {
-        using var harmony = new TestHarmony("komet-test-hearthculling");
-        HearthCulling.Install(harmony, new QuietLogger());
         var (client, ahead, behind) = (Client(), new BlockPos(0, 0, -10), new BlockPos(0, 0, 40));
         var stack = new ItemStack();
         Assert.Multiple(() =>
         {
-            Assert.That(HearthCulling.FirepitFrame(Mesh, client, ahead, null, EnumRenderStage.Opaque), Is.True, "firepit ahead");
-            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.Opaque), Is.False, "firepit behind");
-            Assert.That(HearthCulling.ForgeFrame(stack, 0, client, ahead, EnumRenderStage.Opaque), Is.True, "forge ahead");
-            Assert.That(HearthCulling.ForgeFrame(null, 1, client, behind, EnumRenderStage.Opaque), Is.False, "forge behind");
+            Assert.That(HearthCulling.FirepitFrame(Mesh, client, ahead, null, EnumRenderStage.Opaque), Is.True,
+                "firepit ahead");
+            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.Opaque), Is.False,
+                "firepit behind");
+            Assert.That(HearthCulling.ForgeFrame(stack, 0, client, ahead, EnumRenderStage.Opaque), Is.True,
+                "forge ahead");
+            Assert.That(HearthCulling.ForgeFrame(null, 1, client, behind, EnumRenderStage.Opaque), Is.False,
+                "forge behind");
         });
     }
 
     [Test]
     public void EverythingItCannotJudgeIsLeftToTheEngine()
     {
-        using var harmony = new TestHarmony("komet-test-hearthculling");
-        HearthCulling.Install(harmony, new QuietLogger());
         var (client, behind) = (Client(), new BlockPos(0, 0, 40));
         Assert.Multiple(() =>
         {
-            Assert.That(HearthCulling.FirepitFrame(null, client, behind, null, EnumRenderStage.Opaque), Is.True, "empty firepit");
+            Assert.That(HearthCulling.FirepitFrame(null, client, behind, null, EnumRenderStage.Opaque), Is.True,
+                "empty firepit");
             Assert.That(HearthCulling.FirepitFrame(null, client, behind, new object(), EnumRenderStage.Opaque), Is.True,
                 "a mod's content renderer");
-            Assert.That(HearthCulling.ForgeFrame(null, 0, client, behind, EnumRenderStage.Opaque), Is.True, "cold empty forge");
-            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.OIT), Is.True, "another stage");
+            Assert.That(HearthCulling.ForgeFrame(null, 0, client, behind, EnumRenderStage.Opaque), Is.True,
+                "cold empty forge");
+            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.OIT), Is.True,
+                "another stage");
             HearthCulling.Enabled = false;
-            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.Opaque), Is.True, "switched off");
+            Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.Opaque), Is.True,
+                "switched off");
         });
     }
 
@@ -70,8 +82,6 @@ public sealed class HearthCullingTests
     [Test]
     public void ASkippedDrawLeavesTheStateADrawnOneLeaves()
     {
-        using var harmony = new TestHarmony("komet-test-hearthculling");
-        HearthCulling.Install(harmony, new QuietLogger());
         var behind = new BlockPos(0, 0, 40);
         _state.Clear();
         Assert.That(HearthCulling.FirepitFrame(Mesh, Client(), behind, null, EnumRenderStage.Opaque), Is.False);
@@ -81,21 +91,5 @@ public sealed class HearthCullingTests
         Assert.That(_state, Is.EqualTo(["cull off"]));
     }
 
-    private ICoreClientAPI Client()
-    {
-        var culler = AnimatableCullingTests.Culler();
-        var render = Answers.Of<IRenderAPI>(new()
-        {
-            ["get_DefaultFrustumCuller"] = _ => culler, ["get_ShaderUniforms"] = _ => new DefaultShaderUniforms(),
-            ["GlToggleBlend"] = a => Record($"blend {a![0]} {a[1]}"), ["GlDisableCullFace"] = _ => Record("cull off"),
-            ["GlEnableCullFace"] = _ => Record("cull on")
-        });
-        return Answers.Of<ICoreClientAPI>(new() { ["get_Render"] = _ => render });
-    }
-
-    private object? Record(string call)
-    {
-        _state.Add(call);
-        return null;
-    }
+    private ICoreClientAPI Client() => AnimatableCullingTests.StateClient(_state);
 }

@@ -7,7 +7,7 @@ Styles are data; every value a style leaves out comes from its base.
 |---|---|---|
 | any mod's assets | `assets/<domain>/config/komet-styles/<id>/style.json` | the same asset folder |
 | the player's folder | `ModConfig/komet/styles/<id>/style.json` (reloads in game) | that folder |
-| code | <xref:Komet.Api.KometStyles.Register*> | `Folder`, else the assets of `Domain` |
+| code | <xref:Komet.Api.KapiStyles.Register*> | the registering mod's assets |
 
 Later sources win when two styles share an id. The id is the folder's name unless `style.json` sets `id`. A
 `base` naming the style's own id means the definition found before it, so a folder `pragmatic/` restyles
@@ -22,9 +22,9 @@ Pragmatic itself. A file may also name an asset (`komet:config/fonts/...`) or an
 }
 ```
 
-Every key is described on <xref:Komet.Api.KometStyle>; the schema `docs/schema/komet-style.schema.json` lets
+Every key is described on <xref:Komet.Api.KapiStyle>; the schema `docs/schema/komet-style.schema.json` lets
 editors complete them. Unknown keys are logged once. In game, *Modding › Menu styles* walks through the example
-style (*Modding › Templates › Create example style* writes it).
+style (*Modding › Templates › Try a menu style in Komet* writes it).
 
 ## Keys
 

@@ -1,5 +1,5 @@
-using Komet.Api;
 using Komet.Core;
+using Komet.Api;
 using Vintagestory.GameContent;
 
 namespace Komet.Test.Core;
@@ -9,12 +9,12 @@ namespace Komet.Test.Core;
 [NonParallelizable]
 public sealed class FeatureStatesTests
 {
+    private const int MaxRequires = 16;
+
     private static readonly string[] HarmonyOnly =
     [
         "ChunkPacking", "BushShapes", "ProfilerPool", "WeatherLock", "EntityCasters", "HelpCompose", "ListenerSlots"
     ];
-
-    private const int MaxRequires = 16;
 
     [TestCaseSource(nameof(Installable))]
     public void TheFeatureIsActiveOnThisEngine(string id)
@@ -24,19 +24,27 @@ public sealed class FeatureStatesTests
         Assert.That(Assembly.Load("protobuf-net").GetName().Name, Is.EqualTo("protobuf-net"));
         var index = Features.Find(id);
         Assert.That(index, Is.GreaterThanOrEqualTo(0), id);
-        var requires = Features.All[index].Requires;
+        var requires = FeatureTable.At(index).Requires;
         var required = new List<FeatureRig>(requires.Length);
         try
         {
-            for (var i = 0; i < Math.Min(requires.Length, MaxRequires); i++) required.Add(new FeatureRig(requires[i]));
+            for (var i = 0; i < Math.Min(requires.Length, MaxRequires); i++)
+            {
+                required.Add(new FeatureRig(requires[i]));
+            }
+
             using var rig = new FeatureRig(id);
             // a switch that ships at the engine's value reports Off: matched, just not wanted
-            var engine = Features.All[index].Knobs is { Length: > 0 } knobs && Array.TrueForAll(knobs, k => k.Get() == k.Engine);
-            Assert.That(rig.State, Is.EqualTo(engine ? FeatureState.Off : FeatureState.Active));
+            var engine = FeatureTable.At(index).Knobs is { Length: > 0 } knobs &&
+                         Array.TrueForAll(knobs, k => k.Get() == k.Engine);
+            Assert.That(rig.State, Is.EqualTo(engine ? KapiFeatureState.Off : KapiFeatureState.Active));
         }
         finally
         {
-            for (var i = Math.Min(required.Count, MaxRequires) - 1; i >= 0; i--) required[i].Dispose();
+            for (var i = Math.Min(required.Count, MaxRequires) - 1; i >= 0; i--)
+            {
+                required[i].Dispose();
+            }
         }
     }
 
@@ -45,9 +53,9 @@ public sealed class FeatureStatesTests
     public void TheHandWrittenListHoldsNoServerOnlyFeature()
     {
         Assert.That(HarmonyOnly.Where(id => Features.Find(id) < 0), Is.Empty);
-        Assert.That(HarmonyOnly.Where(id => Features.All[Features.Find(id)].ServerOnly), Is.Empty);
+        Assert.That(HarmonyOnly.Where(id => FeatureTable.At(Features.Find(id)).ServerOnly), Is.Empty);
     }
 
     private static IEnumerable<string> Installable() =>
-        HarmonyOnly.Concat(Features.All.ToArray().Where(f => f.ServerOnly).Select(f => f.Id));
+        HarmonyOnly.Concat(BuiltIns.All().Where(f => f.ServerOnly).Select(f => f.Id));
 }

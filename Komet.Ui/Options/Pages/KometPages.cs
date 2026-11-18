@@ -317,7 +317,8 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
 
     public OptionPage TemplatesPage(string section)
     {
-        var (s, page) = (settings, new OptionPage(Templates, T("page-templates"), section));
+        var (s, page) = (settings, new OptionPage(Templates, T("page-templates"), section)
+            { Heading = KometDocs.ModdingGroup });
         _ = page.Button(T("add-example-pack"), T("templates-create-local"), () =>
             {
                 if (Api is { } api && KometExamples.Create(api, KometExamples.Shader) is not null)

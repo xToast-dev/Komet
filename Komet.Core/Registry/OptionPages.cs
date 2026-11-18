@@ -206,6 +206,9 @@ internal sealed class OptionPage
     // An in-game doc page (KometDocs): the reader draws these blocks instead of rows
     internal List<DocText.Block>? Doc { get; init; }
 
+    // A group within its section: the page list shows it as a heading where it changes from the page before
+    internal string? Heading { get; set; }
+
     // A developer-screen tool (Komet.Ui's IDevTool): the screen draws it instead of rows
     internal object? Tool { get; init; }
 

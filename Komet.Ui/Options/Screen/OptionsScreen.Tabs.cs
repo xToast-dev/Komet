@@ -176,8 +176,16 @@ internal sealed partial class OptionsScreen
         _sideScroll = Math.Clamp(Finite(_sideScroll) ? _sideScroll : 0, 0, Math.Max(0, _sideHeight - view));
         _canvas.Clip(x, top, w, view);
         var y = top - _sideScroll;
+        string? group = null;
         foreach (var page in pages.Bounded(MaxPages))
         {
+            if (page.Heading is { Length: > 0 } heading && heading != group)
+            {
+                Spaced(x + S(Pad), y + S(8), row - S(8), _fonts.Small, heading.ToUpperInvariant(), S(2), Faint);
+                y += row;
+            }
+
+            group = page.Heading;
             var chosen = !Filtering && page.Id == _page;
             if (chosen) _canvas.Fill(x, y + S(6), S(3), row - S(12), Accent);
 

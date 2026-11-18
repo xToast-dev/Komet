@@ -3,8 +3,9 @@ using Komet.Core;
 namespace Komet.Options;
 
 // The in-game docs: Markdown in Komet's assets under config/komet-docs/<language>/<name>.md (the game loads only its own
-// asset categories, so not a docs folder), the game's language, else English. Two sections: Help for players, Modding for
-// mod authors and designers. One page each, drawn by the options screen's reader, parsed once per language.
+// asset categories, so not a docs folder), the game's language, else English. One section, Help, in two groups: the
+// players' pages, then Modding's for mod authors and designers. One page each, drawn by the options screen's reader,
+// parsed once per language.
 internal static class KometDocs
 {
     private const string Fallback = "en";
@@ -22,9 +23,10 @@ internal static class KometDocs
 
     private static (string Locale, OptionPage[] Pages)? _built;
 
-    // The sections' titles: the screen puts rows pages beside the docs with these
-    private static string HelpSection => KometText.Translate("settings-section-docs");
-    public static string ModdingSection => KometText.Translate("settings-section-modding");
+    // The section's title and its two groups' headings: the screen puts rows pages beside the docs with these
+    public static string Section => KometText.Translate("settings-section-docs");
+    private static string PlayersGroup => KometText.Translate("settings-docs-group-players");
+    public static string ModdingGroup => KometText.Translate("settings-section-modding");
 
     public static OptionPage[] Pages(ICoreClientAPI api)
     {
@@ -33,7 +35,7 @@ internal static class KometDocs
 
         if (api.Assets is null) return [];
 
-        var (help, modding) = (HelpSection, ModdingSection);
+        var (section, players, modding) = (Section, PlayersGroup, ModdingGroup);
         List<OptionPage> pages = [];
         foreach (var name in Names.Bounded(Names.Length))
         {
@@ -42,8 +44,8 @@ internal static class KometDocs
 
             var blocks = DocText.Parse(text);
             var title = blocks.Find(b => b.Kind == DocText.Kind.Title)?.Text ?? name;
-            pages.Add(new OptionPage("docs-" + name, title, Array.IndexOf(Help, name) >= 0 ? help : modding)
-                { Doc = blocks });
+            pages.Add(new OptionPage("docs-" + name, title, section)
+                { Doc = blocks, Heading = Array.IndexOf(Help, name) >= 0 ? players : modding });
         }
 
         _built = (locale, [.. pages]);

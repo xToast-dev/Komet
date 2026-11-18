@@ -22,10 +22,13 @@ internal static class OptionPages
     /// </summary>
     public static event EventHandler? Applied;
 
+    /// <summary>The tab every mod's page joins unless it names its own.</summary>
+    public static string ModsSection => KometText.Translate("settings-section-mods");
+
     /// <summary>A new, empty page. Reusing an id starts it over, so a rejoin does not double the rows.</summary>
     /// <param name="id">The page id, unique among all mods.</param>
     /// <param name="title">The page title; already translated.</param>
-    /// <param name="section">The section (a tab) the page joins; null: a section named like the title.</param>
+    /// <param name="section">The section (a tab) the page joins; null: the Mods tab.</param>
     /// <returns>The page, to add rows to.</returns>
     public static OptionPage Page(string id, string title, string? section = null)
     {
@@ -34,7 +37,7 @@ internal static class OptionPages
             return new OptionPage("invalid", "?", "?");
         }
 
-        var page = new OptionPage(id, title, section ?? title);
+        var page = new OptionPage(id, title, section ?? ModsSection); // a mod's page goes to the Mods tab
         var at = Registered.FindIndex(p => p.Id == id);
         if (at >= 0)
         {

@@ -5,9 +5,9 @@
 `komet.Options.Page(title)` creates your mod's page and returns it. You add the rows in order. Every method returns
 the page, so you can chain the calls.
 
-- `Page(title)`: one page, id = your mod id, in a section of its own named after the title.
+- `Page(title)`: one page, id = your mod id, in the **Mods** tab beside every other mod's.
 - `Page(id, title, section)`: one of several pages; its full id is `modid:id`. `section` is the section the page goes
-  under (a tab at the top of the menu); `null` gives it a section of its own, named after its title.
+  under (a tab at the top of the menu); `null` puts it in the **Mods** tab.
 - Asking again for the same page starts it over, so its rows do not double when you join a world again.
 - `title` and every label are shown as you pass them: translate them yourself.
 - To put your page into Komet's Shaders section in every language, pass `Lang.Get("komet:settings-section-shaders")` as

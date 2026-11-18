@@ -186,7 +186,7 @@ public sealed class OptionsTests
             Assert.That(OptionPages.Count, Is.EqualTo(2));
             Assert.That(OptionPages.At(0), Is.SameAs(again));
             Assert.That(again.Count, Is.EqualTo(1));
-            Assert.That(again.Section, Is.EqualTo("Mod"), "the title stands in for a missing section");
+            Assert.That(again.Section, Is.EqualTo(OptionPages.ModsSection), "a page without a section joins the Mods tab");
             OptionPages.Clear();
             Assert.That(OptionPages.Count, Is.Zero);
         });

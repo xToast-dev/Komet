@@ -345,6 +345,16 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         return page;
     }
 
+    public const string ModsOverview = "mods-overview";
+
+    // The Mods tab's first page: where every mod keeps its settings files, and the mods themselves
+    public static OptionPage ModsPage(string section) =>
+        new OptionPage(ModsOverview, T("page-mods-overview"), section)
+            .Button(T("modconfig-folder"), T("do-open"), () => OpenFolder(GamePaths.ModConfig),
+                T("modconfig-folder-hint", ShaderPacks.Shown(GamePaths.ModConfig)))
+            .Button(T("mods-folder"), T("do-open"), () => OpenFolder(GamePaths.DataPathMods),
+                T("mods-folder-hint", ShaderPacks.Shown(GamePaths.DataPathMods)));
+
     // A whole mod written out and its folder opened, to copy into the Mods folder
     private void Example(string kind)
     {

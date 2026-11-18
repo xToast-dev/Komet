@@ -5,9 +5,9 @@
 `komet.Options.Page(title)` legt die Seite deiner Mod an und gibt sie zurück. Die Zeilen hängst du der Reihe nach an.
 Jede Methode gibt die Seite zurück, so lassen sich die Aufrufe verketten.
 
-- `Page(title)`: eine Seite, ID = deine Mod-ID, in einem eigenen Abschnitt mit ihrem Titel.
+- `Page(title)`: eine Seite, ID = deine Mod-ID, im Reiter **Mods** neben denen der anderen Mods.
 - `Page(id, title, section)`: eine von mehreren Seiten; ihre volle ID ist `modid:id`. `section` ist der Abschnitt, unter
-  dem die Seite steht (ein Reiter oben im Menü); `null` gibt ihr einen eigenen Abschnitt mit ihrem Titel.
+  dem die Seite steht (ein Reiter oben im Menü); `null` legt sie in den Reiter **Mods**.
 - Fragst du noch einmal nach derselben Seite, fängt sie neu an, so verdoppeln sich ihre Zeilen nicht, wenn du eine Welt
   erneut betrittst.
 - `title` und alle Beschriftungen erscheinen so, wie du sie übergibst: übersetze sie selbst.

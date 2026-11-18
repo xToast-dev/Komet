@@ -17,8 +17,8 @@ komet.Options.Page("main", "My mod", section: "Mods")
 komet.Options.Applied += (_, _) => Config.Save();
 ```
 
-`Page(title)` gives the mod one page (id = mod id) in a section of its own; `Page(id, title, section)` one of several
-(id `modid:id`), with `section: null` for a section named like the title.
+`Page(title)` gives the mod one page (id = mod id) in the Mods tab; `Page(id, title, section)` one of several
+(id `modid:id`), with `section: null` for the Mods tab.
 
 | Row | Value |
 |---|---|

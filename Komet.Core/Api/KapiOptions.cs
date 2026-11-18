@@ -41,7 +41,7 @@ public sealed class KapiOptions
         remove => OptionPages.Applied -= value;
     }
 
-    /// <summary>The mod's page, in a section (a tab) of its own named like the title. Asking again starts it over.</summary>
+    /// <summary>The mod's page in the Mods tab, beside every other mod's. Asking again starts it over.</summary>
     /// <param name="title">The page title; already translated.</param>
     /// <returns>The page, to add rows to.</returns>
     public KapiPage Page(string title) => Page("", title, null);
@@ -49,7 +49,7 @@ public sealed class KapiOptions
     /// <summary>One of several pages of the mod. Asking again for the same id starts that page over.</summary>
     /// <param name="id">The page's name, unique within the mod; its full id is <c>modid:id</c>.</param>
     /// <param name="title">The page title; already translated.</param>
-    /// <param name="section">The section (a tab) the page joins; null: a section named like the title.</param>
+    /// <param name="section">The section (a tab) the page joins; null: the Mods tab.</param>
     /// <returns>The page, to add rows to.</returns>
     public KapiPage Page(string id, string title, string? section)
     {

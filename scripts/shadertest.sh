@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The workbench's shader test, unattended: builds Komet and the Komet SDK (unless --no-build), runs the game in the bench
-# sandbox (a copy of the bench world; the player's data folder is only read), lets the SDK show every vanilla shader in
+# The workbench's shader test, unattended: builds Komet (unless --no-build), runs the game in the bench
+# sandbox (a copy of the bench world; the player's data folder is only read), lets the Shader Studio show every vanilla shader in
 # the 3D view and closes the game. Pictures, contact sheets (sheet-N.png) and report.txt land in the folder printed at
 # the end (~/.cache/komet-shadertest/<time>). Runs beside a game that is already open (--force).
 #
@@ -23,9 +23,8 @@ if ((BUILD)); then
   (cd "$REPO" && ./build.sh --disable-build-servers &&
     dotnet build Komet.Bench/Komet.Bench.csproj -c Release -t:Package --disable-build-servers) >/dev/null || { echo "build failed" >&2; exit 1; }
 fi
-SDK=$REPO/Releases/kometsdk
-[[ -f $SDK/modinfo.json ]] || { echo "no SDK folder mod in $SDK" >&2; exit 1; }
-"$REPO/scripts/bench.sh" --profile shadertest --label shadertest --force --extra-mod "$SDK" \
+# the Shader Studio ships inside Komet: the bench's Komet runs the test
+"$REPO/scripts/bench.sh" --profile shadertest --label shadertest --force \
   --env "KOMET_SHADER_TEST=$OUT" --timeout "$TIMEOUT" >"$OUT/bench.log" 2>&1 || true
 if [[ -f $OUT/done ]]; then
   echo "shader test: $OUT"

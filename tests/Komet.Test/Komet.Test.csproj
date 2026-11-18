@@ -15,7 +15,7 @@
     <ItemGroup>
         <ProjectReference Include="$(KometRepo)Komet/Komet.csproj"/>
         <ProjectReference Include="$(KometRepo)Komet.Bench/Komet.Bench.csproj"/>
-        <ProjectReference Include="$(KometRepo)Komet.Sdk/Komet.Sdk.csproj"/> <!-- the shader workbench, a mod of its own -->
+        <ProjectReference Include="$(KometRepo)Komet.Sdk/Komet.Sdk.csproj"/> <!-- the Shader Studio, Komet's top module -->
         <ProjectReference Include="$(KometRepo)tools/Komet.Rules/Komet.Rules.csproj"/>
         <ProjectReference Include="../Komet.Testing/Komet.Testing.csproj"/>
         <Reference Include="VintagestoryAPI" HintPath="$(VsInstall)/VintagestoryAPI.dll"/>

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <!-- The mod the game loads (Komet.dll: KometModSystem, MapTracking, Modules.cs) with modinfo.json and the assets; the
          code lives in the module projects it references, which the build copies beside it and Package ships in the zip.
@@ -12,6 +12,7 @@
 
     <!-- Every module, top down; the mod names them all (Modules.cs) -->
     <ItemGroup>
+        <ProjectReference Include="../Komet.Sdk/Komet.Sdk.csproj" />
         <ProjectReference Include="../Komet.Ui/Komet.Ui.csproj" />
         <ProjectReference Include="../Komet.Vulkan/Komet.Vulkan.csproj" />
         <ProjectReference Include="../Komet.World/Komet.World.csproj" />
@@ -74,8 +75,10 @@
         <Error Condition="'$(ModId)' == '' or '$(KometVersion)' == ''" Text="modinfo.json: modid and version must not be empty" />
         <ItemGroup>
             <!-- the mod and every module assembly the build copied beside it, with their pdbs for stack-trace lines -->
-            <ReleaseFile Include="$(TargetDir)Komet*.dll;$(TargetDir)Komet*.pdb;@(Content)" />
+            <ReleaseFile Include="$(TargetDir)Komet*.dll;$(TargetDir)Komet*.pdb;$(TargetDir)ICSharpCode.Decompiler.dll;@(Content)" />
             <ReleaseAsset Include="assets/**" />
+            <!-- the Shader Studio's Modding pages and templates (domain kometsdk; config/, a category the game ignores) -->
+            <SdkAsset Include="../Komet.Sdk/assets/**" />
         </ItemGroup>
         <!-- only this mod's folder and zips: Komet.Bench lays the developer benchmark out beside it (Releases/kometbench) -->
         <ItemGroup>
@@ -85,6 +88,9 @@
         <Delete Files="@(ReleaseZip)" />
         <Copy SourceFiles="@(ReleaseFile)" DestinationFolder="$(ReleaseDir)" />
         <Copy SourceFiles="@(ReleaseAsset)" DestinationFiles="@(ReleaseAsset-&gt;'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')" />
+        <Copy SourceFiles="@(SdkAsset)" DestinationFiles="@(SdkAsset-&gt;'$(ReleaseDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')" />
+        <Error Condition="!Exists('$(ReleaseDir)/ICSharpCode.Decompiler.dll')" Text="ICSharpCode.Decompiler.dll (the Shader Studio's Engine view) is missing from the package" />
+        <WriteLinesToFile File="$(ReleaseDir)/NOTICE-decompiler.txt" Overwrite="true" Lines="ICSharpCode.Decompiler.dll: ILSpy's decompiler engine (https://github.com/icsharpcode/ILSpy), MIT License, unmodified, from the nuget package ICSharpCode.Decompiler 9.1.0.7988. Komet uses it only in the Shader Studio's Engine view, to decompile the player's own installed game assemblies locally." />
         <!-- Windows has no shaderc of its own: Vulkan-only must not wait for a download there (Shaderc.Shipped) -->
         <DownloadFile SourceUrl="https://api.nuget.org/v3-flatcontainer/silk.net.shaderc.native/2.23.0/silk.net.shaderc.native.2.23.0.nupkg" DestinationFolder="$(MSBuildProjectDirectory)/obj/native" DestinationFileName="silk.net.shaderc.native.2.23.0.nupkg" Retries="3" Condition="!Exists('$(ShadercPackage)')" />
         <GetFileHash Files="$(ShadercPackage)" Algorithm="SHA256">

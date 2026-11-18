@@ -11,6 +11,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
 
     public override void Dispose()
     {
+        Sdk.KometSdk.Dispose();
         var runtime = _runtime ?? new ClientRuntime();
         _runtime = null;
         runtime.Stop();
@@ -22,6 +23,12 @@ public sealed class KometModSystem : ModSystem, IDisposable
         {
             ClientRuntime.Prepare(api, Mod.Logger, typeof(KometModSystem).Assembly);
         }
+    }
+
+    // The Shader Studio's hooks go in before any mod's StartClientSide
+    public override void Start(ICoreAPI api)
+    {
+        if (NotNull(api)) Sdk.KometSdk.Start(api);
     }
 
     public override void AssetsLoaded(ICoreAPI api)
@@ -48,6 +55,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
         try
         {
             _runtime.Start(api, Mod.Logger, Mod.Info.ModID);
+            Sdk.KometSdk.StartClientSide(api);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

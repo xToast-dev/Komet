@@ -1,13 +1,13 @@
 # Komet.Sdk
 
-The Komet SDK, mod `kometsdk`: the Shader Workbench for shader authors. A mod of its own beside Komet, so a
-player's Komet carries none of it.
+The Shader Studio (Shader Workbench) for shader authors: Komet's top module, shipped in Komet's zip and started by
+`KometModSystem`. Its assets keep the domain `kometsdk`.
 
 - `Workbench/`: the full-screen studio (ShaderIde), its explorer, panels, passes tab, game values, engine view.
 - `Editor/`: the code editor, completion, diagnostics, GLSL docs.
 - `Backend/`: projects, project copies in the game's assets, builds and history, per-pass attribution and timing,
   the decompiler index (Engine view).
-- `KometSdkSystem.cs`: hands Komet the workbench (`SdkLink.Workbench`) and the shader-loading hooks
+- `KometSdk.cs`: hands Komet the workbench (`SdkLink.Workbench`) and the shader-loading hooks
   (`StudioHooks`) in `Start`, patches in `StartClientSide`, puts everything back at the world's end.
 
 Komet's side: `Komet.Rendering/Shaders/StudioHooks.cs` and `Komet.Ui/Options/IDevTool.cs` (`SdkLink`). Without the kit

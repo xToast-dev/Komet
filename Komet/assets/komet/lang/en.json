@@ -1,7 +1,7 @@
 {
   "settings-workbench-title": "Komet Shader Studio",
-  "settings-sdk-missing": "The Shader Workbench is part of the Komet SDK, a separate mod for shader authors.",
-  "settings-sdk-missing-hint": "Install \"Komet SDK\" (kometsdk) in the same version as Komet, then open this screen again with Ctrl+F8.",
+  "settings-sdk-missing": "The Shader Studio did not start.",
+  "settings-sdk-missing-hint": "client-main.log says why (lines with Komet). Join the world again, then open this screen with Ctrl+F8.",
   "settings-workbench-preview-return": "The game shows. Ctrl+F8 or .komet dev opens the studio again.",
   "settings-workbench-search": "Search",
   "settings-workbench-search-lower": "search",

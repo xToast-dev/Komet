@@ -26,7 +26,7 @@ Modding › Templates › *Shader mod project with optional C# integration* writ
 
 ## Shader Studio
 
-The Komet SDK (mod `kometsdk`, same version as Komet) adds the Shader Studio: **Ctrl+F8** or `.komet dev` in game.
+Komet's Shader Studio: **Ctrl+F8** or `.komet dev` in game.
 Edit copies of the game's shaders live, choose what the game runs (My version or Vanilla), force conditional effects
 into the picture, preview in 3D with climate and season sliders, and run `.komet shadertest` for pictures of every
 shader. The other tools sit in the dockable HUD window (**Ctrl+F7**).

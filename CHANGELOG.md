@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 3.0.0 (2026-11-18)
+
+### Changed
+
+- The Shader Studio (Ctrl+F8, `.komet dev`) is part of Komet again: the separate mod Komet SDK (`kometsdk`) is gone,
+  remove `kometsdk_*.zip` from your Mods folder. The Modding pages and templates come with Komet too.
 
 ### Fixed
 

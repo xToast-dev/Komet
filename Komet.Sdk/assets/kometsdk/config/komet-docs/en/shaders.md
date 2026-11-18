@@ -139,11 +139,10 @@ Nearly every problem shows up in `client-main.log`. Search for these lines:
   `kometDistant` in their names). If your mod replaces these files and Komet does not recognise their text, distant
   shadows stay off. The log then says `Komet: the shadow shaders are not the engine's, distant shadows stay off`.
 
-## Shader Studio (Komet SDK)
+## Shader Studio
 
-The Shader Studio is part of the **Komet SDK** (`kometsdk`), a mod of its own for shader authors; players do not need
-it. Install it in the same version as Komet and open it with **Ctrl+F8** or `.komet dev`. Without the SDK the same view
-says where to get it. Every other tool lives in the HUD window (Ctrl+F7).
+The Shader Studio comes with Komet: open it with **Ctrl+F8** or `.komet dev`. Every other tool lives in the HUD window
+(Ctrl+F7).
 
 - **One tree** from your Vintagestory folder: game files are read-only, projects are folders under
   `ModConfig/komet/shaders`. A project holds copies of game shaders that replace the originals while it is on. The

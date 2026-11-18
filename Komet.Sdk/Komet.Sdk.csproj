@@ -1,63 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <!-- The Komet SDK, mod "kometsdk": the Shader Workbench (editor, explorer, passes, game values, engine view) and its
-         backend (projects, overrides, builds, per-pass timing). A mod of its own beside Komet, so the player's Komet stays
-         small; it reaches Komet's internals through InternalsVisibleTo and needs the Komet of the same version. Shared
-         settings, game references and the analyzer: ../Komet.Module.props -->
+    <!-- The Shader Studio (editor, explorer, passes, game values, engine view) and its backend (projects, overrides,
+         builds, per-pass timing): a module of Komet like the others, the top one; KometModSystem starts it (KometSdk).
+         Shared settings, game references and the analyzer: ../Komet.Module.props -->
     <Import Project="../Komet.Module.props"/>
 
-    <PropertyGroup>
-        <OutputPath>bin\$(Configuration)\Mods\kometsdk</OutputPath>
-    </PropertyGroup>
-
-    <!-- Komet is the other mod in the same game, never copied into this one's folder -->
     <ItemGroup>
-        <ProjectReference Include="../Komet/Komet.csproj" Private="false"/>
+        <ProjectReference Include="../Komet.Ui/Komet.Ui.csproj"/>
     </ItemGroup>
 
     <!-- The Engine view decompiles the player's own game assemblies at runtime (ICSharpCode.Decompiler, MIT); its two
-         dependencies are in the runtime. Shipped beside the kit, loaded only when the view first opens. -->
+         dependencies are in the runtime. Shipped in Komet's zip, loaded only when the view first opens. -->
     <ItemGroup>
         <PackageReference Include="ICSharpCode.Decompiler" Version="9.1.0.7988"/>
         <None Include="$(NuGetPackageRoot)icsharpcode.decompiler/9.1.0.7988/lib/netstandard2.0/ICSharpCode.Decompiler.dll"
               Link="ICSharpCode.Decompiler.dll" CopyToOutputDirectory="PreserveNewest" Visible="false"/>
-        <Content Include="modinfo.json" CopyToOutputDirectory="PreserveNewest"/>
-        <!-- the same icon as Komet's -->
-        <Content Include="../Komet/modicon.png" Link="modicon.png" CopyToOutputDirectory="PreserveNewest"/>
-        <!-- what mod authors read and start from: the Modding docs and the templates (config/, a category the game ignores) -->
+        <!-- what mod authors read and start from: the Modding docs and the templates; Komet's Package ships them -->
         <None Include="assets/**"/>
     </ItemGroup>
-
-    <!-- Komet's modules come along as transitive references; the game loads them from Komet's folder, so this one keeps none -->
-    <Target Name="DropKometCopies" AfterTargets="Build">
-        <ItemGroup>
-            <KometCopy Include="$(OutDir)Komet*.dll;$(OutDir)Komet*.pdb" Exclude="$(OutDir)Komet.Sdk.dll;$(OutDir)Komet.Sdk.pdb"/>
-        </ItemGroup>
-        <Delete Files="@(KometCopy)"/>
-    </Target>
-
-    <!-- `dotnet build Komet.Sdk -c Release -t:Package`: ../Releases/kometsdk and kometsdk_<version>.zip beside Komet's -->
-    <Target Name="Package" DependsOnTargets="Build">
-        <Error Condition="'$(Configuration)' != 'Release'" Text="Package takes a Release build: dotnet build -c Release -t:Package"/>
-        <PropertyGroup>
-            <KitInfo>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/modinfo.json'))</KitInfo>
-            <KitVersion>$([System.Text.RegularExpressions.Regex]::Match($(KitInfo), '(?&lt;="version"\s*:\s*")[^"]+'))</KitVersion>
-            <KitRoot>$(MSBuildProjectDirectory)/../Releases</KitRoot>
-            <KitDir>$(KitRoot)/kometsdk</KitDir>
-        </PropertyGroup>
-        <ItemGroup>
-            <KitFile Include="$(TargetPath);$(TargetDir)$(TargetName).pdb;$(TargetDir)ICSharpCode.Decompiler.dll;@(Content)"/>
-            <KitZip Include="$(KitRoot)/kometsdk_*.zip"/>
-        </ItemGroup>
-        <RemoveDir Directories="$(KitDir)"/>
-        <Delete Files="@(KitZip)"/>
-        <ItemGroup>
-            <KitAsset Include="assets/**"/>
-        </ItemGroup>
-        <Copy SourceFiles="@(KitFile)" DestinationFolder="$(KitDir)"/>
-        <Copy SourceFiles="@(KitAsset)" DestinationFiles="@(KitAsset->'$(KitDir)/assets/%(RecursiveDir)%(Filename)%(Extension)')"/>
-        <WriteLinesToFile File="$(KitDir)/NOTICE-decompiler.txt" Overwrite="true" Lines="ICSharpCode.Decompiler.dll: ILSpy's decompiler engine (https://github.com/icsharpcode/ILSpy), MIT License, unmodified, from the nuget package ICSharpCode.Decompiler 9.1.0.7988. The SDK uses it only in the shader studio's Engine view, to decompile the player's own installed game assemblies locally." />
-        <ZipDirectory SourceDirectory="$(KitDir)" DestinationFile="$(KitRoot)/kometsdk_$(KitVersion).zip"/>
-    </Target>
 
 </Project>

@@ -23,12 +23,14 @@ Komet            the mod: entry (KometModSystem, ClientRuntime), module list and
   Komet.World     world: light, map, events (needs only Komet.Core)
 ```
 
-Bottom to top: Core, Diagnostics, Rendering, Tessellation, Chunks, Shapes, World, Vulkan, Ui, Komet. Who may use whom is
+Bottom to top: Core, Diagnostics, Rendering, Tessellation, Chunks, Shapes, World, Vulkan, Ui, Sdk, Komet. Who may use whom is
 stated in the `ProjectReference` lines of each `<Module>.csproj` and in `tests/Komet.Test/Core/ModulesTests.cs`.
 
-Alongside: `Komet.Sdk` (the Shader Studio for shader authors, mod `kometsdk` with a zip of its own; it sits on top of
-`Komet` and joins through `StudioHooks` and `SdkLink`), `Komet.Bench` (the benchmark, a mod of its own, never in a
-release), `tests/`, `tools/Komet.Rules` (the analyzer, runs on every build).
+`Komet.Sdk` is the Shader Studio for shader authors: the top module, in Komet's zip, started by `KometModSystem`
+(`KometSdk`); it joins the lower modules through `StudioHooks` and `SdkLink`. Its assets keep the domain `kometsdk`.
+
+Alongside: `Komet.Bench` (the benchmark, a mod of its own, never in a release), `tests/`, `tools/Komet.Rules` (the
+analyzer, runs on every build).
 
 ## Where things are
 
@@ -40,9 +42,9 @@ release), `tests/`, `tools/Komet.Rules` (the analyzer, runs on every build).
 | The contracts `Assert`, `NotNull`, `Finite`, `Index`, `Bounded` | `Komet.Core/Contracts.cs` |
 | Texts in the menu and HUD | `Komet/assets/komet/lang/de.json` and `en.json` (keys `settings-…`, `hud-…`) |
 | The in-game help pages (players) | `Komet/assets/komet/config/komet-docs/<de|en>/*.md` |
-| The Modding pages (mod authors, shipped with the SDK) | `Komet.Sdk/assets/kometsdk/config/komet-docs/<de|en>/*.md` |
+| The Modding pages (mod authors) | `Komet.Sdk/assets/kometsdk/config/komet-docs/<de|en>/*.md` |
 | The developer site (API reference, articles) | `docs/site`, built with `scripts/apidocs.sh` |
-| Templates for mod authors (shipped with the SDK) | `Komet.Sdk/assets/kometsdk/config/komet-templates/` |
+| Templates for mod authors | `Komet.Sdk/assets/kometsdk/config/komet-templates/` |
 | What a module needs from a higher one | the interfaces in `<Module>/Links.cs`, answered in `Komet/Bridges.cs`, registered in `Komet/Modules.cs` (`Bind`) |
 | Build settings shared by all modules | `Komet.Module.props` |
 

@@ -68,8 +68,8 @@ internal sealed class DevTool(string id, string title, Action<HudUi> draw, Actio
     public void Shown(bool shown) => onShown?.Invoke(shown);
 }
 
-// The Komet SDK's way in (mod kometsdk): it sets the workbench in its Start; without the kit the developer screen
-// says where the workbench lives
+// The Shader Studio's way in (Komet.Sdk, a module above this one): it sets the workbench in its Start; if it never
+// started, the developer screen says so
 internal static class SdkLink
 {
     public static System.Func<ICoreClientAPI, Action, IDevTool>? Workbench { get; set; }

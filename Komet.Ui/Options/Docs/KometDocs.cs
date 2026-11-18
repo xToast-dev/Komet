@@ -63,7 +63,7 @@ internal static class KometDocs
         return [.. docs[..at], page, .. docs[at..]];
     }
 
-    // Help's pages ship with Komet; Modding's with the Komet SDK (kometsdk), so without it the section is not there
+    // Help's pages are in the komet domain, Modding's in the Shader Studio's (kometsdk); both ship in Komet's zip
     private static string? Read(ICoreClientAPI api, string locale, string name) =>
         api.Assets
             .TryGet(new AssetLocation(Array.IndexOf(Help, name) >= 0 ? "komet" : SdkDomain,

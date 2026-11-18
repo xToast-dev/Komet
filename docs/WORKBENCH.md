@@ -1,6 +1,6 @@
 # Shader Studio (workbench): maintainer notes
 
-The Shader Studio lives in `Komet.Sdk` (mod `kometsdk`, its own zip). It joins Komet through
+The Shader Studio lives in `Komet.Sdk`, Komet's top module (in Komet's zip). It joins Komet through
 `Komet.Rendering/Shaders/StudioHooks.cs`; with the studio closed it does no work.
 
 ## Look

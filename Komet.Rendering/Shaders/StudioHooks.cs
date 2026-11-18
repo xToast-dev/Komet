@@ -2,9 +2,9 @@ using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
 
-// Where the Komet SDK (mod kometsdk, the Shader Workbench) joins Komet's shader loading. Komet calls these when set and
-// does nothing extra when the kit is absent, so a player's Komet carries no workbench code. The kit sets them in its
-// Start, before any StartClientSide, and clears them when its world ends. Main thread.
+// Where the Shader Studio (Komet.Sdk, the top module) joins Komet's shader loading. Komet calls these when set and does
+// nothing extra while they are not. The studio sets them in its Start, before any StartClientSide, and clears them when
+// its world ends. Main thread.
 internal static class StudioHooks
 {
     // Before the registry reads its files: the active projects' copies go in

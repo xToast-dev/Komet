@@ -1,6 +1,6 @@
 name: build
 
-# Package Komet and the SDK, then run the portable tests on Linux and Windows.
+# Package Komet (the Shader Studio inside), then run the portable tests on Linux and Windows.
 # The full suite (tests/Komet.Test) needs a game install and runs locally only.
 on:
   push:
@@ -45,16 +45,13 @@ jobs:
       - name: Build and package Komet
         run: dotnet build Komet/Komet.csproj -c Release -t:Package --nologo
 
-      - name: Build and package Komet SDK
-        run: dotnet build Komet.Sdk/Komet.Sdk.csproj -c Release -t:Package --nologo
-
       - name: Portable tests
         run: dotnet test tests/Komet.Portable -c Release --nologo
 
       - name: Report checksums
         run: |
           cd Releases
-          sha256sum komet_*.zip kometsdk_*.zip > komet.sha256
+          sha256sum komet_*.zip > komet.sha256
           {
             echo '### sha256'
             echo
@@ -64,13 +61,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           cat komet.sha256
 
-      - name: Upload Komet and Komet SDK
+      - name: Upload Komet
         uses: actions/upload-artifact@v7
         with:
           name: komet
           path: |
             Releases/komet_*.zip
-            Releases/kometsdk_*.zip
             Releases/komet.sha256
           if-no-files-found: error
 
@@ -94,9 +90,6 @@ jobs:
 
       - name: Build and package Komet
         run: dotnet build Komet/Komet.csproj -c Release -t:Package --nologo
-
-      - name: Build and package Komet SDK
-        run: dotnet build Komet.Sdk/Komet.Sdk.csproj -c Release -t:Package --nologo
 
       - name: Portable tests
         run: dotnet test tests/Komet.Portable -c Release --nologo
@@ -134,7 +127,7 @@ jobs:
             echo "tag=v$version"                >> "$GITHUB_OUTPUT"
             echo "name=Komet $version"          >> "$GITHUB_OUTPUT"
             echo "draft=true"                   >> "$GITHUB_OUTPUT"
-            # 2.0.0-pre.2 is not a release; anything without a dash is
+            # 3.0.0-rc.1 is not a release; anything without a dash is
             [[ "$version" == *-* ]] && echo "prerelease=true"  >> "$GITHUB_OUTPUT" \
                                     || echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
@@ -193,7 +186,6 @@ jobs:
           make_latest: ${{ steps.what.outputs.preview == 'true' && 'false' || 'legacy' }}
           files: |
             dist/komet_*.zip
-            dist/kometsdk_*.zip
             dist/komet.sha256
           fail_on_unmatched_files: true
 

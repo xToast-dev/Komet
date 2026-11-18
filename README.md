@@ -21,7 +21,7 @@ Drop the release zip (`komet_<version>.zip`) into the game's `Mods` folder.
 - **Engine speed-ups**: chunk loading and building, culling, shadows, shapes and GC pressure, each with its own switch.
 - **Vulkan renderer**: optional, switched in the options menu; off, the game draws with OpenGL.
 - **HUD**: frame times, lows, spikes and per-mod costs.
-- **Shader Studio**: a shader editor for shader authors in the separate mod `kometsdk` (`Komet.Sdk`).
+- **Shader Studio**: a shader editor for shader authors (`Komet.Sdk`), Ctrl+F8 in game.
 - **For other mods**: settings, shader values and passes through `komet.json` / `komet-shader.json`
   (schemas in `docs/schema`) and the API, KAPI 1.0 (`Komet.Api`), in `Komet.Core.dll`.
 

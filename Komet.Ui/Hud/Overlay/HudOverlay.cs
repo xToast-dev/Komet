@@ -38,7 +38,7 @@ internal sealed partial class HudOverlay : IRenderer
         _sampler.Panels = new HudPanels(capi, _sampler, _build).Build();
         _snap = new SnapGrid(capi, _sampler.Quiet);
         _capture = new DebugCapture(capi, _settings, _sampler, _build, () => Show("protocol"));
-        _overlay = new OverlayCard(capi, _settings, _fonts, _sampler, _build, _capture);
+        _overlay = new OverlayCard(capi, _settings, _fonts, _sampler, _build, _capture, _snap);
         _shaders = new ShaderCard(capi, _settings, _fonts);
         _window = new HudWindow(capi, _settings, _fonts, _snap, Views(), () => _build.Badges(() => Select("version")))
         {

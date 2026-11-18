@@ -13,7 +13,8 @@ internal sealed class OverlayCard(
     HudUiFonts fonts,
     HudSampler sampler,
     HudBuild build,
-    DebugCapture capture) : IDisposable
+    DebugCapture capture,
+    SnapGrid snap) : IDisposable
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
     private const int MaxDetailRows = 64, MaxDialogs = 256;
@@ -21,7 +22,7 @@ internal sealed class OverlayCard(
     private (double X, double Y, double W, double H) _detailShown;
     private (double X, double Y) _grab;
     private bool _dragging;
-    private const double DetailWidth = 212;
+    private const double DetailWidth = 300;
     private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
@@ -127,6 +128,21 @@ internal sealed class OverlayCard(
         }
     }
 
+    // By default beside the overlay, edge to edge on the snap grid and lined up with its top, in its corner while it
+    // is off. Where that does not fit, the first place free of the game's HUD.
+    private (double X, double Y) Beside(double cw, double ch, double w, double h, double m, bool right, bool bottom,
+        (double X, double Y, double W, double H) overlay)
+    {
+        var gap = scaled(HudSettings.SnapStep);
+        var x = right ? w - m - cw : m;
+        if (overlay.W > 0) x = right ? overlay.X - gap - cw : overlay.X + overlay.W + gap;
+
+        var y = bottom ? h - m - ch : m;
+        if (x >= 0 && x + cw <= w && FirstOverlap(x, y, cw, ch, overlay) is null) return (x, y);
+
+        return FreeSpot(cw, ch, w, h, m, right, overlay);
+    }
+
     // The first free place from the top, at the right edge, else the left one (the overlay's side last)
     private (double X, double Y) FreeSpot(double cw, double ch, double w, double h, double m, bool right,
         (double X, double Y, double W, double H) overlay)
@@ -211,6 +227,7 @@ internal sealed class OverlayCard(
 
         _dragging = false;
         e.Handled = true;
+        snap.Release();
         settings.Save(capi);
     }
 
@@ -233,7 +250,7 @@ internal sealed class OverlayCard(
         {
             if (label.Length > 0)
             {
-                ui.Row(ui.Fit(f.Small, label, ui.W * 0.5), value, HudUi.Dim, null, f.Small);
+                ui.Row(ui.Fit(f.Small, label, ui.W * 0.6), value, HudUi.Dim, null, f.Small);
                 continue;
             }
 
@@ -388,8 +405,10 @@ internal sealed class OverlayCard(
             var (x, y) = double.IsFinite(settings.DetailX) && double.IsFinite(settings.DetailY)
                 ? (Math.Clamp(settings.DetailX, 0, Math.Max(0, w - detail.Width)),
                     Math.Clamp(settings.DetailY, 0, Math.Max(0, h - detail.Height)))
-                : FreeSpot(detail.Width, detail.Height, w, h, m, right, placed);
+                : Beside(detail.Width, detail.Height, w, h, m, right, bottom, placed);
             (x, y) = (Math.Round(x), Math.Round(y));
+            if (_dragging) snap.Draw();
+
             detail.Draw(x, y);
             _detailShown = (x, y, detail.Width, detail.Height);
         }

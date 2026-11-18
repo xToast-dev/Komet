@@ -48,6 +48,9 @@ internal static partial class GlTap
     // listeners, GL runs on alone, the renderer fails next frame
     public static string Fault { get; private set; } = "";
 
+    // The first fault's whole exception, stack included: the log names where it threw
+    public static string FaultTrace { get; private set; } = "";
+
     // The render path's question (Rendering.IGlTapView.State): the engine's state as recorded, null without a tap
     public static GlStateView? View()
     {
@@ -167,7 +170,7 @@ internal static partial class GlTap
 
     private static void Faulted(Exception e)
     {
-        if (Fault.Length == 0) Fault = $"a GL tap threw {e.GetType().Name}: {e.Message}";
+        if (Fault.Length == 0) (Fault, FaultTrace) = ($"a GL tap threw {e.GetType().Name}: {e.Message}", e.ToString());
 
         try
         {
@@ -246,7 +249,7 @@ internal static partial class GlTap
             if (At[i] >= 0 && Original[i] != IntPtr.Zero) table[At[i]] = Original[i];
         }
 
-        (_table, _quiet, Fault) = (null, 0, "");
+        (_table, _quiet, Fault, FaultTrace) = (null, 0, "", "");
         Unlisten();
         Unrecord();
         Unlean();

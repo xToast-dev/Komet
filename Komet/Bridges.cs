@@ -21,6 +21,7 @@ internal sealed class VulkanBridge : IRenderPath, IVulkanSide, IGlTapView, IGpuT
     public static readonly VulkanBridge Instance = new();
 
     public bool VulkanDraws => VulkanRenderer.GlIdle;
+    public bool VulkanWanted => VulkanRenderer.Requested;
     public bool NonSolidFill => VulkanRenderer.NonSolidFill;
     public bool Tapped => GlTap.Tapped;
     public long Version => GlTap.Version;

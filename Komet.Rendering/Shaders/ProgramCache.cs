@@ -45,8 +45,8 @@ internal static class ProgramCache
     private static bool Linking(ShaderProgram program, ref bool __result, out string? __state)
     {
         __state = null;
-        // Vulkan draws: the GL context only feeds the ports, nothing to gain and its calls are tapped
-        if (!Enabled || Api.KapiShaders.Renderer == Api.KapiRenderer.Vulkan || Key(program) is not { } key) return true;
+        // Vulkan asked for: a program from a binary has no source to port (chunk programs went missing on NVIDIA)
+        if (!Enabled || Core.ShaderHub.VulkanWanted || Key(program) is not { } key) return true;
 
         __state = key;
         if (Find(key) is not { } binary) return true;

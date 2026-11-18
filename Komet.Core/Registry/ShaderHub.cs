@@ -18,6 +18,9 @@ internal static class ShaderHub
     // The registered services (Modules.Bind): the shader module behind the calls below, and the Vulkan module's answer
     // who draws (OpenGL without it)
     internal static bool VulkanDraws => Services.Find<IRenderPath>()?.VulkanDraws ?? false;
+
+    // Vulkan is asked for, drawing or not yet: programs linked now are ported, so they need their source
+    internal static bool VulkanWanted => Services.Find<IRenderPath>()?.VulkanWanted ?? false;
     private static IShaderBackend? Backend => Services.Find<IShaderBackend>();
 
     // Komet can accept shader registrations in this client
@@ -80,6 +83,7 @@ internal readonly record struct PassResult(IDisposable? Registration, string? Er
 internal interface IRenderPath
 {
     bool VulkanDraws { get; }
+    bool VulkanWanted { get; }
 }
 
 // What the shader module does for ShaderHub; the composition root (Modules.Bind) registers the module's implementation

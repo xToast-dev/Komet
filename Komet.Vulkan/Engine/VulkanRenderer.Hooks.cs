@@ -187,6 +187,7 @@ internal static partial class VulkanRenderer
 
         if (GlTap.Fault.Length > 0)
         {
+            _logger?.Error("Komet: the GL tap fault in full: {0}", GlTap.FaultTrace);
             Fail("Vulkan stopped: " + GlTap.Fault);
             return;
         }

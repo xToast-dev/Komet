@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Vulkan-only on NVIDIA drew no terrain and stopped after a second: the shader cache gave the chunk programs as driver
+  binaries, which carry no source to port. The cache now stands aside while Vulkan is asked for, and switching to
+  Vulkan in the world loads the shaders again.
+- A GL tap that throws now writes its whole exception to `client-main.log` (`the GL tap fault in full`).
+
 ## 3.0.0-pre.4 (2026-11-17)
 
 ### Changed

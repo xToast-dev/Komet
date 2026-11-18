@@ -54,6 +54,9 @@ internal static partial class VulkanRenderer
             // whole in the engine's for OpenGL (a restored lean pool may hold less than OpenGL reads: far terrain missing)
             if (changed) TerrainRebuild.Request();
 
+            // programs the shader cache gave as driver binaries carry no source: linked again, the ports can read it
+            if (changed && value && _api?.World is not null) _ = _api.Shader.ReloadShaders();
+
             if (!value) GlTap.Resting = false;
         }
     }

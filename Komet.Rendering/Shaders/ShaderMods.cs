@@ -59,6 +59,9 @@ internal static partial class ShaderMods
     private static readonly Dictionary<string, Program> Programs = [];
     private static readonly HashSet<string> Porting = [];
     private static readonly Dictionary<string, int> PortRounds = new(StringComparer.Ordinal); // per pass: the newest port
+
+    // per pass: the newest port that finished, and what it wrote (main thread)
+    private static readonly Dictionary<string, (int Round, string? Outcome)> Settled = new(StringComparer.Ordinal);
     private static readonly HashSet<string> Told = []; // held-back mods whose restore was logged this session
     private static readonly HashSet<string> Dumped = []; // stages whose failing source was written this session
     private static readonly Dictionary<string, string> StageErrors = new(StringComparer.OrdinalIgnoreCase);

@@ -29,7 +29,7 @@
 - Vulkan: copies into and out of 3D textures take slices as depth; 3D textures stay whole in OpenGL under lean.
 - Vulkan port: a `const int` inside a function no longer sizes a global array.
 - Upload limit 0 (as the game) no longer cuts the priority chunk queue after 6 ms.
-- Active shaders: a late, older port no longer clears the status of a newer one.
+- Active shaders: a late, older port no longer clears or overwrites the status of a newer one.
 - No `check failed` error when another mod's transpiler changed the render loop IdleAnimators rewrites, and none on
   Windows for a relative log folder (VulkanWatch).
 

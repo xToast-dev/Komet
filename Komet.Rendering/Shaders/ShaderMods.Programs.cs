@@ -97,20 +97,29 @@ internal static partial class ShaderMods
                 Ported[pass] = "the port threw: " + e.Message;
             }
 
+            var outcome = Ported.TryGetValue(pass, out var wrote) ? wrote : null; // what this port wrote
             var api = _api;
-            api?.Event?.EnqueueMainThreadTask(() => Finished(key, pass, (kept, round)), "komet-shader-mods");
+            api?.Event?.EnqueueMainThreadTask(() => Finished(key, pass, (kept, round, outcome)), "komet-shader-mods");
         });
     }
 
-    // A port outlived by a recompile (Keep) wrote the old program's outcome: dropped, so State ports the new one
-    // A port outlived by a newer one of the same pass leaves that one's status alone
-    private static void Finished(string key, string pass, (int Kept, int Round) port)
+    // A port outlived by a recompile (Keep) wrote the old program's outcome: dropped, so State ports the new one. A port
+    // outlived by a newer one of the same pass may have written over that one's outcome, which then comes back.
+    private static void Finished(string key, string pass, (int Kept, int Round, string? Outcome) port)
     {
         if (PortRounds.GetValueOrDefault(pass) != port.Round)
         {
+            if (Settled.TryGetValue(pass, out var newer) && newer.Round == PortRounds.GetValueOrDefault(pass) &&
+                newer.Outcome is { } outcome)
+            {
+                Ported[pass] = outcome;
+            }
+
             Changed?.Invoke();
             return;
         }
+
+        Settled[pass] = (port.Round, port.Outcome);
 
         if (!Programs.TryGetValue(key, out var now) || now.Kept != port.Kept)
         {

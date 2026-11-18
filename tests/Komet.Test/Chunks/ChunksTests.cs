@@ -277,6 +277,7 @@ public sealed class ChunkBudgetTests
     public void TheCeilingIsNeverBelowTheCapInForce()
     {
         (ChunkBudget.CapMillis, RuntimeStats.chunksAwaitingPooling) = (ChunkBudget.CeilingMillis + 4, 0);
+        ChunkBudget.Yield = false; // a slow frame left by another test would cut after one chunk
         ChunkBudget.Begin();
         Busy.Spin(ChunkBudget.CeilingMillis + 1);
         Assert.That((ChunkBudget.Priority(3), ChunkBudget.Priority(2)), Is.EqualTo((3, 2)),
@@ -287,6 +288,7 @@ public sealed class ChunkBudgetTests
     public void UncappedKeepsTheWholePriorityQueuePastTheCeiling()
     {
         (ChunkBudget.CapMillis, RuntimeStats.chunksAwaitingPooling) = (ChunkBudget.Uncapped, 0);
+        ChunkBudget.Yield = false; // a slow frame left by another test would cut after one chunk
         ChunkBudget.Begin();
         Busy.Spin(ChunkBudget.CeilingMillis + 1);
         Assert.That((ChunkBudget.Priority(3), ChunkBudget.Priority(2)), Is.EqualTo((3, 2)), "as the game: nothing cut");

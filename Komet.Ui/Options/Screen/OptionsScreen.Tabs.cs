@@ -159,6 +159,25 @@ internal sealed partial class OptionsScreen
     }
 
     private double _sideHeight; // the page list's rows, a doc page's sections among them
+    private readonly HashSet<string> _folded = new(StringComparer.Ordinal); // groups folded in the page list
+
+    // A group's heading in the page list: a click folds its pages away or shows them again
+    private void GroupHeading(string heading, (double X, double W, double Top, double View) list, double y)
+    {
+        var row = S(PageRow);
+        var folded = _folded.Contains(heading);
+        Spaced(list.X + S(Pad), y + S(8), row - S(8), _fonts.Small, (folded ? "▸ " : "▾ ") + heading.ToUpperInvariant(),
+            S(2), Faint);
+        if (y + row <= list.Top || y >= list.Top + list.View) return;
+
+        _map.Hits.Add(new Hit(list.X, Math.Max(y, list.Top), list.W,
+            Math.Min(y + row, list.Top + list.View) - Math.Max(y, list.Top), (_, _) =>
+            {
+                if (!_folded.Remove(heading)) _ = _folded.Add(heading);
+
+                _dirty = true;
+            }, Glow: RowGlow, Group: SideGroup));
+    }
 
     private void PageList(Frame f)
     {
@@ -181,11 +200,14 @@ internal sealed partial class OptionsScreen
         {
             if (page.Heading is { Length: > 0 } heading && heading != group)
             {
-                Spaced(x + S(Pad), y + S(8), row - S(8), _fonts.Small, heading.ToUpperInvariant(), S(2), Faint);
+                GroupHeading(heading, (x, w, top, view), y);
                 y += row;
             }
 
             group = page.Heading;
+            // a folded group keeps only the open page in view
+            if (group is not null && page.Id != _page && _folded.Contains(group)) continue;
+
             var chosen = !Filtering && page.Id == _page;
             if (chosen) _canvas.Fill(x, y + S(6), S(3), row - S(12), Accent);
 

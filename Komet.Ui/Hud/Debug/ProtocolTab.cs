@@ -3,7 +3,7 @@ using Komet.Core;
 
 namespace Komet.Hud;
 
-// The protocol tab of the dockable window (Ctrl+F7): capture controls or progress, section jumps and the last
+// The protocol tab of the dockable window (K): capture controls or progress, section jumps and the last
 // protocol (DebugReport) inline in the window's scrolling body.
 internal sealed class ProtocolTab(ICoreClientAPI capi, HudSettings settings, DebugCapture capture) : IHudTab
 {

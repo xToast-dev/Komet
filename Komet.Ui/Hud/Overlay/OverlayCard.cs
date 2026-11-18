@@ -5,7 +5,7 @@ using static Komet.Hud.HudParts;
 
 namespace Komet.Hud;
 
-// Overlay (F7), the details below it while the HUD window (Ctrl+F7) is open, and the spike toast; composed per interval
+// Overlay (F7), the details below it while the HUD window (K) is open, and the spike toast; composed per interval
 // and on settings change, drawn each frame while shown.
 internal sealed class OverlayCard(
     ICoreClientAPI capi,
@@ -16,7 +16,8 @@ internal sealed class OverlayCard(
     DebugCapture capture) : IDisposable
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
-    private const int DetailRows = 12;
+    private const int MaxDetailRows = 64;
+    private const double DetailWidth = 236;
     private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
@@ -63,42 +64,79 @@ internal sealed class OverlayCard(
         if (s.ShowMods) OverlayMods(ui);
 
         ui.Space(3);
-        ui.Line(T("hud-v-overlay-footer"), HudUi.Dim, f.Small);
+        ui.Line(T("hud-v-overlay-footer", HudSettings.KeyOf(capi, "toggle"), HudSettings.KeyOf(capi, "window")),
+            HudUi.Dim, f.Small);
         _overlayCanvas.End();
     }
 
-    // What the window's tabs measure, at a glance beside the game: renderer, GPU, memory, collections, chunks, entities
+    // What the window's tabs measure, at a glance beside the game, in sections: frames, rendering, CPU, memory,
+    // collections, world. A heading is a row with an empty value.
+    private (string Label, string Value)[] Details()
+    {
+        var (l, r, g, frames) = (sampler.Live, sampler.Resources, sampler.Gpu, sampler.Frames);
+        var vulkan = l.Vulkan.Draws > 0;
+        return
+        [
+            (T("hud-v-details-frames"), ""),
+            (T("hud-frametime-avg"), Ms(l.AvgMs)),
+            (T("hud-v-p99"), Ms(l.P99)),
+            (T("hud-frametime-worst"), Ms(frames.WorstMs)),
+            (T("hud-low01"), N(l.Low01) + " FPS"),
+            (T("hud-spikes-count"), N(sampler.Spikes.Count)),
+            (T("hud-v-details-render"), ""),
+            (T("hud-renderer"), Komet.Options.VulkanMode.Renderer()),
+            (T("hud-gpu"), Ms(l.GpuMs)),
+            (T("hud-draw-calls"), N(vulkan ? l.Vulkan.Draws : l.DrawCalls)),
+            (T("hud-tris-rendered"), N(l.Triangles / 1e6, 2) + " M"),
+            (T("hud-v-culled"), double.IsFinite(l.CulledPercent) ? N(l.CulledPercent) + " %" : "–"),
+            (T("hud-cpu"), ""),
+            (T("hud-cpu-process"), N(r.CpuPercent) + " %"),
+            (T("hud-cpu-system"), N(r.SystemCpuPercent) + " %"),
+            (T("hud-v-mods-total"), Ms(l.ModsMs)),
+            (T("hud-memory"), ""),
+            (T("hud-ram-used"), N(r.UsedRamMb) + " / " + N(r.TotalRamMb) + " MB"),
+            (T("hud-working-set"), N(r.WorkingSetMb) + " MB"),
+            (T("hud-heap-used"), N(r.ManagedUsedMb) + " MB"),
+            (T("hud-vram"), Of(g.VramUsedMb, g.VramTotalMb)),
+            (T("hud-vram-evictions"), double.IsFinite(g.EvictionsPerSec) ? N(g.EvictionsPerSec, 1) + " /s" : "–"),
+            (T("hud-v-details-gc"), ""),
+            (T("hud-gc-pause"), N(r.GcPausePercent, 1) + " %"),
+            (T("hud-gc-alloc"), N(r.AllocatedMbPerSec, 1) + " MB"),
+            (T("hud-gc0") + " / " + T("hud-gc2"), N(r.Gen0PerSec, 1) + " / " + N(r.Gen2PerSec, 2) + " /s"),
+            (T("hud-world"), ""),
+            (T("hud-chunks-loaded"), N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded)),
+            (T("hud-chunks-tesselate"), N(RuntimeStats.chunksAwaitingTesselation)),
+            (T("hud-chunks-upload"), N(RuntimeStats.chunksAwaitingPooling)),
+            (T("hud-entities-rendered"), N(RuntimeStats.renderedEntities)),
+            (T("hud-entities-loaded"), N(capi.World?.LoadedEntities?.Count ?? 0))
+        ];
+    }
+
     private void ComposeDetails()
     {
         _detailCanvas ??= new HudCanvas(capi, true);
         var (f, px) = (fonts, scaled(fonts.Scale));
-        var w = OverlayWidth * px;
-        var h = 12 * px + f.StrongRow + 4 * px + DetailRows * f.SmallRow;
+        var rows = Details();
+        var headings = Array.FindAll(rows, row => row.Value.Length == 0).Length;
+        var w = DetailWidth * px;
+        var h = 12 * px + f.StrongRow + (rows.Length - headings) * f.SmallRow + headings * (f.SmallRow + 6 * px);
         if (!_detailCanvas.Blank(w, h)) return;
 
         HudUi.Ground(_detailCanvas, w, h, HudUi.Back with { A = 0.95 * settings.Opacity }, scaled(4));
         var ui = new HudUi(_detailCanvas, f, (8 * px, w - 16 * px, 0.0, h, 0.0), []) { Y = 6 * px };
         ui.Text(ui.X, ui.Y, f.StrongRow, f.Strong, T("hud-v-details"));
-        ui.Y += f.StrongRow + 4 * px;
-        var (l, r, g) = (sampler.Live, sampler.Resources, sampler.Gpu);
-        foreach (var (key, value) in (ReadOnlySpan<(string, string)>)
-                 [
-                     ("hud-renderer", Komet.Options.VulkanMode.Renderer()),
-                     ("hud-gpu", Ms(l.GpuMs)),
-                     ("hud-draw-calls", N(l.DrawCalls)),
-                     ("hud-tris-rendered", N(l.Triangles / 1e6, 2) + " M"),
-                     ("hud-vram", Of(g.VramUsedMb, g.VramTotalMb)),
-                     ("hud-working-set", N(r.WorkingSetMb) + " MB"),
-                     ("hud-heap-used", N(r.ManagedUsedMb) + " MB"),
-                     ("hud-gc-pause", N(r.GcPausePercent, 1) + " %"),
-                     ("hud-chunks-loaded", N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded)),
-                     ("hud-chunks-tesselate", N(RuntimeStats.chunksAwaitingTesselation)),
-                     ("hud-chunks-upload", N(RuntimeStats.chunksAwaitingPooling)),
-                     ("hud-entities-rendered", N(RuntimeStats.renderedEntities) + " / " +
-                                               N(capi.World?.LoadedEntities?.Count ?? 0))
-                 ])
+        ui.Y += f.StrongRow;
+        foreach (var (label, value) in rows.Bounded(MaxDetailRows))
         {
-            ui.Row(ui.Fit(f.Small, T(key), ui.W * 0.62), value, HudUi.Dim, null, f.Small);
+            if (value.Length > 0)
+            {
+                ui.Row(ui.Fit(f.Small, label, ui.W * 0.6), value, HudUi.Dim, null, f.Small);
+                continue;
+            }
+
+            ui.Y += 6 * px; // a section's heading
+            ui.Text(ui.X, ui.Y, f.SmallRow, f.Small, label.ToUpperInvariant(), HudUi.Accent);
+            ui.Y += f.SmallRow;
         }
 
         _detailCanvas.End();
@@ -220,7 +258,7 @@ internal sealed class OverlayCard(
         var ui = new HudUi(_toastCanvas, f, (11 * px, w - 19 * px, 0.0, h, 0.0), []) { Y = 5 * px };
         ui.Row(T("hud-v-toast-title", N(spike.DtMs)), T("hud-v-just-now"), HudUi.Warn, HudUi.Dim, f.Strong);
         ui.Line(Describe(spike.Cause));
-        ui.Line(T("hud-v-toast-more", count), HudUi.Dim, f.Small);
+        ui.Line(T("hud-v-toast-more", count, HudSettings.KeyOf(capi, "window")), HudUi.Dim, f.Small);
         _toastCanvas.End();
     }
 

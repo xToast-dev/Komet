@@ -3,7 +3,7 @@ using Komet.Options;
 namespace Komet.Hud;
 
 // The developer screen (Ctrl+F8, ".komet dev"): the SDK's shader workbench alone, full screen in the menu style, or a
-// note where to get it. Every other tool lives in the dockable window (Ctrl+F7).
+// note where to get it. Every other tool lives in the dockable window (K).
 internal sealed partial class HudOverlay
 {
     private IDevTool[]? _devTools;

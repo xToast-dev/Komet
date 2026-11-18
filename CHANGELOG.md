@@ -10,8 +10,11 @@
   (ModConfig, Mods). With the game's developer mode on, a **Developer** tab holds Compatibility, Connected mods (now
   with a way to each mod's settings) and Render debug. Right-click a page to pin it to a **Favorites** tab. The menu
   opens on the page you had open last.
-- **Details beside the game**: while the HUD window (Ctrl+F7) is open, a second card under the overlay shows the
-  renderer, GPU time, draw calls, triangles, VRAM, working set, heap, GC pause, loaded and queued chunks and entities.
+- **The HUD window opens with K** (was Ctrl+F7); texts that name its key show your own binding.
+- **Details beside the game**: while the HUD window is open, a second card under the overlay shows frames (average,
+  p99, worst, 0.1% low, spikes), rendering (renderer, GPU time, draw calls, triangles, culled), CPU (process, system,
+  mods), memory (RAM, working set, heap, VRAM, evictions), garbage collection and the world (chunks and their queues,
+  entities).
 - **ConfigLib mods in Komet's menu**: mods whose settings ConfigLib manages get a page in the Mods tab, client and server
   settings apart; server settings in multiplayer need the controlserver privilege, as in ConfigLib. Switches, sliders
   and choices are shown; free text, colours and mods that draw their own window stay in ConfigLib's.

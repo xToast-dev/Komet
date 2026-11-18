@@ -1,6 +1,6 @@
 namespace Komet.Hud;
 
-// One view of the dockable window (Ctrl+F7): a tab of its bar or a page behind the gear and the badges. It draws
+// One view of the dockable window (K): a tab of its bar or a page behind the gear and the badges. It draws
 // into the window's scrolling body; the window composes only on change (input, new numbers, Live).
 internal interface IHudTab
 {

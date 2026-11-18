@@ -29,7 +29,7 @@ internal static class CompatibilityPage
                 Report(issues, changes, api?.ModLoader?.GetMod(KometMod.Id)?.Info?.Version ?? "unknown", failure)))
             .Button(T("compat-guide"), T("do-open"), () => navigate(Guide), T("compat-guide-hint"))
             .Button(T("checksum"), T("do-verify"), actions.Verify, T("compat-integrity"))
-            .Button(T("debugwindow"), T("do-open"), actions.Debug);
+            .Button(T("debugwindow", Hud.HudSettings.KeyOf(api, "window")), T("do-open"), actions.Debug);
         _ = page.Group(T("compat-features"));
         if (issues.Length == 0) _ = page.Group(T("compat-none"));
 

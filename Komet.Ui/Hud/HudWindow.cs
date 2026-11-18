@@ -6,7 +6,7 @@ namespace Komet.Hud;
 // The window's views: the flat tab bar, and the pages behind the gear (settings) and the title's badges (version)
 internal sealed record HudViews(IHudTab[] Bar, IHudTab Settings, IHudTab Version);
 
-// Ctrl+F7: one dockable window over every tool, a flat tab bar of IHudTab views. Recomposed only on change: input,
+// K: one dockable window over every tool, a flat tab bar of IHudTab views. Recomposed only on change: input,
 // scroll, new numbers (at most every RefreshMs), fonts or frame size.
 internal sealed class HudWindow : HudDialog
 {

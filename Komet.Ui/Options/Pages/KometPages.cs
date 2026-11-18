@@ -291,8 +291,8 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
             .Switch(T("overlaymods"), () => s.ShowMods, on => s.ShowMods = on)
             .Slider(T("toast"), HudSettings.ToastRange, () => s.ToastMs, v => s.ToastMs = v)
             .Group(T("windows"))
-            .Button(T("window"), T("do-open"), actions.Window)
-            .Button(T("debugwindow"), T("do-open"), actions.Debug);
+            .Button(T("window", HudSettings.KeyOf(Api, "window")), T("do-open"), actions.Window)
+            .Button(T("debugwindow", HudSettings.KeyOf(Api, "window")), T("do-open"), actions.Debug);
     }
 
     // The screen's look, live as it changes; for designers the folder, a copy of the style shown and a reload

@@ -48,7 +48,7 @@ internal static class VulkanWatch
 
         if (_thread is not null || !NotNull(GamePaths.Logs)) return;
 
-        _path = Path.Join(GamePaths.Logs, FileName);
+        _path = Path.GetFullPath(Path.Join(GamePaths.Logs, FileName)); // a relative data path (portable, Windows) too
         Rotate(_path);
         _renderTask = RenderTask();
         (_gtt, _vram) = Counters();

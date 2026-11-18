@@ -12,13 +12,15 @@ namespace Komet.Vulkan;
 internal sealed partial class TerrainRenderer
 {
     private const int
+        MaxUnmadeChains = 60, // swapchains refused in a row before any frame showed: Vulkan cannot own this window
         MaxDropsLogged = 8; // runs of dropped frames told in the log, each once (a minimized window drops every frame)
 
     private readonly BoundedPool<Presentation> _presentations = new(4);
     private FrameBridge? _bridge;
     private long _bridgedBefore; // by bridges let go (a resize or the switch remakes them): Bridged only grows
     private FrameBridge.Shot? _bridging; // this frame's scene copied, before the GUI
-    private long _dropRun, _dropRuns;
+    private long _dropRun, _dropRuns, _unmadeChains;
+    private bool _shownOnce;
     private bool _noSwapchain;
     private long _refreshAsked; // Stopwatch ticks of the last look at the monitor's rate
     private int _refreshHz;
@@ -232,7 +234,7 @@ internal sealed partial class TerrainRenderer
             _logger?.Notification("Komet: Vulkan shows frames again after {0} it could not show", _dropRun);
         }
 
-        _dropRun = 0;
+        (_dropRun, _shownOnce) = (0, true);
         return Showed.Shown;
     }
 
@@ -245,6 +247,14 @@ internal sealed partial class TerrainRenderer
         if (_dropRun++ == 0 && ++_dropRuns <= MaxDropsLogged)
         {
             _logger?.Warning("Komet: Vulkan could not show a frame, the window keeps the last one: {0}", why);
+        }
+
+        // The window's surface belongs to OpenGL for good (NVIDIA on Wayland: EGL holds the wl_surface), or no swapchain
+        // was ever made: OpenGL shows the frames again instead of the window freezing
+        if (WindowSwapchain.Lost(why) ||
+            (!_shownOnce && WindowSwapchain.Unmade(why) && ++_unmadeChains >= MaxUnmadeChains))
+        {
+            Unshowable = $"the window refuses a Vulkan swapchain ({why})";
         }
 
         return Showed.Dropped;

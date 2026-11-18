@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Komet.Vulkan;
 
 // Wayland surface only when GLFW runs on Wayland (OPENTK_4_USE_WAYLAND=1), else X11 (XWayland); Win32 on Windows. Acquire uses a fence
@@ -75,6 +77,16 @@ internal sealed unsafe class WindowSwapchain : IDisposable
 
         (_swapchain, _images, _rendered, _lost, _fence) = (0, [], [], [], 0);
     }
+
+    private const int SurfaceLost = -1000000000, NativeWindowInUse = -1000000001;
+    private const string Creating = "vkCreateSwapchainKHR returned ";
+
+    // A failure no retry mends: the surface is gone or another API presents to the window
+    public static bool Lost(string why) =>
+        NotNull(why) && (why.EndsWith(SurfaceLost.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal) ||
+                         why.EndsWith(NativeWindowInUse.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+
+    public static bool Unmade(string why) => NotNull(why) && why.StartsWith(Creating, StringComparison.Ordinal);
 
     public static WindowSwapchain? Create(VulkanDevice device, Native window, out string why)
     {
@@ -369,7 +381,7 @@ internal sealed unsafe class WindowSwapchain : IDisposable
             if (_swapchain != 0) VkApi.DestroySwapchain(_device.Handle, _swapchain, null);
 
             _swapchain = 0;
-            if (result != Vk.Success) return Failed(out why, $"vkCreateSwapchainKHR returned {result}");
+            if (result != Vk.Success) return Failed(out why, Creating + result.ToString(CultureInfo.InvariantCulture));
 
             (_swapchain, _made, _stale, Width, Height) = (made, wanted, false, (int)width, (int)height);
             return Images(out why);

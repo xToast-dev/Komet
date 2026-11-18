@@ -47,6 +47,9 @@ internal static class EngineShape
         return (one, two);
     }
 
+    private const int EngineWide = 3; // features apart before it is the engine, not one expectation
+    private static int _mismatches;
+
     public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger,
         string? pinnedBy = null)
     {
@@ -60,6 +63,15 @@ internal static class EngineShape
         }
 
         CompatibilityLog.Fingerprint(feature, expected, found, methods);
+        if (pinnedBy is null && ++_mismatches == EngineWide)
+        {
+            // the bodies come from the DLL's metadata, which no Harmony patch changes: another build of the engine
+            var engine = methods[0]?.Module.Assembly;
+            logger?.Warning("Komet: the engine's code differs from Vintage Story 1.22.7 as released: {0} {1}, MVID {2} " +
+                            "(a modified or other build of the game; reinstalling the game restores it)",
+                engine?.Location, engine?.GetName().Version, methods[0]?.Module.ModuleVersionId);
+        }
+
         if (pinnedBy is null)
         {
             logger?.Warning(

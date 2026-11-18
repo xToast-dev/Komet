@@ -126,7 +126,7 @@ internal static partial class IdleAnimators
             return code;
         }
 
-        if (!Assert(Il.Count(code, c => c.Calls(call)) == Sites)) return code;
+        if (Il.Count(code, c => c.Calls(call)) != Sites) return code; // another mod's transpiler changed the loop
 
         var (first, done) = (code.FindIndex(c => c.Calls(call)), 0);
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)

@@ -8,6 +8,12 @@
   binaries, which carry no source to port. The cache now stands aside while Vulkan is asked for, and switching to
   Vulkan in the world loads the shaders again.
 - A GL tap that throws now writes its whole exception to `client-main.log` (`the GL tap fault in full`).
+- Vulkan-only where the window refuses a Vulkan swapchain (NVIDIA on Wayland: OpenGL's EGL holds the surface) froze
+  the window; OpenGL now shows the frames again and the log says why.
+- A game whose engine code differs from 1.22.7 as released (three or more features apart) says so once, with the DLL's path, version and MVID, beside
+  the features that stand down.
+- No `check failed` error when another mod's transpiler changed the render loop IdleAnimators rewrites, and none on
+  Windows for a relative log folder (VulkanWatch).
 
 ## 3.0.0-pre.4 (2026-11-17)
 

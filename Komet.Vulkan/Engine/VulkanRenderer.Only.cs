@@ -104,6 +104,31 @@ internal static partial class VulkanRenderer
         _logger?.Warning("Komet: OpenGL safety mode for this world: {0}", SafetyReason);
     }
 
+    // Why Vulkan-only stays off: this start's safety mode, else a failure the GPU's record keeps
+    internal static string Locked
+    {
+        get
+        {
+            if (SafetyReason.Length > 0) return SafetyReason;
+
+            return VulkanRecord.Current() == VulkanRecord.Run.Failed ? "Vulkan failed previously on this GPU" : "";
+        }
+    }
+
+    // The player forces another try: the record forgets the failure, safety mode goes; Vulkan starts at once if it was
+    // chosen, unless it failed in this very world (the next join tries)
+    internal static void Retry()
+    {
+        VulkanRecord.Retry();
+        var was = Only;
+        (SafetyReason, Status) = ("", "");
+        _logger?.Notification("Komet: Vulkan-only is tried again on the player's request");
+        if (State == Phase.Failed || !Only || was) return;
+
+        TerrainRebuild.Request();
+        if (_api?.World is not null) _ = _api.Shader.ReloadShaders();
+    }
+
     internal static void DeviceUnavailable(string why) => Fail(why.Length == 0 ? "Vulkan device unavailable" : why);
 
     internal static int? Suggested(HardwareProfile.Facts hw) =>

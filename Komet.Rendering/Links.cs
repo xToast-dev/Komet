@@ -25,6 +25,13 @@ internal interface IVulkanSide
     void Rebuilding();
     string? ValidatePass(string vertex, string fragment);
     (Action? Port, string Error) ReadPort(int program, string pass);
+
+    // Why Komet keeps Vulkan off now (an earlier failure on this GPU, safety mode), empty when it does not
+    string Lock { get; }
+
+    // The player's way past that: the failure forgotten, Vulkan tried again (now, or at the next world when it failed
+    // in this one)
+    void Retry();
 }
 
 // Vulkan: the GL tap (Komet's record of the engine's GL calls while Vulkan draws): whether it records, its version (a new
@@ -63,6 +70,12 @@ internal sealed class NoVulkan : IVulkanSide
     public static readonly NoVulkan Instance = new();
 
     public bool NonSolidFill { get; init; } = true;
+
+    public string Lock => "";
+
+    public void Retry()
+    {
+    }
 
     public void Mark(string step)
     {

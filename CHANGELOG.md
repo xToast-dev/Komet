@@ -38,6 +38,8 @@
 - A held-back shader mod's systems are not disposed (they never started).
 - Vulkan: a GPU on which Vulkan failed is no longer locked to OpenGL for good: the lock holds for the Komet version it
   failed with, so an update that fixes the cause tries once more (testers of pre.4 on NVIDIA stayed on OpenGL).
+- **Try Vulkan again** under Komet › Overview › Renderer lifts that lock by hand: Vulkan starts at once, or at the next
+  world when it failed in this one.
 - A missing text now names its key in the log instead of a bare `check failed at KometText.cs`.
 - Vulkan: a short run of low system memory no longer marks the GPU as failed for good, and switching Vulkan on in the
   world gives a GPU that failed before one more try.

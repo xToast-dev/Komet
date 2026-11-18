@@ -465,5 +465,7 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
                     VulkanMode.Set(VulkanMode.Choices[choice].Mode, settings.Knobs.SetKnob);
                 }
             },
-            T("vulkan-mode-hint"));
+            T("vulkan-mode-hint"))
+            .Button(T("vulkan-retry"), T("vulkan-retry-do"), Links.Vulkan.Retry, T("vulkan-retry-hint"))
+            .EnabledWhen(static () => Links.Vulkan.Lock.Length > 0); // only while Komet keeps Vulkan off
 }

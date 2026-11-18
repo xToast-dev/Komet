@@ -32,6 +32,10 @@ internal sealed class VulkanBridge : IRenderPath, IVulkanSide, IGlTapView, IGpuT
 
     public void Paced() => VulkanRenderer.Paced();
 
+    public string Lock => VulkanRenderer.Locked;
+
+    public void Retry() => VulkanRenderer.Retry();
+
     public void Rebuilding() => VulkanRenderer.Rebuilding();
 
     public string? ValidatePass(string vertex, string fragment) => VulkanPorts.ValidatePass(vertex, fragment);

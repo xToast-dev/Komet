@@ -159,6 +159,10 @@ internal sealed class HudSettings
     public double WindowX { get; set; } = double.NaN;
     public double WindowY { get; set; } = double.NaN;
 
+    // The details card where the player dragged it, NaN: a place free of the game's HUD, found by itself
+    public double DetailX { get; set; } = double.NaN;
+    public double DetailY { get; set; } = double.NaN;
+
     public string DebugLanguage
     {
         get;
@@ -232,7 +236,8 @@ internal sealed class HudSettings
         Changed?.Invoke();
     }
 
-    public void ResetPositions() => (WindowX, WindowY) = (double.NaN, double.NaN);
+    public void ResetPositions() =>
+        (WindowX, WindowY, DetailX, DetailY) = (double.NaN, double.NaN, double.NaN, double.NaN);
 
     private void NotifyChanged() => Changed?.Invoke();
 

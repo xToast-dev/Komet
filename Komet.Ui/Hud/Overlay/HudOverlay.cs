@@ -63,6 +63,7 @@ internal sealed partial class HudOverlay : IRenderer
         DeveloperForBench = () => _ = Options.Developer || Options.OpenDeveloper();
         RegisterCommands(capi);
         _capture.Register(capi);
+        _overlay.Mouse(capi.Event, true);
         _settings.Changed += OnSettingsChanged;
         OnSettingsChanged();
         capi.Event.LevelFinalize += AskForUpdateCheck;
@@ -128,6 +129,7 @@ internal sealed partial class HudOverlay : IRenderer
         Features.Cleanup("Hud", "detach save callback", () => events?.UnregisterCallback(_saveCallback));
         _window.Changed -= WindowChanged;
         _sampler.Interval -= Sampled;
+        if (_capi.Event is { } mouse) _overlay.Mouse(mouse, false);
         _settings.Changed -= OnSettingsChanged; // a late change would switch the collectors on again
         (ShowForBench, CaptureForBench, OptionsForBench, DeveloperForBench) = (null, null, null, null);
         Features.Cleanup("Hud", "finish capture", _capture.Dispose);

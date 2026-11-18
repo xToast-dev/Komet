@@ -274,7 +274,8 @@ internal static unsafe partial class GlTap
     {
         var held = target switch
         {
-            Texture2D => UnitTextures, Texture2DArray => UnitArrays, TextureCube => UnitCubes, _ => null
+            Texture2D => UnitTextures, Texture2DArray => UnitArrays, TextureCube => UnitCubes,
+            Texture3D => UnitVolumes, _ => null
         };
         if (held is null) return true;
 
@@ -472,8 +473,8 @@ internal static unsafe partial class GlTap
         var changed = unit >= MaxUnits;
         if (unit < MaxUnits && texture == 0)
         {
-            changed = (UnitTextures[unit] | UnitArrays[unit] | UnitCubes[unit]) != 0;
-            (UnitTextures[unit], UnitArrays[unit], UnitCubes[unit]) = (0, 0, 0);
+            changed = (UnitTextures[unit] | UnitArrays[unit] | UnitCubes[unit] | UnitVolumes[unit]) != 0;
+            (UnitTextures[unit], UnitArrays[unit], UnitCubes[unit], UnitVolumes[unit]) = (0, 0, 0, 0);
         }
         else if (unit < MaxUnits)
         {

@@ -119,7 +119,7 @@ internal sealed partial class TextureImages : IDisposable
 
         if (pixels == 0 || data.Format == 0) return;
 
-        var layers = entry.Kind == GlTap.TextureCube ? 1 : Math.Max(spec.Depth, 1);
+        var layers = entry.Kind == GlTap.TextureCube ? 1 : Math.Max(spec.Depth, 1); // a volume: its slices
         var box = (0, 0, GlTap.Face(target), Math.Max(spec.Width, 1), Math.Max(spec.Height, 1), layers);
         if (!SubImaged(entry, levels.Level, box, (data, pixels))) Stale(entry);
     }
@@ -144,7 +144,7 @@ internal sealed partial class TextureImages : IDisposable
 
         var (width, height) = image.LevelSize(level);
         if (box.X < 0 || box.Y < 0 || box.Z < 0 || box.X + box.Width > width || box.Y + box.Height > height ||
-            box.Z + box.Depth > image.Layers)
+            box.Z + box.Depth > image.Slices(level))
         {
             return Refuse();
         }
@@ -156,9 +156,10 @@ internal sealed partial class TextureImages : IDisposable
 
         var region = new Vk.BufferImageCopy
         {
-            Offset = (ulong)at, Aspect = image.Format.Aspect, Level = (uint)level, BaseLayer = (uint)box.Z,
-            Layers = (uint)box.Depth, X = box.X, Y = box.Y, Width = (uint)box.Width, Height = (uint)box.Height,
-            Depth = 1
+            Offset = (ulong)at, Aspect = image.Format.Aspect, Level = (uint)level,
+            BaseLayer = image.Volume ? 0 : (uint)box.Z, Layers = image.Volume ? 1 : (uint)box.Depth, X = box.X,
+            Y = box.Y, Z = image.Volume ? box.Z : 0, Width = (uint)box.Width, Height = (uint)box.Height,
+            Depth = image.Volume ? (uint)box.Depth : 1
         };
         if (!Fill(new Op(OpKind.Fill, image, buffer, region, 0))) return Refuse();
 
@@ -179,7 +180,7 @@ internal sealed partial class TextureImages : IDisposable
         var levels = Math.Min(GlTexture.Levels(texture), MaxLevels);
         if (levels <= 1) return Assert(levels == 1);
 
-        if (entry.BaseLevel != 0 || entry.Image.Format.Aspect != Vk.AspectColor ||
+        if (entry.BaseLevel != 0 || entry.Image.Format.Aspect != Vk.AspectColor || entry.Image.Volume ||
             (entry.Image.Levels < levels && !Grown(entry, texture)))
         {
             return false;
@@ -261,7 +262,9 @@ internal sealed partial class TextureImages : IDisposable
     {
         why = "";
         var gl = GlTexture.Of(texture);
-        var kind = gl.Kind is GlTexture.Array2D or (int)GlTap.TextureCube ? (uint)gl.Kind : Texture2D;
+        var kind = gl.Kind is GlTexture.Array2D or (int)GlTap.TextureCube or (int)GlTap.Texture3D
+            ? (uint)gl.Kind
+            : Texture2D;
         if (gl.Kind != 0 && gl.Kind != Texture2D && kind == Texture2D)
         {
             return Nothing(out why, texture, "is no 2D texture");
@@ -272,13 +275,16 @@ internal sealed partial class TextureImages : IDisposable
 
         if (layers > MaxLayers) return Nothing(out why, texture, $"has {layers} layers");
 
+        var depth = kind == GlTap.Texture3D ? Math.Max(gl.Depth, 1) : 0;
+        if (depth > SharedImage.MaxDepth) return Nothing(out why, texture, $"is {depth} slices deep");
+
         if (SharedFormat.Only(gl.Format) is not var (format, opaque))
         {
             return Nothing(out why, texture, $"has format 0x{gl.Format:X}");
         }
 
         var levels = Math.Clamp(GlTexture.Levels(texture), 1, MaxLevels);
-        var image = Image(texture, (gl.Width, gl.Height, levels, layers), format, kind);
+        var image = Image(texture, (gl.Width, gl.Height, levels, layers), format, (kind, depth));
         if (image is null) return Nothing(out why, texture, "has no image");
 
         Entry? entry = null;
@@ -297,14 +303,17 @@ internal sealed partial class TextureImages : IDisposable
     }
 
     // Drawable where the format allows (a mod's framebuffer may hold it)
+    // A volume is never drawn into: it is only sampled
     private SharedImage? Image(int texture, (int Width, int Height, int Levels, int Layers) size, SharedFormat format,
-        uint kind)
+        (uint Kind, int Depth) shape)
     {
         var attachment =
             (format.Aspect & Vk.AspectDepth) != 0 ? Vk.DepthAttachment : Vk.ColorAttachment; // a stencil's too
-        var (cube, arrayed) = (kind == GlTap.TextureCube, kind == GlTexture.Array2D);
-        var image = SharedImage.Private(_device, size, format, Usage | attachment, out _, cube, texture, arrayed);
-        return image ?? SharedImage.Private(_device, size, format, Usage, out _, cube, texture, arrayed);
+        var (cube, arrayed) = (shape.Kind == GlTap.TextureCube, shape.Kind == GlTexture.Array2D);
+        var image = shape.Depth == 0
+            ? SharedImage.Private(_device, size, format, Usage | attachment, out _, cube, texture, arrayed)
+            : null;
+        return image ?? SharedImage.Private(_device, size, format, Usage, out _, cube, texture, arrayed, shape.Depth);
     }
 
     private Entry? Nothing(out string why, int texture, string reason, bool refused = true)
@@ -322,13 +331,14 @@ internal sealed partial class TextureImages : IDisposable
         var layers = LayersOf(entry.Kind, gl.Depth);
         return SharedFormat.Only(gl.Format) is var (format, _) && format == image.Format &&
                gl.Width == image.Width && gl.Height == image.Height && layers == image.Layers &&
+               (entry.Kind == GlTap.Texture3D ? Math.Max(gl.Depth, 1) : 0) == image.Depth &&
                GlTexture.Levels(texture) <= image.Levels;
     }
 
     private sealed class Entry(SharedImage image, uint kind)
     {
         public SharedImage Image { get; set; } = image;
-        public uint Kind { get; } = kind; // GL_TEXTURE_2D, _2D_ARRAY or _CUBE_MAP
+        public uint Kind { get; } = kind; // GL_TEXTURE_2D, _2D_ARRAY, _CUBE_MAP or _3D
         public bool Stale { get; set; } // OpenGL changed it unseen: read back before Vulkan next uses it
         public bool Drawn { get; set; } // Vulkan drew or copied into it: never read back
         public int BaseLevel { get; set; }

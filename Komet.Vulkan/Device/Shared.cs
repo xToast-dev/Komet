@@ -88,6 +88,7 @@ internal readonly record struct SharedFormat(uint Vulkan, uint Aspect)
 // submission names, neither exportable nor dedicated (only such memory RADV keeps local)
 internal sealed unsafe class SharedImage : IDisposable
 {
+    public const int MaxDepth = 512;
     private const int MaxLayers = 16, MaxViews = (MaxLayers + 1) * 16 + 64;
     private const uint SwizzleOne = 2;
 
@@ -114,6 +115,12 @@ internal sealed unsafe class SharedImage : IDisposable
 
     // Sampled as an array even with one layer (a GL 2D array texture's image, Vulkan-only)
     public bool Arrayed { get; private init; }
+
+    // A GL 3D texture's image: one layer, Depth slices, sampled through a 3D view
+    public bool Volume => Depth > 0;
+
+    // Slices of a volume at level 0; 0 for every other image
+    public int Depth { get; private init; }
 
     public int Layers { get; }
     public int Width { get; }
@@ -251,6 +258,7 @@ internal sealed unsafe class SharedImage : IDisposable
         if (!Assert(Image != 0)) return 0;
 
         var type = range.Layers > 1 || (Arrayed && range.Layers == (uint)Layers) ? Vk.ViewType2DArray : Vk.ViewType2D;
+        if (Volume) type = Vk.ViewType3D;
         var info = new Vk.ViewInfo
         {
             SType = Vk.ImageViewCreateInfo, Image = Image,
@@ -269,17 +277,19 @@ internal sealed unsafe class SharedImage : IDisposable
 
     // stands: the GL texture whose contents it holds, named by Texture, never deleted with it
     public static SharedImage? Private(VulkanDevice device, (int Width, int Height, int Levels, int Layers) size,
-        SharedFormat format, uint usage, out string why, bool cube = false, int stands = 0, bool arrayed = false)
+        SharedFormat format, uint usage, out string why, bool cube = false, int stands = 0, bool arrayed = false,
+        int depth = 0)
     {
         why = "";
         if (!NotNull(device) || !Assert(size is { Width: > 0, Height: > 0 }) || !Assert(size.Levels is > 0 and <= 16) ||
-            !Assert(size.Layers is > 0 and <= MaxLayers) || !Assert(!cube || size.Layers == 6) || !Assert(stands >= 0))
+            !Assert(size.Layers is > 0 and <= MaxLayers) || !Assert(!cube || size.Layers == 6) || !Assert(stands >= 0) ||
+            !Assert(depth is >= 0 and <= MaxDepth) || !Assert(depth == 0 || (size.Layers == 1 && !cube && !arrayed)))
         {
             return null;
         }
 
         return Owned.Kept(
-            new SharedImage(device.Handle, size, format) { Cube = cube, Texture = stands, Arrayed = arrayed },
+            new SharedImage(device.Handle, size, format) { Cube = cube, Texture = stands, Arrayed = arrayed, Depth = depth },
             (device, usage), static (image, s) => image.Allocate(s.device, s.usage), out why);
     }
 
@@ -290,9 +300,9 @@ internal sealed unsafe class SharedImage : IDisposable
         var info = new Vk.ImageInfo
         {
             SType = Vk.ImageCreateInfo, Flags = Cube ? Vk.CubeCompatible : 0,
-            ImageType = 1, Format = Format.Vulkan,
+            ImageType = Volume ? 2u : 1, Format = Format.Vulkan,
             Width = (uint)Width,
-            Height = (uint)Height, Depth = 1, MipLevels = (uint)Levels, ArrayLayers = (uint)Layers, Samples = 1,
+            Height = (uint)Height, Depth = Volume ? (uint)Depth : 1, MipLevels = (uint)Levels, ArrayLayers = (uint)Layers, Samples = 1,
             Usage = usage,
             InitialLayout = Vk.LayoutUndefined
         };
@@ -315,6 +325,12 @@ internal sealed unsafe class SharedImage : IDisposable
     // A level's width and height, at least 1 each
     public (int Width, int Height) LevelSize(int level) =>
         Assert(level is >= 0 and < 32) ? (Math.Max(Width >> level, 1), Math.Max(Height >> level, 1)) : (1, 1);
+
+    // Texel planes of a level: a volume's slices, else its layers
+    public int Slices(int level) => Volume ? Math.Max(Depth >> Math.Clamp(level, 0, 31), 1) : Layers;
+
+    // A copy's layer count and depth for a whole level: a volume copies one layer, its slices deep
+    public (uint Layers, uint Depth) Copied(int level) => Volume ? (1, (uint)Slices(level)) : ((uint)Layers, 1);
 
     // A barrier over every level and layer between two layouts, all memory access on both sides
     public Vk.ImageBarrier Barrier((int From, int To) layouts)

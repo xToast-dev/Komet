@@ -179,6 +179,8 @@ internal sealed partial class SceneRenderer
 
         if (image.Cube != (kind == GlTap.TextureCube)) return Unsampled(out why, program, sampler.Name, "no cube copy");
 
+        if (image.Volume != (kind == GlTap.Texture3D)) return Unsampled(out why, program, sampler.Name, "no 3D copy");
+
         var samplerObject = GlTap.Unit(unit).Sampler;
         _bound.Add((unit, kind, (uint)texture, samplerObject));
         var state = samplerObject > 0
@@ -224,6 +226,8 @@ internal sealed partial class SceneRenderer
     private static uint TargetOf(string type)
     {
         if (type.Contains("Cube", StringComparison.Ordinal)) return GlTap.TextureCube;
+
+        if (type.Contains("3D", StringComparison.Ordinal)) return GlTap.Texture3D;
 
         return type.Contains("Array", StringComparison.Ordinal) ? GlTap.Texture2DArray : Texture2D;
     }

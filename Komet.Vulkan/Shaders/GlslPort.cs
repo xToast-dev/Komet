@@ -172,7 +172,7 @@ internal static partial class GlslPort
     // float[4] a, b: the size on the type, for every name
     private static List<Declarator> SizedByType(List<Declarator> names, string size, Context context)
     {
-        var count = ArraySize(size);
+        var count = ArraySize(size, context.Named);
         if (count < 1) context.Error = $"the array size {size} is no constant";
 
         return [.. names.Select(d => d with { Size = size, Count = Math.Max(count, 1) })];
@@ -205,7 +205,7 @@ internal static partial class GlslPort
             }
 
             var size = part.Groups["size"].Success ? part.Groups["size"].Value : null;
-            var count = size is null ? 1 : ArraySize(size);
+            var count = size is null ? 1 : ArraySize(size, context.Named);
             if (count < 1) context.Error = $"the array size of {part.Groups["name"].Value} is no constant: {size}";
 
             var init = part.Groups["init"].Success ? part.Groups["init"].Value.Trim() : null;
@@ -216,7 +216,8 @@ internal static partial class GlslPort
     }
 
     // Sums and products of integers (what the engine's macros leave); -1 otherwise
-    private static int ArraySize(string size)
+    // Integer literals and constants, joined by + and *
+    private static int ArraySize(string size, Dictionary<string, int> constants)
     {
         var tokens = SizeToken.Matches(size);
         var spelled = size.Count(c => !char.IsWhiteSpace(c));
@@ -229,6 +230,10 @@ internal static partial class GlslPort
             if (i % 2 == 0 && long.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
             {
                 term *= value;
+            }
+            else if (i % 2 == 0 && constants.TryGetValue(token, out var named))
+            {
+                term *= named;
             }
             else if (i % 2 == 1 && token is "+" or "*")
             {
@@ -270,6 +275,7 @@ internal static partial class GlslPort
         public List<int> Outputs { get; } = [];
         public IReadOnlyDictionary<string, int>? Bound { get; } = attributes;
         public int NextLocation { get; set; }
+        public Dictionary<string, int> Named { get; } = new(StringComparer.Ordinal);
         public string Error { get; set; } = "";
     }
 }
@@ -355,11 +361,26 @@ internal static partial class GlslPort
     {
         var (kind, file) = vertex ? (Shaderc.Vertex, name + ".vsh") : (Shaderc.Fragment, name + ".fsh");
         var text = Shaderc.Preprocess(source, kind, file, out var error);
-        if (text is not null) return Stage(text, vertex, context, uniforms);
+        if (text is null)
+        {
+            context.Error = $"{file}: {error}";
+            return null;
+        }
 
-        context.Error = $"{file}: {error}";
-        return null;
+        Constants(text, context);
+        return Stage(text, vertex, context, uniforms);
     }
+
+    // const int N = 32; sizes an array as a literal would (uniform vec4[N] a), in the order they are declared
+    private static void Constants(string text, Context context)
+    {
+        foreach (var g in Constant.Matches(text).Select(static m => m.Groups).Bounded(MaxNames))
+        {
+            var value = ArraySize(g["value"].Value, context.Named);
+            if (value > 0) context.Named[g["name"].Value] = value;
+        }
+    }
+
 
     private static Block Laid(uint[] words, string block, int binding, List<Uniform> uniforms)
     {
@@ -436,10 +457,14 @@ internal static partial class GlslPort
         @"^\s*(?:layout\s*\([^)]*\)\s*)?(?:\w+\s+)*(?:in|out)\s+\w+\s*$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled, Regex.InfiniteMatchTimeout);
 
+    private static readonly Regex Constant = new(
+        @"\bconst\s+(?:highp\s+|mediump\s+|lowp\s+)?u?int\s+(?<name>[A-Za-z_]\w*)\s*=\s*(?<value>[^;]+?)[uU]?\s*;",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled, Regex.InfiniteMatchTimeout);
+
     private static readonly Regex Spaces = new(@"\s+",
         RegexOptions.CultureInvariant | RegexOptions.Compiled, Regex.InfiniteMatchTimeout);
 
-    private static readonly Regex SizeToken = new(@"\d+|[+*]",
+    private static readonly Regex SizeToken = new(@"\d+|[+*]|[A-Za-z_]\w*",
         RegexOptions.CultureInvariant | RegexOptions.Compiled, Regex.InfiniteMatchTimeout);
 
     private static readonly Regex Unshared = new(@"\b(?:shared|packed)\b\s*,?",

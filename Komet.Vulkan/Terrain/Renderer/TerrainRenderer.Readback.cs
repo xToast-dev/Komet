@@ -106,7 +106,11 @@ internal sealed unsafe partial class TerrainRenderer
         (why, at) = ("", default);
         if (!Assert(call.Level >= 0) || !Assert(call.Fbo >= 0 || call.Name > 0)) return null;
 
-        if (call.Name > 0) return SampledFind((int)call.Name) ?? Images.Get((int)call.Name, out why);
+        if (call.Name > 0)
+        {
+            var named = SampledFind((int)call.Name) ?? Images.Get((int)call.Name, out why);
+            return named is { Volume: true } ? None<SharedImage>(out why, "of a 3D texture") : named;
+        }
 
         if (call.Fbo <= 0) return None<SharedImage>(out why, "of the window itself");
 

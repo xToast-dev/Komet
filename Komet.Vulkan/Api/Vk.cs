@@ -674,7 +674,7 @@ internal static partial class Vk
     public const uint StageCompute = 0x20, PushDescriptorLayout = 0x1;
     public const uint PipelineCompute = 0x800, PipelineIndirect = 0x2, AccessIndirect = 0x1, AccessShaderRead = 0x20;
     public const uint AccessShaderWrite = 0x40, AccessTransferRead = 0x800;
-    public const int BindCompute = 1, ViewType2D = 1, FormatR32F = 100;
+    public const int BindCompute = 1, ViewType2D = 1, ViewType3D = 2, FormatR32F = 100;
 
     public struct BufferCopy
     {

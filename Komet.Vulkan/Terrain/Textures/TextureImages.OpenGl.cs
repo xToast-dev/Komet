@@ -11,7 +11,7 @@ namespace Komet.Vulkan;
 internal sealed unsafe partial class TextureImages
 {
     private const int UnpackImageHeight = 0x806E, UnpackSkipImages = 0x806D, UnpackBuffer = 0x88EF;
-    private const int Binding2D = 0x8069, BindingArray = 0x8C1D, BindingCube = 0x8514;
+    private const int Binding2D = 0x8069, BindingArray = 0x8C1D, BindingCube = 0x8514, Binding3D = 0x806A;
     private const int PackAlignment = 0x0D05, PackRowLength = 0x0D02, PackSkipRows = 0x0D03, PackSkipPixels = 0x0D04;
 
     // Written, bytes, and those left (past most or budget, or no exact read). skip: already restored whole
@@ -89,8 +89,8 @@ internal sealed unsafe partial class TextureImages
         var bytes = 0L;
         for (var level = 0; level < Math.Min(levels, MaxLevels); level++)
         {
-            bytes += (long)Math.Max(image.Width >> level, 1) * Math.Max(image.Height >> level, 1) * image.Layers *
-                     texel;
+            bytes += (long)Math.Max(image.Width >> level, 1) * Math.Max(image.Height >> level, 1) *
+                     image.Slices(level) * texel;
         }
 
         return bytes < int.MaxValue ? bytes : 0;
@@ -109,16 +109,17 @@ internal sealed unsafe partial class TextureImages
         {
             var (width, height) = image.LevelSize(level);
             var pixels = (IntPtr)host.Pointer(at);
-            if (image is { Arrayed: false, Cube: false })
+            if (image is { Arrayed: false, Cube: false, Volume: false })
             {
                 GL.TextureSubImage2D(texture, level, 0, 0, width, height, format, type, pixels);
             }
             else
             {
-                GL.TextureSubImage3D(texture, level, 0, 0, 0, width, height, image.Layers, format, type, pixels);
+                GL.TextureSubImage3D(texture, level, 0, 0, 0, width, height, image.Slices(level), format, type,
+                    pixels);
             }
 
-            at += (long)width * height * image.Layers * texel;
+            at += (long)width * height * image.Slices(level) * texel;
         }
 
         return Assert(at == size);
@@ -137,13 +138,14 @@ internal sealed unsafe partial class TextureImages
             for (var level = 0; level < Math.Min(levels, MaxLevels); level++)
             {
                 var (width, height) = image.LevelSize(level);
+                var (layers, depth) = image.Copied(level);
                 var region = new Vk.BufferImageCopy
                 {
-                    Offset = at, Aspect = aspect, Level = (uint)level, Layers = (uint)image.Layers,
-                    Width = (uint)width, Height = (uint)height, Depth = 1
+                    Offset = at, Aspect = aspect, Level = (uint)level, Layers = layers,
+                    Width = (uint)width, Height = (uint)height, Depth = depth
                 };
                 VkApi.CmdCopyImageToBuffer(commands, image.Image, Vk.LayoutTransferSrc, buffer, 1, &region);
-                at += (ulong)((long)width * height * image.Layers * texel);
+                at += (ulong)((long)width * height * image.Slices(level) * texel);
             }
 
             image.Moved(commands, (Vk.LayoutTransferSrc, resting));
@@ -165,7 +167,7 @@ internal sealed unsafe partial class TextureImages
         var gl = GlTexture.Of(texture);
         var kind = (uint)gl.Kind;
         if (!Assert(texture > 0) || gl.Width <= 0 || gl.Height <= 0 ||
-            kind is not (Texture2D or GlTexture.Array2D or GlTap.TextureCube))
+            kind is not (Texture2D or GlTexture.Array2D or GlTap.TextureCube or GlTap.Texture3D))
         {
             GlTap.Restored((uint)texture,
                 true); // nothing known to give it: OpenGL keeps its stand-in (sampled, never past it)
@@ -173,8 +175,8 @@ internal sealed unsafe partial class TextureImages
         }
 
         var levels = Math.Clamp(GlTexture.Levels(texture), 1, MaxLevels);
-        var layers = LayersOf(kind, gl.Depth);
-        var source = image is not null && (image.Width, image.Height, image.Layers) == (gl.Width, gl.Height, layers)
+        var layers = kind == GlTap.Texture3D ? Math.Max(gl.Depth, 1) : LayersOf(kind, gl.Depth);
+        var source = image is not null && (image.Width, image.Height, image.Slices(0)) == (gl.Width, gl.Height, layers)
             ? image
             : null;
         var filled = Math.Min(levels, source?.Levels ?? 0);
@@ -185,7 +187,8 @@ internal sealed unsafe partial class TextureImages
         var saved = UnpackTight();
         var bound = GL.GetInteger((GetPName)(kind switch
         {
-            GlTap.TextureCube => BindingCube, GlTexture.Array2D => BindingArray, _ => Binding2D
+            GlTap.TextureCube => BindingCube, GlTexture.Array2D => BindingArray, GlTap.Texture3D => Binding3D,
+            _ => Binding2D
         }));
         try
         {
@@ -222,10 +225,10 @@ internal sealed unsafe partial class TextureImages
                 : ((PixelFormat)blankFormat, (PixelType)blankType);
             var face = (long)width * height * (given ? pack!.Value.Bytes : 0);
             var pixels = given ? (IntPtr)data.Host!.Pointer(at) : IntPtr.Zero;
-            if (kind == GlTexture.Array2D)
+            var slices = kind == GlTap.Texture3D ? Math.Max(size.Layers >> level, 1) : size.Layers;
+            if (kind is GlTexture.Array2D or GlTap.Texture3D)
             {
-                GL.TexImage3D(TextureTarget.Texture2DArray, level, (PixelInternalFormat)format, width, height,
-                    size.Layers, 0, pf,
+                GL.TexImage3D((TextureTarget)kind, level, (PixelInternalFormat)format, width, height, slices, 0, pf,
                     pt, pixels);
             }
             else
@@ -239,7 +242,7 @@ internal sealed unsafe partial class TextureImages
                 }
             }
 
-            at += face * size.Layers;
+            at += face * slices;
         }
     }
 
@@ -318,20 +321,22 @@ internal sealed unsafe partial class TextureImages
         why = "";
         var image = at.Entry.Image;
         var (width, height) = (Math.Max(image.Width >> at.Level, 1), Math.Max(image.Height >> at.Level, 1));
-        var size = (long)width * height * image.Layers * pack.Bytes;
+        var slices = image.Slices(at.Level);
+        var size = (long)width * height * slices * pack.Bytes;
         if (size > int.MaxValue || Taken((int)size) is not var (buffer, offset))
         {
             why = $"no host memory to read texture {texture} back";
             return false;
         }
 
-        GL.GetTextureSubImage(texture, at.Level, 0, 0, 0, width, height, image.Layers, pack.Format, pack.Type,
+        GL.GetTextureSubImage(texture, at.Level, 0, 0, 0, width, height, slices, pack.Format, pack.Type,
             (int)size,
             (IntPtr)buffer.Pointer(offset));
+        var (layers, depth) = image.Copied(at.Level);
         var region = new Vk.BufferImageCopy
         {
-            Offset = (ulong)offset, Aspect = image.Format.Aspect, Level = (uint)at.Level, Layers = (uint)image.Layers,
-            Width = (uint)width, Height = (uint)height, Depth = 1
+            Offset = (ulong)offset, Aspect = image.Format.Aspect, Level = (uint)at.Level, Layers = layers,
+            Width = (uint)width, Height = (uint)height, Depth = depth
         };
         if (!Fill(new Op(OpKind.Fill, image, buffer.Buffer, region, 0)))
         {

@@ -98,10 +98,11 @@ internal sealed unsafe partial class TextureImages
         {
             var layers = new Vk.SubresourceLayers { Aspect = from.Format.Aspect, Level = (uint)level, Count = (uint)from.Layers };
             var (width, height) = from.LevelSize(level);
+            var depth = from.Volume ? from.Slices(level) : 1;
             var blit = new Vk.ImageBlit
             {
-                Source = layers, SourceX1 = width, SourceY1 = height, SourceZ1 = 1, Target = layers, TargetX1 = width,
-                TargetY1 = height, TargetZ1 = 1
+                Source = layers, SourceX1 = width, SourceY1 = height, SourceZ1 = depth, Target = layers,
+                TargetX1 = width, TargetY1 = height, TargetZ1 = depth
             };
             VkApi.CmdBlitImage(commands, from.Image, Vk.LayoutTransferSrc, to.Image, Vk.LayoutTransferDst, 1, &blit,
                 Vk.FilterNearest);
@@ -262,7 +263,7 @@ internal sealed unsafe partial class TextureImages
         if (layer * box.Depth > int.MaxValue || Taken((int)(layer * box.Depth)) is not var (buffer, at)) return null;
 
         var first = (byte*)from.Pixels + (long)unpack.SkipRows * stride + (long)unpack.SkipPixels * source;
-        for (var z = 0; z < Math.Min(box.Depth, MaxLayers); z++)
+        for (var z = 0; z < Math.Min(box.Depth, SharedImage.MaxDepth); z++)
         {
             TextureUploads.Convert(format, from.Data, first + (long)z * stride * box.Height,
                 (box.Width, box.Height, stride),
@@ -281,7 +282,8 @@ internal sealed unsafe partial class TextureImages
 
         if (_frame.Open && _frame.Holds(old)) return false;
 
-        if (Image(texture, (old.Width, old.Height, levels, old.Layers), old.Format, entry.Kind) is not { } grown)
+        if (Image(texture, (old.Width, old.Height, levels, old.Layers), old.Format, (entry.Kind, old.Depth)) is not
+            { } grown)
         {
             return false;
         }

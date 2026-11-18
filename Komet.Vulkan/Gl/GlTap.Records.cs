@@ -139,7 +139,7 @@ internal static unsafe partial class GlTap
 
     // The targets whose bound texture the units follow (BoundName)
     private static bool Tracked(uint target) =>
-        target is Texture2D or Texture2DArray or TextureCube or >= CubeFirst and <= CubeLast;
+        target is Texture2D or Texture2DArray or TextureCube or Texture3D or >= CubeFirst and <= CubeLast;
 
     // The targets a glTexImage* or glTexStorage* names a texture by that the units follow (no proxies)
     private static bool Specifiable(uint target) => Assert(Tapped) && Tracked(target);
@@ -172,7 +172,7 @@ internal static unsafe partial class GlTap
     {
         if (!TextureRecords.TryGetValue(texture, out var t) || t.Width <= 0) return;
 
-        var side = Math.Max(Math.Max(t.Width, t.Height), t.Target == 0x806F ? t.Depth : 1); // a 3D one in depth too
+        var side = Math.Max(Math.Max(t.Width, t.Height), t.Target == Texture3D ? t.Depth : 1); // a 3D one in depth too
         var log = 31 - BitOperations.LeadingZeroCount((uint)side);
         var top = Math.Min(Math.Min(log, t.MaxLevel), MaxLevels - 1);
         t.Levels |= (int)((2L << Math.Max(top, 0)) - 1);
@@ -273,7 +273,7 @@ internal static unsafe partial class GlTap
     private static GlFramebuffer.Attached WholeLayers(uint texture, int level)
     {
         var target = texture == 0 ? 0 : Texture(texture)?.Target ?? 0;
-        var layered = target is Texture2DArray or TextureCube or 0x806F or 0x9009 or 0x8C18 or 0x9102;
+        var layered = target is Texture2DArray or TextureCube or Texture3D or 0x9009 or 0x8C18 or 0x9102;
         return new GlFramebuffer.Attached((int)texture, level, 0, layered);
     }
 

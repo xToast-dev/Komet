@@ -8,7 +8,7 @@ internal static partial class GlTap
 {
     public const int MaxAttributes = 16;
     private const int MaxBindings = 16;
-    public const uint Texture2DArray = 0x8C1A, TextureCube = 0x8513, Fill = 0x1B02;
+    public const uint Texture2DArray = 0x8C1A, TextureCube = 0x8513, Texture3D = 0x806F, Fill = 0x1B02;
     private const int MaxArrays = 1 << 16, MaxKnownTextures = 1 << 16;
     private const uint ArrayBuffer = 0x8892, ElementBuffer = 0x8893, UniformBuffer = 0x8A11, StorageBuffer = 0x90D2;
     private const uint CopyRead = 0x8F36, CopyWrite = 0x8F37, UnpackBuffer = 0x88EC, IndirectBuffer = 0x8F3F;
@@ -20,7 +20,8 @@ internal static partial class GlTap
     private static readonly Dictionary<uint, uint> TextureTargets = []; // each texture's target, asked once
     private static readonly (uint Buffer, long Offset, long Size)[] Uniforms = new (uint, long, long)[MaxBindings];
     private static readonly (uint Buffer, long Offset, long Size)[] Storages = new (uint, long, long)[MaxBindings];
-    private static readonly uint[] UnitArrays = new uint[MaxUnits], UnitCubes = new uint[MaxUnits];
+    private static readonly uint[] UnitArrays = new uint[MaxUnits], UnitCubes = new uint[MaxUnits],
+        UnitVolumes = new uint[MaxUnits];
     private static uint _vao, _arrayBuffer, _uniformBuffer, _storageBuffer, _copyRead, _copyWrite, _unpackBuffer;
     private static uint _indirect, _packBuffer, _parameters;
 
@@ -79,7 +80,8 @@ internal static partial class GlTap
 
         return target switch
         {
-            Texture2DArray => UnitArrays[unit], TextureCube => UnitCubes[unit], _ => UnitTextures[unit]
+            Texture2DArray => UnitArrays[unit], TextureCube => UnitCubes[unit], Texture3D => UnitVolumes[unit],
+            _ => UnitTextures[unit]
         };
     }
 
@@ -190,6 +192,7 @@ internal static partial class GlTap
         return target switch
         {
             Texture2DArray => UnitArrays[unit], TextureCube or >= CubeFirst and <= CubeLast => UnitCubes[unit],
+            Texture3D => UnitVolumes[unit],
             _ => UnitTextures[unit]
         };
     }
@@ -246,6 +249,7 @@ internal static partial class GlTap
             GL.ActiveTexture(TextureUnit.Texture0 + unit);
             UnitArrays[unit] = (uint)GL.GetInteger(GetPName.TextureBinding2DArray);
             UnitCubes[unit] = (uint)GL.GetInteger(GetPName.TextureBindingCubeMap);
+            UnitVolumes[unit] = (uint)GL.GetInteger(GetPName.TextureBinding3D);
         }
 
         GL.ActiveTexture((TextureUnit)active);

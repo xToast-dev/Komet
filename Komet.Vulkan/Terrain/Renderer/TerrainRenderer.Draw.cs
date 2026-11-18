@@ -340,7 +340,9 @@ internal sealed partial class TerrainRenderer
     private static (ulong View, int Width, int Height, int Layers)? Viewed(SharedImage image,
         GlFramebuffer.Attached attached)
     {
-        if (attached.Level >= image.Levels || attached.Layer >= image.Layers || !Assert(attached.Level >= 0) ||
+        // a volume is only sampled: OpenGL draws into it
+        if (image.Volume || attached.Level >= image.Levels || attached.Layer >= image.Layers ||
+            !Assert(attached.Level >= 0) ||
             !Assert(attached.Layer >= 0))
         {
             return null;

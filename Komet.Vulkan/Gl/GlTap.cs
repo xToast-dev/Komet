@@ -263,6 +263,7 @@ internal static partial class GlTap
         Array.Clear(Storages);
         Array.Clear(UnitArrays);
         Array.Clear(UnitCubes);
+        Array.Clear(UnitVolumes);
     }
 
     public static QuietScope Quietly()

@@ -26,10 +26,11 @@ It does not touch coordinates. Komet's Vulkan pipelines keep OpenGL's convention
 - GLSL 330 core: `in`/`out`, `texture()`, `layout(location = n) out` for several outputs. Not `varying`,
   `attribute`, `gl_FragColor` or `texture2D`: the Vulkan compiler rejects compatibility GLSL.
 - Vertex inputs need a location: `layout(location = n) in`, or the game's `glBindAttribLocation`.
-- Array sizes: integer literals, or `+` and `*` of them, after the preprocessor.
+- Array sizes: integer literals and `const int` names, or `+` and `*` of them, after the preprocessor.
 - Varyings: scalars, vectors and `mat2` to `mat4`. No structs, no interface blocks.
 - Uniform defaults (`uniform float x = 1.0;`) only from literal numbers, `true`, `false` or constructors of them.
-- Samplers: `sampler2D`, `sampler2DShadow`, `sampler2DArray`, `samplerCube`. A sampler used in both stages must
+- Samplers: `sampler2D`, `sampler2DShadow`, `sampler2DArray`, `samplerCube`, `sampler3D` (a 3D texture is only
+  sampled, never drawn into; up to 512 slices). A sampler used in both stages must
   have the same type in both.
 - Uniform blocks and storage buffers with a binding of 0 to 15.
 

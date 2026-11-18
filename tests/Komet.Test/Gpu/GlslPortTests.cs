@@ -90,6 +90,18 @@ public sealed class GlslPortTests
     }
 
     [Test]
+    public void AConstantSizesAnArrayAndA3DSamplerPorts()
+    {
+        var fragment = Fragment
+            .Replace("uniform sampler2D glow;", "uniform sampler3D glow;\nconst int N = 4 * 8;\nuniform vec4[N] spheres;",
+                StringComparison.Ordinal)
+            .Replace("texture(glow, vec2(0))", "texture(glow, vec3(0)) + spheres[N - 1]", StringComparison.Ordinal);
+        var ported = Port(Vertex, fragment);
+        Assert.That(ported.FragmentUniforms.Members.Single(u => u.Name == "spheres").Count, Is.EqualTo(32));
+        Assert.That(ported.Samplers.Single(s => s.Name == "glow").Type, Is.EqualTo("sampler3D"));
+    }
+
+    [Test]
     public void ASamplerKeepsOneBindingAcrossTheStages()
     {
         var ported = Port(Vertex, Fragment);

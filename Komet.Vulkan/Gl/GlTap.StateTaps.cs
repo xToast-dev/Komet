@@ -412,6 +412,8 @@ internal static unsafe partial class GlTap
             if (UnitArrays[unit] == texture) UnitArrays[unit] = 0;
 
             if (UnitCubes[unit] == texture) UnitCubes[unit] = 0;
+
+            if (UnitVolumes[unit] == texture) UnitVolumes[unit] = 0;
         }
     }
 }

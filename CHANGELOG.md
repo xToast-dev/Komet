@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Vulkan: 3D textures and `sampler3D` are sampled, and arrays sized by a `const int` port. Real Smoke 2's smoke,
+  wisps and smoke fog had no Vulkan port.
 - *ChunkQueueWalk* (off by default, Chunks › Memory): the built-in server walks its chunk load queue without a new
   iterator object per walk; fewer garbage collections in singleplayer. Compare it in your world.
 - Chunk upload: a large backlog (over 1000 meshes) while the camera stands still for a second, at over 40 FPS, gets 14 ms a frame

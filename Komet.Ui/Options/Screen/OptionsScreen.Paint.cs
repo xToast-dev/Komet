@@ -66,6 +66,7 @@ internal sealed partial class OptionsScreen
 
         (_page, _scroll, _query, _searching, _dirty, _focus) = (page.Id, 0, "", false, true, null);
         _term = null; // a term's explanation belongs to the page it opened on
+        if (_favorites && !_settings.OptionsFavorites.Contains(page.Id)) _favorites = false;
         _reviewing = false;
         _cursor = null;
     }

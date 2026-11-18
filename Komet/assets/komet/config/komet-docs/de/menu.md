@@ -5,6 +5,7 @@
 - Oben wählst du einen Reiter, links eine Seite. Bei Hilfeseiten stehen darunter ihre Abschnitte.
 - In der Mitte änderst du eine Einstellung mit einem Klick oder den Pfeiltasten links und rechts.
 - Rechts steht, was die gewählte Einstellung tut.
+- Ein Rechtsklick auf eine Seite links heftet sie an. Angeheftete Seiten stehen im Reiter **Favoriten** ganz vorn.
 - Blaue Wörter kannst du anklicken. Ein [[Begriff]] erklärt sich in einem kleinen Fenster.
 
 ## Übernehmen und zurücksetzen

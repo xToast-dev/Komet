@@ -171,7 +171,7 @@ internal sealed partial class OptionsScreen
         SearchField(x, f.Top, w);
         var top = f.Top + S(SearchRow) + S(Spacer);
         var view = f.Body - top - S(Spacer);
-        var pages = Array.FindAll(_pages, p => p.Section == Section());
+        var pages = SectionPages();
         _map.SideView = (x, top, w, view);
         _sideScroll = Math.Clamp(Finite(_sideScroll) ? _sideScroll : 0, 0, Math.Max(0, _sideHeight - view));
         _canvas.Clip(x, top, w, view);
@@ -189,12 +189,18 @@ internal sealed partial class OptionsScreen
             var chosen = !Filtering && page.Id == _page;
             if (chosen) _canvas.Fill(x, y + S(6), S(3), row - S(12), Accent);
 
-            var (title, font) = Shrunk(page.Title, w - 2 * S(Pad), _fonts.Text);
+            var pinned = _settings.OptionsFavorites.Contains(page.Id);
+            var (title, font) = Shrunk(page.Title, w - 2 * S(Pad) - (pinned ? S(18) : 0), _fonts.Text);
             _canvas.Text(x + S(Pad), y, row, font, title, chosen ? null : Soft);
+            if (pinned) _canvas.Text(x + w - S(Pad) - S(12), y, row, _fonts.Small, "★", Accent);
             if (y + row > top && y < top + view)
             {
                 _map.Hits.Add(new Hit(x, Math.Max(y, top), w, Math.Min(y + row, top + view) - Math.Max(y, top),
-                    (_, _) => Select(page),
+                    (_, right) =>
+                    {
+                        if (right) Pin(page);
+                        else Select(page);
+                    },
                     Glow: RowGlow, Group: SideGroup));
             }
 
@@ -239,7 +245,7 @@ internal sealed partial class OptionsScreen
         var (head, tracking) = (S(TitleRow), S(_style.Size("tracking")) * 0.5);
         _map.Title = (x + S(Pad), f.Top, w * 0.7, head, Fit(title.ToUpperInvariant(), w * 0.7, _fonts.Big),
             tracking); // its own texture
-        var pages = Array.FindAll(_pages, p => p.Section == Section());
+        var pages = SectionPages();
         var at = Array.FindIndex(pages, p => p.Id == _page);
         if (!Filtering && at >= 0)
         {
@@ -536,7 +542,7 @@ internal sealed partial class OptionsScreen
 
     private List<string> Sections()
     {
-        List<string> sections = [];
+        List<string> sections = Favorites().Length > 0 ? [FavoritesSection] : [];
         foreach (var page in _pages.Bounded(MaxPages))
         {
             if (!sections.Contains(page.Section)) sections.Add(page.Section);
@@ -545,8 +551,36 @@ internal sealed partial class OptionsScreen
         return sections;
     }
 
-    private string Section() =>
-        Array.Find(_pages, p => p.Id == _page)?.Section ?? (_pages.Length > 0 ? _pages[0].Section : "");
+    private string Section()
+    {
+        if (_favorites) return FavoritesSection;
+
+        return Array.Find(_pages, p => p.Id == _page)?.Section ?? (_pages.Length > 0 ? _pages[0].Section : "");
+    }
+
+    // The Favorites tab: the pages pinned with a right click, first among the tabs
+    private bool _favorites;
+
+    private static string FavoritesSection => T("section-favorites");
+
+    // The pinned pages that exist now, in the order pinned (a page gone, a mod removed, is skipped)
+    private OptionPage[] Favorites() =>
+        [.. _settings.OptionsFavorites.Select(id => Array.Find(_pages, p => p.Id == id)).OfType<OptionPage>()];
+
+    private OptionPage[] SectionPages() =>
+        _favorites ? Favorites() : Array.FindAll(_pages, p => p.Section == Section());
+
+    // A right click on a page in the list pins it, or unpins it
+    private void Pin(OptionPage page)
+    {
+        var pinned = _settings.OptionsFavorites;
+        if (!pinned.Remove(page.Id) && pinned.Count < MaxPages) pinned.Add(page.Id);
+
+        if (_favorites && Favorites().Length == 0) _favorites = false;
+
+        _settings.Save(capi);
+        _dirty = true;
+    }
 
     private static CultureInfo Culture()
     {

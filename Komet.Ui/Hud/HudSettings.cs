@@ -145,6 +145,9 @@ internal sealed class HudSettings
     // The options page open last: the menu opens there again (a page no longer there opens the first)
     public string OptionsPage { get; set; } = "";
 
+    // Pages pinned with a right click: the Favorites tab, first, lists them in this order
+    public List<string> OptionsFavorites { get; set; } = [];
+
     // Dialog places, NaN: centred. Plain properties: a drag must not end the HUD's interval on every move.
     public double WindowX { get; set; } = double.NaN;
     public double WindowY { get; set; } = double.NaN;

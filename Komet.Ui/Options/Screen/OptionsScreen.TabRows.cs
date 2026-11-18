@@ -335,12 +335,17 @@ internal sealed partial class OptionsScreen
     {
         if (section == Section() && !Filtering) return;
 
-        if (Array.Find(_pages, p => p.Section == section) is { } first) Select(first);
+        var favorites = section == FavoritesSection;
+        var first = favorites ? Array.Find(Favorites(), _ => true) : Array.Find(_pages, p => p.Section == section);
+        if (first is null) return;
+
+        Select(first);
+        (_favorites, _dirty) = (favorites, true); // after Select, which leaves the tab for a page not pinned
     }
 
     private void PageStep(int direction)
     {
-        var pages = Array.FindAll(_pages, p => p.Section == Section());
+        var pages = SectionPages();
         var at = Array.FindIndex(pages, p => p.Id == _page);
         if (pages.Length == 0) return;
 

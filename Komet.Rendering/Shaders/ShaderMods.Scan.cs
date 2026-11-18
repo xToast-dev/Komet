@@ -190,5 +190,9 @@ internal static partial class ShaderMods
     // What a running mod drew and patched, taken out by Pause and put back by Resume within the same world
     private sealed record Paused(
         List<(IRenderer Renderer, EnumRenderStage Stage, string Name)> Renderers,
-        List<(MethodBase Target, Patch Patch, HarmonyPatchType Kind)> Patches);
+        List<(MethodBase Target, Patch Patch, HarmonyPatchType Kind)> Patches)
+    {
+        // its shader-reload listeners with their place in the engine's list
+        public List<(int At, ActionBoolReturn Handler)> Reloads { get; } = [];
+    }
 }

@@ -36,7 +36,7 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
 {
     internal const int MaxTabs = 8;
     private const int MaxLog = 60;
-    private const long BuildDelayMs = 450, UndoMs = 30_000, SlowMs = 3000, FullMs = 30_000;
+    private const long BuildDelayMs = 1200, UndoMs = 30_000, SlowMs = 3000, FullMs = 30_000;
     private readonly StudioWatch _watch = new();
     private long _nextFull;
 
@@ -266,6 +266,7 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
         var panel = Panel.Poll();
         var test = TestPoll(now);
         var model = ModelPoll(now) || test;
+        AutosavePoll(now);
         return redraw || side || toast || panel || model || BuildPoll(now);
     }
 

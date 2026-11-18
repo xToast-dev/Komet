@@ -12,3 +12,51 @@ internal static class Listeners
         events.UnregisterGameTickListener(listener);
     }
 }
+
+// A tick that also runs while the game is paused. The engine's game tick listeners stand still in a paused singleplayer
+// game, but chunks keep arriving, tessellating and uploading: a scan that follows them (FarLod, DeepCulling, FarFoliage)
+// then fell behind and the distance showed half-made states until the game went on. Runs first in the Before stage,
+// every everyMs of real time, with the real seconds since its last run.
+internal sealed class FrameTimer : IRenderer
+{
+    private readonly ICoreClientAPI _api;
+    private readonly long _every;
+    private readonly Action<float> _run;
+    private long _last;
+
+    private FrameTimer(ICoreClientAPI api, int everyMs, Action<float> run) =>
+        (_api, _every, _run, _last) = (api, everyMs * System.Diagnostics.Stopwatch.Frequency / 1000, run,
+            System.Diagnostics.Stopwatch.GetTimestamp());
+
+    public double RenderOrder => 0.001;
+    public int RenderRange => 0;
+
+    public static FrameTimer Start(ICoreClientAPI api, string name, int everyMs, Action<float> run)
+    {
+        var timer = new FrameTimer(api, Math.Max(1, everyMs), run);
+        api.Event.RegisterRenderer(timer, EnumRenderStage.Before, name);
+        return timer;
+    }
+
+    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (now - _last < _every) return;
+
+        var seconds = (float)((now - _last) / (double)System.Diagnostics.Stopwatch.Frequency);
+        _last = now;
+        _run(Math.Min(seconds, 1f));
+    }
+
+    public void Stop()
+    {
+        if (Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId)
+        {
+            _api.Event.UnregisterRenderer(this, EnumRenderStage.Before);
+        }
+    }
+
+    public void Dispose()
+    {
+    }
+}

@@ -58,7 +58,7 @@ internal sealed partial class ShaderIde
                 return;
             }
 
-            document = new ShaderDocument(path, text, text, !StudioLink.CanWrite(path));
+            document = Opening(path, text, !StudioLink.CanWrite(path));
             _tabs.Add(document);
             if (_tabs.Count > MaxTabs)
             {

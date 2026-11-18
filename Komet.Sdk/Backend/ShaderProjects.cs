@@ -264,6 +264,13 @@ internal static class ShaderProjects
         return recorded.Sha == Originals.Hash(now) ? null : (Originals.Text(project, game) ?? "", now);
     }
 
+    // A copy still as it was taken: the game's text it recorded, byte for byte. It changes nothing the author meant, so it
+    // must not stand in for the file: another running shader mod's version (SheyderMod replaces chunkopaque, fogandlight,
+    // final, standard...) would give way to the game's text under that mod's code, which then flickers and drops chunks.
+    public static bool Unedited(string copyPath, string text) =>
+        ProjectOf(copyPath) is { } project && GameFileOf(copyPath) is { } game &&
+        Originals.Of(project, game) is { } recorded && recorded.Sha == Originals.Hash(text);
+
     // The player saw the change: the original's record follows the game's file now
     public static void MarkSeen(string copyPath)
     {

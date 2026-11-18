@@ -104,11 +104,46 @@ internal sealed class ShaderDiagnostics
     // built here, so its build warnings have nothing to match). Errors are always the author's.
     public Diagnostic[] Classified(string path, string text)
     {
+        // the editor and PROBLEMS ask for the same text on every keystroke: answered once
+        if (_classified is { } last && last.Path == path && ReferenceEquals(last.Text, text) &&
+            ReferenceEquals(last.Built, _built.GetValueOrDefault(path)))
+        {
+            return last.Issues;
+        }
+
         var issues = Of(path, text);
-        if (issues.Length == 0 || StudioLink.GameFileOf(path) is not { } game || !StudioLink.Read(game, out var vanilla, out _))
+        if (issues.Length == 0 || StudioLink.GameFileOf(path) is not { } game || Vanilla(game) is not { } vanilla)
         {
             return issues;
         }
+
+        var (theirs, unchanged) = (vanilla.Theirs, vanilla.Unchanged);
+        var built = _built.GetValueOrDefault(path) ?? [];
+        var lines = text.Split('\n');
+        var marked = new Diagnostic[Math.Min(issues.Length, MaxIssues * 4)];
+        for (var i = 0; i < Math.Min(issues.Length, MaxIssues * 4); i++)
+        {
+            var issue = issues[i];
+            var line = (uint)issue.Line < (uint)lines.Length ? lines[issue.Line].Trim() : null;
+            var inherited = !issue.Error && line is not null && (theirs.Contains((issue.Message, line)) ||
+                                                                 (Array.IndexOf(built, issue) >= 0 && unchanged.Contains(line)));
+            marked[i] = issue with { Inherited = inherited };
+        }
+
+        _classified = (path, text, _built.GetValueOrDefault(path), marked);
+        return marked;
+    }
+
+    private (string Path, string Text, Diagnostic[]? Built, Diagnostic[] Issues)? _classified;
+    private readonly Dictionary<string, (HashSet<(string, string)> Theirs, HashSet<string> Unchanged)> _vanilla =
+        new(StringComparer.Ordinal);
+
+    // The game's file's own warnings and code lines, read and inspected once per file (it never changes in a session)
+    private (HashSet<(string, string)> Theirs, HashSet<string> Unchanged)? Vanilla(string game)
+    {
+        if (_vanilla.TryGetValue(game, out var known)) return known;
+
+        if (!StudioLink.Read(game, out var vanilla, out _)) return null;
 
         var vanillaLines = vanilla.Split('\n');
         HashSet<(string, string)> theirs = [];
@@ -123,19 +158,9 @@ internal sealed class ShaderDiagnostics
         // lines of real code only: a blank line or a lone brace says nothing about where a warning came from
         var unchanged = new HashSet<string>(vanillaLines.Select(l => l.Trim()).Where(l => l.Any(char.IsLetter)),
             StringComparer.Ordinal);
-        var built = _built.GetValueOrDefault(path) ?? [];
-        var lines = text.Split('\n');
-        var marked = new Diagnostic[Math.Min(issues.Length, MaxIssues * 4)];
-        for (var i = 0; i < Math.Min(issues.Length, MaxIssues * 4); i++)
-        {
-            var issue = issues[i];
-            var line = (uint)issue.Line < (uint)lines.Length ? lines[issue.Line].Trim() : null;
-            var inherited = !issue.Error && line is not null && (theirs.Contains((issue.Message, line)) ||
-                                                                 (Array.IndexOf(built, issue) >= 0 && unchanged.Contains(line)));
-            marked[i] = issue with { Inherited = inherited };
-        }
+        if (_vanilla.Count >= MaxFiles) _vanilla.Clear();
 
-        return marked;
+        return _vanilla[game] = (theirs, unchanged);
     }
 
     private static Diagnostic[] Inspect(string path, string text)

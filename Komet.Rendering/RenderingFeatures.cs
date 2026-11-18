@@ -40,6 +40,19 @@ internal static class RenderingFeatures
             Probe = () => Found(ShaderUseCache.Matched, ShaderUseCache.Blocked),
             Shapes = [new EngineBodies(ShaderUseCache.Seams, ShaderUseCache.Fingerprint)]
         },
+        // a reload links unchanged programs from the driver's binaries (Shader Studio builds, the next start)
+        new("ProgramCache")
+        {
+            Order = 65,
+            Install = c => ProgramCache.Install(c.Harmony),
+            Knobs =
+            [
+                Switch("ProgramCache", "render", "drawing", () => ProgramCache.Enabled,
+                    on => ProgramCache.Enabled = on)
+            ],
+            Stop = _ => ProgramCache.Forget(),
+            Probe = () => ProgramCache.Installed ? Active : NotApplicable
+        },
         new("DistantShadows")
         {
             Order = 70,

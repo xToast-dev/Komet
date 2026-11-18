@@ -68,7 +68,6 @@ internal static partial class ShaderMods
             : null;
 
     private static ICoreClientAPI? _api;
-    private static SheyderJit? _sheyderJit;
 
     // Held-back mods with content: their systems run, only their files give way
     private static readonly HashSet<string> Serving = [];
@@ -145,16 +144,9 @@ internal static partial class ShaderMods
         Read();
         if (Off.Count > 0) api.Event.LevelFinalize += Tell;
 
-        _sheyderJit = new SheyderJit(api);
-        api.Event.LevelFinalize += PrepareSheyder;
         // the game loaded the mods' files before Komet could step in: once more with the Komet versions and KOMET defined
         ShaderHub.Reload();
         ShaderHub.RendererChanged += Rendered;
-    }
-
-    private static void PrepareSheyder()
-    {
-        if (!Off.Contains("sheydermod")) _sheyderJit?.Prepare();
     }
 
     // KOMET_VULKAN follows the renderer
@@ -164,13 +156,8 @@ internal static partial class ShaderMods
     {
         _validating = false;
         ShaderHub.RendererChanged -= Rendered;
-        if (_api?.Event is { } events)
-        {
-            events.LevelFinalize -= Tell;
-            events.LevelFinalize -= PrepareSheyder;
-        }
+        if (_api?.Event is { } events) events.LevelFinalize -= Tell;
 
-        _sheyderJit = null;
         (_api, Changed) = (null, null);
         Programs.Clear();
         Porting.Clear();

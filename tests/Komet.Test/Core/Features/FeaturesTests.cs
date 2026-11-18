@@ -16,7 +16,7 @@ public sealed class FeaturesTests
 {
     private static readonly string[] InstallOrder =
     [
-        "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "DistantShadows",
+        "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "ProgramCache", "DistantShadows",
         "LeanVaryings", "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse",
         "NearShadowReuse", "EntityCasters", "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache",
         "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "TerrainRebuild", "PoolTrim",
@@ -27,7 +27,7 @@ public sealed class FeaturesTests
         "AnimationFrames", "ShapeInitMemo", "KeyframeShare", "HeldItemsLast", "EntityTimes", "ChunkBudget",
         "ChunkLoadBudget", "JoinPacer", "ChunkPacking", "JsonValues", "EventBusSweep",
         "ListenerSlots", "BlockEntityCaches", "ChunkThreadClosure", "CloudTileScratch", "CloudUploads",
-        "DecompressScratch", "DirectChunks", "PackedTicks", "BushShapes", "MapPixels", "TreeKeys", "MapPieceBudget",
+        "DecompressScratch", "DirectChunks", "PackedTicks", "ChunkQueueWalk", "BushShapes", "MapPixels", "TreeKeys", "MapPieceBudget",
         "MapSaveScratch", "LightScratch", "LightRepair", "ParticleLight", "RelightRedraws",
         "ColumnNoiseScratch", "TessSafety", "TessSeams", "NeighbourReads", "FaceLight", "OwnTessellation",
         "TessAccounting", "TessSchedule", "WorkerPool", "TessWorkers", "JitWarm", "OccludedChunks", "DeepCulling",

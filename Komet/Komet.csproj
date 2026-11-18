@@ -91,7 +91,9 @@
             <Output TaskParameter="Hash" PropertyName="ShadercHash" />
         </GetFileHash>
         <Error Condition="'$(ShadercHash)' != '50F67D5EBAEFE97BD55F9B0EED4044F57C925675D55100D35A51718CCAB948BE'" Text="shaderc package hash mismatch: delete $(ShadercPackage) and build again" />
-        <Unzip SourceFiles="$(ShadercPackage)" DestinationFolder="$(ShadercUnpacked)" Include="runtimes/win-x64/native/shaderc_shared.dll" />
+        <!-- no Include filter: on Windows it matched against '\' paths while the package's entries use '/', so nothing was unpacked -->
+        <Unzip SourceFiles="$(ShadercPackage)" DestinationFolder="$(ShadercUnpacked)" Condition="!Exists('$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll')" />
+        <Error Condition="!Exists('$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll')" Text="shaderc_shared.dll is missing in $(ShadercPackage)" />
         <Copy SourceFiles="$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll" DestinationFolder="$(ReleaseDir)/native/win-x64" />
         <WriteLinesToFile File="$(ReleaseDir)/native/win-x64/NOTICE.txt" Overwrite="true" Lines="shaderc_shared.dll: shaderc by Google (https://github.com/google/shaderc), Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0), unmodified, as built in the nuget package Silk.NET.Shaderc.Native 2.23.0." />
         <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip" />

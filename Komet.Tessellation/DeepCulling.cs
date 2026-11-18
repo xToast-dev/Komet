@@ -22,7 +22,8 @@ internal static class DeepCulling
     private static readonly ChunkBands Table = new(); // deep chunk -> how tessellated
 
     private static ICoreClientAPI? _api;
-    private static long _tick, _columnCursor;
+    private static FrameTimer? _tick;
+    private static long _columnCursor;
     private static long[] _columns = [], _chunks = [];
     private static int _chunkCursor, _chunkCount, _columnCount;
     private static double _x, _z, _near = double.MaxValue;
@@ -58,14 +59,14 @@ internal static class DeepCulling
 
         _ = harmony.Patch(pass, new HarmonyMethod(typeof(DeepCulling), nameof(Prefix)) { priority = Priority.High });
         _api = api;
-        _tick = api.Event.RegisterGameTickListener(Scan, EveryMs);
+        _tick = FrameTimer.Start(api, "DeepCulling.Scan", EveryMs, Scan); // also while paused
         Installed = true;
     }
 
     public static void Stop()
     {
-        Listeners.Unregister(_api?.Event, _tick);
-        (_api, _tick, Installed, _near) = (null, 0, false, double.MaxValue);
+        _tick?.Stop();
+        (_api, _tick, Installed, _near) = (null, null, false, double.MaxValue);
         (_chunkCursor, _chunkCount, _columnCursor, _columnCount) = (0, 0, 0, 0);
         (_chunks, _columns, _x, _z) = ([], [], 0, 0); // the snapshots (often on the LOH) die with the world
         Surfaces.Clear();

@@ -63,6 +63,37 @@ public sealed class ChunkBudgetTests
         }));
     }
 
+    // The still boost waits for a camera that stood a second: one that moves every frame, or none, never gets it
+    [Test]
+    public void AMovingCameraNeverGetsTheStillBoost()
+    {
+        var x = 0.0;
+        RuntimeStats.chunksAwaitingPooling = 5000;
+        try
+        {
+            ChunkBudget.Camera = () =>
+            {
+                x++;
+                return (x, 0, 0, 0, 0);
+            };
+            for (var i = 0; i < 3; i++) ChunkBudget.Begin();
+
+            var moving = ChunkBudget.Still;
+            ChunkBudget.Camera = null;
+            ChunkBudget.Begin();
+            Assert.Multiple(() =>
+            {
+                Assert.That(ChunkBudget.Boosted, Is.True);
+                Assert.That(moving, Is.False);
+                Assert.That(ChunkBudget.Still, Is.False);
+            });
+        }
+        finally
+        {
+            (ChunkBudget.Camera, RuntimeStats.chunksAwaitingPooling) = (null, 0);
+        }
+    }
+
     [Test]
     public void InstallCapsTheUploadLoop()
     {

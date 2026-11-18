@@ -37,8 +37,6 @@ internal static partial class ShaderMods
             }
         }
 
-        if (mod.Id == "sheydermod") PrepareSheyder();
-
         Reloaded(api);
         Links.ShaderUi.ModStarted(api, mod.Id); // Komet's holds and the mod's settings from Komet's level
         api.Logger?.Notification("Komet: shader mod {0} started late ({1} systems){2}", mod.Id, systems.Count,
@@ -79,6 +77,21 @@ internal static partial class ShaderMods
         }
 
         Unpatched(assemblies, paused);
+        // its shader-reload listeners too: else it builds its own programs against the game's files Komet swapped in
+        // (SheyderMod's deferredlighting then failed on the game's fogandlight.fsh and stayed marked broken)
+        var reloads = game.eventManager.OnReloadShaders;
+        for (var i = 0; i < Math.Min(reloads.Count, 1 << 12); i++)
+        {
+            if (reloads[i]?.Method.DeclaringType?.Assembly is { } owner && assemblies.Contains(owner))
+            {
+                paused.Reloads.Add((i, reloads[i]));
+            }
+        }
+
+        foreach (var (_, handler) in paused.Reloads.Bounded(1 << 12))
+        {
+            _ = reloads.Remove(handler);
+        }
 
         Pauses[mod.Id] = paused;
         _ = Off.Add(mod.Id); // from here the shader loads give its files way (Swap)
@@ -135,12 +148,24 @@ internal static partial class ShaderMods
             };
         }
 
+        if (api.World is ClientMain game)
+        {
+            var reloads = game.eventManager.OnReloadShaders;
+            foreach (var (at, handler) in paused.Reloads.Bounded(1 << 12))
+            {
+                reloads.Insert(Math.Min(at, reloads.Count), handler);
+            }
+        }
+
         foreach (var (renderer, stage, name) in paused.Renderers.Bounded(1 << 12))
         {
             api.Event.RegisterRenderer(renderer, stage, name);
         }
 
-        if (mod.Id == "sheydermod") PrepareSheyder();
+        // patches that follow the terrain's meshes (SheyderMod mirrors every pool add and remove) missed what changed
+        // while they were out: the terrain is built again, so every mesh passes them once more (else the distance
+        // drew from stale pool ranges)
+        if (paused.Patches.Exists(p => FollowsTerrain(p.Target))) TerrainRebuild.Request();
 
         Reloaded(api);
         Links.ShaderUi.ModStarted(api, mod.Id);
@@ -148,6 +173,11 @@ internal static partial class ShaderMods
         Changed?.Invoke();
         return true;
     }
+
+    private static bool FollowsTerrain(MethodBase target) =>
+        target.DeclaringType is { } type && (type == typeof(Vintagestory.API.Client.MeshDataPool) ||
+                                             type.Name.Contains("Tesselator", StringComparison.Ordinal) ||
+                                             type.Name is "TCTCache" or "ClientWorldMap" or "ChunkRenderer");
 
     private static bool Owned(IRenderer? renderer, HashSet<Assembly> assemblies) =>
         renderer switch

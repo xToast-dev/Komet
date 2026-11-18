@@ -158,7 +158,8 @@ internal static partial class ProjectAssets
         if (Trials.TryGetValue(full, out var draft)) return draft;
 
         var text = ShaderBuild.LastGood(full) ?? StudioFiles.Read(full);
-        return text is { Length: > 0 } ? Encoding.UTF8.GetBytes(text) : null;
+        // an unedited copy keeps whatever the file is now (the game's, or a running shader mod's version)
+        return text is { Length: > 0 } && !ShaderProjects.Unedited(full, text) ? Encoding.UTF8.GetBytes(text) : null;
     }
 
     private static void Restore(ICoreClientAPI api, AssetLocation location, byte[] original, byte[] draft)

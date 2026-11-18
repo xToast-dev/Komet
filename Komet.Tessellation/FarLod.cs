@@ -50,7 +50,7 @@ internal static partial class FarLod
     private static long _refinedAt;
     private static ICoreClientAPI? _api;
     private static Block? _air;
-    private static long _tick;
+    private static FrameTimer? _tick;
 
     // 0 off, else the size in pixels below which a block counts as far
     public static int Pixels { get; set; } = 2;
@@ -114,16 +114,16 @@ internal static partial class FarLod
             new HarmonyMethod(AccessTools.Method(typeof(FarLod), nameof(Scaled))));
         _ = harmony.Patch(decor, new HarmonyMethod(AccessTools.Method(typeof(FarLod), nameof(NoDecor))));
         (_api, _air) = (api, api.World.GetBlock(0));
-        _tick = api.Event.RegisterGameTickListener(Scan, EveryMs);
+        _tick = FrameTimer.Start(api, "FarLod.Scan", EveryMs, Scan); // also while paused
         Installed = NotNull(_air);
     }
 
     public static void Stop()
     {
-        Listeners.Unregister(_api?.Event, _tick);
+        _tick?.Stop();
         // _air too: a Block holds its api, so the left world's ClientMain would outlive it until the next Install
         (_api, _air, _tick, Installed, Threshold, Kinds, _threshold) =
-            (null, null, 0, false, double.NaN, [], double.MaxValue);
+            (null, null, null, false, double.NaN, [], double.MaxValue);
         (_refinedX, _refinedZ, _refinedAt) = (double.NaN, double.NaN, 0);
         Table.Clear();
         Unannounced.Clear();

@@ -14,7 +14,7 @@ namespace Komet.Chunks;
 // OnBeforeFrame uploads up to num * (3 + queued >> limiter) vertices a frame: several ms after a teleport or retess
 // burst. The normal queue also stops after CapMillis (first chunk always goes); 3 ms is ~2x the worst steady frame
 // (rend3D-ret-lide 1.35 ms). Mesh backlog past BoostAbove (join/teleport 2000, flight 160-260) boosts to BoostMillis
-// until under BoostBelow. The priority queue goes first and whole up to CeilingMillis (>= cap); the rest waits for next
+// until under BoostBelow; past StillAbove, with a camera that stood still a second, to StillMillis. The priority queue goes first and whole up to CeilingMillis (>= cap); the rest waits for next
 // frame via the engine's flag. A frame already YieldMillis past its Typical time takes one normal chunk (Yield), never
 // twice in a row. Spent adds later pool work (Vulkan adopting a pool), so Over counts frames whose Before-stage chunk
 // work passed the cap. Marks split rendOpaque-12before.
@@ -25,6 +25,9 @@ internal static class ChunkBudget
     public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3, CeilingMillis = 6;
 
     private const int BoostMillis = 8,
+        StillMillis = 14, // backlog and a camera that stood still a second: the world catches up while nobody looks around
+        StillAbove = 1000,
+        StillRoomMillis = 25, // the still boost only while frames come faster than this: a slow frame stays at 8 ms
         BoostAbove = 400,
         BoostBelow = 100,
         MaxLookahead = 16,
@@ -40,6 +43,13 @@ internal static class ChunkBudget
     public static bool Ceiled { get; private set; } // the priority loop's gate is in
     public static bool Boosted { get; private set; }
     public static bool Yield { get; set; } = true;
+    public static bool Still { get; private set; }
+
+    // The camera now (position, yaw, pitch); null outside a world. Set by the feature's install.
+    public static Func<(double X, double Y, double Z, float Yaw, float Pitch)?>? Camera { get; set; }
+
+    private static (double X, double Y, double Z, float Yaw, float Pitch) _seen;
+    private static long _stillSince, _lastBegin, _interval;
 
     // Totals while Counting.Hud: cap stops, priority cuts, frames over the cap and by how much (Stopwatch ticks)
     public static long CapHits { get; private set; }
@@ -60,6 +70,7 @@ internal static class ChunkBudget
         (_deadline, _ceiling, _began, _spent, _allowed, _typical) = (0, 0, 0, 0, 0, 0);
         (_admitted, _fired, _asked, _cut, Boosted, Capped, Ceiled, _yielded) =
             (false, false, false, false, false, false, false, false);
+        (Still, _stillSince, _lastBegin, _interval) = (false, 0, 0, 0);
         var frame = Seams()[0];
         if (!NotNull(frame) ||
             !EngineShape.Matches([frame], fingerprint, nameof(ChunkBudget), logger))
@@ -80,8 +91,11 @@ internal static class ChunkBudget
         Book();
         var waiting = RuntimeStats.chunksAwaitingPooling;
         Boosted = Boosted ? waiting >= BoostBelow : waiting > BoostAbove;
-        var millis = CapMillis == Uncapped || !Boosted ? CapMillis : Math.Max(CapMillis, BoostMillis);
         var now = Stopwatch.GetTimestamp();
+        (_interval, _lastBegin) = (_lastBegin == 0 ? 0 : now - _lastBegin, now);
+        Still = Boosted && waiting > StillAbove && _interval < StillRoomMillis * Stopwatch.Frequency / 1000 && StoodStill(now);
+        var boost = Still ? StillMillis : BoostMillis;
+        var millis = CapMillis == Uncapped || !Boosted ? CapMillis : Math.Max(CapMillis, boost);
         var own = millis != Uncapped ? Ticks(millis) : 0;
         _deadline = own != 0 ? now + own : 0;
         var ceiling = Math.Max(CeilingMillis, millis);
@@ -131,6 +145,23 @@ internal static class ChunkBudget
         if (!Assert(ticks >= 0)) return;
 
         _spent += ticks;
+    }
+
+    // The camera moved less than a quarter block and turned less than a degree for a second
+    private static bool StoodStill(long now)
+    {
+        if (Camera?.Invoke() is not { } at)
+        {
+            _stillSince = 0;
+            return false;
+        }
+
+        var (dx, dy, dz) = (at.X - _seen.X, at.Y - _seen.Y, at.Z - _seen.Z);
+        var moved = dx * dx + dy * dy + dz * dz > 0.0625 || Math.Abs(at.Yaw - _seen.Yaw) > 0.0175f ||
+                    Math.Abs(at.Pitch - _seen.Pitch) > 0.0175f;
+        if (moved || _stillSince == 0) (_seen, _stillSince) = (at, now);
+
+        return now - _stillSince >= Stopwatch.Frequency;
     }
 
     private static void Book()

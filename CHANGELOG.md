@@ -4,6 +4,16 @@
 
 ### Changed
 
+- *ChunkQueueWalk* (off by default, Chunks › Memory): the built-in server walks its chunk load queue without a new
+  iterator object per walk; fewer garbage collections in singleplayer. Compare it in your world.
+- Chunk upload: a large backlog (over 1000 meshes) while the camera stands still for a second, at over 40 FPS, gets 14 ms a frame
+  instead of 8, so a far view distance finishes loading instead of staying behind.
+- **Shader cache** (*ProgramCache*, on): linked shaders are kept as the graphics driver's binaries; a reload (a Shader
+  Studio build, a switch, the next start) takes them for every shader that did not change. OpenGL only.
+- Shader Studio: unsaved text is kept in `ModConfig/komet/.autosave` and comes back after a crash.
+- Shader Studio: a project's copy that is still as it was taken no longer replaces the file: another shader mod's version
+  (SheyderMod's chunkopaque, fogandlight, final, standard) stays, instead of the game's under that mod's code (flicker,
+  missing chunks).
 - **Komet Shader Studio** (Ctrl+F8, `.komet dev`): a full-screen shader and config IDE in the menu style. One tree
   from your Vintagestory folder (game files read-only, deletes go to a recycle bin), projects as folders with copies of
   the game's shaders, IntelliSense with snippets, find/replace and search in files, problems per renderer

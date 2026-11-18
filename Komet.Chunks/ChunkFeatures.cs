@@ -38,7 +38,13 @@ internal static class ChunkFeatures
             Order = 500,
             Replaces = ChunkBudget.Seams,
             Rivals = KapiPatchKinds.Body,
-            Install = c => ChunkBudget.Install(c.Harmony, c.Logger),
+            Install = c =>
+            {
+                ChunkBudget.Camera = () => c.Api.World?.Player?.Entity is { } e
+                    ? (e.CameraPos.X, e.CameraPos.Y, e.CameraPos.Z, e.Pos.Yaw, e.Pos.Pitch)
+                    : null;
+                ChunkBudget.Install(c.Harmony, c.Logger);
+            },
             Knobs =
             [
                 new Knob("UploadCap", "render", "upload", ChunkBudget.Uncapped, ChunkBudget.MaxCapMillis,
@@ -140,6 +146,19 @@ internal static class ChunkFeatures
                 Switch("DirectChunks", "chunks", "arrival", () => DirectChunks.Enabled, on => DirectChunks.Enabled = on)
             ],
             Probe = () => DirectChunks.Installed && PackedReads.Installed ? Active : EngineChanged
+        },
+        // the server's worldgen threads walk the load queue without a new iterator each time (off: compared in game)
+        new("ChunkQueueWalk")
+        {
+            Order = 635,
+            ServerOnly = true,
+            Install = c => ChunkQueueWalk.Install(c.Harmony),
+            Knobs =
+            [
+                Switch("ChunkQueueWalk", "chunks", "memory", () => ChunkQueueWalk.Enabled,
+                    on => ChunkQueueWalk.Enabled = on)
+            ],
+            Probe = () => ChunkQueueWalk.Installed ? Active : EngineChanged
         },
         // random block ticks leave chunks without tickable blocks packed
         new("PackedTicks")

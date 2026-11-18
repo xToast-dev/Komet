@@ -34,7 +34,7 @@ internal static class FarFoliage
     private static byte[] _kinds = [];
     private static double _x, _z, _threshold = double.MaxValue;
     private static ICoreClientAPI? _api;
-    private static long _tick;
+    private static FrameTimer? _tick;
 
     // 0 off, else the size in pixels below which a block counts as far
     public static int Pixels { get; set; } = 1;
@@ -73,14 +73,14 @@ internal static class FarFoliage
         _ = harmony.Patch(pass, new HarmonyMethod(Begin) { priority = Priority.First }, new HarmonyMethod(End));
         _ = harmony.Patch(block, new HarmonyMethod(Prefix));
         _api = api;
-        _tick = api.Event.RegisterGameTickListener(Scan, EveryMs);
+        _tick = FrameTimer.Start(api, "FarFoliage.Scan", EveryMs, Scan); // also while paused
         Installed = true;
     }
 
     public static void Stop()
     {
-        Listeners.Unregister(_api?.Event, _tick);
-        (_api, _tick, _kinds, Installed, Threshold, _threshold) = (null, 0, [], false, double.NaN, double.MaxValue);
+        _tick?.Stop();
+        (_api, _tick, _kinds, Installed, Threshold, _threshold) = (null, null, [], false, double.NaN, double.MaxValue);
         Table.Clear();
     }
 

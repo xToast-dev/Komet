@@ -79,7 +79,7 @@ internal static class ConfigLibPages
 
         var name = Get(config, "ModName") is string { Length: > 0 } modName ? modName : domain;
         var id = PagePrefix + domain;
-        var rows = Fill(OptionPages.Page(id, name), config, allowed);
+        var rows = Fill(OptionPages.Page(id, name, capacity: OptionPage.MaxRows), config, allowed);
         if (rows == 0)
         {
             OptionPages.Remove(id);
@@ -103,11 +103,13 @@ internal static class ConfigLibPages
         foreach (var client in new[] { true, false })
         {
             var side = Array.FindAll(all, s => Get(s, "ClientSide") is bool c && c == client);
-            if (side.Length == 0) continue;
+            if (side.Length == 0 || page.Count >= page.Capacity) continue;
 
             _ = page.Group(T(client ? "configlib-client" : "configlib-server"));
             foreach (var setting in side.Bounded(MaxSettings))
             {
+                if (page.Count >= page.Capacity) break;
+
                 if (Row(page, setting, config, client || allowed)) rows++;
             }
         }

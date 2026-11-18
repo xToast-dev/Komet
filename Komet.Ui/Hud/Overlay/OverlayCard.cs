@@ -1,10 +1,12 @@
 using Komet.Diagnostics;
+using Vintagestory.Client;
 using Komet.Ui.Hud;
 using static Komet.Hud.HudParts;
 
 namespace Komet.Hud;
 
-// Overlay (F7) and spike toast, composed per interval and on settings change, drawn each frame while shown.
+// Overlay (F7), the details below it while the HUD window (Ctrl+F7) is open, and the spike toast; composed per interval
+// and on settings change, drawn each frame while shown.
 internal sealed class OverlayCard(
     ICoreClientAPI capi,
     HudSettings settings,
@@ -14,11 +16,12 @@ internal sealed class OverlayCard(
     DebugCapture capture) : IDisposable
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
-    private HudCanvas? _overlayCanvas, _toastCanvas;
+    private const int DetailRows = 12;
+    private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
 
-    public void Dispose() => Owned.DropAll([_overlayCanvas, _toastCanvas]);
+    public void Dispose() => Owned.DropAll([_overlayCanvas, _toastCanvas, _detailCanvas]);
 
     // New numbers or settings: composed again at the next draw
     public void Invalidate() => _overlayDirty = true;
@@ -62,6 +65,53 @@ internal sealed class OverlayCard(
         ui.Space(3);
         ui.Line(T("hud-v-overlay-footer"), HudUi.Dim, f.Small);
         _overlayCanvas.End();
+    }
+
+    // What the window's tabs measure, at a glance beside the game: renderer, GPU, memory, collections, chunks, entities
+    private void ComposeDetails()
+    {
+        _detailCanvas ??= new HudCanvas(capi, true);
+        var (f, px) = (fonts, scaled(fonts.Scale));
+        var w = OverlayWidth * px;
+        var h = 12 * px + f.StrongRow + 4 * px + DetailRows * f.SmallRow;
+        if (!_detailCanvas.Blank(w, h)) return;
+
+        HudUi.Ground(_detailCanvas, w, h, HudUi.Back with { A = 0.95 * settings.Opacity }, scaled(4));
+        var ui = new HudUi(_detailCanvas, f, (8 * px, w - 16 * px, 0.0, h, 0.0), []) { Y = 6 * px };
+        ui.Text(ui.X, ui.Y, f.StrongRow, f.Strong, T("hud-v-details"));
+        ui.Y += f.StrongRow + 4 * px;
+        var (l, r, g) = (sampler.Live, sampler.Resources, sampler.Gpu);
+        foreach (var (key, value) in (ReadOnlySpan<(string, string)>)
+                 [
+                     ("hud-renderer", Komet.Options.VulkanMode.Renderer()),
+                     ("hud-gpu", Ms(l.GpuMs)),
+                     ("hud-draw-calls", N(l.DrawCalls)),
+                     ("hud-tris-rendered", N(l.Triangles / 1e6, 2) + " M"),
+                     ("hud-vram", Of(g.VramUsedMb, g.VramTotalMb)),
+                     ("hud-working-set", N(r.WorkingSetMb) + " MB"),
+                     ("hud-heap-used", N(r.ManagedUsedMb) + " MB"),
+                     ("hud-gc-pause", N(r.GcPausePercent, 1) + " %"),
+                     ("hud-chunks-loaded", N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded)),
+                     ("hud-chunks-tesselate", N(RuntimeStats.chunksAwaitingTesselation)),
+                     ("hud-chunks-upload", N(RuntimeStats.chunksAwaitingPooling)),
+                     ("hud-entities-rendered", N(RuntimeStats.renderedEntities) + " / " +
+                                               N(capi.World?.LoadedEntities?.Count ?? 0))
+                 ])
+        {
+            ui.Row(ui.Fit(f.Small, T(key), ui.W * 0.62), value, HudUi.Dim, null, f.Small);
+        }
+
+        _detailCanvas.End();
+    }
+
+    private static string Ms(double ms) => double.IsFinite(ms) ? N(ms, 2) + " ms" : "–";
+
+    // used / total in MB, a dash where the driver tells neither
+    private static string Of(double used, double total)
+    {
+        if (!double.IsFinite(used)) return "–";
+
+        return N(used) + (double.IsFinite(total) ? " / " + N(total) : "") + " MB";
     }
 
     private void OverlayHead(HudUi ui)
@@ -174,21 +224,33 @@ internal sealed class OverlayCard(
         _toastCanvas.End();
     }
 
-    public void Draw()
+    // card: the F7 overlay is on; details: the HUD window is open, its numbers go below the card
+    public void Draw(bool card, bool details)
     {
         double w = capi.Render.FrameWidth, h = capi.Render.FrameHeight, m = scaled(12);
-        if (!Assert(w > 0 && h > 0)) return;
+        if (!Assert(w > 0 && h > 0) || !(card || details)) return;
 
-        if (_overlayDirty || _overlayCanvas is null) ComposeOverlay();
+        if (_overlayDirty || _overlayCanvas is null || (details && _detailCanvas is null))
+        {
+            if (card || _overlayCanvas is null) ComposeOverlay();
+
+            if (details) ComposeDetails();
+
+            _overlayDirty = false;
+        }
 
         var right = settings.Corner is HudCorner.TopRight or HudCorner.BottomRight;
         var bottom = settings.Corner is HudCorner.BottomLeft or HudCorner.BottomRight;
         double oh = 0;
-        if (_overlayCanvas is { Ready: true } overlay)
+        foreach (var (shown, canvas) in (ReadOnlySpan<(bool, HudCanvas?)>)[(card, _overlayCanvas), (details, _detailCanvas)])
         {
-            overlay.Draw(right ? w - m - overlay.Width : m, bottom ? h - m - overlay.Height : m);
-            oh = overlay.Height + scaled(8);
+            if (!shown || canvas is not { Ready: true } c) continue;
+
+            c.Draw(right ? w - m - c.Width : m, bottom ? h - m - oh - c.Height : m + oh);
+            oh += c.Height + scaled(8);
         }
+
+        if (!card) return; // the toast belongs to the overlay
 
         var age = Environment.TickCount64 - _toastAt;
         if (_toastCanvas is not { Ready: true } toast || age > ToastShownSeconds * 1000) return;

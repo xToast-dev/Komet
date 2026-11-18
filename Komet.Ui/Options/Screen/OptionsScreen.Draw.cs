@@ -19,7 +19,7 @@ internal sealed partial class OptionsScreen
         Pad = 18,
         ClearWidth = 26;
 
-    private const int MaxItems = 512, MaxLines = 12, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
+    private const int MaxItems = 512, MaxParagraphs = 256, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
 
     private const double
         GearSize = 85, GearShown = 0.55, MinShare = 0.5; // the hotbar's temporal gear: its size, the part above
@@ -292,7 +292,7 @@ internal sealed partial class OptionsScreen
         List<string> lines = [];
         if (!NotNull(text) || !Assert(width > 0)) return lines;
 
-        foreach (var paragraph in text.Split('\n').Bounded(MaxLines))
+        foreach (var paragraph in text.Split('\n').Bounded(MaxParagraphs))
         {
             _canvas.Wrap(font, paragraph, width, MaxWords, lines);
         }

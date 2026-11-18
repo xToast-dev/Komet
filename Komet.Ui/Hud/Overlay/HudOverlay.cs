@@ -278,7 +278,7 @@ internal sealed partial class HudOverlay : IRenderer
         profiler.Mark("komet-hud-interval");
         _overlay.Toast();
         profiler.Mark("komet-hud-panel");
-        if (_settings.Visible) _overlay.Draw();
+        _overlay.Draw(_settings.Visible, _window.IsOpened());
 
         _shaders.Draw(); // the HUD shown or not
         profiler.Mark("komet-hud");

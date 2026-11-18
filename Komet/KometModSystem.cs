@@ -21,6 +21,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
     {
         if (NotNull(api) && NotNull(Mod.Logger))
         {
+            Core.VulkanRecord.Build = Mod.Info?.Version ?? ""; // a Vulkan failure holds for this version only
             ClientRuntime.Prepare(api, Mod.Logger, typeof(KometModSystem).Assembly);
         }
     }

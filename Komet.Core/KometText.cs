@@ -27,12 +27,23 @@ internal static class KometText
         return value.ToString(Grouped[decimals], culture);
     }
 
-    // Lang.Get hands the key back when the translation is missing
+    private static readonly HashSet<string> Untranslated = new(StringComparer.Ordinal);
+
+    // Lang.Get hands the key back when the translation is missing: the key shows, and the log names it once
     public static string Translate(string key, params object[] args)
     {
         var full = "komet:" + key;
         var text = Lang.Get(full, args);
-        return Assert(key.Length > 0) && Assert(text != full) ? text : key;
+        if (!Assert(key.Length > 0)) return key;
+
+        if (text != full) return text;
+
+        if (Untranslated.Count < 256 && Untranslated.Add(key))
+        {
+            ModEvents.Logger?.Warning("Komet: no text for {0} in {1}", full, Lang.CurrentLocale);
+        }
+
+        return key;
     }
 
     // Lang.CurrentLocale is another string after a change of language

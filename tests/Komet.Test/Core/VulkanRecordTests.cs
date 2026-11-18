@@ -44,4 +44,31 @@ public sealed class VulkanRecordTests
             File.Delete(file);
         }
     }
+
+    // A failure holds for the Komet version it happened with: a newer one tries once more, and a line from before versions
+    // were kept (an older Komet) holds for none
+    [Test]
+    public void AFailureHoldsForItsKometVersionOnly()
+    {
+        var file = Path.Join(Path.GetTempPath(), $"komet-gpu-{Guid.NewGuid():N}.txt");
+        var build = VulkanRecord.Build;
+        VulkanRecord.Path = file;
+        try
+        {
+            var gpu = VulkanRecord.Key("NVIDIA Corporation", "GTX 1660");
+            File.WriteAllLines(file, [gpu + "\tFailed"]);
+            VulkanRecord.Build = "3.0.0";
+            var before = VulkanRecord.Read("NVIDIA Corporation", "GTX 1660");
+            VulkanRecord.Failed();
+            var same = VulkanRecord.Read("NVIDIA Corporation", "GTX 1660");
+            VulkanRecord.Build = "3.0.1";
+            var newer = VulkanRecord.Read("NVIDIA Corporation", "GTX 1660");
+            Assert.That((before, same, newer), Is.EqualTo((Run.Unknown, Run.Failed, Run.Unknown)));
+        }
+        finally
+        {
+            (VulkanRecord.Path, VulkanRecord.Build) = (null, build);
+            File.Delete(file);
+        }
+    }
 }

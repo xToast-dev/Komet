@@ -36,6 +36,9 @@
   were shifted by the game's shadow Done stages); a step that disposes itself no longer skips the next renderer.
 - KAPI: disposed registrations free their slot (1024 made and dropped refused the next one).
 - A held-back shader mod's systems are not disposed (they never started).
+- Vulkan: a GPU on which Vulkan failed is no longer locked to OpenGL for good: the lock holds for the Komet version it
+  failed with, so an update that fixes the cause tries once more (testers of pre.4 on NVIDIA stayed on OpenGL).
+- A missing text now names its key in the log instead of a bare `check failed at KometText.cs`.
 - Vulkan: a short run of low system memory no longer marks the GPU as failed for good, and switching Vulkan on in the
   world gives a GPU that failed before one more try.
 - Vulkan: copies into and out of 3D textures take slices as depth; 3D textures stay whole in OpenGL under lean.

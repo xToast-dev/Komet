@@ -56,7 +56,8 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
 
         for (var i = 0; i < Math.Min(_all.Count, 64); i++) // asked for every draw: no closure
         {
-            if (_all[i].FboId == fbo) return _all[i];
+            // the engine's list has empty slots (a framebuffer not made, or disposed): a shadow pass met one
+            if (_all[i] is { } framebuffer && framebuffer.FboId == fbo) return framebuffer;
         }
 
         return null;

@@ -39,7 +39,7 @@ public sealed class FeaturesTests
     // komet.json as Komet writes it without a knob set by the player: the display settings, the preset and the layout
     private static readonly string[] SettingsFile =
     [
-        "Visible:Boolean", "Corner:String", "Opacity:Float", "Interval:Float", "BenchSeconds:Float", "ShowFps:Boolean",
+        "Visible:Boolean", "ShowDetails:Boolean", "Corner:String", "Opacity:Float", "Interval:Float", "BenchSeconds:Float", "ShowFps:Boolean",
         "ShowLows:Boolean", "ShowFrametime:Boolean", "ShowGraph:Boolean", "ShowMods:Boolean",
         "ToastMs:Float", "Preset:String", "Chosen:Array", "Profiled:Integer", "WindowTab:String", "OptionsPage:String",
         "OptionsFavorites:Array",

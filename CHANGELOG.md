@@ -10,8 +10,12 @@
   (ModConfig, Mods). With the game's developer mode on, a **Developer** tab holds Compatibility, Connected mods (now
   with a way to each mod's settings) and Render debug. Right-click a page to pin it to a **Favorites** tab. The menu
   opens on the page you had open last.
-- **The HUD window opens with K** (was Ctrl+F7); texts that name its key show your own binding.
-- **Details beside the game**: while the HUD window is open, a second card under the overlay shows frames (average,
+- **Keys**: K shows or hides the details card, Ctrl+K opens the HUD window (was Ctrl+F7); texts that name a key show
+  your own binding.
+- **Vulkan by default**: a player who never chose a renderer starts with Vulkan-only, lean (OpenGL keeps no copy of the
+  world). Where it failed with this Komet version, or a start cannot take it, Komet stays on or falls back to OpenGL. A
+  renderer chosen by hand stays.
+- **Details beside the game**: a card at the right edge (K, or while the HUD window is open) shows frames (average,
   p99, worst, 0.1% low, spikes), rendering (renderer, GPU time, draw calls, triangles, culled), CPU (process, system,
   mods), memory (RAM, working set, heap, VRAM, evictions), garbage collection and the world (chunks and their queues,
   entities).

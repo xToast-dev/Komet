@@ -28,9 +28,8 @@ namespace Komet.Vulkan;
 // masked clears, points, line loops, 8-bit indices, instance divisors, indirect draws, layered framebuffers.
 internal static partial class VulkanRenderer
 {
-    // The renderer for a player who never chose one: Vulkan-only only where it ran cleanly on this GPU before with room in
-    // video memory (unknown memory counts as too little), OpenGL for good where it failed, else Komet's default
-    private const int SuggestedVramGb = 6;
+    // The renderer for a player who never chose one: Vulkan-only (lean, OpenGL keeps no copy) on every GPU, OpenGL where
+    // it failed with this Komet version; a start that cannot take it (safety mode) still falls back to OpenGL
     private static bool _held;
     internal static string SafetyReason { get; private set; } = "";
     public static bool Requested { get; private set; }
@@ -131,13 +130,7 @@ internal static partial class VulkanRenderer
 
     internal static void DeviceUnavailable(string why) => Fail(why.Length == 0 ? "Vulkan device unavailable" : why);
 
-    internal static int? Suggested(HardwareProfile.Facts hw) =>
-        hw.Vulkan switch
-        {
-            VulkanRecord.Run.Failed => 0,
-            VulkanRecord.Run.Ran when hw.VramGb >= SuggestedVramGb => 1,
-            _ => null
-        };
+    internal static int? Suggested(HardwareProfile.Facts hw) => hw.Vulkan == VulkanRecord.Run.Failed ? 0 : 1;
 
     // Give back what lean withheld from Vulkan's holdings (false: GL can take over). Only a faulted device gives
     // nothing: GL rests for good (GlTap.Strand) until the world is left, drawing only the GUI over a cleared frame

@@ -114,7 +114,7 @@ public sealed class DocTextTests
 
     // Hotkeys the docs may name: the game's escape menu and Komet's own
     private static readonly string[] KnownKeys =
-        ["escapemenudialog", "komet-hud-toggle", "komet-hud-window", "komet-hud-debug"];
+        ["escapemenudialog", "komet-hud-toggle", "komet-hud-details", "komet-hud-window", "komet-hud-debug"];
 
     // Every clickable word leads somewhere: a page that exists, a term the glossary of that language explains
     [Test]

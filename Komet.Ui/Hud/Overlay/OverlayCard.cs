@@ -280,12 +280,16 @@ internal sealed class OverlayCard(
         var right = settings.Corner is HudCorner.TopRight or HudCorner.BottomRight;
         var bottom = settings.Corner is HudCorner.BottomLeft or HudCorner.BottomRight;
         double oh = 0;
-        foreach (var (shown, canvas) in (ReadOnlySpan<(bool, HudCanvas?)>)[(card, _overlayCanvas), (details, _detailCanvas)])
+        if (card && _overlayCanvas is { Ready: true } overlay)
         {
-            if (!shown || canvas is not { Ready: true } c) continue;
+            overlay.Draw(right ? w - m - overlay.Width : m, bottom ? h - m - overlay.Height : m);
+            oh = overlay.Height + scaled(8);
+        }
 
-            c.Draw(right ? w - m - c.Width : m, bottom ? h - m - oh - c.Height : m + oh);
-            oh += c.Height + scaled(8);
+        // the details at the side the overlay leaves free, centred in height (the minimap keeps the top right)
+        if (details && _detailCanvas is { Ready: true } detail)
+        {
+            detail.Draw(right ? m : w - m - detail.Width, Math.Max(m, (h - detail.Height) / 2));
         }
 
         if (!card) return; // the toast belongs to the overlay

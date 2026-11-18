@@ -5,6 +5,7 @@
 | Key | What happens |
 |---|---|
 | {key:komet-hud-toggle} | Show or hide the [[HUD]] |
+| {key:komet-hud-details} | The details card on the right: frames, rendering, CPU, memory, GC, world |
 | {key:komet-hud-window} | The HUD window with every measuring tool |
 | {key:komet-hud-debug} | The [[Shader Studio]] |
 

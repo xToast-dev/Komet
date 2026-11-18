@@ -82,7 +82,7 @@ internal sealed partial class HudOverlay : IRenderer
     // The SDK's measurement (KOMET_BENCH_STUDIO): the developer screen opened for a whole run
     internal static Action? DeveloperForBench { get; private set; }
 
-    private bool Showing => _settings.Visible || _window.IsOpened();
+    private bool Showing => _settings.Visible || _settings.ShowDetails || _window.IsOpened();
 
     public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
     {
@@ -278,7 +278,7 @@ internal sealed partial class HudOverlay : IRenderer
         profiler.Mark("komet-hud-interval");
         _overlay.Toast();
         profiler.Mark("komet-hud-panel");
-        _overlay.Draw(_settings.Visible, _window.IsOpened());
+        _overlay.Draw(_settings.Visible, _settings.ShowDetails || _window.IsOpened());
 
         _shaders.Draw(); // the HUD shown or not
         profiler.Mark("komet-hud");

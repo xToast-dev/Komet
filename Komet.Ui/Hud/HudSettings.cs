@@ -39,8 +39,15 @@ internal sealed class HudSettings
     [JsonExtensionData]
     internal Dictionary<string, JToken> KnobJson => Knobs.Json; // the knobs, as top-level keys of the file
 
-    // Overlay (F7); the window (K) and the debug window (Ctrl+F8) are dialogs of their own
+    // Overlay (F7); the details card (K); the window (Ctrl+K) and the debug window (Ctrl+F8) are dialogs of their own
     public bool Visible
+    {
+        get;
+        set => Set(ref field, value);
+    }
+
+    // The details card at the right edge, on its own (K); the window shows it too while open
+    public bool ShowDetails
     {
         get;
         set => Set(ref field, value);
@@ -268,11 +275,12 @@ internal sealed class HudSettings
             Visible = !Visible;
             capi.ShowChatMessage(KometText.Translate($"hud-toggle-{(Visible ? "on" : "off")}"));
         });
-        Hotkey(capi, "window", GlKeys.K, false, window);
+        Hotkey(capi, "details", GlKeys.K, false, () => ShowDetails = !ShowDetails);
+        Hotkey(capi, "window", GlKeys.K, true, window);
         Hotkey(capi, "debug", GlKeys.F8, true, debug);
     }
 
-    // The player's binding of one of the HUD's hotkeys (toggle, window, debug), for texts that name it
+    // The player's binding of one of the HUD's hotkeys (toggle, details, window, debug), for texts that name it
     public static string KeyOf(ICoreClientAPI? capi, string name) =>
         capi?.Input?.GetHotKeyByCode("komet-hud-" + name)?.CurrentMapping?.ToString() is { Length: > 0 } key ? key : name;
 

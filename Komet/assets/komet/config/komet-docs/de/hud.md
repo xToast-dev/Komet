@@ -5,6 +5,7 @@
 | Taste | Was passiert |
 |---|---|
 | {key:komet-hud-toggle} | Das [[HUD]] ein- oder ausblenden |
+| {key:komet-hud-details} | Die Detailkarte rechts: Frames, Rendering, CPU, Speicher, GC, Welt |
 | {key:komet-hud-window} | Das HUD-Fenster mit allen Messwerkzeugen |
 | {key:komet-hud-debug} | Das [[Shader Studio]] |
 

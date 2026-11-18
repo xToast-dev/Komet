@@ -1277,6 +1277,7 @@
   "hud-debug-copied": "Debug protocol copied to the clipboard",
   "hud-debug-writing": "Writing the protocol ...",
   "hotkey-hud-window": "Komet HUD window",
+  "hotkey-hud-details": "Komet details card",
   "hotkey-hud-workbench": "Open shader workbench",
   "hotkey-hud-debug": "Komet shader IDE (full screen)",
   "settings-overlaygraph": "Frame time graph in overlay",

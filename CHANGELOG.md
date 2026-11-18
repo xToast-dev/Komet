@@ -18,8 +18,8 @@
 - **Vulkan by default**: a player who never chose a renderer starts with Vulkan-only, lean (OpenGL keeps no copy of the
   world). Where it failed with this Komet version, or a start cannot take it, Komet stays on or falls back to OpenGL. A
   renderer chosen by hand stays.
-- **Details beside the game**: a card at the top right, left of the minimap and coordinates (at the edge when they are
-  closed), with K or while the HUD window is open, shows frames (average,
+- **Details beside the game**: a compact card at the right edge, below the minimap and coordinates (at the top when they
+  are closed), with K or while the HUD window is open, shows frames (average,
   p99, worst, 0.1% low, spikes), rendering (renderer, GPU time, draw calls, triangles, culled), CPU (process, system,
   mods), memory (RAM, working set, heap, VRAM, evictions), garbage collection and the world (chunks and their queues,
   entities).

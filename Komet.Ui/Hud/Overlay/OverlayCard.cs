@@ -17,8 +17,8 @@ internal sealed class OverlayCard(
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
     private const int MaxDetailRows = 64, MaxDialogs = 256;
-    private double _detailRight = double.NaN; // the left edge of the game's HUD at the top right (minimap, coordinates)
-    private const double DetailWidth = 236;
+    private double _detailTop; // below the game's HUD at the top right (minimap, coordinates)
+    private const double DetailWidth = 212;
     private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
@@ -70,56 +70,44 @@ internal sealed class OverlayCard(
         _overlayCanvas.End();
     }
 
-    // What the window's tabs measure, at a glance beside the game, in sections: frames, rendering, CPU, memory,
-    // collections, world. A heading is a row with an empty value.
+    // What the window's tabs measure, at a glance beside the game: one row per subject, related numbers side by side,
+    // groups (frames, rendering, CPU, memory, collections, world) apart by a hairline (a row with no label)
     private (string Label, string Value)[] Details()
     {
         var (l, r, g, frames) = (sampler.Live, sampler.Resources, sampler.Gpu, sampler.Frames);
-        var vulkan = l.Vulkan.Draws > 0;
+        var draws = l.Vulkan.Draws > 0 ? l.Vulkan.Draws : l.DrawCalls;
         return
         [
-            (T("hud-v-details-frames"), ""),
-            (T("hud-frametime-avg"), Ms(l.AvgMs)),
-            (T("hud-v-p99"), Ms(l.P99)),
-            (T("hud-frametime-worst"), Ms(frames.WorstMs)),
-            (T("hud-low01"), N(l.Low01) + " FPS"),
-            (T("hud-spikes-count"), N(sampler.Spikes.Count)),
-            (T("hud-v-details-render"), ""),
+            (T("hud-d-frametime"), N(l.AvgMs, 1) + " / " + N(l.P99, 1) + " / " + N(frames.WorstMs, 1) + " ms"),
+            (T("hud-d-lows"), N(l.Low01) + " FPS · " + N(sampler.Spikes.Count)),
+            ("", ""),
             (T("hud-renderer"), Komet.Options.VulkanMode.Renderer()),
-            (T("hud-gpu"), Ms(l.GpuMs)),
-            (T("hud-draw-calls"), N(vulkan ? l.Vulkan.Draws : l.DrawCalls)),
-            (T("hud-v-tris-sent"), N(l.Triangles / 1e6, 2) + " M"),
-            (T("hud-v-tris-drawn"), N(l.DrawnTriangles / 1e6, 2) + " M"),
+            (T("hud-d-gpu"), N(l.GpuMs, 2) + " ms · " + N(draws)),
+            (T("hud-d-tris"), N(l.DrawnTriangles / 1e6, 1) + " / " + N(l.Triangles / 1e6, 1) + " M"),
             (T("hud-v-culled"), double.IsFinite(l.CulledPercent) ? N(l.CulledPercent) + " %" : "–"),
-            (T("hud-cpu"), ""),
-            (T("hud-cpu-process"), N(r.CpuPercent) + " %"),
-            (T("hud-cpu-system"), N(r.SystemCpuPercent) + " %"),
-            (T("hud-v-mods-total"), Ms(l.ModsMs)),
-            (T("hud-memory"), ""),
-            (T("hud-ram-used"), N(r.UsedRamMb) + " / " + N(r.TotalRamMb) + " MB"),
-            (T("hud-working-set"), N(r.WorkingSetMb) + " MB"),
-            (T("hud-heap-used"), N(r.ManagedUsedMb) + " MB"),
-            (T("hud-vram"), Of(g.VramUsedMb, g.VramTotalMb)),
-            (T("hud-vram-evictions"), double.IsFinite(g.EvictionsPerSec) ? N(g.EvictionsPerSec, 1) + " /s" : "–"),
-            (T("hud-v-details-gc"), ""),
-            (T("hud-gc-pause"), N(r.GcPausePercent, 1) + " %"),
-            (T("hud-gc-alloc"), N(r.AllocatedMbPerSec, 1) + " MB"),
-            (T("hud-gc0") + " / " + T("hud-gc2"), N(r.Gen0PerSec, 1) + " / " + N(r.Gen2PerSec, 2) + " /s"),
-            (T("hud-world"), ""),
-            (T("hud-chunks-loaded"), N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded)),
-            (T("hud-chunks-tesselate"), N(RuntimeStats.chunksAwaitingTesselation)),
-            (T("hud-chunks-upload"), N(RuntimeStats.chunksAwaitingPooling)),
-            (T("hud-entities-rendered"), N(RuntimeStats.renderedEntities)),
-            (T("hud-entities-loaded"), N(capi.World?.LoadedEntities?.Count ?? 0))
+            ("", ""),
+            (T("hud-d-cpu"), N(r.CpuPercent) + " / " + N(r.SystemCpuPercent) + " %"),
+            (T("hud-v-mods-total"), N(l.ModsMs, 2) + " ms"),
+            ("", ""),
+            (T("hud-d-ram"), Gb(r.UsedRamMb) + " / " + Gb(r.TotalRamMb) + " GB"),
+            (T("hud-d-process"), Gb(r.WorkingSetMb) + " / " + Gb(r.ManagedUsedMb) + " GB"),
+            (T("hud-d-vram"), double.IsFinite(g.VramUsedMb) ? Gb(g.VramUsedMb) + " / " + Gb(g.VramTotalMb) + " GB" : "–"),
+            (T("hud-d-gc"), N(r.GcPausePercent, 1) + " % · " + N(r.AllocatedMbPerSec) + " MB/s"),
+            ("", ""),
+            (T("hud-d-chunks"), N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded) + " · " +
+                                N(RuntimeStats.chunksAwaitingTesselation) + " / " + N(RuntimeStats.chunksAwaitingPooling)),
+            (T("hud-d-entities"), N(RuntimeStats.renderedEntities) + " / " + N(capi.World?.LoadedEntities?.Count ?? 0))
         ];
     }
 
-    // The game's HUD dialogs at the top right (the minimap, the coordinates): the details card goes left of them, and
-    // to the edge when they are closed. Per interval, as the card is composed; Komet's own dialogs do not count.
-    private double FreeRight(double width, double height)
+    private static string Gb(double mb) => double.IsFinite(mb) ? N(mb / 1024, 1) : "–";
+
+    // The lowest edge of the game's HUD at the top right (the minimap, the coordinates): the card goes below it, at the
+    // top when they are closed. Per interval, as the card is composed; Komet's own dialogs do not count.
+    private double BelowTopRight(double width, double height)
     {
-        var free = width;
-        if (capi.Gui?.OpenedGuis is not { } gui) return free;
+        var below = 0.0;
+        if (capi.Gui?.OpenedGuis is not { } gui) return below;
 
         for (var i = 0; i < Math.Min(gui.Count, MaxDialogs); i++)
         {
@@ -127,55 +115,47 @@ internal sealed class OverlayCard(
 
             foreach (var (_, composer) in dialog.Composers.Bounded(MaxDialogs))
             {
-                if (composer?.Bounds is not { } b || !double.IsFinite(b.renderX) || b.OuterWidth <= 0) continue;
+                if (composer?.Bounds is not { } b || !double.IsFinite(b.renderY) || b.OuterHeight <= 0) continue;
 
-                // in the right half, starting in the top third: a card at the top right would cover it
-                if (b.renderX > width / 2 && b.renderY < height / 3) free = Math.Min(free, b.renderX);
+                // reaching into the right quarter, starting in the top third
+                if (b.renderX + b.OuterWidth > width * 0.75 && b.renderY < height / 3)
+                {
+                    below = Math.Max(below, b.renderY + b.OuterHeight);
+                }
             }
         }
 
-        return free;
+        return below;
     }
 
     private void ComposeDetails()
     {
-        _detailRight = FreeRight(capi.Render.FrameWidth, capi.Render.FrameHeight);
+        _detailTop = BelowTopRight(capi.Render.FrameWidth, capi.Render.FrameHeight);
         _detailCanvas ??= new HudCanvas(capi, true);
         var (f, px) = (fonts, scaled(fonts.Scale));
         var rows = Details();
-        var headings = Array.FindAll(rows, row => row.Value.Length == 0).Length;
+        var lines = Array.FindAll(rows, row => row.Label.Length == 0).Length;
         var w = DetailWidth * px;
-        var h = 12 * px + f.StrongRow + (rows.Length - headings) * f.SmallRow + headings * (f.SmallRow + 6 * px);
+        var h = 12 * px + f.StrongRow + 2 * px + (rows.Length - lines) * f.SmallRow + lines * 7 * px;
         if (!_detailCanvas.Blank(w, h)) return;
 
         HudUi.Ground(_detailCanvas, w, h, HudUi.Back with { A = 0.95 * settings.Opacity }, scaled(4));
         var ui = new HudUi(_detailCanvas, f, (8 * px, w - 16 * px, 0.0, h, 0.0), []) { Y = 6 * px };
         ui.Text(ui.X, ui.Y, f.StrongRow, f.Strong, T("hud-v-details"));
-        ui.Y += f.StrongRow;
+        ui.Y += f.StrongRow + 2 * px;
         foreach (var (label, value) in rows.Bounded(MaxDetailRows))
         {
-            if (value.Length > 0)
+            if (label.Length > 0)
             {
-                ui.Row(ui.Fit(f.Small, label, ui.W * 0.6), value, HudUi.Dim, null, f.Small);
+                ui.Row(ui.Fit(f.Small, label, ui.W * 0.5), value, HudUi.Dim, null, f.Small);
                 continue;
             }
 
-            ui.Y += 6 * px; // a section's heading
-            ui.Text(ui.X, ui.Y, f.SmallRow, f.Small, label.ToUpperInvariant(), HudUi.Accent);
-            ui.Y += f.SmallRow;
+            ui.Fill(ui.X, ui.Y + 3 * px, ui.W, Math.Max(1, px), HudUi.Divider);
+            ui.Y += 7 * px;
         }
 
         _detailCanvas.End();
-    }
-
-    private static string Ms(double ms) => double.IsFinite(ms) ? N(ms, 2) + " ms" : "–";
-
-    // used / total in MB, a dash where the driver tells neither
-    private static string Of(double used, double total)
-    {
-        if (!double.IsFinite(used)) return "–";
-
-        return N(used) + (double.IsFinite(total) ? " / " + N(total) : "") + " MB";
     }
 
     private void OverlayHead(HudUi ui)
@@ -312,11 +292,11 @@ internal sealed class OverlayCard(
             oh = overlay.Height + scaled(8);
         }
 
-        // the details at the top of the side the overlay leaves free: on the right, left of the game's HUD there
+        // the details on the side the overlay leaves free: on the right, below the game's minimap and coordinates
         if (details && _detailCanvas is { Ready: true } detail)
         {
-            var edge = double.IsFinite(_detailRight) ? Math.Min(_detailRight, w) : w;
-            detail.Draw(right ? m : Math.Max(m, edge - m - detail.Width), m);
+            var top = Math.Min(m + _detailTop, Math.Max(m, h - m - detail.Height)); // never past the bottom
+            detail.Draw(right ? m : w - m - detail.Width, right ? m : top);
         }
 
         if (!card) return; // the toast belongs to the overlay

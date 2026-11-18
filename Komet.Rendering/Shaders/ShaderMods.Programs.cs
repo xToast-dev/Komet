@@ -83,6 +83,7 @@ internal static partial class ShaderMods
         }
 
         var (pass, key, kept) = (program.Pass, program.Domain + ":" + program.Pass, program.Kept);
+        var round = PortRounds[pass] = PortRounds.GetValueOrDefault(pass) + 1;
         _ = Task.Run(() =>
         {
             try
@@ -97,14 +98,21 @@ internal static partial class ShaderMods
             }
 
             var api = _api;
-            api?.Event?.EnqueueMainThreadTask(() => Finished(key, pass, kept), "komet-shader-mods");
+            api?.Event?.EnqueueMainThreadTask(() => Finished(key, pass, (kept, round)), "komet-shader-mods");
         });
     }
 
     // A port outlived by a recompile (Keep) wrote the old program's outcome: dropped, so State ports the new one
-    private static void Finished(string key, string pass, int kept)
+    // A port outlived by a newer one of the same pass leaves that one's status alone
+    private static void Finished(string key, string pass, (int Kept, int Round) port)
     {
-        if (!Programs.TryGetValue(key, out var now) || now.Kept != kept)
+        if (PortRounds.GetValueOrDefault(pass) != port.Round)
+        {
+            Changed?.Invoke();
+            return;
+        }
+
+        if (!Programs.TryGetValue(key, out var now) || now.Kept != port.Kept)
         {
             _ = Ported.TryRemove(pass, out _);
             _ = Porting.Remove(pass);

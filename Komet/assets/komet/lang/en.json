@@ -69,6 +69,8 @@
   "settings-workbench-state-restored": "State {0} restored",
   "settings-workbench-no-good-state": "No good state for this file",
   "settings-workbench-already-good": "Already at the last good state",
+  "settings-workbench-tabs-unsaved": "Every tab has unsaved changes: save or close one first",
+  "settings-workbench-not-saved": "{0} could not be saved: the tab stays open",
   "settings-workbench-no-file": "No file open",
   "settings-workbench-find-placeholder": "Find",
   "settings-workbench-replace-placeholder": "Replace",

@@ -371,15 +371,23 @@ internal static partial class GlslPort
         return Stage(text, vertex, context, uniforms);
     }
 
-    // const int N = 32; sizes an array as a literal would (uniform vec4[N] a), in the order they are declared
+    // const int N = 32; at file scope sizes an array as a literal would (uniform vec4[N] a), in the order they are
+    // declared; one inside a function is that function's and sizes no global
     private static void Constants(string text, Context context)
     {
-        foreach (var g in Constant.Matches(text).Select(static m => m.Groups).Bounded(MaxNames))
+        var (depth, scanned) = (0, 0);
+        foreach (var m in Constant.Matches(text).Bounded(MaxNames))
         {
-            var value = ArraySize(g["value"].Value, context.Named);
-            if (value > 0) context.Named[g["name"].Value] = value;
+            depth += Braces(text.AsSpan(scanned, m.Index - scanned));
+            scanned = m.Index;
+            if (depth != 0) continue;
+
+            var value = ArraySize(m.Groups["value"].Value, context.Named);
+            if (value > 0) context.Named[m.Groups["name"].Value] = value;
         }
     }
+
+    private static int Braces(ReadOnlySpan<char> text) => text.Count('{') - text.Count('}');
 
 
     private static Block Laid(uint[] words, string block, int binding, List<Uniform> uniforms)

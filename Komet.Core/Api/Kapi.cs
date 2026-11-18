@@ -228,7 +228,11 @@ public sealed class KapiMod : IDisposable
 
     private Kept? Track(Action undo, KapiKind kind)
     {
-        if (!NotNull(undo) || !IsConnected || _undo.Count >= MaxRegistrations) return null;
+        if (!NotNull(undo) || !IsConnected) return null;
+
+        // registrations already disposed hold no slot (a step replaced again and again, one made and dropped)
+        if (_undo.Count >= MaxRegistrations) _ = _undo.RemoveAll(static k => k.Done);
+        if (_undo.Count >= MaxRegistrations) return null;
 
         var kept = new Kept(undo, kind);
         _undo.Add(kept);

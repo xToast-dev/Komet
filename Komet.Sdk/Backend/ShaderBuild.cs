@@ -65,11 +65,13 @@ internal static partial class ShaderBuild
         var reloaded = api.Shader.ReloadShaders();
         var checks = copies.Select(c => Check(api, project, c)).ToArray();
         var failed = checks.Where(c => c.Gl == BuildState.Error).Select(c => c.File).ToHashSet();
+        // only a draft the game compiled is a good state: off, overlaid or unused ones proved nothing
+        var proven = checks.Where(c => c.Gl == BuildState.Ok).Select(c => c.File).ToHashSet();
         foreach (var copy in copies.Bounded(MaxPrograms))
         {
             ProjectAssets.EndTrial(copy);
             ProjectAssets.Built(copy, !failed.Contains(copy));
-            if (!failed.Contains(copy) && drafts.TryGetValue(copy, out var good)) Snapshot(copy, good);
+            if (proven.Contains(copy) && drafts.TryGetValue(copy, out var good)) Snapshot(copy, good);
         }
 
         if (failed.Count > 0)

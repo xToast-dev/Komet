@@ -30,6 +30,16 @@ public sealed class KapiTests
         RuntimeEnv.MainThreadId = _mainThread;
     }
 
+    [Test]
+    public void ADisposedRegistrationFreesItsSlot()
+    {
+        using var komet = Connect();
+        for (var i = 0; i < KapiMod.MaxRegistrations + 8; i++) komet.Shaders.Uniform("mymodWarmth", () => 1f).Dispose();
+
+        using var last = komet.Shaders.Uniform("mymodWarmth", () => 1f);
+        Assert.That(last.Active, Is.True, last.Error);
+    }
+
     private static KapiMod Connect(string id = "mymod") => Kapi.Connect(id, "1.0")!;
 
     private static string PageIds() =>

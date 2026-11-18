@@ -315,7 +315,8 @@ internal static unsafe partial class GlTap
     private static void TexImage3D(uint a, int b, int c, int d, int e, int f, int g, uint h, uint i, nint j)
     {
         Touched(Touch.TextureUpload, BoundName(a));
-        var lean = Specifiable(a) ? TextureLean(BoundName(a), b, (d, e, f)) : Leaning.Given;
+        // a volume stays whole in OpenGL: its mipmaps and some copies are read back from there
+        var lean = Specifiable(a) && a != Texture3D ? TextureLean(BoundName(a), b, (d, e, f)) : Leaning.Given;
         var small = lean == Leaning.Small;
         if (lean != Leaning.Held && Assert(Original[TouchAt + 46] != IntPtr.Zero))
         {

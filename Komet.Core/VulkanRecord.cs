@@ -51,14 +51,17 @@ internal static class VulkanRecord
 
     public static void Failed() => Mark(Run.Failed);
 
-    private static void Mark(Run run)
+    // The player chose Vulkan again: one more try on this GPU, as if it had never run
+    public static void Retry() => Mark(Run.Unknown, true);
+
+    private static void Mark(Run run, bool anew = false)
     {
         if (Gpu.Length == 0 || File() is not { } file) return;
 
         lock (Gate)
         {
             var lines = Lines();
-            if (lines.TryGetValue(Gpu, out var was) && (was == run || was == Run.Failed)) return;
+            if (lines.TryGetValue(Gpu, out var was) && (was == run || (was == Run.Failed && !anew))) return;
 
             lines[Gpu] = run;
             try

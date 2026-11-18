@@ -44,6 +44,20 @@ public sealed class KapiRenderingTests
 
     private static StepEntry Only() => RenderSteps.All.Single();
 
+    [TestCase(KapiRenderStage.Transparent, EnumRenderStage.OIT)]
+    [TestCase(KapiRenderStage.ShadowNear, EnumRenderStage.ShadowNear)]
+    [TestCase(KapiRenderStage.AfterPostProcessing, EnumRenderStage.AfterPostProcessing)]
+    [TestCase(KapiRenderStage.Gui, EnumRenderStage.Ortho)]
+    [TestCase(KapiRenderStage.AfterFinal, EnumRenderStage.AfterFinalComposition)]
+    [TestCase(KapiRenderStage.Done, EnumRenderStage.Done)]
+    public void AStepRunsAtTheGameStageOfItsName(KapiRenderStage stage, EnumRenderStage game) =>
+        Assert.That(StepEntry.StageOf(stage), Is.EqualTo(game));
+
+    [Test]
+    public void EveryStepStageIsAGameStage() =>
+        Assert.That(Enum.GetValues<KapiRenderStage>().Select(StepEntry.StageOf).Distinct().Count(),
+            Is.EqualTo(Enum.GetValues<KapiRenderStage>().Length));
+
     [Test]
     public void AStepNeedsAnId()
     {

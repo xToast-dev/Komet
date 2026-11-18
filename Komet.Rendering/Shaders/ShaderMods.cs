@@ -58,6 +58,7 @@ internal static partial class ShaderMods
     private static readonly Dictionary<string, Found?> Seen = [];
     private static readonly Dictionary<string, Program> Programs = [];
     private static readonly HashSet<string> Porting = [];
+    private static readonly Dictionary<string, int> PortRounds = new(StringComparer.Ordinal); // per pass: the newest port
     private static readonly HashSet<string> Told = []; // held-back mods whose restore was logged this session
     private static readonly HashSet<string> Dumped = []; // stages whose failing source was written this session
     private static readonly Dictionary<string, string> StageErrors = new(StringComparer.OrdinalIgnoreCase);
@@ -202,7 +203,11 @@ internal static partial class ShaderMods
     {
         if (api?.Side != EnumAppSide.Client || system is null) return true;
 
-        if (phase == ModRunPhase.Dispose && Skipped.Remove(system)) return __result = true;
+        if (phase == ModRunPhase.Dispose && Skipped.Remove(system))
+        {
+            __result = true; // disposed as if it ran: it never started, so its Dispose would meet nothing it made
+            return false;
+        }
 
         if (mod?.Info?.ModID is not { } id || !Off.Contains(id) || Serving.Contains(id)) return true;
 

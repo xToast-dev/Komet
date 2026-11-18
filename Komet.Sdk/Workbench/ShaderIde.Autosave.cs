@@ -11,11 +11,12 @@ namespace Komet.Sdk;
 internal sealed partial class ShaderIde
 {
     private const long AutosaveDelayMs = 1500;
-    private const int MaxAutosaveBytes = 4 << 20;
+    private const int MaxAutosaveBytes = 4 << 20, MaxAutosaveWork = 256;
 
     private readonly Dictionary<string, int> _autosaved = new(StringComparer.Ordinal); // path -> version kept
+    private readonly List<(string File, string? Text)> _autosaveLater = []; // closed tabs' drops, failed writes again
     private long _autosaveAt;
-    private Task _autosaving = Task.CompletedTask;
+    private Task<List<(string File, string? Text)>> _autosaving = Task.FromResult(new List<(string, string?)>());
 
     private static string AutosaveFolder => Path.Join(StudioLink.KometFolder, ".autosave");
 
@@ -29,7 +30,8 @@ internal sealed partial class ShaderIde
         if (now < _autosaveAt || !_autosaving.IsCompleted) return;
 
         _autosaveAt = now + AutosaveDelayMs;
-        List<(string File, string? Text)> work = [];
+        List<(string File, string? Text)> work = [.. _autosaving.Result, .. _autosaveLater]; // what failed is tried again
+        _autosaveLater.Clear();
         for (var i = 0; i < Math.Min(_tabs.Count, MaxTabs + 1); i++)
         {
             var tab = _tabs[i];
@@ -48,35 +50,55 @@ internal sealed partial class ShaderIde
             }
         }
 
+        // a later entry of one file wins: an older draft never lands after a newer one or a drop
+        work = [.. work.Select((w, i) => (w, i)).GroupBy(p => p.w.File, StringComparer.Ordinal).Select(g => g.Last().w)];
         if (work.Count > 0) _autosaving = Task.Run(() => WriteAutosaves(work));
     }
 
-    private static void WriteAutosaves(List<(string File, string? Text)> work)
+    // A tab closed: its kept text goes, as its file now holds what it had
+    private void AutosaveDrop(string path)
     {
+        if (_autosaved.Remove(path) || File.Exists(AutosaveFile(path))) _autosaveLater.Add((AutosaveFile(path), null));
+    }
+
+    // The entries that failed, for the next poll; a read-only config folder keeps none
+    private static List<(string File, string? Text)> WriteAutosaves(List<(string File, string? Text)> work)
+    {
+        List<(string File, string? Text)> failed = [];
         try
         {
             _ = Directory.CreateDirectory(AutosaveFolder);
-            foreach (var (file, text) in work.Bounded(MaxTabs + 1))
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return failed;
+        }
+
+        foreach (var entry in work.Bounded(MaxAutosaveWork))
+        {
+            try
             {
-                if (text is null)
+                if (entry.Text is null)
                 {
-                    File.Delete(file);
+                    File.Delete(entry.File);
                     continue;
                 }
 
-                var temp = file + ".tmp";
-                File.WriteAllText(temp, text);
-                File.Move(temp, file, true); // never half a file after a crash
+                var temp = entry.File + ".tmp";
+                File.WriteAllText(temp, entry.Text);
+                File.Move(temp, entry.File, true); // never half a file after a crash
+            }
+            catch (IOException)
+            {
+                failed.Add(entry);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // a read-only config folder: no autosave
             }
         }
-        catch (IOException)
-        {
-            // the next poll tries again
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // a read-only config folder: no autosave
-        }
+
+        return failed;
     }
 
     // A file opens: its kept draft, when it differs from the disk, null otherwise

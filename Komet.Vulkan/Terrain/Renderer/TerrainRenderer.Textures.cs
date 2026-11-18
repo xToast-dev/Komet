@@ -152,7 +152,7 @@ internal sealed unsafe partial class TerrainRenderer
         var (fromAt, toAt) = ((from.Level, from.Z, Layers: size.Depth), (to.Level, to.Z, Layers: size.Depth));
         var copied = source.Format == into.Format
             ? Exact((source, into), (fromAt, toAt), ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)))
-            : size.Depth == 1 && Blitted((source, into), ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)),
+            : size.Depth == 1 && !source.Volume && !into.Volume && Blitted((source, into), ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)),
                 ((from.Level, from.Z), (to.Level, to.Z)));
         if (!copied)
         {
@@ -216,21 +216,24 @@ internal sealed unsafe partial class TerrainRenderer
         Hold(images.From);
         Hold(images.To);
         var aspect = images.From.Format.Aspect;
+        // a volume's Z is a slice, not a layer: one layer, the slices as the copy's depth (a 2D array side gives layers)
+        var (fromVolume, toVolume) = (images.From.Volume, images.To.Volume);
         var copy = new Vk.ImageCopy
         {
             Source = new Vk.SubresourceLayers
             {
-                Aspect = aspect, Level = (uint)at.From.Level, BaseLayer = (uint)at.From.Layer,
-                Count = (uint)at.From.Layers
+                Aspect = aspect, Level = (uint)at.From.Level, BaseLayer = fromVolume ? 0 : (uint)at.From.Layer,
+                Count = fromVolume ? 1 : (uint)at.From.Layers
             },
-            SourceX = region.From.X, SourceY = region.From.Y,
+            SourceX = region.From.X, SourceY = region.From.Y, SourceZ = fromVolume ? at.From.Layer : 0,
             Target = new Vk.SubresourceLayers
             {
-                Aspect = aspect, Level = (uint)at.To.Level, BaseLayer = (uint)at.To.Layer, Count = (uint)at.To.Layers
+                Aspect = aspect, Level = (uint)at.To.Level, BaseLayer = toVolume ? 0 : (uint)at.To.Layer,
+                Count = toVolume ? 1 : (uint)at.To.Layers
             },
-            TargetX = region.To.X, TargetY = region.To.Y, Width = (uint)region.Size.Width,
-            Height = (uint)region.Size.Height,
-            Depth = 1
+            TargetX = region.To.X, TargetY = region.To.Y, TargetZ = toVolume ? at.To.Layer : 0,
+            Width = (uint)region.Size.Width, Height = (uint)region.Size.Height,
+            Depth = fromVolume || toVolume ? (uint)at.From.Layers : 1
         };
         return Assert(Frame.Holds(images.To)) && Assert(Frame.Holds(images.From)) &&
                Frame.CopyImage(images.From, images.To, [copy]);
@@ -240,7 +243,7 @@ internal sealed unsafe partial class TerrainRenderer
         ((int X, int Y) At, (int Width, int Height) Size) box)
     {
         if (!Index(at.Level, image.Levels) || at.Layer < 0 || at.Layers <= 0 ||
-            at.Layer + at.Layers > image.Layers)
+            at.Layer + at.Layers > image.Slices(at.Level))
         {
             return false;
         }

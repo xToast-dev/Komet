@@ -537,12 +537,14 @@ internal static partial class VulkanRenderer
         if (_scene is { } scene) scene.Framing = false;
     }
 
-    private static void Fail(string why)
+    // remembered: the GPU's record says Vulkan failed (OpenGL from then on for players who never chose); a passing
+    // shortage of the system's memory says nothing about the GPU
+    private static void Fail(string why, bool remembered = true)
     {
         var hadRenderer = _renderer is not null;
         var stranded = Strands($"failed ({why})");
         (_failed, _failure, SafetyReason) = (true, why, why);
-        VulkanRecord.Failed(); // OpenGL from now on for players who never chose
+        if (remembered) VulkanRecord.Failed();
         Unpushed();
         (State, Status, _taking) = (Phase.Failed, _failure, false);
         if (!stranded && _renderer is { } only) HandBack(only);

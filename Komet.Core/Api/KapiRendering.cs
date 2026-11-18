@@ -176,20 +176,22 @@ internal sealed class StepEntry(string modId, KapiRenderStep step) : IDisposable
 
     public double AverageMs => Calls > 0 ? Ticks * 1000.0 / Stopwatch.Frequency / Calls : 0;
 
-    // The game's stage number for EnumRenderStage
-    public int Stage => Step.Stage switch
+    // The game's stage by name: its numbers have the shadow passes' Done stages between them
+    public int Stage => (int)StageOf(Step.Stage);
+
+    internal static EnumRenderStage StageOf(KapiRenderStage stage) => stage switch
     {
-        KapiRenderStage.Before => 0,
-        KapiRenderStage.Opaque => 1,
-        KapiRenderStage.Transparent => 2,
-        KapiRenderStage.AfterTransparent => 3,
-        KapiRenderStage.ShadowFar => 4,
-        KapiRenderStage.ShadowNear => 5,
-        KapiRenderStage.AfterPostProcessing => 6,
-        KapiRenderStage.AfterBlit => 7,
-        KapiRenderStage.Gui => 8,
-        KapiRenderStage.AfterFinal => 9,
-        _ => 10
+        KapiRenderStage.Before => EnumRenderStage.Before,
+        KapiRenderStage.Opaque => EnumRenderStage.Opaque,
+        KapiRenderStage.Transparent => EnumRenderStage.OIT,
+        KapiRenderStage.AfterTransparent => EnumRenderStage.AfterOIT,
+        KapiRenderStage.ShadowFar => EnumRenderStage.ShadowFar,
+        KapiRenderStage.ShadowNear => EnumRenderStage.ShadowNear,
+        KapiRenderStage.AfterPostProcessing => EnumRenderStage.AfterPostProcessing,
+        KapiRenderStage.AfterBlit => EnumRenderStage.AfterBlit,
+        KapiRenderStage.Gui => EnumRenderStage.Ortho,
+        KapiRenderStage.AfterFinal => EnumRenderStage.AfterFinalComposition,
+        _ => EnumRenderStage.Done
     };
 
     // Called by the host each frame at the step's stage

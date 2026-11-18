@@ -99,7 +99,8 @@ internal static class ChunkBudget
         var own = millis != Uncapped ? Ticks(millis) : 0;
         _deadline = own != 0 ? now + own : 0;
         var ceiling = Math.Max(CeilingMillis, millis);
-        _ceiling = Assert(ceiling <= MaxCapMillis) ? now + Ticks(ceiling) : 0;
+        // uncapped is the game's behaviour: no ceiling cuts the priority queue either
+        _ceiling = millis != Uncapped && Assert(ceiling <= MaxCapMillis) ? now + Ticks(ceiling) : 0;
         (_admitted, _fired, _asked, _cut, _began, _spent, _allowed) =
             (false, false, false, false, now, 0, Ticks(millis));
         if (Yielding(now, FrameClock.FrameStart) && _deadline != 0)

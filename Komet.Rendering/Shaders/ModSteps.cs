@@ -20,12 +20,26 @@ internal sealed class ModSteps : IRenderStepHost
         events.RegisterRenderer(runner, (EnumRenderStage)entry.Stage, "kapi-" + entry.ModId + ":" + entry.Step.Id);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+        Justification = "the runner is disposed by the main-thread task it is handed to")]
     public void Remove(StepEntry entry)
     {
         if (!_running.Remove(entry, out var runner)) return;
 
-        _api?.Event?.UnregisterRenderer(runner, (EnumRenderStage)entry.Stage);
-        runner.Dispose();
+        if (_api?.Event is not { } events)
+        {
+            runner.Dispose();
+            return;
+        }
+
+        // a step that disposes itself does so inside the game's loop over this stage's renderers: taking it out there
+        // skips the next one, so it goes after the frame (it runs no more: its entry is gone)
+        var stage = (EnumRenderStage)entry.Stage;
+        events.EnqueueMainThreadTask(() =>
+        {
+            events.UnregisterRenderer(runner, stage);
+            runner.Dispose();
+        }, "kapi-step-remove");
     }
 
     public static void Install(ICoreClientAPI api)

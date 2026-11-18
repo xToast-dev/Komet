@@ -263,7 +263,7 @@ internal static partial class VulkanRenderer
         if (total <= 0 || available >= total / 12) return false;
 
         Fail($"Vulkan let go for this world: the system ran low on memory ({available >> 20} of {total >> 20} MB " +
-             $"available); Vulkan held {VkMemory.Report()}");
+             $"available); Vulkan held {VkMemory.Report()}", false);
         _logger?.Notification("Komet: Vulkan memory after letting go: {0}", VkMemory.Report());
         return true;
     }

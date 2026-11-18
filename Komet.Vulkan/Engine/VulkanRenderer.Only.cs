@@ -46,6 +46,13 @@ internal static partial class VulkanRenderer
             if (!value && Only && Strands("was switched off", true) && _held) return;
 
             var wasOnly = Only;
+            // switched on in the world by the player: an earlier failure or safety mode no longer decides for them
+            if (value && !Requested && _api?.World?.Player is not null)
+            {
+                VulkanRecord.Retry();
+                SafetyReason = "";
+            }
+
             Requested = value;
             if (value && _api is not null && !_ran) CheckSafety();
 

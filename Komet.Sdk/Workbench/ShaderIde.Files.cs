@@ -58,12 +58,17 @@ internal sealed partial class ShaderIde
                 return;
             }
 
+            // full: a saved tab makes room; with every tab unsaved none is dropped and the file stays shut
+            var room = _tabs.Count < MaxTabs ? -1 : _tabs.FindIndex(t => !t.Dirty);
+            if (_tabs.Count >= MaxTabs && room < 0)
+            {
+                Toast(L("tabs-unsaved"));
+                return;
+            }
+
+            if (room >= 0) _tabs.RemoveAt(room);
             document = Opening(path, text, !StudioLink.CanWrite(path));
             _tabs.Add(document);
-            if (_tabs.Count > MaxTabs)
-            {
-                _tabs.RemoveAt(_tabs.FindIndex(t => t != document && !t.Dirty) is var old and >= 0 ? old : 0);
-            }
         }
 
         Select(document);
@@ -87,15 +92,21 @@ internal sealed partial class ShaderIde
         Redraw();
     }
 
-    // A tab closes; its unsaved draft is written first when Komet may write it
+    // A tab closes; its unsaved draft is written first when Komet may write it, and stays open when that fails
     public void CloseTab(ShaderDocument document)
     {
         if (document is { Dirty: true, ReadOnly: false })
         {
-            _ = StudioLink.Write(document.Path, document.Text);
+            if (!StudioLink.Write(document.Path, document.Text))
+            {
+                Toast(L("not-saved", StudioLink.Name(document.Path)));
+                return;
+            }
+
             document.Disk = document.Text;
         }
 
+        if (!document.ReadOnly) AutosaveDrop(document.Path);
         var at = _tabs.IndexOf(document);
         _ = _tabs.Remove(document);
         if (_current == document)

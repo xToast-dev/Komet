@@ -102,6 +102,18 @@ public sealed class GlslPortTests
     }
 
     [Test]
+    public void AFunctionsConstantSizesNoGlobalArray()
+    {
+        var fragment = Fragment
+            .Replace("uniform sampler2D glow;", "uniform sampler2D glow;\nconst int N = 4;\nuniform vec4[N] spheres;",
+                StringComparison.Ordinal)
+            .Replace("void main() {", "void main() { const int N = 2;", StringComparison.Ordinal)
+            .Replace("texture(tex, vec2(0))", "texture(tex, vec2(0)) + spheres[3]", StringComparison.Ordinal);
+        Assert.That(Port(Vertex, fragment).FragmentUniforms.Members.Single(u => u.Name == "spheres").Count,
+            Is.EqualTo(4));
+    }
+
+    [Test]
     public void ASamplerKeepsOneBindingAcrossTheStages()
     {
         var ported = Port(Vertex, Fragment);

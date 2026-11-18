@@ -283,6 +283,15 @@ public sealed class ChunkBudgetTests
             "past the ceiling, the cap stands");
     }
 
+    [Test]
+    public void UncappedKeepsTheWholePriorityQueuePastTheCeiling()
+    {
+        (ChunkBudget.CapMillis, RuntimeStats.chunksAwaitingPooling) = (ChunkBudget.Uncapped, 0);
+        ChunkBudget.Begin();
+        Busy.Spin(ChunkBudget.CeilingMillis + 1);
+        Assert.That((ChunkBudget.Priority(3), ChunkBudget.Priority(2)), Is.EqualTo((3, 2)), "as the game: nothing cut");
+    }
+
     // A frame's chunk work, OnBeforeFrame and what Vulkan's adoption added, booked against the cap at the next frame's start
     [Test]
     public void AFramePastTheCapIsCountedWithItsExcess()

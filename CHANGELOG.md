@@ -12,6 +12,19 @@
   the window; OpenGL now shows the frames again and the log says why.
 - A game whose engine code differs from 1.22.7 as released (three or more features apart) says so once, with the DLL's path, version and MVID, beside
   the features that stand down.
+- Shader Studio: closing a tab whose save fails keeps it open and says so; a ninth file no longer pushes out an
+  unsaved tab; a closed tab's autosave goes with it, and a failed autosave is written again.
+- Shader Studio: a build of a switched-off, overlaid or unused copy no longer becomes its last good state.
+- KAPI render steps run at the game stage their name says (ShadowNear, AfterPostProcessing, Gui, AfterFinal, Done
+  were shifted by the game's shadow Done stages); a step that disposes itself no longer skips the next renderer.
+- KAPI: disposed registrations free their slot (1024 made and dropped refused the next one).
+- A held-back shader mod's systems are not disposed (they never started).
+- Vulkan: a short run of low system memory no longer marks the GPU as failed for good, and switching Vulkan on in the
+  world gives a GPU that failed before one more try.
+- Vulkan: copies into and out of 3D textures take slices as depth; 3D textures stay whole in OpenGL under lean.
+- Vulkan port: a `const int` inside a function no longer sizes a global array.
+- Upload limit 0 (as the game) no longer cuts the priority chunk queue after 6 ms.
+- Active shaders: a late, older port no longer clears the status of a newer one.
 - No `check failed` error when another mod's transpiler changed the render loop IdleAnimators rewrites, and none on
   Windows for a relative log folder (VulkanWatch).
 

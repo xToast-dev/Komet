@@ -334,7 +334,7 @@ internal sealed partial class OptionsScreen : GuiDialog
         if (hit is null || !Assert(hit.W > 0)) return;
 
         hit.Click((x - hit.X) / hit.W, args.Button == EnumMouseButton.Right);
-        Press(hit.X, hit.Y, hit.W, hit.H);
+        if (!hit.Quiet) Press(hit.X, hit.Y, hit.W, hit.H);
         _drag = hit.Drag ? hit : null;
         _dirty = true;
     }
@@ -638,7 +638,8 @@ internal sealed partial class OptionsScreen : GuiDialog
         OptionRow? Option = null,
         bool Row = false,
         double Glow = 0,
-        int Group = 0)
+        int Group = 0,
+        bool Quiet = false) // Quiet: no press flash (a box that only catches a click, or closes a popup)
     {
         public bool Covers(double x, double y) => Finite(x) && Finite(y) && x >= X && x < X + W && y >= Y && y < Y + H;
     }

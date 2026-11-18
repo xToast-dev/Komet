@@ -28,7 +28,7 @@ internal sealed partial class OptionsScreen
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
 
     private (int Block, long At) _copied = (-1, 0);
-    private (string Term, double X, double Y)? _term; // the explanation open beside a clicked term
+    private (string Page, string Term, double X, double Y)? _term; // the explanation open beside a clicked term
     private (string Page, int Block, long At)? _termFlash; // a glossary entry lit after a jump to it
     private (string Page, int Block)? _jump; // scroll to this block once its page is laid out
 
@@ -88,7 +88,7 @@ internal sealed partial class OptionsScreen
             if (_map.Bands.Count < MaxItems && to > from) _map.Bands.Add((from, to - from));
         }
 
-        if (_term is { } term) TermPopup(term, (x, top, w, view));
+        OpenTerm(page, (x, top, w, view));
 
         _canvas.Unclip();
         if (reach <= 0) return;
@@ -136,15 +136,26 @@ internal sealed partial class OptionsScreen
         if (line.Font is { } plainFont) Marked(x + line.X, y, line.H, plainFont, line.Text, line.Color);
     }
 
-    // A line with its spans: code in the title colour, links underlined in the accent and clickable, keys as caps
+    // A line with its spans: code in the title colour, links underlined in the accent and clickable, keys as caps. The
+    // words of one link (each its own span, so lines break between them) join into one underline and one click.
     private void Marked(double x, double y, double h, CairoFont font, string text, Rgba? color)
     {
         if (!NotNull(text)) return;
 
         var at = 0;
+        (string Target, double From)? run = null;
         foreach (var span in Span.Matches(text).Bounded(256))
         {
-            x = Plain(x, y, h, font, text[at..span.Index], color);
+            var between = text[at..span.Index];
+            var joins = run is { } open && span.Groups[2].Success && span.Groups[2].Value == open.Target &&
+                        between == " ";
+            if (!joins && run is { } ended)
+            {
+                LinkRun(ended, x, y, h);
+                run = null;
+            }
+
+            x = joins ? Link(x, y, h, font, " ") : Plain(x, y, h, font, between, color);
             at = span.Index + span.Length;
             if (span.Groups[1].Success)
             {
@@ -152,7 +163,8 @@ internal sealed partial class OptionsScreen
             }
             else if (span.Groups[2].Success)
             {
-                x = Link(x, y, h, font, span.Groups[3].Value, span.Groups[2].Value);
+                run ??= (span.Groups[2].Value, x);
+                x = Link(x, y, h, font, span.Groups[3].Value);
             }
             else
             {
@@ -160,7 +172,38 @@ internal sealed partial class OptionsScreen
             }
         }
 
+        if (run is { } last) LinkRun(last, x, y, h);
+
         _ = Plain(x, y, h, font, text[at..], color);
+    }
+
+    // A link's text, underlined in the accent
+    private double Link(double x, double y, double h, CairoFont font, string word)
+    {
+        var w = _canvas.TextWidth(font, word);
+        _canvas.Text(x, y, h, font, word, Accent);
+        _canvas.Fill(x, y + h * 0.82, w, 1, Accent with { A = 0.6 });
+        return x + w;
+    }
+
+    // One click for a link's words on this line: a page opens, a term's explanation opens beside it
+    private void LinkRun((string Target, double From) run, double to, double y, double h)
+    {
+        if (_map.Hits.Count >= MaxHits || to <= run.From) return;
+
+        var (target, page, below) = (run.Target, _page, y + h);
+        _map.Hits.Add(new Hit(run.From, y, to - run.From, h, (_, _) =>
+        {
+            if (target.StartsWith(DocText.TermTarget, StringComparison.Ordinal))
+            {
+                (_term, _dirty) = ((page, target[DocText.TermTarget.Length..], run.From, below), true);
+            }
+            else
+            {
+                _term = null;
+                Navigate(target);
+            }
+        }, Glow: SoftGlow, Group: ListGroup));
     }
 
     private double Plain(double x, double y, double h, CairoFont font, string text, Rgba? color)
@@ -169,32 +212,6 @@ internal sealed partial class OptionsScreen
 
         _canvas.Text(x, y, h, font, text, color);
         return x + _canvas.TextWidth(font, text);
-    }
-
-    // A clickable word: a page opens, a term's explanation opens beside it
-    private double Link(double x, double y, double h, CairoFont font, string word, string target)
-    {
-        var w = _canvas.TextWidth(font, word);
-        _canvas.Text(x, y, h, font, word, Accent);
-        _canvas.Fill(x, y + h * 0.82, w, 1, Accent with { A = 0.6 });
-        if (_map.Hits.Count < MaxHits)
-        {
-            var (atX, below) = (x, y + h);
-            _map.Hits.Add(new Hit(x, y, w, h, (_, _) =>
-            {
-                if (target.StartsWith(DocText.TermTarget, StringComparison.Ordinal))
-                {
-                    (_term, _dirty) = ((target[DocText.TermTarget.Length..], atX, below), true);
-                }
-                else
-                {
-                    _term = null;
-                    Navigate(target);
-                }
-            }, Glow: SoftGlow, Group: ListGroup));
-        }
-
-        return x + w;
     }
 
     // A key as a cap: its binding on a dark ground, framed
@@ -250,9 +267,17 @@ internal sealed partial class OptionsScreen
         // first match wins: the way to the glossary, then the box itself (a click on it keeps it open)
         _map.Hits.Insert(0, new Hit(px, y, pw, _fonts.TextRow, (_, _) => ShowTerm(block), Glow: SoftGlow,
             Group: ListGroup));
-        _map.Hits.Insert(1, new Hit(px, py, pw, ph, (_, _) => { }, Group: ListGroup));
+        _map.Hits.Insert(1, new Hit(px, py, pw, ph, (_, _) => { }, Group: ListGroup, Quiet: true));
         _map.Hits.Add(new Hit(area.X, area.Top, area.W, area.View, (_, _) => (_term, _dirty) = (null, true),
-            Group: ListGroup));
+            Group: ListGroup, Quiet: true));
+    }
+
+    // The open term's explanation, on the page it opened on only (another page or tab closes it)
+    private void OpenTerm(OptionPage page, (double X, double Top, double W, double View) area)
+    {
+        if (_term is { } term && term.Page != page.Id) _term = null;
+
+        if (_term is { } open) TermPopup((open.Term, open.X, open.Y), area);
     }
 
     // The glossary page, scrolled to the term's entry, which lights up and fades

@@ -25,7 +25,8 @@ internal sealed class HudLive
         GpuMs = double.NaN,
         ModsMs,
         RunQueueMs = double.NaN,
-        CulledPercent = double.NaN;
+        CulledPercent = double.NaN,
+        DrawnTriangles = double.NaN; // the engine's count less what Komet's GPU culling dropped
 
     public double Locks = double.NaN;
     public int PassCount;
@@ -60,6 +61,10 @@ internal sealed partial class HudSampler
         (l.ModsMs, l.TotalMs, l.RunQueueMs) = (Timings.TotalExcept("game"), Passes.AverageTotalMs,
             _runQueues > 0 ? _runQueueSum / _runQueues : double.NaN);
         l.CulledPercent = OcclusionCulling.Enabled ? OcclusionCulling.CulledPercent : double.NaN;
+        // the engine counts what it hands the GPU, before Komet's culling holds those draws and drops the hidden ranges
+        l.DrawnTriangles = OcclusionCulling.Enabled && double.IsFinite(OcclusionCulling.CulledTriangles)
+            ? Math.Max(0, l.Triangles - OcclusionCulling.CulledTriangles)
+            : l.Triangles;
         History(l);
         l.PassCount = 0;
         for (var i = 0; i < Math.Min(RenderPassStats.Count, HudLive.MaxPasses); i++)

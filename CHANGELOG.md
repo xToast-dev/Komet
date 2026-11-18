@@ -10,6 +10,8 @@
   (ModConfig, Mods). With the game's developer mode on, a **Developer** tab holds Compatibility, Connected mods (now
   with a way to each mod's settings) and Render debug. Right-click a page to pin it to a **Favorites** tab. The menu
   opens on the page you had open last.
+- **Triangles drawn after culling**: the engine counts the terrain triangles it hands the GPU, before Komet's GPU
+  culling drops the hidden ones; the Render tab and the details card now show what is drawn beside that count.
 - **Keys**: K shows or hides the details card, Ctrl+K opens the HUD window (was Ctrl+F7); texts that name a key show
   your own binding.
 - **Vulkan by default**: a player who never chose a renderer starts with Vulkan-only, lean (OpenGL keeps no copy of the

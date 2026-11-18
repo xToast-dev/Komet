@@ -101,7 +101,7 @@ internal sealed class RenderTab(HudSampler sampler) : IHudTab
             {
                 0 => (N(l.GpuMs, 1) + " ms", T("hud-v-gpu-time")),
                 1 => (N(l.DrawCalls), "Draw Calls"),
-                2 => (N(l.Triangles / 1e6, 1) + " M", T("hud-v-triangles")),
+                2 => (N(l.DrawnTriangles / 1e6, 1) + " M", T("hud-v-triangles-drawn", N(l.Triangles / 1e6, 1))),
                 _ => (double.IsFinite(l.CulledPercent) ? N(l.CulledPercent) + " %" : "–", T("hud-v-hidden"))
             };
             ui.Text(x, y, ui.F.BigRow, ui.F.Big, value);

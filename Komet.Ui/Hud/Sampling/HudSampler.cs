@@ -240,7 +240,7 @@ internal sealed partial class HudSampler(ICoreClientAPI capi, HudSettings settin
 
         Gpu.Sample();
         RenderCost.Sample();
-        if (Forced || (Needs & HudNeeds.Occlusion) != 0)
+        if (Forced || (Needs & HudNeeds.Occlusion) != 0 || settings.ShowDetails) // the details card shows culling too
         {
             OcclusionCulling.Sample(); // bench and protocol rows read it too
         }

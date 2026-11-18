@@ -1,33 +1,27 @@
 # Menu and settings
 
-## Controls
+## Using the menu
 
-`.komet` opens Overview. Pages are on the left, settings or article text in the center, and details or the clickable
-article outline on the right.
+- Pick a tab at the top and a page on the left. Help pages list their sections below them.
+- Change a setting in the middle with a click or the left and right arrow keys.
+- The right side says what the chosen setting does.
+- Blue words can be clicked. A [[term]] explains itself in a small window.
 
-- Search settings, help topics and API names.
-- Enter applies staged values. R resets page defaults. Esc closes the menu.
-- Buttons run their labeled action immediately.
+## Apply and reset
 
-## Render diagnostics
+- **Enter** applies your changes.
+- **R** puts the page back to its defaults.
+- The bottom bar counts the changes not applied yet. **Del** takes them back.
+- **Esc** closes the menu.
+- Buttons act at once, without Enter.
 
-Enable developer mode and open **Render · Live (Dev)** in Komet's settings (`.komet`). Toggle terrain passes and registered Komet passes
-individually. Wireframe, points, backfaces and depth testing apply to terrain. Search or filter by mod, stage and
-errors. Copy exports the full render report.
+## Searching
 
-Save a state as A and toggle against B to compare. Overrides last for the session; terrain overrides suspend GPU
-occlusion culling.
+Click **Search options** at the top left and type a word. Komet finds settings and help pages.
 
-## Connected mods
+## For advanced players
 
-**Overview › Connected mods** lists the mods that talk to Komet through KAPI, its API for other mods. Each has a
-switch: off stops that mod's render steps in Komet's frame until the game restarts; its other settings stay. Its card
-shows what the mod registered and what each render step costs per frame, or the error that switched it off. Mods Komet
-could not connect, for example because they need a newer Komet, are listed below with the reason; their button copies
-it.
+Switch on [[developer mode]]. Then **Render · Live** shows every [[pass]] with its own switch.
+**Overview › Connected mods** shows the mods that talk to Komet through [[KAPI]].
 
-## Files
-
-`ModConfig/komet.json` stores settings. Local styles, shaders and templates live under `ModConfig/komet/`.
-
-[HUD and measurements](docs-hud)
+Your settings are in `ModConfig/komet.json`.

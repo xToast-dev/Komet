@@ -141,8 +141,8 @@ Nearly every problem shows up in `client-main.log`. Search for these lines:
 
 ## Shader Studio
 
-The Shader Studio comes with Komet: open it with **Ctrl+F8** or `.komet dev`. Every other tool lives in the HUD window
-(Ctrl+F7).
+The Shader Studio comes with Komet: open it with {key:komet-hud-debug} or `.komet dev`. Every other tool lives in the HUD window
+({key:komet-hud-window}).
 
 - **One tree** from your Vintagestory folder: game files are read-only, projects are folders under
   `ModConfig/komet/shaders`. A project holds copies of game shaders that replace the originals while it is on. The

@@ -4,8 +4,9 @@ using System.Text.RegularExpressions;
 namespace Komet.Core;
 
 // The in-game docs' Markdown, the subset the reader draws: a title (#), headings (## ###), paragraphs, bullets (- and
-// two-space nested), numbered items, fenced code, ```flow diagrams, tables, rules. Inline **bold**, `code` and [links](url) are read as
-// their text. Anything else is a paragraph.
+// two-space nested), numbered items, fenced code, flow diagrams, tables, rules. Inline: bold as its text, code spans
+// marked, links to a docs page and double-bracketed glossary terms as clickable words, a key placeholder as the player's
+// binding for that hotkey, other links as their text. Anything else is a paragraph.
 internal static class DocText
 {
     public enum Kind
@@ -28,8 +29,27 @@ internal static class DocText
     // A `code` span inside running text, kept marked so the reader can colour it
     public const char CodeOpen = '\u0001', CodeClose = '\u0002';
 
-    private static readonly Regex Inline = new(@"\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\([^)]*\)",
+    // A clickable word: the link opening, its target, the separator, the word, the link closing; each word of a link
+    // stands alone so lines break between them. The target is a docs page id or the term prefix and the term. A key:
+    // the key opening, the hotkey code, the key closing.
+    public const char LinkOpen = '\u0003', LinkClose = '\u0004', LinkTo = '\u0005', KeyOpen = '\u0006', KeyClose = '\u0007';
+    public const string TermTarget = "term:";
+
+    private static readonly char[] Marks = [CodeOpen, CodeClose, LinkOpen, LinkClose, LinkTo, KeyOpen, KeyClose];
+
+    // One mark: a link's opening with its target (1), a key with its code (2), or a lone mark
+    private static readonly Regex Mark = new("\u0003([^\u0005]*)\u0005|\u0006([^\u0007]*)\u0007|[\u0001\u0002\u0004]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
+
+    private static readonly Regex Inline = new(
+        @"\*\*(.+?)\*\*|`([^`]+)`|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]+)\]\((docs-[a-z0-9-]+)\)|\{key:([a-z0-9-]+)\}|\[([^\]]+)\]\([^)]*\)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
+
+    private static readonly Regex Entry = new(@"^(.+?):\s+(.+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
+
+    // The player's binding of a hotkey code ("Ctrl + F7"); the options screen sets it, without it the code shows
+    public static System.Func<string, string>? KeyName { get; set; }
 
     private static readonly Regex PageLink = new(@"^\[([^\]]+)\]\((docs-[a-z0-9-]+)\)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
@@ -188,15 +208,62 @@ internal static class DocText
     {
         if (m.Groups[1].Success) return m.Groups[1].Value;
 
-        return m.Groups[2].Success ? CodeOpen + m.Groups[2].Value + CodeClose : m.Groups[3].Value;
+        if (m.Groups[2].Success) return CodeOpen + m.Groups[2].Value + CodeClose;
+
+        if (m.Groups[3].Success)
+        {
+            var term = (m.Groups[4].Success ? m.Groups[4].Value : m.Groups[3].Value).Trim();
+            return Linked(m.Groups[3].Value, TermTarget + TermKey(term));
+        }
+
+        if (m.Groups[5].Success) return Linked(m.Groups[5].Value, m.Groups[6].Value);
+
+        return m.Groups[7].Success ? KeyOpen + m.Groups[7].Value + KeyClose : m.Groups[8].Value;
     }
 
-    // The text without code marks (headings, the outline, measuring)
-    public static string Strip(string text) =>
-        NotNull(text)
-            ? text.Replace(CodeOpen.ToString(), "", StringComparison.Ordinal)
-                .Replace(CodeClose.ToString(), "", StringComparison.Ordinal)
-            : "";
+    private static string Linked(string text, string target) =>
+        string.Join(' ', text.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(w => LinkOpen + target + LinkTo + w + LinkClose));
+
+    public static string TermKey(string term) => NotNull(term) ? term.Trim().ToLowerInvariant() : "";
+
+    // The text as shown: no marks, a link's target dropped, a key as its binding with a space either side (its cap)
+    public static string Strip(string text)
+    {
+        if (!NotNull(text)) return "";
+
+        return text.IndexOfAny(Marks) < 0 ? text : Mark.Replace(text, Shown);
+    }
+
+    private static string Shown(Match m) => m.Groups[2].Success ? " " + Key(m.Groups[2].Value) + " " : "";
+
+    public static string Key(string code) => KeyName?.Invoke(code) is { Length: > 0 } name ? name : code;
+
+    // The glossary's entries, "**Term**: what it means" bullets, by TermKey: the block and what it says
+    public static Dictionary<string, (int Block, string Term, string Text)> Terms(List<Block> blocks)
+    {
+        Dictionary<string, (int, string, string)> terms = new(StringComparer.Ordinal);
+        if (!NotNull(blocks)) return terms;
+
+        for (var i = 0; i < Math.Min(blocks.Count, MaxBlocks); i++)
+        {
+            if (blocks[i].Kind != Kind.Bullet || Entry.Match(Strip(blocks[i].Text)) is not { Success: true } entry)
+            {
+                continue;
+            }
+
+            terms[TermKey(entry.Groups[1].Value)] = (i, entry.Groups[1].Value.Trim(), entry.Groups[2].Value.Trim());
+        }
+
+        return terms;
+    }
+
+    // The link targets and key codes a text names (the docs' tests check each exists)
+    public static IEnumerable<string> Targets(string text) =>
+        NotNull(text) ? Mark.Matches(text).Where(m => m.Groups[1].Success).Select(m => m.Groups[1].Value) : [];
+
+    public static IEnumerable<string> Keys(string text) =>
+        NotNull(text) ? Mark.Matches(text).Where(m => m.Groups[2].Success).Select(m => m.Groups[2].Value) : [];
 
     // The headings a reader can jump to: index of the block and its text
     public static List<(int Block, string Text, bool Sub)> Outline(List<Block> blocks)

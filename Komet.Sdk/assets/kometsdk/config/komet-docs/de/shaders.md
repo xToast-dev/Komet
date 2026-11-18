@@ -144,8 +144,8 @@ Fast jedes Problem steht im `client-main.log`. Such nach diesen Zeilen:
 
 ## Shader Studio
 
-Das Shader Studio ist Teil von Komet: öffne es mit **Strg+F8** oder `.komet dev`. Alle anderen Werkzeuge liegen im
-HUD-Fenster (Strg+F7).
+Das Shader Studio ist Teil von Komet: öffne es mit {key:komet-hud-debug} oder `.komet dev`. Alle anderen Werkzeuge liegen im
+HUD-Fenster ({key:komet-hud-window}).
 
 - **Ein Baum** ab deinem Vintagestory-Ordner: Spieldateien sind schreibgeschützt, Projekte liegen als Ordner unter
   `ModConfig/komet/shaders`. Ein Projekt hält Kopien von Spielshadern, die die Originale ersetzen, solange es an ist.

@@ -42,7 +42,10 @@ internal sealed partial class OptionsScreen
             pages = 0; // the developer screen holds one tool: no page list
         }
 
-        var list = Math.Min(S(ListMax), room - pages - detail - 2 * gap);
+        // a doc page has no detail: its sections are in the page list, its text takes the room
+        if (!Filtering && IsDoc(Array.Find(_pages, p => p.Id == _page))) detail = 0;
+
+        var list = Math.Min(S(ListMax) + (detail > 0 ? 0 : S(DetailWidth)), room - pages - detail - 2 * gap);
         if (list < S(ListMin) || Tool is not null) // a tool takes the detail's room too
         {
             (detail, list) = (0, Tool is null ? Math.Min(S(ListMax), room - pages - gap) : room - pages - gap);
@@ -155,6 +158,8 @@ internal sealed partial class OptionsScreen
         _canvas.Unclip();
     }
 
+    private double _sideHeight; // the page list's rows, a doc page's sections among them
+
     private void PageList(Frame f)
     {
         if (f.Pages <= 0 || !Assert(f.Body > f.Top)) return;
@@ -168,7 +173,7 @@ internal sealed partial class OptionsScreen
         var view = f.Body - top - S(Spacer);
         var pages = Array.FindAll(_pages, p => p.Section == Section());
         _map.SideView = (x, top, w, view);
-        _sideScroll = Math.Clamp(Finite(_sideScroll) ? _sideScroll : 0, 0, Math.Max(0, pages.Length * row - view));
+        _sideScroll = Math.Clamp(Finite(_sideScroll) ? _sideScroll : 0, 0, Math.Max(0, _sideHeight - view));
         _canvas.Clip(x, top, w, view);
         var y = top - _sideScroll;
         foreach (var page in pages.Bounded(MaxPages))
@@ -186,8 +191,10 @@ internal sealed partial class OptionsScreen
             }
 
             y += row;
+            if (chosen && IsDoc(page)) y += DocTree(page, (x, w, top, view), y);
         }
 
+        _sideHeight = y + _sideScroll - top;
         _canvas.Unclip();
     }
 
@@ -327,12 +334,6 @@ internal sealed partial class OptionsScreen
 
         Ground(x, f.Top, w, f.Body - f.Top, Panel);
         var page = Array.Find(_pages, p => p.Id == _page);
-        if (!Filtering && IsDoc(page))
-        {
-            DocOutline(page!, x, f.Top, w, f.Body); // a doc page: its outline in place of a row's detail
-            return;
-        }
-
         if ((_cursor ?? _hover) is not { } row)
         {
             if (page?.Legend?.Invoke() is { Count: > 0 } legend) Legend(legend, x + pad, f.Top + pad, w - 2 * pad);

@@ -1,18 +1,24 @@
 # Probleme eingrenzen
 
-## Symptom auswählen
+## Was passiert bei dir?
 
-| Symptom                                     | Erster Test                                                          |
-|---------------------------------------------|----------------------------------------------------------------------|
-| Welt bleibt unsichtbar oder Bild friert ein | Spiel neu starten und Renderer auf OpenGL stellen                    |
-| Einzelne Ruckler                            | Strg+F7 öffnen und eine Spike-Aufnahme starten                       |
-| Eine Optimierung ist gesperrt               | Komet › Kompatibilität öffnen und Details kopieren                   |
-| Shader fehlen oder sind schwarz             | Shaderübersicht öffnen und den betroffenen Pass im Client-Log suchen |
+| Problem | Probier zuerst |
+|---|---|
+| Welt unsichtbar oder Bild schwarz | Renderer auf [[OpenGL]] stellen und der Welt neu beitreten |
+| Einzelne Ruckler | Mit {key:komet-hud-window} eine [[Spike-Aufnahme]] machen |
+| Eine Einstellung ist gesperrt | **Komet › Kompatibilität** öffnen |
+| Shader fehlen oder sind schwarz | Im [[Log]] nach dem Namen des Shaders suchen |
 
 ## Einen Fehler melden
 
-Nenne Spiel- und Komet-Version, Renderer, Modliste und Schritte zum Nachstellen. Bei Grafikfehlern hilft
-`client-main.log`. Bei Rucklern füge die Debugaufnahme hinzu. Ändere beim Vergleich jeweils eine Einstellung.
+Schick uns:
+
+- Spielversion und Komet-Version
+- deinen [[Renderer]] und deine Modliste
+- was du getan hast, bis der Fehler kam
+- `client-main.log`, bei Rucklern auch die Spike-Aufnahme
+
+Ändere beim Testen immer nur eine Einstellung auf einmal.
 
 [HUD und Messungen](docs-hud)
 

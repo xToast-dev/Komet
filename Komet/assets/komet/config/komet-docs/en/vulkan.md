@@ -1,17 +1,20 @@
 # Renderer and Vulkan
 
-## Choose a renderer
+## Choosing the renderer
 
-Komet › Overview › Renderer offers OpenGL and experimental Vulkan. Shader mods may require OpenGL when they access
-OpenGL resources directly.
+Under **Komet › Overview › Renderer** you choose the [[renderer]]: [[OpenGL]] as in the game without mods, or the
+faster, still experimental [[Vulkan]].
 
-## Safety mode
+Some shader mods need OpenGL. Komet tells you which.
 
-With low available RAM or a prior failed Vulkan run, Komet may stay on OpenGL before joining a world. See the HUD and
-log for the reason. If rendering is incomplete, restart and test with OpenGL.
+## When something is missing
 
-## Compare
+- If graphics are missing or the picture stays black, switch to OpenGL and join the world again.
+- Komet falls back to OpenGL by itself when Vulkan fails. The [[log]] says why.
+- With little memory free Komet starts in [[safety mode]] on OpenGL.
 
-Use the same scene, view distance and shaders. Check frame times, visual defects and memory alongside FPS.
+## Comparing
+
+Compare both renderers at the same place with the same view distance. Watch the [[frame time]] and look for glitches.
 
 [Porting shaders to Vulkan](docs-vulkan-shaders)

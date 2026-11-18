@@ -1,19 +1,20 @@
-# HUD and measurements
+# HUD and measuring
 
 ## Keys
 
-| Key     | Purpose                                                                  |
-|---------|--------------------------------------------------------------------------|
-| F7      | Toggle the overlay                                                       |
-| Ctrl+F7 | Dockable HUD window: metrics, protocol, captures and every other tool    |
-| Ctrl+F8 | Shader Studio (needs the Komet SDK; without it, a note where to get it)  |
+| Key | What happens |
+|---|---|
+| {key:komet-hud-toggle} | Show or hide the [[HUD]] |
+| {key:komet-hud-window} | The HUD window with every measuring tool |
+| {key:komet-hud-debug} | The [[Shader Studio]] |
 
-## Measure a hitch
+## Measuring a stutter
 
-Go to the affected area, open the HUD window (Ctrl+F7) and record a protocol or arm a spike capture for the next hitch.
-Copy the report afterwards.
+1. Go to the place where it stutters.
+2. Open the HUD window with {key:komet-hud-window}.
+3. Start a [[spike capture]] and wait for the next hitch.
+4. Copy the report and attach it to your report.
 
-Watch frame time, GC pause, JIT time and the longest frame sections: a high FPS figure can hide single slow frames.
-Compare runs with the same world, view distance and mods.
+Watch the [[frame time]], not the FPS. A high FPS can hide single slow frames.
 
-[Troubleshooting](docs-problems)
+[Narrowing down problems](docs-problems)

@@ -1,10 +1,12 @@
 # Erste Schritte
 
-## In zwei Minuten starten
+## So legst du los
 
-1. Öffne mit `.komet` die Einstellungen.
-2. Wähle unter Komet › Übersicht eine Voreinstellung und bestätige mit Enter.
-3. Blende mit F7 das HUD ein. Beurteile Ruckler anhand der Framezeiten.
+1. Drück {key:escapemenudialog} und öffne **Einstellungen**. Komets Seiten stehen oben im Reiter **Komet**.
+2. Wähle unter **Komet › Übersicht** eine [[Voreinstellung]]. Mit {key:escapemenudialog} schließt du das Menü wieder.
+3. Drück {key:komet-hud-toggle}. Oben siehst du jetzt das [[HUD]] mit der [[Framezeit]].
+
+Ruckelt das Spiel, siehst du es an Spitzen in der Framezeit, nicht an den FPS.
 
 ## Wohin als Nächstes?
 
@@ -16,4 +18,4 @@
 
 [Probleme eingrenzen](docs-problems)
 
-[Eigene Mod anbinden](docs-modding)
+[Begriffe](docs-glossary)

@@ -1,33 +1,27 @@
 # Menü und Einstellungen
 
-## Bedienen
+## So bedienst du das Menü
 
-`.komet` öffnet die Übersicht. Links stehen die Seiten. In der Mitte bearbeitest du Optionen oder liest einen Artikel.
-Rechts erscheinen Details oder das anklickbare Inhaltsverzeichnis.
+- Oben wählst du einen Reiter, links eine Seite. Bei Hilfeseiten stehen darunter ihre Abschnitte.
+- In der Mitte änderst du eine Einstellung mit einem Klick oder den Pfeiltasten links und rechts.
+- Rechts steht, was die gewählte Einstellung tut.
+- Blaue Wörter kannst du anklicken. Ein [[Begriff]] erklärt sich in einem kleinen Fenster.
 
-- Suche nach Einstellungen, Hilfethemen und API-Namen.
-- Enter übernimmt vorgemerkte Werte. R setzt die Seite auf Standardwerte. Esc schließt das Menü.
-- Schaltflächen führen ihre beschriftete Aktion direkt aus.
+## Übernehmen und zurücksetzen
 
-## Renderdiagnose
+- **Enter** übernimmt deine Änderungen.
+- **R** setzt die Seite auf ihre Standardwerte.
+- Unten steht, wie viele Änderungen noch nicht übernommen sind. **Entf** nimmt sie zurück.
+- **Esc** schließt das Menü.
+- Schaltflächen wirken sofort, ohne Enter.
 
-Aktiviere den Entwicklermodus und öffne in Komets Einstellungen (`.komet`) **Render · Live (Dev)**. Schalte Terrain-Passes und registrierte
-Komet-Passes einzeln. Drahtgitter, Punkte, Rückseiten und Tiefentest betreffen Terrain. Suche oder filtere nach Mod,
-Stage und Fehlern. Kopieren exportiert den ganzen Renderbericht.
+## Suchen
 
-Speichere einen Zustand als A und schalte zum Vergleich gegen B um. Overrides gelten für die Sitzung;
-Terrain-Overrides pausieren GPU-Occlusion-Culling.
+Klick oben links auf **Optionen durchsuchen** und tipp ein Wort. Komet findet Einstellungen und Hilfeseiten.
 
-## Verbundene Mods
+## Für Fortgeschrittene
 
-**Übersicht › Verbundene Mods** listet die Mods, die über KAPI, Komets Schnittstelle für andere Mods, mit Komet reden.
-Jede hat einen Schalter: Aus stoppt die Render-Schritte dieser Mod in Komets Frame, bis das Spiel neu startet; ihre
-anderen Einstellungen bleiben. Ihre Karte zeigt, was die Mod angemeldet hat und was jeder Render-Schritt pro Frame
-kostet, oder den Fehler, der ihn abgeschaltet hat. Mods, die Komet nicht verbinden konnte, etwa weil sie einen neueren
-Komet brauchen, stehen darunter mit dem Grund; ihre Schaltfläche kopiert ihn.
+Schalte den [[Entwicklermodus]] ein. Dann zeigt **Render · Live** jeden [[Pass]] einzeln zum An- und Ausschalten.
+**Übersicht › Verbundene Mods** zeigt Mods, die über [[KAPI]] mit Komet reden.
 
-## Dateien
-
-`ModConfig/komet.json` speichert Einstellungen. Unter `ModConfig/komet/` liegen lokale Styles, Shader und Vorlagen.
-
-[HUD und Messungen](docs-hud)
+Deine Einstellungen liegen in `ModConfig/komet.json`.

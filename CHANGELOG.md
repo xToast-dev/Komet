@@ -6,6 +6,10 @@
 
 - The Shader Studio (Ctrl+F8, `.komet dev`) is part of Komet again: the separate mod Komet SDK (`kometsdk`) is gone,
   remove `kometsdk_*.zip` from your Mods folder. The Modding pages and templates come with Komet too.
+- **Help and Modding read anew**: the page list on the left is a tree with the open page's sections; the text takes
+  the room the contents column had. Blue words are clickable: a page opens, a term explains itself in a small window
+  and its entry lights up on the Glossary page. Keys show as caps with your own binding. The Help pages are rewritten
+  short and plain, with a bigger Glossary.
 
 ### Fixed
 

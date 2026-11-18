@@ -2,18 +2,19 @@
 
 ## Tasten
 
-| Taste   | Zweck                                                                    |
-|---------|--------------------------------------------------------------------------|
-| F7      | HUD ein- oder ausblenden                                                 |
-| Strg+F7 | Andockbares HUD-Fenster: Messwerte, Protokoll, Aufnahmen, alle Werkzeuge |
-| Strg+F8 | Shader Studio (braucht das Komet SDK; ohne es ein Hinweis, wo es liegt)  |
+| Taste | Was passiert |
+|---|---|
+| {key:komet-hud-toggle} | Das [[HUD]] ein- oder ausblenden |
+| {key:komet-hud-window} | Das HUD-Fenster mit allen Messwerkzeugen |
+| {key:komet-hud-debug} | Das [[Shader Studio]] |
 
 ## Einen Ruckler messen
 
-Geh zur betroffenen Stelle, öffne das HUD-Fenster (Strg+F7) und nimm ein Protokoll auf oder warte mit der
-Spike-Aufnahme auf den nächsten Hänger. Kopiere danach den Bericht.
+1. Geh an die Stelle, an der es ruckelt.
+2. Öffne mit {key:komet-hud-window} das HUD-Fenster.
+3. Starte eine [[Spike-Aufnahme]] und warte auf den nächsten Hänger.
+4. Kopiere den Bericht und häng ihn an deine Meldung.
 
-Achte auf Framezeit, GC-Pause, JIT-Zeit und die teuersten Frameabschnitte: eine hohe FPS-Zahl kann einzelne langsame
-Frames verdecken. Vergleiche bei gleicher Welt, Sichtweite und Modliste.
+Schau auf die [[Framezeit]], nicht auf die FPS. Hohe FPS können einzelne langsame Bilder verstecken.
 
 [Probleme eingrenzen](docs-problems)

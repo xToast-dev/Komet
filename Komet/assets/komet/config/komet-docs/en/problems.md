@@ -1,19 +1,25 @@
-# Troubleshooting
+# Narrowing down problems
 
-## Find your symptom
+## What happens for you?
 
-| Symptom                            | First check                                                              |
-|------------------------------------|--------------------------------------------------------------------------|
-| World invisible or picture freezes | Restart the game and select OpenGL                                       |
-| Intermittent stutter               | Open Ctrl+F7 and arm a spike capture                                     |
-| Optimization locked                | Open Komet › Compatibility and copy details                              |
-| Shader missing or black            | Open the shader overview and look up the affected pass in the client log |
+| Problem | Try first |
+|---|---|
+| World invisible or picture black | Set the renderer to [[OpenGL]] and join the world again |
+| Single stutters | Take a [[spike capture]] with {key:komet-hud-window} |
+| A setting is locked | Open **Komet › Compatibility** |
+| Shaders missing or black | Search the [[log]] for the shader's name |
 
-## Report a problem
+## Reporting a bug
 
-Include game and Komet versions, renderer, mods and reproduction steps. Attach `client-main.log` for graphical issues
-and a debug capture for stutter. Change one setting at a time during comparisons.
+Send us:
 
-[HUD and measurements](docs-hud)
+- the game version and Komet version
+- your [[renderer]] and your mod list
+- what you did until the bug came
+- `client-main.log`, for stutter the spike capture too
+
+Change only one setting at a time while testing.
+
+[HUD and measuring](docs-hud)
 
 [Compatibility guide](docs-compatibility)

@@ -2,17 +2,19 @@
 
 ## Renderer wählen
 
-Unter Komet › Übersicht › Renderer kannst du OpenGL oder das experimentelle Vulkan wählen. Shader-Mods können OpenGL
-verlangen, wenn sie direkt auf OpenGL-Ressourcen zugreifen.
+Unter **Komet › Übersicht › Renderer** wählst du den [[Renderer]]: [[OpenGL]] wie im Spiel ohne Mods oder das
+schnellere, noch experimentelle [[Vulkan]].
 
-## Sicherheitsmodus
+Manche Shader-Mods brauchen OpenGL. Komet sagt dir dann, welche.
 
-Bei knappem RAM oder einem früheren fehlgeschlagenen Vulkan-Lauf kann Komet schon vor dem Weltbeitritt auf OpenGL
-bleiben. HUD und Log zeigen den Grund. Wenn Darstellung fehlt, starte neu und teste mit OpenGL.
+## Wenn etwas fehlt
+
+- Fehlt Grafik oder bleibt das Bild schwarz, stell auf OpenGL und tritt der Welt neu bei.
+- Komet fällt selbst auf OpenGL zurück, wenn Vulkan scheitert. Das [[Log]] sagt, warum.
+- Bei wenig Arbeitsspeicher startet Komet im [[Sicherheitsmodus]] mit OpenGL.
 
 ## Vergleichen
 
-Vergleiche dieselbe Szene mit gleicher Sichtweite und gleichen Shadern. Prüfe neben FPS auch Framezeit, Bildfehler und
-RAM-Verbrauch.
+Vergleich beide Renderer an derselben Stelle mit derselben Sichtweite. Achte auf die [[Framezeit]] und auf Bildfehler.
 
 [Shader auf Vulkan portieren](docs-vulkan-shaders)

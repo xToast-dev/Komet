@@ -109,6 +109,57 @@ public sealed class DocTextTests
         }
     }
 
+    private static readonly string[] LinkTargets = ["term:frame time", "term:frame time", "docs-menu", "docs-menu"];
+    private static readonly string[] KeyCodes = ["komet-hud-toggle"];
+
+    // Hotkeys the docs may name: the game's escape menu and Komet's own
+    private static readonly string[] KnownKeys =
+        ["escapemenudialog", "komet-hud-toggle", "komet-hud-window", "komet-hud-debug"];
+
+    // Every clickable word leads somewhere: a page that exists, a term the glossary of that language explains
+    [Test]
+    public void EveryLinkTermAndKeyInTheDocsResolves()
+    {
+        foreach (var language in new[] { "de", "en" })
+        {
+            var terms = DocText.Terms(Read(language, "glossary"));
+            foreach (var name in KometDocs.Names)
+            {
+                var texts = Read(language, name).SelectMany(b => (b.Rows ?? []).SelectMany(r => r).Append(b.Text))
+                    .ToArray();
+                Assert.Multiple(() =>
+                {
+                    foreach (var target in texts.SelectMany(DocText.Targets))
+                    {
+                        Assert.That(target.StartsWith(DocText.TermTarget, StringComparison.Ordinal)
+                                ? terms.ContainsKey(target[DocText.TermTarget.Length..])
+                                : KometDocs.Names.Contains(target[5..]), Is.True, $"{language}/{name}: {target}");
+                    }
+
+                    foreach (var key in texts.SelectMany(DocText.Keys))
+                    {
+                        Assert.That(KnownKeys, Does.Contain(key), $"{language}/{name}");
+                    }
+                });
+            }
+        }
+    }
+
+    [Test]
+    public void TermsLinksAndKeysReadAsTheirWords()
+    {
+        var text = DocText.Parse("Watch the [[frame time]], see [the menu](docs-menu), press {key:komet-hud-toggle}.")[0]
+            .Text;
+        Assert.Multiple(() =>
+        {
+            Assert.That(DocText.Strip(text), Is.EqualTo("Watch the frame time, see the menu, press  komet-hud-toggle ."));
+            Assert.That(DocText.Targets(text), Is.EqualTo(LinkTargets));
+            Assert.That(DocText.Keys(text), Is.EqualTo(KeyCodes));
+            Assert.That(DocText.Terms(DocText.Parse("- **Frame Time**: how long a picture takes."))["frame time"].Text,
+                Is.EqualTo("how long a picture takes."));
+        });
+    }
+
     // Modding's Templates page (rows) right after Modding's first page, the Help pages before it
     [Test]
     public void TheTemplatesFollowModdingsStart()

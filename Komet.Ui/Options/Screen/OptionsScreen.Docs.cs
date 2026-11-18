@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using Komet.Core;
 using Komet.Hud;
 using static Komet.Options.OptionsText;
@@ -7,7 +8,9 @@ using static Komet.Options.OptionsText;
 namespace Komet.Options;
 
 // The in-game docs' reader (KometDocs): a doc page's blocks laid out once per width and font size, drawn where the rows go
-// with the list's scroll, a code block copied with a click; the outline beside it jumps to a heading.
+// with the list's scroll, a code block copied with a click. Clickable words go to a page, or open a glossary term's
+// explanation beside them, from where the glossary page shows it lit; keys show as caps with the player's binding. The
+// page list holds the page's sections as a tree.
 internal sealed partial class OptionsScreen
 {
     private const int MaxDocLines = 8192;
@@ -16,8 +19,18 @@ internal sealed partial class OptionsScreen
     // A diagram: one step per line, numbered boxes of one width read top to bottom, an arrow down between them
     private const int MaxFlowSteps = 32;
 
-    private static readonly char[] CodeMarks = [DocText.CodeOpen, DocText.CodeClose];
+    private const string GlossaryPage = "docs-glossary";
+    private const double FlashSeconds = 2.5, TermWidth = 440;
+
+    // A span of a laid out line: code (1), a link's target and word (2, 3), a key's code (4)
+    private static readonly Regex Span = new(
+        "\u0001([^\u0002]*)\u0002|\u0003([^\u0005]*)\u0005([^\u0004]*)\u0004|\u0006([^\u0007]*)\u0007",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
+
     private (int Block, long At) _copied = (-1, 0);
+    private (string Term, double X, double Y)? _term; // the explanation open beside a clicked term
+    private (string Page, int Block, long At)? _termFlash; // a glossary entry lit after a jump to it
+    private (string Page, int Block)? _jump; // scroll to this block once its page is laid out
 
     private DocLayout? _doc;
 
@@ -28,14 +41,22 @@ internal sealed partial class OptionsScreen
     {
         if (page.Doc is not { } blocks || !Assert(w > 0) || bottom <= top) return;
 
+        DocText.KeyName ??= KeyBinding;
         var layout = Laid(page.Id, blocks, w);
         var view = bottom - top;
+        if (_jump is { } jump && jump.Page == page.Id)
+        {
+            var line = layout.Lines.Find(l => l.Block == jump.Block);
+            (_scroll, _jump) = (line is null ? _scroll : Math.Max(0, line.Y - S(12)), null);
+        }
+
         // far enough that every heading reaches the top: the outline's last entries jump there too (else the page's end
         // stops them short and the outline keeps the one before lit)
         var reach = Math.Max(Math.Max(0, layout.Total - view), layout.LastAnchor);
         _scroll = Math.Clamp(Finite(_scroll) ? _scroll : 0, 0, reach);
         _map.View = (x, top, w, view);
         _canvas.Clip(x, top, w, view);
+        TermFlash(page, layout, (x, top, w, view));
         var shown =
             new SortedDictionary<int, (double Top, double Bottom
                 )>(); // each block's visible extent: it slides in as a row does
@@ -66,6 +87,8 @@ internal sealed partial class OptionsScreen
         {
             if (_map.Bands.Count < MaxItems && to > from) _map.Bands.Add((from, to - from));
         }
+
+        if (_term is { } term) TermPopup(term, (x, top, w, view));
 
         _canvas.Unclip();
         if (reach <= 0) return;
@@ -113,28 +136,152 @@ internal sealed partial class OptionsScreen
         if (line.Font is { } plainFont) Marked(x + line.X, y, line.H, plainFont, line.Text, line.Color);
     }
 
-    // A line whose `code` spans (DocText's marks) show in the title colour
+    // A line with its spans: code in the title colour, links underlined in the accent and clickable, keys as caps
     private void Marked(double x, double y, double h, CairoFont font, string text, Rgba? color)
     {
         if (!NotNull(text)) return;
 
-        if (text.IndexOf(DocText.CodeOpen, StringComparison.Ordinal) < 0)
+        var at = 0;
+        foreach (var span in Span.Matches(text).Bounded(256))
         {
-            _canvas.Text(x, y, h, font, text, color);
+            x = Plain(x, y, h, font, text[at..span.Index], color);
+            at = span.Index + span.Length;
+            if (span.Groups[1].Success)
+            {
+                x = Plain(x, y, h, font, span.Groups[1].Value, Title);
+            }
+            else if (span.Groups[2].Success)
+            {
+                x = Link(x, y, h, font, span.Groups[3].Value, span.Groups[2].Value);
+            }
+            else
+            {
+                x = KeyCap(x, y, h, font, DocText.Key(span.Groups[4].Value));
+            }
+        }
+
+        _ = Plain(x, y, h, font, text[at..], color);
+    }
+
+    private double Plain(double x, double y, double h, CairoFont font, string text, Rgba? color)
+    {
+        if (text.Length == 0) return x;
+
+        _canvas.Text(x, y, h, font, text, color);
+        return x + _canvas.TextWidth(font, text);
+    }
+
+    // A clickable word: a page opens, a term's explanation opens beside it
+    private double Link(double x, double y, double h, CairoFont font, string word, string target)
+    {
+        var w = _canvas.TextWidth(font, word);
+        _canvas.Text(x, y, h, font, word, Accent);
+        _canvas.Fill(x, y + h * 0.82, w, 1, Accent with { A = 0.6 });
+        if (_map.Hits.Count < MaxHits)
+        {
+            var (atX, below) = (x, y + h);
+            _map.Hits.Add(new Hit(x, y, w, h, (_, _) =>
+            {
+                if (target.StartsWith(DocText.TermTarget, StringComparison.Ordinal))
+                {
+                    (_term, _dirty) = ((target[DocText.TermTarget.Length..], atX, below), true);
+                }
+                else
+                {
+                    _term = null;
+                    Navigate(target);
+                }
+            }, Glow: SoftGlow, Group: ListGroup));
+        }
+
+        return x + w;
+    }
+
+    // A key as a cap: its binding on a dark ground, framed
+    private double KeyCap(double x, double y, double h, CairoFont font, string name)
+    {
+        var w = _canvas.TextWidth(font, " " + name + " ");
+        _canvas.Fill(x + S(1), y + h * 0.14, w - S(2), h * 0.72, Rgba.Black(0.45), S(3));
+        _canvas.Outline(x + S(1), y + h * 0.14, w - S(2), h * 0.72, Accent with { A = 0.55 });
+        _canvas.Text(x + _canvas.TextWidth(font, " "), y, h, font, name, Title);
+        return x + w;
+    }
+
+    // The player's binding of one of the game's or Komet's hotkeys
+    private string KeyBinding(string code) =>
+        capi.Input?.HotKeys is { } keys && keys.TryGetValue(code, out var key) && key.CurrentMapping is { } mapping
+            ? mapping.ToString()
+            : code;
+
+    // The glossary's entries, read from its page as the reader has it
+    private Dictionary<string, (int Block, string Term, string Text)> Terms() =>
+        Array.Find(_pages, p => p.Id == GlossaryPage)?.Doc is { } glossary ? DocText.Terms(glossary) : [];
+
+    // A term's explanation under the word: what it means, and a way to its entry on the glossary page
+    private void TermPopup((string Term, double X, double Y) term, (double X, double Top, double W, double View) area)
+    {
+        if (!Terms().TryGetValue(term.Term, out var entry))
+        {
+            _term = null;
             return;
         }
 
-        var code = false;
-        foreach (var part in text.Split(CodeMarks).Bounded(256))
+        var (pad, pw) = (S(14), Math.Min(S(TermWidth), area.W - 2 * S(Pad)));
+        var text = DocWrap(entry.Text, _fonts.Text, pw - 2 * pad);
+        var link = "› " + T("docs-term-glossary");
+        var ph = pad + _fonts.HeaderRow + text.Count * _fonts.TextRow + S(6) + _fonts.TextRow + pad;
+        var px = Math.Clamp(term.X, area.X + S(Pad), area.X + area.W - pw - S(Pad));
+        var py = term.Y + ph > area.Top + area.View ? term.Y - ph - _fonts.TextRow - S(4) : term.Y + S(4);
+        py = Math.Max(area.Top + S(4), py);
+        _canvas.Fill(px, py, pw, ph, Rgba.Black(0.88), S(6));
+        _canvas.Outline(px, py, pw, ph, Accent with { A = 0.7 });
+        var y = py + pad;
+        _canvas.Text(px + pad, y, _fonts.HeaderRow, _fonts.Header, entry.Term, Title);
+        y += _fonts.HeaderRow;
+        foreach (var line in text.Bounded(64))
         {
-            if (part.Length > 0)
-            {
-                _canvas.Text(x, y, h, font, part, code ? Title : color);
-                x += _canvas.TextWidth(font, part);
-            }
-
-            code = !code;
+            Marked(px + pad, y, _fonts.TextRow, _fonts.Text, line, Soft);
+            y += _fonts.TextRow;
         }
+
+        y += S(6);
+        _canvas.Text(px + pad, y, _fonts.TextRow, _fonts.Text, link, Accent);
+        var block = entry.Block;
+        // first match wins: the way to the glossary, then the box itself (a click on it keeps it open)
+        _map.Hits.Insert(0, new Hit(px, y, pw, _fonts.TextRow, (_, _) => ShowTerm(block), Glow: SoftGlow,
+            Group: ListGroup));
+        _map.Hits.Insert(1, new Hit(px, py, pw, ph, (_, _) => { }, Group: ListGroup));
+        _map.Hits.Add(new Hit(area.X, area.Top, area.W, area.View, (_, _) => (_term, _dirty) = (null, true),
+            Group: ListGroup));
+    }
+
+    // The glossary page, scrolled to the term's entry, which lights up and fades
+    private void ShowTerm(int block)
+    {
+        _term = null;
+        Navigate(GlossaryPage);
+        (_jump, _termFlash, _dirty) = ((GlossaryPage, block), (GlossaryPage, block, Environment.TickCount64), true);
+    }
+
+    private void TermFlash(OptionPage page, DocLayout layout, (double X, double Top, double W, double View) area)
+    {
+        if (_termFlash is not { } flash || flash.Page != page.Id) return;
+
+        var age = (Environment.TickCount64 - flash.At) / 1000.0;
+        if (age >= FlashSeconds)
+        {
+            _termFlash = null;
+            return;
+        }
+
+        var lines = layout.Lines.FindAll(l => l.Block == flash.Block);
+        if (lines.Count == 0) return;
+
+        var (from, to) = (lines.Min(l => l.Y), lines.Max(l => l.Y + l.H));
+        var y = area.Top + from - _scroll;
+        _canvas.Fill(area.X + S(Pad) - S(8), y - S(2), area.W - 2 * S(Pad) + S(16), to - from + S(4),
+            Accent with { A = 0.28 * (1 - age / FlashSeconds) }, S(4));
+        _dirty = true; // fades frame by frame
     }
 
     // A word wider than the column (a path) in pieces that fit, cut after a '/' where one fits; code marks go around each
@@ -238,7 +385,7 @@ internal sealed partial class OptionsScreen
 
         // the deepest heading once per layout, not per compose (each scroll tick recomposes)
         var last = anchors.Count > 0 ? anchors.Values.Max() : 0;
-        _doc = new DocLayout(page, width, _fonts.Epoch, lines, y + S(24), anchors, last);
+        (_doc, _dirty) = (new DocLayout(page, width, _fonts.Epoch, lines, y + S(24), anchors, last), true); // the tree too
         return _doc;
     }
 
@@ -445,40 +592,34 @@ internal sealed partial class OptionsScreen
         return y + S(14);
     }
 
-    // The outline beside the text: each heading, the one in view lit; a click scrolls to it
-    private void DocOutline(OptionPage page, double x, double top, double w, double bottom)
+    // The page list's tree: the open doc page's sections under it, the one in view lit; a click scrolls to it.
+    // Returns the rows' height.
+    private double DocTree(OptionPage page, (double X, double W, double Top, double View) list, double y)
     {
-        if (page.Doc is not { } blocks || _doc is not { } layout || layout.Page != page.Id || !Assert(w > 0)) return;
+        if (page.Doc is not { } blocks || _doc is not { } layout || layout.Page != page.Id) return 0;
 
-        var pad = S(Pad);
-        var y = top + pad;
-        Spaced(x + pad, y, S(18), _fonts.Small, T("docs-contents").ToUpperInvariant(), S(2), Faint);
-        y += S(30);
-        var outline = DocText.Outline(blocks);
+        var outline = DocText.Outline(blocks).FindAll(o => !o.Sub);
         var current =
             outline.FindLastIndex(o => layout.Anchors.TryGetValue(o.Block, out var at) && at <= _scroll + S(8));
-        for (var i = 0; i < Math.Min(outline.Count, 256) && y + _fonts.TextRow < bottom - pad; i++)
+        var row = _fonts.TextRow + S(4);
+        var (x, indent) = (list.X + S(Pad) + S(14), S(Pad) + S(14));
+        for (var i = 0; i < Math.Min(outline.Count, 64); i++)
         {
-            var (block, text, sub) = outline[i];
-            var indent = sub ? S(14) : 0;
-            var font = sub ? _fonts.Text : _fonts.Header;
-            var rows = Wrap(text, font, w - 2 * pad - indent); // a long heading wraps rather than being cut
-            var h = Math.Min(rows.Count, 3) * _fonts.TextRow;
             var lit = i == current;
-            if (lit) _canvas.Fill(x + pad - S(8), y + S(3), S(2), h - S(6), Accent);
+            var at = y + i * row;
+            if (lit) _canvas.Fill(x - S(10), at + S(6), S(2), row - S(12), Accent);
 
-            var idle = sub ? Faint : Soft;
-            for (var r = 0; r < Math.Min(rows.Count, 3); r++)
-            {
-                _canvas.Text(x + pad + indent, y + r * _fonts.TextRow, _fonts.TextRow, font, rows[r],
-                    lit ? Title : idle);
-            }
+            var (text, font) = Shrunk(outline[i].Text, list.W - indent - S(Pad), _fonts.Text);
+            _canvas.Text(x, at, row, font, text, lit ? Title : Faint);
+            if (at + row <= list.Top || at >= list.Top + list.View) continue;
 
-            var to = layout.Anchors.GetValueOrDefault(block);
-            _map.Hits.Add(new Hit(x + pad - S(8), y, w - 2 * pad + S(8), h, (_, _) => (_scroll, _dirty) = (to, true),
-                Glow: SoftGlow, Group: KeyGroup));
-            y += h + S(2);
+            var to = layout.Anchors.GetValueOrDefault(outline[i].Block);
+            _map.Hits.Add(new Hit(list.X, Math.Max(at, list.Top), list.W,
+                Math.Min(at + row, list.Top + list.View) - Math.Max(at, list.Top),
+                (_, _) => (_scroll, _term, _dirty) = (to, null, true), Glow: RowGlow, Group: SideGroup));
         }
+
+        return Math.Min(outline.Count, 64) * row;
     }
 
     // A laid out piece: text at X, a band (code, a table's head) when Fill, a hairline when Line; Block: its block's index

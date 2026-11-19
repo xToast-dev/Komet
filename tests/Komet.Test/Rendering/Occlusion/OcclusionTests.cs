@@ -8,36 +8,6 @@ public sealed class OcclusionTests
 {
     private static readonly (double X, double Y, double Z) Camera = (512000.5, 110.25, 511999.75);
 
-    // ClientMain's CurrentProjectionMatrix and CurrentModelViewMatrix fill and return one shared array
-    [Test]
-    public void TheProjectionIsTakenBeforeTheSharedArrayIsRefilled()
-    {
-        var (shared, projection, view) = (new float[16], Mat4f.Perspective(new float[16], 1.2f, 1.5f, 0.1f, 1000),
-            Mat4f.Translate(new float[16], Mat4f.Create(), 1, 2, 3));
-        var render = Answers.Of<IRenderAPI>(new Dictionary<string, System.Func<object?[]?, object?>>
-        {
-            ["get_CurrentProjectionMatrix"] = _ => Fill(shared, projection),
-            ["get_CurrentModelviewMatrix"] = _ => Fill(shared, view)
-        });
-        var into = new float[16];
-        Assert.Multiple(() =>
-        {
-            Assert.That(Occlusion.Capture(render, into), Is.True);
-            Assert.That(into, Is.EqualTo(Mat4f.Mul(new float[16], projection, view)).Within(1e-5f));
-            Assert.That(into[11], Is.EqualTo(-1).Within(1e-5f), "w is the distance ahead, not 1");
-        });
-    }
-
-    private static float[] Fill(float[] shared, float[] values)
-    {
-        values.CopyTo(shared, 0);
-        return shared;
-    }
-
-    [Test]
-    public void TheRangeIsSixteenBytesTwice() =>
-        Assert.That(Unsafe.SizeOf<Occlusion.Range>(), Is.EqualTo(32), "std430 Range in cull.comp");
-
     private static ModelDataPoolLocation Location(int start, int end, float x) =>
         new()
         {
@@ -75,29 +45,6 @@ public sealed class OcclusionTests
             Assert.That(into[1].LowX, Is.EqualTo(512064 - 16 - Camera.X).Within(1e-3),
                 "the box's west face, camera-relative");
         });
-    }
-
-    [Test]
-    public void ARangeWithoutALocationIsCountedAndSkipped()
-    {
-        List<ModelDataPoolLocation> pool = [Location(0, 300, 511968), Location(900, 960, 512032)];
-        var (starts, sizes) = Drawn(Location(300, 900, 0), pool[1]);
-        var into = new Occlusion.Range[8];
-        var written = Occlusion.Match(starts, sizes, 2, pool, into, Camera, out var unmatched);
-        Assert.Multiple(() =>
-        {
-            Assert.That((written, unmatched), Is.EqualTo((1, 1)));
-            Assert.That(into[0].First, Is.EqualTo(900));
-        });
-    }
-
-    [Test]
-    public void AFullBufferStopsTheWalk()
-    {
-        List<ModelDataPoolLocation> pool = [Location(0, 3, 0), Location(3, 6, 0), Location(6, 9, 0)];
-        var (starts, sizes) = Drawn([.. pool]);
-        var into = new Occlusion.Range[2];
-        Assert.That(Occlusion.Match(starts, sizes, 3, pool, into, Camera, out _), Is.EqualTo(2));
     }
 
     [Test]

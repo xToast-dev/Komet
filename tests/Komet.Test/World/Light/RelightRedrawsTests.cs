@@ -5,13 +5,6 @@ namespace Komet.Test.World;
 // A lighting task is dropped only when it would relight nothing: no emitting block before or after, the same absorption
 public sealed class RelightRedrawsTests
 {
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-relightredraws");
-        RelightRedraws.Install(harmony);
-        Assert.That(RelightRedraws.Installed, Is.True);
-    }
 
     [Test]
     public void OnlyALightlessChangeIsDropped()

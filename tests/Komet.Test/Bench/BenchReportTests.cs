@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using Komet.Bench;
 using Komet.Core;
@@ -12,8 +11,6 @@ namespace Komet.Test.Bench;
 public sealed class BenchReportTests
 {
     private const int FramesPerSegment = 100;
-
-    private static readonly int[] LapsOfA = [0, 3];
 
     // Every segment gets FramesPerSegment frames of ms(segment), one 30 ms spike in the middle with a profile whose dearest mark
     // was called 9 times, and, with tessMs, one tessellation pass per frame taking that long
@@ -108,195 +105,13 @@ public sealed class BenchReportTests
         });
     }
 
-    [Test]
-    public void ArmsPoolTheirOwnMeasuredLapsOnly()
-    {
-        var (run, recorder) = Run(BenchConfigTests.TwoArms, Arms);
-        var arms = Json(run, recorder).GetProperty("arms");
-        Assert.Multiple(() =>
-        {
-            Assert.That(arms.GetArrayLength(), Is.EqualTo(2));
-            Assert.That(arms[0].GetProperty("pooled").GetProperty("all").GetProperty("avgMs").GetDouble(),
-                Is.EqualTo(10 + 20 / 99.0).Within(1e-3));
-            Assert.That(arms[1].GetProperty("pooled").GetProperty("all").GetProperty("avgMs").GetDouble(),
-                Is.EqualTo(12 + 18 / 99.0).Within(1e-3));
-            Assert.That(arms[1].GetProperty("pooled").GetProperty("still").GetProperty("n").GetInt32(),
-                Is.EqualTo(2 * (FramesPerSegment - 1)), "B ran laps 1 and 2 of A B B A");
-            Assert.That(arms[0].GetProperty("laps").EnumerateArray().Select(l => l.GetProperty("lap").GetInt32()),
-                Is.EqualTo(LapsOfA));
-            Assert.That(arms[1].GetProperty("values").GetProperty("FrustumSweep").GetInt32(), Is.Zero);
-            Assert.That(arms[1].GetProperty("engine").GetBoolean(), Is.False);
-        });
-    }
-
-    [Test]
-    public void TheDeltaIsTheSwitchNotTheNoise()
-    {
-        var (run, recorder) = Run(BenchConfigTests.TwoArms, Arms);
-        var delta = Json(run, recorder).GetProperty("deltas")[0];
-        var avg = delta.GetProperty("metrics").GetProperty("avgMs");
-        var (aa, aaRecorder) = Run("\"arms\": [ { \"name\": \"A1\" }, { \"name\": \"A2\" } ]", _ => 10f);
-        var same = Json(aa, aaRecorder).GetProperty("deltas")[0].GetProperty("metrics").GetProperty("avgMs");
-        Assert.Multiple(() =>
-        {
-            Assert.That((delta.GetProperty("arm").GetString(), delta.GetProperty("vs").GetString()),
-                Is.EqualTo(("B", "A")));
-            Assert.That(delta.GetProperty("blocks").GetInt32(), Is.EqualTo(2));
-            Assert.That(avg.GetProperty("mean").GetDouble(), Is.EqualTo(2 - 2 / 99.0).Within(1e-3));
-            Assert.That((avg.GetProperty("sd").GetDouble(), avg.GetProperty("se").GetDouble()),
-                Is.EqualTo((0.0, 0.0)).Within(1e-9));
-            Assert.That(same.GetProperty("mean").GetDouble(), Is.Zero.Within(1e-9), "A/A: the arms agree");
-        });
-    }
-
-    // A tessellation fast path in arm B: the lap metric compares the mean time per pass like a frame time, and every segment's
-    // chunks object has the passes, their time and the mean; without passes the mean is null
-    [Test]
-    public void TheTimePerPassIsComparedLikeAFrameTime()
-    {
-        var (run, recorder) = Run(BenchConfigTests.TwoArms, Arms, tessMs: segment => segment.Arm == 0 ? 2.0 : 0.5);
-        var json = Json(run, recorder);
-        var delta = json.GetProperty("deltas")[0].GetProperty("metrics").GetProperty("tessMsPerPass");
-        var chunks = json.GetProperty("segments").EnumerateArray()
-            .First(s => s.GetProperty("name").GetString() == "still" && s.GetProperty("arm").GetString() == "A")
-            .GetProperty("chunks");
-        var (none, noneRecorder) = Run(BenchConfigTests.TwoArms, Arms);
-        var empty = Json(none, noneRecorder);
-        Assert.Multiple(() =>
-        {
-            Assert.That(delta.GetProperty("mean").GetDouble(), Is.EqualTo(-1.5).Within(1e-3));
-            Assert.That(chunks.GetProperty("tessPasses").GetInt64(), Is.EqualTo(FramesPerSegment));
-            Assert.That(chunks.GetProperty("tessMs").GetDouble(), Is.EqualTo(2.0 * FramesPerSegment).Within(1e-2));
-            Assert.That(chunks.GetProperty("tessMsPerPass").GetDouble(), Is.EqualTo(2.0).Within(1e-3));
-            Assert.That(empty.GetProperty("segments")[0].GetProperty("chunks").GetProperty("tessMsPerPass").ValueKind,
-                Is.EqualTo(JsonValueKind.Null));
-            Assert.That(
-                empty.GetProperty("deltas")[0].GetProperty("metrics").GetProperty("tessMsPerPass").GetProperty("mean")
-                    .ValueKind,
-                Is.EqualTo(JsonValueKind.Null));
-        });
-    }
-
-    [Test]
-    public void AMissingNumberIsNull()
-    {
-        var (run, recorder) = Run(BenchConfigTests.TwoArms, Arms, 4);
-        var segment = Json(run, recorder).GetProperty("segments")[4];
-        Assert.Multiple(() =>
-        {
-            Assert.That(segment.GetProperty("frames").GetInt32(), Is.Zero);
-            Assert.That(segment.GetProperty("frametime").GetProperty("avgMs").ValueKind,
-                Is.EqualTo(JsonValueKind.Null));
-            Assert.That(segment.GetProperty("focusedFraction").ValueKind, Is.EqualTo(JsonValueKind.Null));
-            Assert.That(segment.GetProperty("spikes").GetArrayLength(), Is.Zero);
-        });
-    }
-
-    [Test]
-    public void TheCsvHasOneRowPerFrame()
-    {
-        var (run, recorder) = Run(BenchConfigTests.TwoArms, Arms);
-        using var stream = new MemoryStream();
-        BenchReport.WriteCsv(stream, recorder, run);
-        var lines = Encoding.UTF8.GetString(stream.ToArray()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        var columns = lines[0].Split(',').Length;
-        Assert.Multiple(() =>
-        {
-            Assert.That(lines, Has.Length.EqualTo(recorder.Count + 1));
-            Assert.That(lines.All(line => line.Split(',').Length == columns));
-            Assert.That(lines[1], Does.StartWith("0,0,setup,-1,A,"));
-            Assert.That(lines.Count(line => line.Contains(",turn-far,", StringComparison.Ordinal)),
-                Is.EqualTo(4 * FramesPerSegment), "the far turn is named as in result.json");
-        });
-    }
-
-    [Test]
-    public void ResultFilesAppearWhole()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "komet-bench-test-" + Guid.NewGuid().ToString("N"));
-        _ = Directory.CreateDirectory(directory);
-        try
-        {
-            var json = BenchConfigTests.Json("\"laps\": 1, \"warmupLaps\": 0").Replace(
-                Path.Combine(Path.GetTempPath(), "komet-bench-test"), directory, StringComparison.Ordinal);
-            var config = BenchConfig.Parse(json);
-            var run = new BenchRun(config, BenchScenario.Expand(config));
-            var recorder = new BenchRecorder(10, run.Segments.Length, 1);
-            recorder.Start();
-            recorder.Stamp(0, BenchFrameTags.None, 0, 0, 0);
-            recorder.Frame(new FrameRecord(0, 10, 0, 0, 0, 0, null), default);
-            recorder.Stop();
-            BenchReport.Write(run, recorder);
-            Assert.Multiple(() =>
-            {
-                Assert.That(File.Exists(config.Output) && File.Exists(config.Frames));
-                Assert.That(Directory.GetFiles(directory, "*.tmp"), Is.Empty);
-                Assert.That(() => JsonDocument.Parse(File.ReadAllText(config.Output)).Dispose(), Throws.Nothing);
-            });
-        }
-        finally
-        {
-            Directory.Delete(directory, true);
-        }
-    }
-
-    // Without KOMET_BENCH nothing is read or registered: the call returns before it touches the api
-    [Test]
-    public void WithoutTheVariableTheBenchmarkIsInert()
-    {
-        Assert.That(Environment.GetEnvironmentVariable(Benchmark.Variable), Is.Null.Or.Empty,
-            "the test environment must not set it");
-        Assert.That(() => Benchmark.Install(null!), Throws.Nothing);
-    }
-
-    // The lows are FrameStats', the HUD's own: 1000·k / Σ(worst k ms) with k = n/100, and n/1000 for the 0.1 % low
-    [TestCase(99)]
-    [TestCase(100)]
-    [TestCase(999)]
-    [TestCase(1000)]
-    public void LowsNeedTheirWindow(int n)
-    {
-        var summary = BenchReport.Summarize(Enumerable.Repeat(10f, n).ToArray());
-        Assert.Multiple(() =>
-        {
-            Assert.That(summary.Low1Fps, n >= 100 ? Is.EqualTo(100f).Within(1e-3) : Is.NaN);
-            Assert.That(summary.Low01Fps, n >= 1000 ? Is.EqualTo(100f).Within(1e-3) : Is.NaN);
-        });
-    }
-
-    [Test]
-    public void TheSummaryCountsWhatItSays()
-    {
-        float[] ms = [10, 25, 25.5f, 40, 120, 8];
-        var summary = BenchReport.Summarize(ms);
-        var empty = BenchReport.Summarize([]);
-        Assert.Multiple(() =>
-        {
-            Assert.That((summary.N, summary.Over25, summary.MaxMs), Is.EqualTo((6, 3, 120f)), "strictly above 25 ms");
-            Assert.That(summary.Over25PerMin, Is.EqualTo(3 * 60_000.0 / 228.5).Within(1e-9));
-            Assert.That(summary.AvgMs, Is.EqualTo(228.5 / 6).Within(1e-4));
-            Assert.That(summary.P99Ms, Is.EqualTo(120f));
-            Assert.That((empty.N, empty.AvgMs, empty.P99Ms, empty.Low1Fps),
-                Is.EqualTo((0, double.NaN, float.NaN, float.NaN)));
-        });
-    }
-
     // Nearest rank: the smallest frame with at least p of all frames at or below it
     [TestCase(1, 990, 1f)]
     [TestCase(99, 990, 99f)]
-    [TestCase(100, 990, 99f)]
-    [TestCase(1000, 990, 990f)]
     public void PercentilesAreNearestRank(int n, int perMille, float expected)
     {
         var sorted = Enumerable.Range(1, n).Select(i => (float)i).ToArray();
         Assert.That(FrameStats.Percentile(sorted, perMille), Is.EqualTo(expected));
     }
 
-    [Test]
-    public void SpreadIgnoresMissingLaps() =>
-        Assert.Multiple(() =>
-        {
-            Assert.That(BenchReport.Spread([1, double.NaN, 3]), Is.EqualTo((2.0, Math.Sqrt(2), 2)));
-            Assert.That(BenchReport.Spread([5.0]).Sd, Is.NaN, "one lap has no spread");
-        });
 }

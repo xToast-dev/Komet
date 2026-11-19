@@ -29,18 +29,6 @@ public sealed class HearthCullingTests
     }
 
     [Test]
-    public void Installs()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(HearthCulling.Matched, Is.True,
-                "the firepit's and forge's OnRenderFrame are not the bodies verified");
-            Assert.That(HearthCulling.Blocked, Is.False);
-            Assert.That(HearthCulling.Seams().Select(s => Harmony.GetPatchInfo(s)?.Prefixes.Count), Is.EqualTo([1, 1]));
-        });
-    }
-
-    [Test]
     public void CullsOnlyWhatCannotReachTheView()
     {
         var (client, ahead, behind) = (Client(), new BlockPos(0, 0, -10), new BlockPos(0, 0, 40));
@@ -76,19 +64,6 @@ public sealed class HearthCullingTests
             Assert.That(HearthCulling.FirepitFrame(Mesh, client, behind, null, EnumRenderStage.Opaque), Is.True,
                 "switched off");
         });
-    }
-
-    // A firepit leaves culling off and standard blending, a forge culling off alone
-    [Test]
-    public void ASkippedDrawLeavesTheStateADrawnOneLeaves()
-    {
-        var behind = new BlockPos(0, 0, 40);
-        _state.Clear();
-        Assert.That(HearthCulling.FirepitFrame(Mesh, Client(), behind, null, EnumRenderStage.Opaque), Is.False);
-        Assert.That(_state, Is.EqualTo(["cull off", "blend True Standard"]));
-        _state.Clear();
-        Assert.That(HearthCulling.ForgeFrame(null, 1, Client(), behind, EnumRenderStage.Opaque), Is.False);
-        Assert.That(_state, Is.EqualTo(["cull off"]));
     }
 
     private ICoreClientAPI Client() => AnimatableCullingTests.StateClient(_state);

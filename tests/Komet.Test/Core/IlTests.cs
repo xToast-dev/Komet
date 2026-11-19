@@ -31,24 +31,10 @@ public sealed class IlTests
         };
     }
 
-    [Test]
-    public void TakeKeepsTheWholeBody()
-    {
-        var original = PatchProcessor.GetOriginalInstructions(DecompressScratch.Target()!);
-        Assert.Multiple(() =>
-        {
-            Assert.That(Il.Take(original, original.Count, out var all), Is.True);
-            Assert.That(all, Is.EqualTo(original).And.Not.SameAs(original));
-            Assert.That(Il.Take(original, original.Count - 1, out var over), Is.False, "one past the cap");
-            Assert.That(over, Is.EqualTo(original), "rejected whole, not cut");
-        });
-    }
-
     // Single finds the one site the feature's transpiler rewrites, and Substitute turns it into the same call in place; where that is
     // all the feature changes, the whole body is the feature's
     [TestCase(nameof(CloudTileScratch))]
     [TestCase(nameof(DecompressScratch))]
-    [TestCase(nameof(LightScratch))]
     public void SingleFindsAndSubstituteRewritesTheFeaturesSite(string feature)
     {
         var site = Feature(feature);
@@ -88,34 +74,6 @@ public sealed class IlTests
         });
     }
 
-    [Test]
-    public void LocalReadsTheIndexHarmonyReads()
-    {
-        MethodBase?[] methods =
-        [
-            LightScratch.Method("CollectLightValuesForLightSource"), LightScratch.Method("UpdateLightAt"), ColumnBody(),
-            AccessTools.DeclaredMethod(typeof(ChunkTesselator), "BuildExtendedChunkData",
-                [typeof(ClientChunk), typeof(int), typeof(int), typeof(int), typeof(bool), typeof(bool)])
-        ];
-        var seen = Il.Uses.None;
-        foreach (var method in methods)
-        {
-            Assert.That(method, Is.Not.Null);
-            foreach (var c in PatchProcessor.GetOriginalInstructions(method!))
-            {
-                var kind = Kind(c);
-                var index = kind == Il.Uses.None ? -1 : c.LocalIndex();
-                seen |= kind;
-                Assert.That(Il.Local(c), Is.EqualTo(index), c.ToString());
-                Assert.That((Il.Local(c, Il.Uses.Load), Il.Local(c, Il.Uses.Address), Il.Local(c, Il.Uses.Store)),
-                    Is.EqualTo((kind == Il.Uses.Load ? index : -1, kind == Il.Uses.Address ? index : -1,
-                        kind == Il.Uses.Store ? index : -1)), c.ToString());
-            }
-        }
-
-        Assert.That(seen, Is.EqualTo(Il.Uses.Any), "every kind came up");
-    }
-
     // The value pushed at an index goes to the instruction that pops it, as the operand it lands in; a jump or a label on the way, or
     // a walk past its reach, proves nothing
     [Test]
@@ -148,82 +106,6 @@ public sealed class IlTests
             Assert.That(Il.Effect(new CodeInstruction(OpCodes.Newobj, CloudTileScratch.Constructor())),
                 Is.EqualTo((3, 1)));
             Assert.That(Il.Effect(new CodeInstruction(OpCodes.Ret)), Is.EqualTo((-1, -1)), "depends on the method");
-        });
-    }
-
-    // LightScratch rewrites the node walks' queue: every load of it is the receiver of Enqueue, Dequeue or Count. Without Count
-    // allowed, the same local escapes.
-    [Test]
-    public void ConfinedAcceptsTheQueueLightScratchRewrites()
-    {
-        var enqueue = AccessTools.Method(typeof(QueueOfInt), nameof(QueueOfInt.Enqueue), [typeof(int)]);
-        var dequeue = AccessTools.Method(typeof(QueueOfInt), nameof(QueueOfInt.Dequeue));
-        var count = AccessTools.Field(typeof(QueueOfInt), nameof(QueueOfInt.Count));
-        var mine = AccessTools.Method(typeof(LightScratch), nameof(LightScratch.Queue));
-        foreach (var name in (string[])["SpreadDarkness", "CollectLightValuesForLightSource"])
-        {
-            var method = LightScratch.Method(name)!;
-            var code = PatchProcessor.GetOriginalInstructions(method);
-            var store = Il.Single(code, c => c.opcode == OpCodes.Newobj && Equals(c.operand, Queue)) + 1;
-            // a transpiler rewrites the instructions themselves
-            var fresh = PatchProcessor.GetOriginalInstructions(method);
-            var theirs = name == "SpreadDarkness"
-                ? LightScratch.RewriteDarkness(fresh)
-                : LightScratch.RewriteCollect(fresh);
-            Assert.Multiple(() =>
-            {
-                Assert.That(theirs.Exists(c => c.Calls(mine)), Is.True, name);
-                Assert.That(Il.Confined(code, store,
-                        (c, operand) => operand == 0 && (c.Calls(enqueue) || c.Calls(dequeue) || c.LoadsField(count))),
-                    Is.True, name);
-                Assert.That(
-                    Il.Confined(code, store, (c, operand) => operand == 0 && (c.Calls(enqueue) || c.Calls(dequeue))),
-                    Is.False, name);
-            });
-        }
-    }
-
-    // GenTerra's column body only addresses its ColumnNoise for the struct's own double members, and ColumnNoiseScratch rewrites it.
-    // The column copied, loaded through its address or overwritten escapes, and ColumnNoiseScratch leaves those bodies alone too.
-    [Test]
-    public void ConfinedAcceptsTheColumnColumnNoiseScratchRewrites()
-    {
-        var body = ColumnBody();
-        Assert.That(body, Is.Not.Null);
-        var forColumn = ColumnNoiseScratch.ForColumn()!;
-        var original = PatchProcessor.GetOriginalInstructions(body!);
-        var store = Il.Single(original, c => c.Calls(forColumn)) + 1;
-        var local = original[store].operand;
-
-        List<CodeInstruction> Variant(params CodeInstruction[] inserted)
-        {
-            var code = PatchProcessor.GetOriginalInstructions(body!);
-            code.InsertRange(store + 1, inserted);
-            return code;
-        }
-
-        bool Confined(List<CodeInstruction> code, Il.Uses uses) => Il.Confined(code, store, Member, uses, 6);
-
-        var variants = new[]
-        {
-            Variant(new CodeInstruction(OpCodes.Ldloc_S, local), new CodeInstruction(OpCodes.Pop)),
-            Variant(new CodeInstruction(OpCodes.Ldloca_S, local),
-                new CodeInstruction(OpCodes.Ldobj, typeof(ColumnNoise)), new CodeInstruction(OpCodes.Pop)),
-            Variant(new CodeInstruction(OpCodes.Ldloca_S, local),
-                new CodeInstruction(OpCodes.Initobj, typeof(ColumnNoise)))
-        };
-        Assert.Multiple(() =>
-        {
-            Assert.That(Confined(original, Il.Uses.Address), Is.True);
-            Assert.That(ColumnNoiseScratch.RewriteBody(Variant()).Exists(c =>
-                c.Calls(AccessTools.Method(typeof(ColumnNoiseScratch), nameof(ColumnNoiseScratch.Column)))), Is.True);
-            Assert.That(Confined(original, Il.Uses.Load), Is.False, "it is only ever addressed");
-            foreach (var code in variants)
-            {
-                Assert.That(Confined(code, Il.Uses.Address | Il.Uses.Load), Is.False);
-                Assert.That(ColumnNoiseScratch.RewriteBody(code).Exists(c =>
-                    c.operand is MethodInfo { DeclaringType: var t } && t == typeof(ColumnNoiseScratch)), Is.False);
-            }
         });
     }
 

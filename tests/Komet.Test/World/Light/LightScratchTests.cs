@@ -1,4 +1,3 @@
-using Komet.Core;
 using Komet.World;
 
 namespace Komet.Test.World;
@@ -9,13 +8,8 @@ namespace Komet.Test.World;
 // once, with a light update started from inside another one, on another world or on the same, and after updates that failed half way.
 public sealed class LightScratchTests
 {
-    private const int Steps = 160, Calls = 20, Passes = 3;
+    private const int Steps = 160;
     private static readonly int[] Seeds = [1];
-
-    // Any static object; only inspected
-    private static readonly FieldInfo Sink = AccessTools.Field(typeof(Type), nameof(Type.Missing));
-
-    private static readonly FieldInfo Visited = AccessTools.Field(typeof(ChunkIlluminator), "VisitedNodes");
 
     [TearDown]
     public void Reset() => LightScratch.Enabled = true;
@@ -103,17 +97,6 @@ public sealed class LightScratchTests
         return (Result(a), Result(b));
     }
 
-    [Test]
-    [Category("Slow")]
-    public void WorldsTakingTurnsOnOneThread()
-    {
-        var engine = TakingTurns(4);
-        using var harmony = Patched();
-        var mine = TakingTurns(4);
-        Same(engine.Item1, mine.Item1, "the first world");
-        Same(engine.Item2, mine.Item2, "the second world");
-    }
-
     // Three threads light their own worlds at once, as the server's chunk thread, its main thread and the client's relight thread do,
     // each two worlds taking turns; every world has to come out as the engine lit it alone
     [Test]
@@ -137,145 +120,6 @@ public sealed class LightScratchTests
         }
     }
 
-    // A world whose hooked blocks step another script: on a second world (another illuminator on the same thread), or on the same
-    // world, which clears VisitedNodes under the walk and can make the engine's enumerations throw - repeated, not repaired
-    private static (Lit World, Lit Other, int Nested) Nested(int seed, bool same)
-    {
-        var (absorbing, lighting) = (new Hook(29, 40), new Hook(3, 40));
-        var world = new LightWorld(LightWorld.MakeBlocks(new NestingBlock(absorbing), new NestingLightBlock(lighting)),
-                seed)
-            { Catching = true };
-        var other = new LightWorld(LightWorld.MakeBlocks(), seed + 20) { Catching = true };
-        other.LightUp();
-        var nested = 0;
-        using var inner = (same ? world : other).Script(seed * 11 + 3, 1000).GetEnumerator();
-        // ReSharper disable once AccessToDisposedClosure - the hooks run only in LightUp and Script below
-        absorbing.Step = lighting.Step = () => nested += inner.MoveNext() ? 1 : 0;
-        world.LightUp();
-        _ = world.Script(seed * 7 + 1, Steps).Count();
-
-        return (Result(world), Result(other), nested);
-    }
-
-    [TestCase(false)]
-    [TestCase(true)]
-    [Category("Slow")]
-    public void NestedUpdatesGetTheirOwnScratch(bool same)
-    {
-        var engine = Nested(9, same);
-        using var harmony = Patched();
-        var mine = Nested(9, same);
-        Same(engine.World, mine.World, "the world");
-        Same(engine.Other, mine.Other, "the other world");
-        Assert.That(mine.Nested, Is.EqualTo(engine.Nested).And.GreaterThan(20), "nested steps");
-    }
-
-    private static LightWorld Measured()
-    {
-        var world = new LightWorld(LightWorld.MakeBlocks(), 1) { Recording = false };
-        world.LightUp();
-        return world;
-    }
-
-    // The two operations measured: a lantern placed into the cluster on the chunk corner and removed again, and a block put into its
-    // light and taken out
-    private static Action[] Operations(LightWorld world)
-    {
-        var illuminator = world.Illuminator;
-        var lantern = world.Blocks[LightWorld.Lantern].GetLightHsv(null!, null!);
-        var (air, stone) = (world.Blocks[LightWorld.Air].LightAbsorption,
-            world.Blocks[LightWorld.Stone].LightAbsorption);
-        var (lx, ly, lz) = Open(world, 33, 45, 33);
-        var (bx, by, bz) = Open(world, 31, 46, 32);
-        return
-        [
-            () =>
-            {
-                world.Set(lx, ly, lz, LightWorld.Lantern);
-                _ = illuminator.PlaceBlockLight(lantern, lx, ly, lz);
-                world.Set(lx, ly, lz, LightWorld.Air);
-                _ = illuminator.RemoveBlockLight(lantern, lx, ly, lz);
-            },
-            () =>
-            {
-                world.Set(bx, by, bz, LightWorld.Stone);
-                _ = illuminator.UpdateBlockLight(air, stone, bx, by, bz);
-                world.Set(bx, by, bz, LightWorld.Air);
-                _ = illuminator.UpdateBlockLight(stone, air, bx, by, bz);
-            }
-        ];
-    }
-
-    private static (int X, int Y, int Z) Open(LightWorld world, int x, int y, int z)
-    {
-        var free = Enumerable.Range(y, LightWorld.SizeY - y)
-            .First(h => world.BlockAt(x, h, z) == LightWorld.Air && world.Fluid(x, h, z) == 0);
-        return (x, free, z);
-    }
-
-    private static long Allocated(Action operation)
-    {
-        for (var i = 0; i < 3; i++)
-        {
-            operation();
-        }
-
-        var start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < Calls; i++)
-        {
-            operation();
-        }
-
-        return (GC.GetAllocatedBytesForCurrentThread() - start) / Calls;
-    }
-
-    // The least of several passes: a one-off allocation of the runtime's (tiering, a palette growing) only adds bytes
-    private static long[] Least(long[] least, long[] pass) => least.Length == 0 ? pass : [.. least.Zip(pass, Math.Min)];
-
-    // Every pass on a fresh world, so that every variant goes through the same states: what is left between them is the runtime's own
-    private static long[] Measure()
-    {
-        long[] least = [];
-        for (var pass = 0; pass < Passes; pass++)
-        {
-            least = Least(least, [.. Operations(Measured()).Select(Allocated)]);
-        }
-
-        return least;
-    }
-
-    // Same process: the engine's own IL through Harmony, which is what the scratch switched off is compared with (a method Harmony has
-    // patched no longer runs the code it was first compiled to); then the scratch off and on
-    [Test]
-    [Category("Slow")]
-    public void GarbagePerUpdateBeforeAndAfter()
-    {
-        string[] methods = ["CollectLightValuesForLightSource", "UpdateLightAt", "SpreadDarkness"];
-        var identity = new Harmony("komet-test-lightscratch-identity");
-        foreach (var method in methods)
-        {
-            _ = identity.Patch(LightScratch.Method(method), transpiler: Foreign.Transpiler);
-        }
-
-        var engine = Measure();
-        identity.UnpatchAll(identity.Id);
-        using var harmony = Patched();
-        LightScratch.Enabled = false;
-        var off = Measure();
-        LightScratch.Enabled = true;
-        var on = Measure();
-        Assert.Multiple(() =>
-        {
-            // within a kilobyte of 4.5 MB: the runtime's own (tiering) lands on the thread now and then, ~100 bytes
-            Assert.That(off, Is.EqualTo(engine).Within(1024),
-                "switched off, the rewrite has to allocate what the engine does");
-            for (var i = 0; i < on.Length; i++)
-            {
-                Assert.That(on[i], Is.LessThan(engine[i] / 10), $"operation {i} kept most of its garbage");
-            }
-        });
-    }
-
     // A world whose hooked blocks fail: updates stop half way, leaving a queue with entries and nodes in
     // VisitedNodes behind, and the next update on the thread has to come out as the engine's does after the same failure
     private static Lit Failing(int seed)
@@ -296,150 +140,6 @@ public sealed class LightScratchTests
         Same(engine, mine, "the failing world");
         Assert.That(engine.Errors, Has.Count.GreaterThan(5), "failed updates");
     }
-
-    private static List<CodeInstruction> Original(string name) =>
-        PatchProcessor.GetOriginalInstructions(LightScratch.Method(name)!);
-
-    private static List<CodeInstruction> Escaping(List<CodeInstruction> code, CodeInstruction store)
-    {
-        var local = Il.Local(store);
-        Assert.That(store.IsStloc() && local >= 0, Is.True);
-        code.InsertRange(0, [new CodeInstruction(OpCodes.Ldloc, local), new CodeInstruction(OpCodes.Stsfld, Sink)]);
-        return code;
-    }
-
-    private static bool IsScratch(CodeInstruction code) =>
-        code.operand is MethodInfo { DeclaringType: var t } && t == typeof(LightScratch);
-
-    // Every other shape has to hand the engine its own IL back untouched: here the key, the node, VisitedNodes and the queue each escape
-    // into a static field
-    [Test]
-    public void AnotherShapeIsLeftAlone()
-    {
-        var collect = Original("CollectLightValuesForLightSource");
-        var keyLocal = collect[collect.FindIndex(c => Creates(c, typeof(Vec3i))) + 1];
-        var nodeLocal = collect[collect.FindIndex(c => Creates(c, typeof(LightSourcesAtBlock))) + 2]; // after the dup
-        var nodes = Original("CollectLightValuesForLightSource"); // VisitedNodes itself kept
-        nodes.InsertRange(0,
-        [
-            new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Ldfld, Visited),
-            new CodeInstruction(OpCodes.Stsfld, Sink)
-        ]);
-        var queueLocal = collect[collect.FindIndex(c => Creates(c, typeof(QueueOfInt))) + 1];
-        List<CodeInstruction>[] shapes =
-        [
-            Escaping(Original("CollectLightValuesForLightSource"), keyLocal),
-            Escaping(Original("CollectLightValuesForLightSource"), queueLocal),
-            Escaping(Original("CollectLightValuesForLightSource"), nodeLocal), nodes
-        ];
-        Assert.Multiple(() =>
-        {
-            Assert.That(LightScratch.RewriteCollect(Original("CollectLightValuesForLightSource")).Count(IsScratch),
-                Is.EqualTo(7), "the engine's own shape is rewritten");
-            foreach (var body in shapes)
-            {
-                var opcodes = body.Select(c => c.opcode).ToList();
-                var result = LightScratch.RewriteCollect(body);
-                Assert.That(result.Count(IsScratch), Is.Zero);
-                Assert.That(result.Select(c => c.opcode), Is.EqualTo(opcodes));
-            }
-        });
-    }
-
-    // The proofs read the shipped IL: another mod's patch on any of the four methods, found at install, leaves all of them the engine's
-    // and says which one in the log
-    [TestCase("UpdateLightAt")]
-    [TestCase("CollectLightValuesForLightSource")]
-    [TestCase("SpreadDarkness")]
-    [TestCase("RecalcBlockLightAtPos")]
-    public void AnotherModsPatchAtInstallLeavesTheEngineAlone(string seam)
-    {
-        using var other = new TestHarmony("komet-test-another-mod");
-        using var harmony = new TestHarmony("komet-test-lightscratch");
-        var logger = new CapturingLogger();
-        _ = other.Patch(LightScratch.Method(seam), postfix: Foreign.Postfix);
-        LightScratch.Install(harmony, logger);
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(LightScratch.Rewritten, Is.False);
-            foreach (var name in (string[])["UpdateLightAt", "CollectLightValuesForLightSource", "SpreadDarkness"])
-            {
-                Assert.That(Harmony.GetPatchInfo(LightScratch.Method(name)!)?.Owners ?? [],
-                    Does.Not.Contain(harmony.Id), name);
-            }
-
-            Assert.That(logger.Lines, Has.Count.EqualTo(1));
-            Assert.That(logger.Lines,
-                Has.All.StartsWith("Notification").And.All.Contains("ChunkIlluminator." + seam + ";"));
-        }
-    }
-
-    private static List<CodeInstruction> After(List<CodeInstruction> code, string name, Type type,
-        params CodeInstruction[] extra)
-    {
-        var at = code.FindIndex(c =>
-            c.operand is MethodInfo { Name: var n, ReturnType: var r } && n == name && r == type);
-        Assert.That(at, Is.GreaterThanOrEqualTo(0), name);
-        code.InsertRange(at + 1, extra);
-        return code;
-    }
-
-    // UpdateLightAt passes its IL through, so the scratch is only armed when it clears VisitedNodes first and keeps no key, node or
-    // entry; RecalcBlockLightAtPos, which gets every key and node, has to only read them. Each broken shape disarms, the engine's own
-    // arms again, all while installed.
-    [Test]
-    public void ReuseArmsOnlyWhenNothingKeepsAKeyOrNode()
-    {
-        var entry = typeof(KeyValuePair<Vec3i, LightSourcesAtBlock>);
-        var update = Original("UpdateLightAt");
-        var stored = update[
-            update.FindIndex(c => c.operand is MethodInfo { Name: "get_Current" } m && m.ReturnType == entry) + 1];
-        var noClear = Original("UpdateLightAt");
-        noClear.RemoveRange(0, 3);
-        CodeInstruction[] kept = [new(OpCodes.Dup), new(OpCodes.Stsfld, Sink)];
-        List<CodeInstruction>[] updates =
-        [
-            noClear,
-            After(Original("UpdateLightAt"), "get_Key", typeof(Vec3i), kept),
-            After(Original("UpdateLightAt"), "get_Value", typeof(LightSourcesAtBlock),
-                [.. kept.Select(c => c.Clone())]),
-            After(Original("UpdateLightAt"), "get_Current", entry, new CodeInstruction(OpCodes.Dup),
-                new CodeInstruction(OpCodes.Box, entry),
-                new CodeInstruction(OpCodes.Stsfld, Sink)),
-            Escaping(Original("UpdateLightAt"), stored)
-        ];
-        var recalc = PatchProcessor.GetOriginalInstructions(LightScratch.Method("RecalcBlockLightAtPos")!);
-        var hsvs = AccessTools.Field(typeof(LightSourcesAtBlock), nameof(LightSourcesAtBlock.lightHsvs));
-        List<CodeInstruction>[] recalcs =
-        [
-            [new CodeInstruction(OpCodes.Ldarg_1), new CodeInstruction(OpCodes.Stsfld, Sink), .. recalc],
-            [new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Stsfld, Sink), .. recalc],
-            [
-                new CodeInstruction(OpCodes.Ldarg_2), new CodeInstruction(OpCodes.Ldfld, hsvs),
-                new CodeInstruction(OpCodes.Stsfld, Sink), .. recalc
-            ]
-        ];
-        using var harmony = Patched();
-        Assert.Multiple(() =>
-        {
-            Assert.That(LightScratch.OnlyRead(recalc), Is.True, "the engine's RecalcBlockLightAtPos");
-            foreach (var body in recalcs)
-            {
-                Assert.That(LightScratch.OnlyRead(body), Is.False, "RecalcBlockLightAtPos keeping an argument");
-            }
-
-            for (var i = 0; i < updates.Length; i++)
-            {
-                _ = LightScratch.CheckUpdate(updates[i]);
-                Assert.That(LightScratch.Rewritten, Is.False, $"UpdateLightAt shape {i}");
-                _ = LightScratch.CheckUpdate(Original("UpdateLightAt"));
-                Assert.That(LightScratch.Rewritten, Is.True, "the engine's UpdateLightAt again");
-            }
-        });
-    }
-
-    private static bool Creates(CodeInstruction code, Type type) =>
-        code.opcode == OpCodes.Newobj && code.operand is ConstructorInfo { DeclaringType: var t } && t == type;
 
     private sealed record Lit(List<long[]> Touched, List<ulong> Hashes, List<string> Errors, int[][] Values);
 

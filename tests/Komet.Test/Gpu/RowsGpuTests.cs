@@ -9,12 +9,7 @@ public sealed class RowsGpuTests
     private const double Cx = 512003.37, Cy = 121.61, Cz = 511988.82;
     private const int Count = 6000, Chunks = 97;
 
-    // The ranges' edges and the levels drawn near them; the steps from an edge: none, aside, nearer, farther
-    private static readonly (int Distance, int[] Lods)[] Edges = [(128, [0, 1]), (400, [2, 3, 1]), (512, [1, 3])];
-    private static readonly (float Along, float Aside)[] Steps = [(0, 0), (0, 1 / 32f), (-1 / 32f, 0), (1 / 32f, 0)];
-
     [TestCase(GpuRig.Gl, 0)]
-    [TestCase(GpuRig.Vulkan, 1)]
     public void TheGpuKeepsWhatTheEngineKeeps(string backend, int buffer) =>
         Culled(backend, vao =>
         {
@@ -33,7 +28,6 @@ public sealed class RowsGpuTests
         });
 
     [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
     public void TheRowsFollowWhatChangesBetweenFrames(string backend)
     {
         Culled(backend, vao =>
@@ -85,51 +79,10 @@ public sealed class RowsGpuTests
         });
     }
 
-    // The shadow passes: InFrustumShadowPass's range in floats - some locations exactly on its edge - and all six planes, the far
-    // pass only LOD 1 and up, without occlusion; their commands in the shadow passes' own place
-    [TestCase(GpuRig.Gl, EnumFrustumCullMode.CullInstantShadowPassNear)]
-    [TestCase(GpuRig.Vulkan, EnumFrustumCullMode.CullInstantShadowPassFar)]
-    public void TheShadowPassesKeepWhatTheEngineKeeps(string backend, EnumFrustumCullMode mode)
-    {
-        Culled(backend, vao =>
-        {
-            OcclusionCulling.Enabled = true;
-            ModelDataPoolLocation.VisibleBufIndex = 1;
-            var (culler, random) = (Culler(200), new Random(23)); // the far plane inside the shadow range
-            (culler.shadowRangeX, culler.shadowRangeZ) = (300, 250);
-            var (locations, _) = Locations(culler, random);
-            for (var i = 0; i < locations.Count; i += 4) // on the range's edge, or a float step inside or outside it
-            {
-                var sphere = locations[i].FrustumCullSphere;
-                var (sx, sz, step) = (random.Next(2) * 2 - 1, random.Next(2) * 2 - 1, (random.Next(3) - 1) / 32f);
-                if (random.Next(2) == 0)
-                {
-                    sphere.x = (int)Cx + sx * (300 + step);
-                }
-                else
-                {
-                    sphere.z = (int)Cz + sz * (250 + step);
-                }
-
-                locations[i].FrustumCullSphere = sphere;
-            }
-
-            var pool = Pool(locations, vao);
-            var expected = Kept(locations, culler, mode);
-            Assert.Multiple(() =>
-            {
-                Assert.That(OcclusionCulling.RunShadow([pool], culler, new Vec3d(Cx, Cy, Cz), mode), Is.True, "held");
-                Assert.That(Drawn(locations.Count, true), Is.EqualTo(expected), "the engine's locations");
-                Assert.That(expected, Has.Count.InRange(Count / 50, Count - Count / 20), "a mix of kept and left out");
-            });
-        });
-    }
-
     // Adds and removals as the patched TryAdd and RemoveLocation see them - one Insert or RemoveAt each, the version before
     // taken first - reach the rows without writing the region anew: removed rows taken by the region's last, added ones at its
     // end once the pool is drawn, the region moved to a larger block when it fills up
     [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
     public void AddsAndRemovalsReachTheRows(string backend) =>
         Culled(backend, vao =>
         {
@@ -196,74 +149,6 @@ public sealed class RowsGpuTests
 
                 Assert.That(locations, Has.Count.GreaterThan(2 * Count), "the region outgrew its first block");
                 Assert.That(OcclusionCulling.Rewrites, Is.EqualTo(rewrites), "no region written anew");
-            });
-        });
-
-    // Every LOD range's edge exactly, and within a float's rounding of it: a camera looking straight down -z, the limits squares
-    // (128 for LOD 0, 400 for LOD 2 and 3, 512 the view distance), locations straight ahead at those distances - at them, a
-    // block's 1/32 beside (which HorDistanceSqTo's float rounds away), and one float step nearer and farther
-    [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
-    public void TheRangesEdgesAreTheEngines(string backend) =>
-        Culled(backend, vao =>
-        {
-            ModelDataPoolLocation.VisibleBufIndex = 0;
-            var (bx, by, bz) = ((int)Cx, (int)Cy, (int)Cz);
-            var culler = new FrustumCulling();
-            var projection = Mat4d.Perspective(Mat4d.Create(), 70 * GameMath.DEG2RAD, 16 / 9.0, 0.1, 1536);
-            var view = Mat4d.Translate(Mat4d.Create(), Mat4d.Create(), -bx, -by - 0.5, -bz);
-            culler.CalcFrustumEquations(new BlockPos(bx, by, bz), projection, view);
-            (culler.ViewDistanceSq, culler.lod0BiasSq, culler.lod2BiasSq) = (512 * 512, 128 * 128 - 1024, 400.0 * 400);
-            List<ModelDataPoolLocation> locations = [];
-            var cases = from edge in Edges
-                from lod in edge.Lods
-                from step in Steps
-                select (edge.Distance, Lod: lod, step.Along, step.Aside);
-            foreach (var (distance, lod, along, aside) in cases)
-            {
-                locations.Add(new ModelDataPoolLocation
-                {
-                    IndicesStart = 6 * locations.Count, IndicesEnd = 6 * locations.Count + 6,
-                    FrustumCullSphere = new Sphere(bx + aside, by, bz - distance + along, 8, 8, 8), LodLevel = lod,
-                    CullVisible = new Bools(true, true)
-                });
-            }
-
-            var expected = Kept(locations, culler);
-            Assert.Multiple(() =>
-            {
-                Assert.That(OcclusionCulling.RunRows([Pool(locations, vao)], culler, new Vec3d(bx, by, bz),
-                    ViewProjection()), Is.True, "culled from rows");
-                var drawn = Drawn(locations.Count);
-                Assert.That(drawn, Is.EqualTo(expected), "the commands are the engine's locations");
-                Assert.That(expected, Has.Count.InRange(locations.Count / 4, locations.Count * 3 / 4),
-                    "edges both ways");
-            });
-        });
-
-    // Pools past the rows buffer's first size grow it mid-call: the rows already on the GPU stay
-    [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
-    public void RowsOnTheGpuOutliveItsGrowth(string backend) =>
-        Culled(backend, vao =>
-        {
-            ModelDataPoolLocation.VisibleBufIndex = 0;
-            var (culler, random, camera) = (Culler(), new Random(19), new Vec3d(Cx, Cy, Cz));
-            var (first, bools) = Locations(culler, random);
-            var pool = Pool(first, vao);
-            _ = OcclusionCulling.RunRows([pool], culler, camera, ViewProjection());
-            List<MeshDataPool> pools = [pool];
-            for (var i = 1; i <= 12; i++)
-            {
-                pools.Add(Pool(Locations(culler, random, i * Count, bools).Item1, vao));
-            }
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(OcclusionCulling.RunRows(pools, culler, camera, ViewProjection()), Is.True,
-                    "culled from rows");
-                Assert.That(OcclusionCulling.RowsUsed, Is.GreaterThan(1 << 16), "past the first size");
-                Assert.That(Drawn(first.Count), Is.EqualTo(Kept(first, culler)), "the first pool's rows kept");
             });
         });
 

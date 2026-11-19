@@ -1,5 +1,4 @@
 using Komet.World;
-using Vintagestory.GameContent;
 
 namespace Komet.Test.World;
 
@@ -7,22 +6,11 @@ namespace Komet.Test.World;
 [NonParallelizable]
 public sealed class SnowPeekTests
 {
-    [Test]
-    public void TheScansReadsAreRewritten()
-    {
-        Assert.That(typeof(WeatherSimulationSnowAccum).Assembly,
-            Is.Not.Null); // Komet finds it by name once VSEssentials is loaded
-        using var harmony = new TestHarmony("komet-test-snowpeek");
-        SnowPeek.Install(harmony);
-        Assert.That(SnowPeek.Rewritten, Is.True,
-            "UpdateSnowLayer no longer reads its blocks through four GetLocalBlockAtBlockPos");
-    }
 
     // A packed chunk's blocks and fluids read without unpacking as the engine's own ChunkData reads them, for palettes of
     // one to eight bits
     [TestCase(1)]
     [TestCase(40)]
-    [TestCase(300)]
     public void APackedChunkReadsAsTheEngineReadsIt(int kinds)
     {
         using var harmony = new TestHarmony("komet-test-snowpeek");

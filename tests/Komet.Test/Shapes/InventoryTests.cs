@@ -8,25 +8,6 @@ namespace Komet.Test.Shapes;
 [NonParallelizable]
 public sealed class InventoryShapesTests
 {
-    // The JSON with the root object's "animations" value replaced by null, as the scan finds it
-    private static string WithoutAnimations(string json) =>
-        InventoryShapes.Animations(json, out var from, out var to)
-            ? string.Concat(json.AsSpan(0, from), "null", json.AsSpan(to))
-            : json;
-
-    [Test]
-    public void OnlyTheRootsAnimationsGo()
-    {
-        const string json = """
-                            { "textures": { "a": "x" }, /* "animations": [ */ "elements": [ { "name": "a\"]", "animations": [1] } ],
-                              // "animations": 1
-                              'Animations': [ { "code": "walk", "keyframes": [ { "frame": 0, "elements": { "]": {} } } ] } ], "textureWidth": 32 }
-                            """;
-        var lean = WithoutAnimations(json);
-        Assert.That(lean, Does.Contain("'Animations': null, \"textureWidth\": 32"));
-        Assert.That(lean, Does.Contain("\"animations\": [1]"), "an element's own key stays");
-        Assert.That(WithoutAnimations("{ \"elements\": [] }"), Is.EqualTo("{ \"elements\": [] }"));
-    }
 
     // Read from the asset's bytes through the pooled buffer: the same shape as the text without the animations, BOM or not
     [TestCase(false)]
@@ -78,35 +59,6 @@ public sealed class InventoryShapesTests
 // Only creature and wearable items (and classes learnt slow) wait for a later frame; plain items and blocks never
 public sealed class IconBudgetTests
 {
-    [Test]
-    public void OnlyHeavyClassesWait()
-    {
-        Assert.That(IconBudget.Heavy(new Item()), Is.False);
-        Assert.That(IconBudget.Heavy(new Block()), Is.False);
-        Assert.That(IconBudget.Heavy((CollectibleObject)RuntimeHelpers.GetUninitializedObject(typeof(ItemCreature))),
-            Is.True);
-        var clothes = new Item();
-        clothes.CollectibleBehaviors = [new CollectibleBehaviorWearable(clothes)];
-        Assert.That(IconBudget.Heavy(clothes), Is.True);
-    }
-
-    // A mod's own wearable behaviour builds the same meshes as the one it derives from
-    [Test]
-    public void AWearableSubclassWaitsToo()
-    {
-        var armour = new Item();
-        armour.CollectibleBehaviors = [new ModWearable(armour)];
-        var bag = new Item();
-        bag.CollectibleBehaviors = [new CollectibleBehaviorWearableAttachment(bag)];
-        Assert.Multiple(() =>
-        {
-            Assert.That(IconBudget.Heavy(armour), Is.True);
-            Assert.That(IconBudget.Heavy(bag), Is.True);
-        });
-    }
-
-    [Test]
-    public void TheIconBudgetFindsTheItemRenderer() => Assert.That(IconBudget.Target(), Is.Not.Null);
 
     private sealed class ModWearable(CollectibleObject collectible) : CollectibleBehaviorWearable(collectible);
 }

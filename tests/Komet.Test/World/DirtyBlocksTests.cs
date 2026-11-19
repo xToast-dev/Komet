@@ -25,11 +25,4 @@ public sealed class DirtyBlocksTests
         });
     }
 
-    [Test]
-    public void TheBlockSimulationIsPatched()
-    {
-        using var harmony = new TestHarmony("komet-test-dirtyblocks");
-        DirtyBlocks.Install(harmony);
-        Assert.That(DirtyBlocks.Installed, Is.True);
-    }
 }

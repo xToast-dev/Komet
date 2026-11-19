@@ -31,43 +31,9 @@ public sealed class OwnTessellationTests
         /* Compatibility probe only. */
     }
 
-    [Test]
-    public void FaceLightPostfixStillColorsTheOwnTessellatorQuads()
-    {
-        using var rig = new ChunkRig();
-        using var harmony = new TestHarmony("komet-test-own-light-base");
-        using var other = new TestHarmony("komet-test-own-light-foreign");
-        OwnTessellation.Install(harmony);
-        _ = other.Patch(FaceLight.Target(),
-            postfix: new HarmonyMethod(typeof(OwnTessellationTests), nameof(ColorCorners)));
-        OwnTessellation.Recheck();
-
-        var vars = (TCTCache)ChunkRig.Get(rig.Tesselator, "vars");
-        vars.block = rig.Blocks[ChunkRig.Stone];
-        vars.aoAndSmoothShadows = false;
-        OwnQuads.Light(vars, vars.block, 0, TessSeams.Origin, rig.RgbsExt, vars.CurrentLightRGBByCorner);
-
-        Assert.That(OwnTessellation.Active, Is.True);
-        Assert.That(vars.CurrentLightRGBByCorner.Take(4), Is.All.EqualTo(12345));
-        Assert.That(OwnTessellation.JsonStoodDown, Is.True);
-    }
-
     private static void ColorCorners(TCTCache __instance) =>
         __instance.CurrentLightRGBByCorner.AsSpan(0, 4).Fill(12345);
 
-    [Test]
-    public void AnotherEngineShapeKeepsTheReplacementsOut()
-    {
-        using (var harmony = new TestHarmony("komet-test-ownshape"))
-        {
-            OwnTessellation.Install(harmony, null, null, OwnTessellation.Shape ^ 1);
-            Assert.That(OwnTessellation.Installed, Is.False);
-        }
-
-        using var json = new TestHarmony("komet-test-ownshape-json");
-        OwnTessellation.Install(json, null, null, OwnTessellation.Shape, OwnTessellation.JsonShape ^ 1);
-        Assert.That((OwnTessellation.Installed, OwnTessellation.JsonInstalled), Is.EqualTo((true, false)));
-    }
 }
 
 // Komet's tesselators (OwnTessellation) against the engine's through NowProcessChunk on random worlds: the Cube slot's

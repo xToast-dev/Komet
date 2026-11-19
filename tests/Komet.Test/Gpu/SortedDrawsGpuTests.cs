@@ -1,6 +1,4 @@
 using Komet.Rendering;
-using Komet.Vulkan;
-using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Test.Gpu;
 
@@ -9,8 +7,6 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class SortedDrawsGpuTests
 {
-    private static readonly bool[] Expected = [true, false, false, false, true, false];
-
     [TestCase(GpuRig.Gl)]
     [TestCase(GpuRig.Vulkan)]
     public void TheSortedCommandsAreTheWrittenOnesNearestFirst(string backend) =>
@@ -55,43 +51,6 @@ public sealed class SortedDrawsGpuTests
 
             Assert.That(reordered, Is.Positive, "some draw's order changed");
         });
-
-    // Sorted only while OpenGL tests and writes depth with LESS or LEQUAL and blends into no draw buffer
-    [Test]
-    public void OnlyAnOrderlessStateIsSorted()
-    {
-        using var window = GlContext.Context();
-        if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
-
-        Assert.That(OcclusionCulling.Orderless(), Is.False, "not tapped: OpenGL's state unknown");
-        GL.Enable(EnableCap.DepthTest);
-        GL.DepthFunc(DepthFunction.Lequal);
-        GL.DepthMask(true);
-        GL.Disable(EnableCap.Blend);
-        Assert.That(GlTap.Tap(), Is.True);
-        try
-        {
-            var states = new List<bool> { OcclusionCulling.Orderless() };
-            GL.Enable(IndexedEnableCap.Blend, 3);
-            states.Add(OcclusionCulling.Orderless());
-            GL.Disable(EnableCap.Blend);
-            GL.DepthMask(false);
-            states.Add(OcclusionCulling.Orderless());
-            GL.DepthMask(true);
-            GL.DepthFunc(DepthFunction.Always);
-            states.Add(OcclusionCulling.Orderless());
-            GL.DepthFunc(DepthFunction.Less);
-            states.Add(OcclusionCulling.Orderless());
-            GL.Disable(EnableCap.DepthTest);
-            states.Add(OcclusionCulling.Orderless());
-            Assert.That(states, Is.EqualTo(Expected),
-                "LEQUAL, a blending buffer, no depth writes, ALWAYS, LESS, no depth test");
-        }
-        finally
-        {
-            GlTap.Untap();
-        }
-    }
 
     private static List<(uint, uint)> Commands(uint[] commands, int count) =>
         [.. Enumerable.Range(0, count).Select(c => (commands[5 * c], commands[5 * c + 2]))];

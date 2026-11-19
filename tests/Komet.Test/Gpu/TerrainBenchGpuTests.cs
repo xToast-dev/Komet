@@ -15,9 +15,6 @@ namespace Komet.Test.Gpu;
 public sealed class TerrainBenchGpuTests
 {
     private const int Rounds = 40, Map = 4096, Width = 2560, Height = 1366;
-
-    private const int VertexShaderInvocations = 0x82F0, PrimitivesSubmitted = 0x82EF, ClippingOutputPrimitives = 0x82F7;
-
     private static readonly (double Yaw, double Pitch, double[] Sun)[] Views =
         [(0.3, -0.15, [0.4, 0.8, 0.3]), (2.4, -0.5, [-0.7, 0.35, 0.2]), (4.2, 0.1, [0.1, 0.25, -0.9])];
 
@@ -67,83 +64,6 @@ public sealed class TerrainBenchGpuTests
                 GL.DeleteProgram(opaque);
             }
         });
-
-    [Test]
-    public void FacesFacingAwayLeftOut() =>
-        TerrainWorld.Run(GpuRig.Gl, 320, world =>
-        {
-            var opaque = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
-            using var screen = new DepthTarget(Width, Height, 4);
-            int[] queries = [GL.GenQuery(), GL.GenQuery(), GL.GenQuery(), GL.GenQuery()];
-            try
-            {
-                TestContext.Out.WriteLine(
-                    $"{world.Triangles / 1e6:0.00} M triangles in {world.Locations.Count()} locations");
-                foreach (var (yaw, pitch, _) in Views)
-                {
-                    var view = new TerrainView(yaw, pitch, [0.4, 0.8, 0.3]);
-                    var samples = FaceSplitsGpuTests.Variants.Select(_ => new List<double[]>()).ToArray();
-                    for (var round = 0; round < Rounds; round++)
-                    {
-                        for (var v = 0; v < samples.Length; v++)
-                        {
-                            samples[v].Add(Facing(world, view, FaceSplitsGpuTests.Variants[v], (opaque, screen, queries)));
-                        }
-                    }
-
-                    var lines = samples.Select(s => string.Create(CultureInfo.InvariantCulture,
-                            $"{MedianOf(s, 0):0.000} ms, {MedianOf(s, 1) / 1e6:0.00} M vertex shader invocations, " +
-                            $"{MedianOf(s, 2) / 1e6:0.00} M primitives, {MedianOf(s, 3) / 1e6:0.00} M after clipping"))
-                        .ToArray();
-                    TestContext.Out.WriteLine(
-                        $"yaw {yaw}: whole {lines[0]}; directions facing away and their parts past the " +
-                        $"splits left out {lines[1]}");
-                }
-            }
-            finally
-            {
-                foreach (var query in queries)
-                {
-                    GL.DeleteQuery(query);
-                }
-
-                GL.DeleteProgram(opaque);
-            }
-        }, true);
-
-    // The culling's and the draw's GPU time, then the draw's statistics
-    private static double[] Facing(TerrainWorld world, TerrainView view, bool backFaces,
-        (int Program, DepthTarget Screen, int[] Queries) with)
-    {
-        var culling = Timed(with.Queries[0], () => world.CullRows(view, backFaces));
-        with.Screen.Begin();
-        TerrainWorld.BackCulled();
-        int[] targets = [VertexShaderInvocations, PrimitivesSubmitted, ClippingOutputPrimitives];
-        for (var q = 0; q < targets.Length; q++)
-        {
-            GL.BeginQuery((QueryTarget)targets[q], with.Queries[q + 1]);
-        }
-
-        var drawing = Timed(with.Queries[0],
-            () => world.DrawCulled(with.Program, view.CameraMvp, view.Camera, false, false, backFaces ? 4 : 1));
-        foreach (var target in targets)
-        {
-            GL.EndQuery((QueryTarget)target);
-        }
-
-        GL.Disable(EnableCap.CullFace);
-        var result = new double[4];
-        result[0] = culling + drawing;
-        for (var q = 0; q < targets.Length; q++)
-        {
-            GL.GetQueryObject(with.Queries[q + 1], GetQueryObjectParam.QueryResult, out long count);
-            result[q + 1] = count;
-        }
-
-        return result;
-    }
-
-    private static double MedianOf(List<double[]> samples, int at) => Median([.. samples.Select(s => s[at])]);
 
     private static double Shadow(TerrainWorld world, TerrainView view, FrustumCulling? casters,
         (int Program, DepthTarget Map, float[] Mvp, int Query) with)

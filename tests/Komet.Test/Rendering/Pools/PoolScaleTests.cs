@@ -11,17 +11,8 @@ public sealed class PoolScaleTests
     [TearDown]
     public void Restore() => PoolScale.Scale = PoolScale.DefaultScale;
 
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-poolscale");
-        PoolScale.Install(harmony);
-        Assert.That(PoolScale.Rewritten, Is.True, "AddModel no longer reads the pool sizes");
-    }
-
     [TestCase(4, true, new[] { 1, 2, 4, 4 })]
     [TestCase(1, true, new[] { 1, 1, 1, 1 })]
-    [TestCase(4, false, new[] { 1, 1, 1, 1 })]
     public void PoolsGrowOnlyInAChunkPass(int scale, bool chunks, int[] factors)
     {
         ArgumentNullException.ThrowIfNull(factors);

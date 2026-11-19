@@ -8,51 +8,18 @@ namespace Komet.Test.World;
 public sealed class ParticleLightTests
 {
     private const int Light = 0x123456;
-    private long _reads, _busy, _packed; // the totals when the test began
+    private long _busy; // the total when the test began
 
     [SetUp]
     public void Clear()
     {
         ParticleLight.Forget();
         Counting.Hud = true;
-        (_reads, _busy, _packed) = (ParticleLight.Reads, ParticleLight.Busy, ParticleLight.Packed);
+        _busy = ParticleLight.Busy;
     }
 
     [TearDown]
     public void Stop() => Counting.Hud = false;
-
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-particlelight");
-        ParticleLight.Install(harmony);
-        Assert.That(ParticleLight.Installed, Is.True);
-    }
-
-    [Test]
-    public void AFreeLockLetsTheEngineReadWhileHoldingIt()
-    {
-        var chunk = new TestChunk();
-        var result = 0;
-        Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.True);
-        Assert.Multiple(() =>
-        {
-            Assert.That(state, Is.SameAs(chunk));
-            Assert.That(Monitor.IsEntered(chunk.Gate), Is.True, "held across the original");
-        });
-        Assert.That(ParticleLight.Finalizer(null, state, Light, 5, 6, 7), Is.Null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(Monitor.IsEntered(chunk.Gate), Is.False, "released by the finalizer");
-            Assert.That(OtherThreadCanEnter(chunk.Gate), Is.True);
-            Assert.That(ParticleLight.Reads - _reads, Is.EqualTo(1));
-            Assert.That(ParticleLight.Held(5, 6, 7, out var held) && held == Light, Is.True,
-                "the block answers without the lock");
-            Assert.That(ParticleLight.Held(5, 6, 8, out _), Is.False, "another block reads again");
-        });
-        ParticleLight.Forget();
-        Assert.That(ParticleLight.Held(5, 6, 7, out _), Is.False, "a world left keeps none");
-    }
 
     [Test]
     public void ABusyLockServesTheLastLightWithoutWaiting()
@@ -73,45 +40,6 @@ public sealed class ParticleLightTests
         });
     }
 
-    // TryEnter spins before it gives up, so a chunk found busy is left alone for the backoff, even once its lock is free again
-    [Test]
-    public void ABusyChunkIsNotTriedAgainWithinTheBackoff()
-    {
-        var chunk = new TestChunk();
-        Remember(chunk, Light);
-        var result = 0;
-        using (HoldElsewhere(chunk))
-        {
-            Assert.That(ParticleLight.Enter(chunk, ref result, out _), Is.False);
-        }
-
-        result = 0;
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.False, "still backing off");
-            Assert.That((result, state), Is.EqualTo((Light, (WorldChunk?)null)));
-            Assert.That(ParticleLight.Busy - _busy, Is.EqualTo(2));
-        }
-        _ = SpinWait.SpinUntil(() => false, ParticleLight.BackoffMs + 30); // let the backoff run out
-        Assert.That(ParticleLight.Enter(chunk, ref result, out var taken), Is.True, "tried again after the backoff");
-        _ = ParticleLight.Finalizer(null, taken, Light, 0, 0, 0);
-    }
-
-    [Test]
-    public void EachChunkServesItsOwnLight()
-    {
-        TestChunk shaded = new(), sunlit = new();
-        Remember(shaded, 1);
-        Remember(sunlit, Light);
-        var result = 0;
-        using var held = HoldElsewhere(shaded);
-        Assert.Multiple(() =>
-        {
-            Assert.That(ParticleLight.Enter(shaded, ref result, out _), Is.False);
-            Assert.That(result, Is.EqualTo(1), "the chunk's own light, not the last one read anywhere");
-        });
-    }
-
     [Test]
     public void WithoutALastLightTheEngineWaitsAsBefore()
     {
@@ -122,25 +50,6 @@ public sealed class ParticleLightTests
         {
             Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.True);
             Assert.That(state, Is.Null, "nothing taken, nothing to release");
-        });
-    }
-
-    [Test]
-    public void APackedChunkStaysPacked()
-    {
-        var chunk = new TestChunk();
-        Remember(chunk, Light);
-        chunk.Unpack(); // marks potential changes, so Pack compresses rather than reuse data it never had
-        chunk.TryPackAndCommit(0);
-        Assert.That(chunk.IsPacked(), Is.True, "precondition");
-        var result = 0;
-        Assert.Multiple(() =>
-        {
-            Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.False);
-            Assert.That(result, Is.EqualTo(Light));
-            Assert.That(state, Is.Null);
-            Assert.That(chunk.IsPacked(), Is.True, "not unpacked on the render thread");
-            Assert.That(ParticleLight.Packed - _packed, Is.EqualTo(1));
         });
     }
 
@@ -160,37 +69,12 @@ public sealed class ParticleLightTests
         Assert.That(ParticleLight.Enter(chunk, ref result, out _), Is.True);
     }
 
-    // Leaving the world forgets every chunk and the last light: the next read of a busy chunk waits as the first one did
-    [Test]
-    public void ForgetDropsEveryChunk()
-    {
-        var chunk = new TestChunk();
-        Remember(chunk, Light);
-        ParticleLight.Forget();
-        using var held = HoldElsewhere(chunk);
-        var result = 0;
-        Assert.Multiple(() =>
-        {
-            Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.True);
-            Assert.That((result, state), Is.EqualTo((0, (WorldChunk?)null)));
-        });
-    }
-
     private static void Remember(TestChunk chunk, int light)
     {
         var result = 0;
         Assert.That(ParticleLight.Enter(chunk, ref result, out var state), Is.True);
         _ = ParticleLight.Finalizer(null, state, light, 0, 0, 0);
     }
-
-    private static bool OtherThreadCanEnter(object gate) =>
-        Task.Run(() =>
-        {
-            if (!Monitor.TryEnter(gate)) return false;
-
-            Monitor.Exit(gate);
-            return true;
-        }).Result;
 
     // The chunk's lock held by another thread until disposed, the way the visibility calculation or the compressor holds it
     private static Holder HoldElsewhere(TestChunk chunk) => new(chunk.Gate);

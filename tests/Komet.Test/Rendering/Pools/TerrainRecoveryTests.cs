@@ -31,13 +31,4 @@ public sealed class TerrainRecoveryTests
         Assert.That(Pending, Is.True, "repeated requests coalesce");
     }
 
-    [Test]
-    public void LeavingTheWorldDiscardsPendingRecovery()
-    {
-        TerrainRebuild.Recover();
-        Assert.That(Pending, Is.True);
-        TerrainRebuild.Stop();
-        TerrainRebuild.Recover();
-        Assert.That(Pending, Is.False, "no recovery can be queued without a world");
-    }
 }

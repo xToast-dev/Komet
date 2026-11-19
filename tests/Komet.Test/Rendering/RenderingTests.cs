@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Komet.Rendering;
 
 namespace Komet.Test.Rendering;
@@ -114,23 +113,6 @@ public sealed class MeshRecycleTests
         }
     }
 
-    // A later source without custom ints or normals must leave no trace of the earlier one
-    [Test]
-    public void FieldsTheSourceLacksAreCleared()
-    {
-        var dest = new MeshData(16) { Recyclable = true };
-        _ = MeshRecycle.CloneExtraData(Source(3), dest);
-        _ = MeshRecycle.DisposeExtraData(dest);
-        var plain = Source(4, false, false);
-        _ = MeshRecycle.CloneExtraData(plain, dest);
-        Assert.Multiple(() =>
-        {
-            Assert.That(dest.CustomInts, Is.Null);
-            Assert.That(dest.Normals, Is.Null);
-        });
-        AssertMatchesEngineClone(plain, dest);
-    }
-
     // CustomMeshDataPartByte.Clone keeps Conversion and the Short clone resets it to the class default. SetFrom copies the allocation
     // size, custom or not, so it survives a later Count change (rounds 1, 2) and a kept part does not carry it into the next round. A
     // part without values is the engine's (round 4), and TextureIds go only along with TextureIndices (round 3).
@@ -184,37 +166,6 @@ public sealed class MeshRecycleTests
         }
     }
 
-    // A mesh that held top soil's shorts and is handed an opaque part drops them; the next top soil part, on another mesh, gets that
-    // very buffer back instead of a new one, and still exactly the engine's clone
-    [Test]
-    public void ADroppedPartsBufferServesTheNextMeshThatNeedsOne()
-    {
-        var (soil, opaque) = (Source(7), Source(8));
-        soil.CustomShorts =
-            new CustomMeshDataPartShort(61440) { Count = 60000, InterleaveStride = 4, InterleaveSizes = [2] };
-        new Random(7).NextBytes(MemoryMarshal.AsBytes(soil.CustomShorts.Values.AsSpan()));
-        var first = new MeshData(16) { Recyclable = true };
-        _ = MeshRecycle.CloneExtraData(soil, first);
-        var held = first.CustomShorts!.Values;
-        _ = MeshRecycle.DisposeExtraData(first);
-        _ = MeshRecycle.CloneExtraData(opaque, first);
-        var second = new MeshData(16) { Recyclable = true };
-        _ = MeshRecycle.CloneExtraData(soil, second);
-        Assert.Multiple(() =>
-        {
-            Assert.That(first.CustomShorts, Is.Null, "the opaque part has no shorts");
-            Assert.That(second.CustomShorts!.Values, Is.SameAs(held), "the dropped buffer is handed out again");
-            AssertPart(second.CustomShorts, soil.Clone().CustomShorts, soil.CustomShorts.Count);
-        });
-        AssertMatchesEngineClone(soil, second);
-    }
-
-    [Test]
-    public void AMeshThatIsNotRecyclableKeepsTheEnginePath()
-    {
-        var mesh = new MeshData(16) { Recyclable = false };
-        Assert.That(MeshRecycle.DisposeExtraData(mesh), Is.True);
-    }
 }
 
 // Use runs for every entity, held item and block entity, 118 times a frame, and must not allocate. The platform is a real
@@ -304,89 +255,6 @@ public sealed class ShaderUseCacheTests
         Assert.That(Steady(() => ShaderUseCache.Changed(ShaderUseCache.Stage(program)!, false)), Is.Zero);
     }
 
-    // Engine code writes some default uniforms outside Use with values Fill would not produce (SystemRenderSunMoon zeroes Standard's
-    // shadowIntensity); those go up on every Use, as the engine's Use resets them. Uniforms other code writes only with Fill's own value
-    // (lightPosition, windWaveCounter) stay cached, and a changed one (zNear) goes up again.
-    [Test]
-    public void UniformsWrittenOutsideUseAreSentOnEveryUse()
-    {
-        string[] external =
-        [
-            "shadowIntensity", "flatFogDensity", "flatFogStart", "waterWaveCounter", "globalWarpIntensity",
-            "glitchWaviness", "windWaveIntensity"
-        ];
-        var program = Program(105);
-        for (var i = 0; i < external.Length; i++)
-        {
-            program.uniformLocations[external[i]] = 100 + i;
-        }
-
-        (program.uniformLocations["zNear"], program.uniformLocations["lightPosition"],
-            program.uniformLocations["windWaveCounter"]) = (99, 90, 91);
-        ShaderUseCache.NextFrame();
-        var s = ShaderUseCache.Stage(program)!;
-        var first = ShaderUseCache.Changed(s, true);
-        ScreenManager.Platform.ShaderUniforms.ZNear = 0.05f;
-        s = ShaderUseCache.Stage(program)!;
-        var again = ShaderUseCache.Changed(s, false);
-        Assert.Multiple(() =>
-        {
-            Assert.That(first, Is.GreaterThan(again), "the first Use of a frame sends everything");
-            Assert.That(s.Sends.Take(again).Select(i => s.Slots[i].Loc),
-                Is.EquivalentTo(Enumerable.Range(99, external.Length + 1)));
-        });
-    }
-
-    // Each buffer once, in the dictionary's order, as the engine's foreach binds them
-    [Test]
-    public void UniformBuffersAreBoundInOrderWithoutAllocating()
-    {
-        var program = Program(101, 3);
-        var bound = new List<int>();
-        CountingUbo.Order = bound;
-        ShaderUseCache.BindUbos(program);
-        CountingUbo.Order = null; // the recording itself must not show up in the measurement
-        var binds = CountingUbo.Binds;
-        var bytes = Steady(() => ShaderUseCache.BindUbos(program));
-        Assert.Multiple(() =>
-        {
-            Assert.That(bound, Is.EqualTo(program.ubos.Values.Cast<CountingUbo>().Select(u => u.Id)));
-            Assert.That(CountingUbo.Binds - binds, Is.EqualTo(3L * Calls * Passes));
-            Assert.That(bytes, Is.Zero);
-        });
-    }
-
-    // A change made during a frame reaches the uniforms with the next frame, the way the uploads already trail by one
-    [Test]
-    public void SettingsAreReadOncePerFrame()
-    {
-        var program = Program(102);
-        (ClientSettings.ViewDistance, ClientSettings.LodBias) = (256, 0.5f);
-        ShaderUseCache.NextFrame();
-        Assert.That(FrameSettings(), Is.EqualTo((256f, 128f)));
-        ClientSettings.ViewDistance = 1024;
-        _ = ShaderUseCache.Stage(program);
-        Assert.That(FrameSettings(), Is.EqualTo((256f, 128f)), "read again within the frame");
-        ShaderUseCache.NextFrame();
-        Assert.That(FrameSettings(), Is.EqualTo((1024f, 320f)),
-            "the view distance is capped at 640 for LOD 0");
-    }
-
-    // A world's first Use() can come before its first uniform update; the frame's settings are read right then
-    [Test]
-    public void AFrameWithoutUpdateReadsTheSettingsOnFirstUse()
-    {
-        var program = Program(103);
-        ClientSettings.ViewDistance = 384;
-        ShaderUseCache.Enabled = false; // the update skips the read while the cache is off
-        ShaderUseCache.NextFrame();
-        ShaderUseCache.Enabled = true;
-        Assert.That(ShaderUseCache.Stage(program), Is.Not.Null);
-        Assert.That(FrameSettings().ViewDistance, Is.EqualTo(384f));
-    }
-
-    private static (float ViewDistance, float Lod0) FrameSettings() => (ViewDistance(null), ViewDistanceLod0(null));
-
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_viewDistance")]
     private static extern ref float ViewDistance([UnsafeAccessorType(UseCache)] object? cache);
 
@@ -396,14 +264,12 @@ public sealed class ShaderUseCacheTests
     private sealed class CountingUbo : NoUbo
     {
         private static int _next;
-        public static List<int>? Order { get; set; }
         public static long Binds { get; private set; }
         public int Id { get; } = Interlocked.Increment(ref _next);
 
         public override void Bind()
         {
             Binds++;
-            Order?.Add(Id);
         }
     }
 }

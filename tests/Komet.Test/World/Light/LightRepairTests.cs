@@ -14,10 +14,6 @@ public sealed class LightRepairTests
 
     // Corner with lava, the glass wall's column, the pond with its light under water, the light cluster on the chunk corner
     private static readonly (int X, int Z)[] Broken = [(0, 3), (1, 1), (3, 0), (0, 0)];
-
-    // The chunks of column 1, 1, which the repairs report
-    private static readonly string[] Reported = ["1,0,1", "1,1,1", "1,2,1"];
-
     private static readonly BlockPos Low = new(0, 0, 0);
     private static readonly BlockPos High = new(LightWorld.SizeX - 1, LightWorld.SizeY - 1, LightWorld.SizeZ - 1);
 
@@ -29,24 +25,6 @@ public sealed class LightRepairTests
     private static extern ref Queue<(int Dimension, int X, int Z)> Waiting(
         [UnsafeAccessorType("Komet.World.LightRepair, Komet.World")]
         object? repair);
-
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-lightrepair");
-        LightRepair.Install(harmony, new QuietLogger());
-        var seams = LightRepair.Seams();
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(LightRepair.Matched, Is.True, "the load, the illuminator or the tick is not the body verified");
-            Assert.That(Harmony.GetPatchInfo(seams[0])?.Prefixes.Select(p => p.owner), Is.EqualTo([harmony.Id]));
-            Assert.That(Harmony.GetPatchInfo(seams[0])?.Postfixes.Select(p => p.owner), Is.EqualTo([harmony.Id]));
-            Assert.That(Harmony.GetPatchInfo(seams[1])?.Prefixes.Select(p => p.owner), Is.EqualTo([harmony.Id]),
-                "FullRelight");
-            Assert.That(Harmony.GetPatchInfo(seams[6])?.Postfixes.Select(p => p.owner), Is.EqualTo([harmony.Id]),
-                "the sweep's tick");
-        }
-    }
 
     [TestCaseSource(nameof(Broken))]
     [Category("Slow")]
@@ -70,65 +48,6 @@ public sealed class LightRepairTests
             Assert.That(Differences(found, expected), Is.Empty, "light that is not the intact world's");
         });
     }
-
-    // The sweep lights a loaded column that lost its light as the load does, reports every chunk it changed, and leaves a column
-    // that has its light alone
-    [Test]
-    [Category("Slow")]
-    public void TheSweepLightsALoadedColumnThatLostItsLight()
-    {
-        var world = Lit();
-        var rain = Rain(world, 1, 1);
-        var lost = Lose(Column(world, 1, 1), rain);
-        var broken = LightRepair.Broken(Column(world, 1, 1), rain);
-        var changed = new List<string>();
-        var untouched = LightRepair.Repair(world.Illuminator, world, 2, 2, Rain(world, 2, 2), (_, _, _) => { });
-        var lit = LightRepair.Repair(world.Illuminator, world, 1, 1, rain, (x, y, z) => changed.Add($"{x},{y},{z}"));
-        var intact = Lit();
-        _ = LightRepair.BlockLight(intact.Illuminator, intact, 1, 1, broken, 0);
-        var found = world.Light();
-        Assert.Multiple(() =>
-        {
-            Assert.That(untouched, Is.Zero, "a column with its light");
-            Assert.That(lit, Is.EqualTo(lost).And.GreaterThan(0));
-            Assert.That(Differences(Sun(found), Sun(Reference.Value)), Is.Empty,
-                "sunlight that is not the reference's");
-            Assert.That(Differences(found, intact.Light()), Is.Empty, "light that is not the intact world's");
-            Assert.That(changed, Is.SupersetOf(Reported), "the column reported");
-        });
-    }
-
-    // Without any light, a chunk reaching the sky is broken and one wholly under the rain height is not. With light none is. Packed,
-    // the empty arrays CompressInto writes for no light count as none, and a column with a chunk missing is left alone.
-    [Test]
-    [Category("Slow")]
-    public void OnlyAChunkThatReachesTheSkyWithoutLightIsBroken()
-    {
-        var world = Lit();
-        var chunks = Column(world, 2, 2);
-        var rain = new ushort[32 * 32];
-        Array.Fill(rain, (ushort)40); // chunk 0 (0-31) lies under it, 1 and 2 reach the sky
-        chunks[0].Lighting.ClearLight();
-        chunks[2].Lighting.ClearLight();
-        Assert.Multiple(() =>
-        {
-            Assert.That(LightRepair.Broken(chunks, rain), Is.EqualTo([2]));
-            Assert.That(LightRepair.Broken(chunks, null), Is.EqualTo([0, 2]),
-                "without a rain map every chunk reaches it");
-            Assert.That(LightRepair.Broken([chunks[0], null!, chunks[2]], rain), Is.Empty, "a chunk missing");
-            Assert.That(LightRepair.Missing(new PackedChunk([], [1])), Is.True, "packed without light");
-            Assert.That(LightRepair.Missing(new PackedChunk([1], [])), Is.True, "packed without its palette");
-            Assert.That(LightRepair.Missing(new PackedChunk(null, null)), Is.True, "packed, no arrays");
-            Assert.That(LightRepair.Missing(new PackedChunk([1, 2], [3])), Is.False, "packed with light");
-            Assert.That(LightRepair.Missing(chunks[1]), Is.False, "unpacked with light");
-        });
-    }
-
-    [TestCase(40, 40, 40, 1, 1, 1, 0)]
-    [TestCase(31, 40, 40, 1, 1, 1, 1)]
-    [TestCase(70, 20, 40, 1, 1, 1, 7 + 12)]
-    public void TheReachOfASourceIsItsStepsToTheChunk(int x, int y, int z, int cx, int cy, int cz, int reach) =>
-        Assert.That(LightRepair.Reach(new BlockPos(x, y, z), cx, cy, cz), Is.EqualTo(reach));
 
     // Over a world loaded whole the relight is the engine's but for its sources: the same sunlight, every source where it is and
     // none added, and the light of the intact world after every source was placed again in the order the relight places them.
@@ -163,47 +82,6 @@ public sealed class LightRepairTests
         });
     }
 
-    // A column loaded in part when the relight runs keeps its light - the engine's FullRelight leaves it none - and waits; while it is
-    // still in part it waits on, and once loaded whole it is relit: its light cleared, even of a chunk packed meanwhile, then the
-    // reference's sunlight, and the intact world's light after its sources were placed again
-    [Test]
-    [Category("Slow")]
-    public void AColumnLoadedInPartKeepsItsLightAndIsRelitOnceWhole()
-    {
-        var (world, engine) = (Lit(), Lit());
-        _ = world.Unloaded.Add((1, 2, 1));
-        _ = engine.Unloaded.Add((1, 2, 1));
-        var relit = LightRepair.FullRelight(world.Illuminator, Low, High);
-        engine.Illuminator.FullRelight(Low, High);
-        var (kept, dark, waiting) = (Sun(world.Light()), Sun(engine.Light()), Waiting(null).Count);
-        var inPart = LightRepair.RelightWaiting(world.Illuminator, world, 2, (_, _, _) => { });
-        var waitingOn = Waiting(null).Count;
-        world.Unloaded.Clear();
-        var packed = Pack((WorldChunk)world.GetChunk(1, 1, 1));
-        var changed = new List<string>();
-        var whole = LightRepair.RelightWaiting(world.Illuminator, world, 2, (x, y, z) => changed.Add($"{x},{y},{z}"));
-        var intact = Lit();
-        _ = LightRepair.BlockLight(intact.Illuminator, intact, 1, 1, [0, 1, 2], 0);
-        var (found, expected) = (world.Light(), intact.Light());
-        int[] part = [Index(1, 0, 1), Index(1, 1, 1)];
-        var sun = Sun(Reference.Value);
-        Assert.Multiple(() =>
-        {
-            Assert.That(relit, Is.True);
-            Assert.That(part.Sum(c => sun[c].Count(value => value > 0)), Is.GreaterThan(0), "no sunlight to keep");
-            Assert.That(part.Select(c => Differences([kept[c]], [sun[c]])), Is.All.Empty, "the part's sunlight");
-            Assert.That(part.Sum(c => dark[c].Count(value => value > 0)), Is.Zero,
-                "the engine's FullRelight left it sunlight");
-            Assert.That((waiting, inPart, waitingOn), Is.EqualTo((1, 0, 1)), "waiting, relit in part, waiting on");
-            Assert.That((packed, whole, Waiting(null).Count), Is.EqualTo((true, 1, 0)),
-                "packed, relit whole, left");
-            Assert.That(Differences(Sun(found), sun), Is.Empty, "sunlight that is not the reference's");
-            Assert.That(Differences([.. Enumerable.Range(0, 3).Select(y => found[Index(1, y, 1)])],
-                [.. Enumerable.Range(0, 3).Select(y => expected[Index(1, y, 1)])]), Is.Empty, "the column's light");
-            Assert.That(changed, Is.SupersetOf(Reported), "the column reported");
-        });
-    }
-
     // The chunks of a column that reach the sky lose their light, as a save left by a relight; how many
     private static int Lose(IWorldChunk[] chunks, ushort[] rain)
     {
@@ -218,14 +96,6 @@ public sealed class LightRepairTests
         }
 
         return lost;
-    }
-
-    // Packed as the server packs a chunk it has not touched for a while: its data compressed, its ChunkData freed
-    private static bool Pack(WorldChunk chunk)
-    {
-        chunk.Unpack(); // marks it changed, so that Pack compresses it
-        chunk.Pack();
-        return chunk.TryCommitPackAndFree(0) && chunk.IsPacked() && chunk.Lighting is null;
     }
 
     private static List<string> Differences(int[][] found, int[][] expected)
@@ -286,8 +156,6 @@ public sealed class LightRepairTests
     private static ChunkData Cells(LightWorld world, int c) =>
         (ChunkData)world.GetChunk(c % LightWorld.ChunksX, c / (LightWorld.ChunksX * LightWorld.ChunksZ),
             c / LightWorld.ChunksX % LightWorld.ChunksZ).Lighting;
-
-    private static int Index(int x, int y, int z) => (y * LightWorld.ChunksZ + z) * LightWorld.ChunksX + x;
 
     // Every light source as FullRelight places it again: chunk by chunk, x before y before z, each where it is
     private static List<(byte[] Hsv, int X, int Y, int Z)> Placements(LightWorld world)

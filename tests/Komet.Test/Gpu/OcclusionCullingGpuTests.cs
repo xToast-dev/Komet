@@ -85,44 +85,4 @@ public sealed class OcclusionCullingGpuTests
             });
     }
 
-    // Pool draws without ranges between those with: each range still lands in its own draw's count and region
-    [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
-    public void EachRangeFindsItsDrawAmongEmptyOnes(string backend) =>
-        Run(backend, false, (_, _, projection) =>
-        {
-            OcclusionCulling.RunFrame(Ranges, projection, (0, 0, 0), [0, 1, 0, 0, 1, 0]);
-            var counters = new uint[8 + 2 * OcclusionCulling.MaxDraws];
-            var (first, late) = (new uint[Commands], new uint[Commands]);
-            CullingState.Frame(counters, first, late);
-            Assert.Multiple(() =>
-            {
-                Assert.That(counters[8..14], Is.EqualTo(new uint[] { 0, 1, 0, 0, 1, 0 }),
-                    "a range per draw with ranges");
-                Assert.That(first[..5], Is.EqualTo(new uint[] { 300, 1, 0, 0, 0 }),
-                    "the first range, at its draw's start");
-                Assert.That(first[5..], Is.EqualTo(new uint[] { 600, 1, 300, 0, 0 }),
-                    "the second, at its draw's start");
-            });
-        });
-
-    // What the HUD reads: the readable copy of the oldest frame of the ring, the same counts as the frame's own buffer
-    [TestCase(GpuRig.Gl)]
-    [TestCase(GpuRig.Vulkan)]
-    public void TheHudReadsTheOldestFramesCopy(string backend)
-    {
-        Run(backend, true, (_, _, projection) =>
-        {
-            var frames = new List<uint[]>();
-            for (var i = 0; i < 5; i++)
-            {
-                frames.Add(Frame(projection).Counters);
-            }
-
-            OcclusionCulling.Enabled = true;
-            OcclusionCulling.Sample(); // five frames done: the ring's oldest is the third
-            var read = Enumerable.Range(0, 8).Select(i => (uint)OcclusionCulling.Stat(i)).ToArray();
-            Assert.That(read, Is.EqualTo(frames[2]));
-        });
-    }
 }

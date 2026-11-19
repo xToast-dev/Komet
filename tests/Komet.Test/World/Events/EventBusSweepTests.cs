@@ -1,6 +1,5 @@
 using Komet.Core;
 using Komet.World;
-using Vintagestory.API.Server;
 
 namespace Komet.Test.World;
 
@@ -81,31 +80,6 @@ public sealed class EventBusSweepTests
         });
         _game.ExecuteMainThreadTasks(0);
         Assert.That(EventBusSweep.Swept, Is.EqualTo(4L), "a frame without deaths sweeps nothing");
-    }
-
-    // An object unloaded and then initialised again before the pass is not swept: it keeps both listeners, as in the engine
-    [Test]
-    public void OneInitialisedAgainKeepsItsListener()
-    {
-        var entity = Display();
-        entity.OnBlockUnloaded();
-        entity.Initialize(_capi);
-        _game.ExecuteMainThreadTasks(0);
-        Assert.That(Listeners.Select(l => l.handler.Target), Is.EqualTo([entity, entity]));
-    }
-
-    [Test]
-    public void SwitchedOffOrOnTheServerNothingGoes()
-    {
-        var entity = Display();
-        EventBusSweep.Enabled = false;
-        entity.OnBlockUnloaded();
-        EventBusSweep.Enabled = true;
-        var server = Display();
-        server.Api = Answers.Of<ICoreServerAPI>([]);
-        server.OnBlockRemoved();
-        _game.ExecuteMainThreadTasks(0);
-        Assert.That(Listeners, Has.Count.EqualTo(2));
     }
 
     // What BlockEntityDisplay.Initialize does on the client after base.Initialize

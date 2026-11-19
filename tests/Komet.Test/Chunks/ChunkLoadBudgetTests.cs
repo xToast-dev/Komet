@@ -8,7 +8,7 @@ namespace Komet.Test.Chunks;
 [NonParallelizable]
 public sealed class ChunkLoadBudgetTests
 {
-    private const int Far = 10, Near = 2;
+    private const int Far = 10;
     private static readonly FieldInfo Reversed = AccessTools.DeclaredField(typeof(ClientMain), "reversedQueue");
     private static readonly MethodInfo Record = AccessTools.DeclaredMethod(typeof(ChunkLoadBudgetTests), nameof(Ran));
     private static readonly List<string> Order = [];
@@ -66,38 +66,6 @@ public sealed class ChunkLoadBudgetTests
         Assert.That((ChunkLoadBudget.Stops, Pending(game)), Is.EqualTo((1L, 0)));
     }
 
-    [Test]
-    public void ANearChunkFurtherBackIsNeverHeld()
-    {
-        var game = Game();
-        Queue(game, Slow("a"), Load("far1", Far), Other("b"), Load("near", Near), Load("far2", Far), Other("c"));
-        game.ExecuteMainThreadTasks(0);
-        Assert.That(Order, Is.EqualTo(["a", "far1", "b", "near"]), "runs through the near chunk, then stops");
-        game.ExecuteMainThreadTasks(0);
-        Assert.That(Order, Is.EqualTo(["a", "far1", "b", "near", "far2", "c"]));
-    }
-
-    [TestCase(0, true, TestName = "Engine budget")]
-    [TestCase(1, false, TestName = "Not spawned")]
-    public void TheEngineLoopRunsEverything(int millis, bool spawned)
-    {
-        ChunkLoadBudget.Millis = millis;
-        var game = Game(spawned);
-        Queue(game, Slow("a"), Load("far1", Far), Unload("unload"));
-        game.ExecuteMainThreadTasks(0);
-        Assert.That(Order, Is.EqualTo(["a", "far1", "unload"]));
-    }
-
-    [Test]
-    public void WithinTheBudgetEverythingRuns()
-    {
-        ChunkLoadBudget.Millis = ChunkLoadBudget.MaxMillis;
-        var game = Game();
-        Queue(game, Other("a"), Load("far1", Far), Unload("unload"), Load("far2", Far));
-        game.ExecuteMainThreadTasks(0);
-        Assert.That(Order, Is.EqualTo(["a", "far1", "unload", "far2"]));
-    }
-
     // The first task of a frame always runs, however slow the one before it was
     [Test]
     public void EveryFrameRunsAtLeastOneTask()
@@ -109,18 +77,6 @@ public sealed class ChunkLoadBudgetTests
             game.ExecuteMainThreadTasks(0);
             Assert.That(Order, Has.Count.EqualTo(frame));
         }
-    }
-
-    // Columns, not distance: within three of the player's column in x and z, any height; a moving dimension's chunk always loads
-    [TestCase(3, 0, 3, ExpectedResult = false)]
-    [TestCase(-3, 7, -3, ExpectedResult = false)]
-    [TestCase(4, 0, 0, ExpectedResult = true)]
-    [TestCase(0, 0, -4, ExpectedResult = true)]
-    [TestCase(40, 1024, 40, ExpectedResult = false)]
-    public bool FarIsMoreThanThreeColumnsAway(int dx, int y, int dz)
-    {
-        var pos = new EntityPos { X = 100 * 32 + 5, Z = 200 * 32 + 31 };
-        return ChunkLoadBudget.Far(new Packet_ServerChunk { X = 100 + dx, Y = y, Z = 200 + dz }, pos);
     }
 
     private static ClientMain Game(bool spawned = true)

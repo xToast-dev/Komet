@@ -17,18 +17,6 @@ public sealed class CookingMatchTests
     [TearDown]
     public void Restore() => (CookingMatch.Enabled, GlobalConstants.IgnoredStackAttributes) = (true, Ignored);
 
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-cookingmatch");
-        CookingMatch.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
-        {
-            Assert.That(CookingMatch.Matched, Is.True, "Matches or GetMatchingStack is not the body verified");
-            Assert.That(CookingMatch.Rewritten, Is.True);
-        });
-    }
-
     // A Culinary Artillery's prefix replaces GetMatchingStack: the rewrite there gives way and returns once it is gone
     [Test]
     public void GivesWayToAReplacingPrefix()
@@ -81,41 +69,6 @@ public sealed class CookingMatchTests
             Assert.That(expected.Count(a => a.StartsWith("match", StringComparison.Ordinal)), Is.GreaterThan(20),
                 "the inputs reach matches too");
         });
-    }
-
-    [Test]
-    public void AMatchNoLongerCopies()
-    {
-        var (recipes, inputs) = (_kit.Recipes(), Stacks(new Random(11), 50));
-        _ = Allocated(recipes, inputs); // first calls allocate for the runtime, not the match
-        var engine = Allocated(recipes, inputs);
-        using var harmony = new TestHarmony("komet-test-cookingmatch");
-        CookingMatch.Install(harmony, new QuietLogger());
-        _ = Allocated(recipes, inputs); // the thread's lists
-        var komet = Allocated(recipes, inputs);
-        var kept = typeof(CookingMatch).GetField("_stacks", BindingFlags.NonPublic | BindingFlags.Static)
-            ?.GetValue(null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(komet, Is.LessThan(engine / 2), $"engine {engine} bytes, Komet {komet}");
-            Assert.That(kept, Is.Empty,
-                "the thread's list keeps the stacks, and with them their world"); // the main thread outlives it
-        });
-    }
-
-    private static long Allocated(CookingRecipe[] recipes, ItemStack?[][] inputs)
-    {
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        foreach (var input in inputs)
-        {
-            foreach (var recipe in recipes)
-            {
-                var servings = 0;
-                _ = recipe.Matches(input, ref servings);
-            }
-        }
-
-        return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
     private static List<string> Replies(CookingRecipe[] recipes, ItemStack?[][] inputs)

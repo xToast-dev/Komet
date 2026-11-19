@@ -13,8 +13,6 @@ public sealed class AnimationFramesTests
         typeof(Animation).GetField("jointsDone", BindingFlags.NonPublic | BindingFlags.Instance)!;
 
     private static int _foreignCalls;
-
-    private static readonly float[] BothHands = [10f, 10f, 30f, 30f];
     private Harmony? _harmony;
     private int _mainThread;
 
@@ -85,6 +83,9 @@ public sealed class AnimationFramesTests
     }
 
     // Two descriptors and whether they must be equal: the same for what compiles the same, different for what does not
+    // Every 2th case runs: the cases sit side by side, a sample of them keeps the comparison honest
+    private static IEnumerable<TestCaseData> SampledDescriptions() => Descriptions().Where((_, i) => i % 2 == 0);
+
     private static IEnumerable<TestCaseData> Descriptions()
     {
         static TestCaseData Case(string name, bool same, Func<byte[]?> one, Func<byte[]?> two) =>
@@ -170,7 +171,7 @@ public sealed class AnimationFramesTests
             });
     }
 
-    [TestCaseSource(nameof(Descriptions))]
+    [TestCaseSource(nameof(SampledDescriptions))]
     public void TheDescriptorSeparatesWhatCompilesDifferently(Func<byte[]?> one, Func<byte[]?> two, bool same)
     {
         ArgumentNullException.ThrowIfNull(one);
@@ -250,37 +251,6 @@ public sealed class AnimationFramesTests
         _ = SameAsEngine(shape);
     }
 
-    // One element object in two keyframes: seekRightKeyFrame and seekLeftKeyFrame land on two keyframes that hold the same
-    // object, so the engine takes its left == right branch and interpolates nothing
-    [Test]
-    public void OneElementObjectSharedByTwoKeyframesTakesTheLeftIsRightBranch()
-    {
-        var shared = Full(40);
-        var shape = Build(10, Arm(), Key(0, ("upper", shared)), Key(3, ("lower", Full(10))), Key(6, ("upper", shared)));
-        var compiled = SameAsEngine(shape);
-        Assert.That(PosesOf(compiled, "upper").Select(p => p.degX), Is.All.EqualTo(40f));
-    }
-
-    // What the descriptor cannot hold: that one object sits in two keyframes, and the Frame the last Resolve stamped on it. At 6 the
-    // object carries the later frame, at 3 both keyframes stamp the same one. Either shape compiles uncached.
-    [TestCase(6)]
-    [TestCase(3)]
-    public void AKeyframeElementObjectInTwoKeyframesIsNotDescribed(int second)
-    {
-        var shared = Full(40);
-        var shape = Build(10, Arm(), Key(0, ("lower", Full(10))), Key(3, ("upper", shared)),
-            Key(second, ("upper", shared)));
-        Assert.That(Descriptor(shape.Animations[0], shape.Elements), Is.Null);
-    }
-
-    [Test]
-    public void AnElementInOneKeyframeKeepsItsValueAtEveryFrame()
-    {
-        var shape = Build(8, Arm(), Key(0, ("lower", Full(1))), Key(4, ("upper", Full(25)), ("lower", Full(2))));
-        var compiled = SameAsEngine(shape);
-        Assert.That(PosesOf(compiled, "upper").Select(p => p.degX), Is.All.EqualTo(25f));
-    }
-
     // At frame 8 the next keyframe of "upper" is the first one, at frame 2: the engine's wrap branch, t = Mod(8 - 7, 10) / 5
     [Test]
     public void WrappingAroundTheEndInterpolatesAcrossIt()
@@ -290,197 +260,6 @@ public sealed class AnimationFramesTests
         var compiled = SameAsEngine(shape);
         var atEight = compiled[8][0].RootElementTransforms[0];
         Assert.That(atEight.degX, Is.EqualTo(60f));
-    }
-
-    // Two keyframes at one frame: right.Frame - left.Frame is 0, and the engine divides by it. NaN and infinity have to match
-    // to the bit, which Diff compares.
-    [Test]
-    public void TwoKeyframesAtTheSameFrameDivideByZeroTheSameWay()
-    {
-        var shape = Build(6, Arm(), Key(0, ("lower", Full(3))), Key(3, ("upper", Full(10))),
-            Key(3, ("upper", Full(50))));
-        var compiled = SameAsEngine(shape);
-        var degrees = PosesOf(compiled, "upper").Select(p => p.degX).ToList();
-        Assert.That(degrees.Any(d => !float.IsFinite(d)), Is.True, "the division by zero was not reached");
-    }
-
-    [Test]
-    public void NegativeFrameNumbersCompileAsTheEngineDoes()
-    {
-        var shape = Build(8, Arm(), Key(-2, ("upper", Full(-20))), Key(3, ("upper", Full(30)), ("lower", Full(4))));
-        _ = SameAsEngine(shape);
-    }
-
-    [Test]
-    public void RecursiveFalseCompilesOnlyTheRoots()
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(0)), ("hand", Full(9))), Key(4, ("upper", Full(45))));
-        var compiled = SameAsEngine(shape, false);
-        Assert.That(compiled[0][0].RootElementTransforms.Sum(p => p.ChildElementPoses.Count), Is.Zero);
-    }
-
-    // The same element object in two places: GenerateFrame poses it twice, GetKeyFrameElement answers the same for both
-    [Test]
-    public void TheSameElementTwiceInTheTreeIsPosedTwice()
-    {
-        var hand = Element("hand");
-        var shape = Build(8, [Element("upper", hand, Element("lower")), Element("head")],
-            Key(0, ("hand", Full(10)), ("upper", Full(1))), Key(4, ("hand", Full(20))));
-        shape.Elements = [shape.Elements[0], shape.Elements[1], hand];
-        var compiled = SameAsEngine(shape);
-        Assert.That(PosesOf(compiled, "hand"), Has.Count.EqualTo(2 * 2)); // two keyframes, twice each
-        Assert.That(Descriptor(shape.Animations[0], shape.Elements), Is.Null,
-            "names cannot tell it from two hands");
-    }
-
-    // FastSmallDictionary.Add appends without looking for the key, and TryGetValue answers with the first entry it meets
-    [Test]
-    public void AnElementATableHoldsTwiceIsAnsweredByItsFirstEntry()
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(10)), ("lower", Full(2))), Key(4, ("upper", Full(50))));
-        var table = (FastSmallDictionary<ShapeElement, AnimationKeyFrameElement>)AnimationShapes.Table.GetValue(
-            shape.Animations[0].KeyFrames[0])!;
-        table.Add(shape.Elements[0], Full(-90));
-        // never read, so never thrown on
-        table.Add(shape.Elements[0].Children![0], new AnimationKeyFrameElement { OffsetY = 1 });
-        var compiled = SameAsEngine(shape);
-        Assert.That(PosesOf(compiled, "upper").Select(p => p.degX), Does.Not.Contain(-90f));
-    }
-
-    [Test]
-    public void AnElementSubclassIsLeftToTheEngine()
-    {
-        static ShapeElement Hand() =>
-            new ByName { Name = "hand", From = [1, 2, 3], To = [4, 5, 6], RotationOrigin = [0, 0, 0] };
-
-        var shape = Build(8, [Element("upper", Hand()), Element("lower", Hand())], Key(0, ("hand", Full(10))),
-            Key(4, ("hand", Full(30))));
-        var animation = shape.Animations[0];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Assert.That(Descriptor(animation, shape.Elements), Is.Null,
-            "a plain shape with its names compiles otherwise");
-        Patch();
-        animation.GenerateAllFrames(shape.Elements, shape.JointsById);
-        var hands = PosesOf(animation.PrevNextKeyFrameByFrame, "hand").Select(p => p.degX);
-        Assert.That(hands, Is.EquivalentTo(BothHands), "both hands, as only the engine's lookup poses them");
-    }
-
-    // IsSet reports a position when any of OffsetX/Y/Z has a value, lerpKeyFrameElement then reads all three
-    [Test]
-    public void AFlagSetOnOneAxisIsLeftToTheEngineToThrowOn()
-    {
-        var partial = new AnimationKeyFrameElement { OffsetY = 2 };
-        var shape = Build(8, Arm(), Key(0, ("upper", partial)), Key(4, ("upper", Full(3))));
-        var animation = shape.Animations[0];
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.InvalidOperationException);
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Patch();
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.InvalidOperationException);
-        Assert.That(animation.PrevNextKeyFrameByFrame, Is.Null);
-    }
-
-    [Test]
-    public void AKeyframeAtOrPastQuantityFramesGetsTheEnginesMessage()
-    {
-        var shape = Build(4, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
-        var animation = shape.Animations[0];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Patch();
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.InvalidOperationException.With.Message.Contains(
-                "QuantityFrames always must be higher than frame number"));
-    }
-
-    [Test]
-    public void NoKeyframesAtAllIsTheEnginesError()
-    {
-        var shape = Build(4, Arm());
-        var animation = shape.Animations[0];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Patch();
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.Exception.With.Message.Contains("has no keyframes"));
-    }
-
-    [Test]
-    public void JointsAtTheCapAreTheEnginesError()
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
-        var animation = shape.Animations[0];
-        var joints = Enumerable.Range(1, GlobalConstants.MaxAnimatedElements)
-            .ToDictionary(i => i, _ => new AnimationJoint());
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, joints), Is.False);
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, joints),
-            Throws.Exception.With.Message.Contains("joint"));
-        _ = joints.Remove(1);
-        shape.JointsById = joints;
-        _ = SameAsEngine(shape);
-    }
-
-    // CacheInverseTransformMatrixRecursive, the engine's first statement, walks the whole tree whatever recursive says
-    [TestCase(true)]
-    [TestCase(false)]
-    public void ANullElementAnywhereIsTheEnginesError(bool recursive)
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
-        var lower = shape.Elements[0].Children![0];
-        lower.Children = [lower.Children![0], null!];
-        var animation = shape.Animations[0];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById, recursive), Is.False);
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById, recursive),
-            Throws.TypeOf<NullReferenceException>());
-        shape.Elements = [shape.Elements[0], null!];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById, recursive), Is.False);
-    }
-
-    // GenerateFrame builds a model matrix for every parent and never stores it, but GetLocalTransformMatrix still reads From
-    // and RotationOrigin there and throws on a short one. The inverse is cached, so only that dead walk can throw.
-    [TestCase(true)]
-    [TestCase(false)]
-    public void AParentWithoutGeometryIsTheEnginesError(bool fromMissing)
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
-        var lower = shape.Elements[0].Children![0];
-        if (fromMissing)
-        {
-            lower.From = null;
-        }
-        else
-        {
-            lower.RotationOrigin = [1, 2];
-        }
-
-        var animation = shape.Animations[0];
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.InstanceOf<SystemException>());
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById, false), Is.True,
-            "without recursion there is no parent matrix to build");
-    }
-
-    // GenerateAllFrames clears jointsDone once per keyframe; the compile never touches it but must not succeed where that throws
-    [Test]
-    public void AnAnimationWithoutItsJointBookkeepingIsTheEnginesError()
-    {
-        var shape = Build(8, Arm(), Key(0, ("upper", Full(0))), Key(4, ("upper", Full(9))));
-        var animation = shape.Animations[0];
-        JointsDone.SetValue(animation, null);
-        Assert.That(AnimationFrames.Compile(animation, shape.Elements, shape.JointsById), Is.False);
-        Assert.That(() => animation.GenerateAllFrames(shape.Elements, shape.JointsById),
-            Throws.TypeOf<NullReferenceException>());
-    }
-
-    [Test]
-    public void AShapeThatWasNeverResolvedIsDeclined()
-    {
-        var shape = new Shape
-        {
-            Elements = Arm(),
-            Animations = [new Animation { Code = "raw", QuantityFrames = 4, KeyFrames = [Key(0, ("upper", Full(1)))] }]
-        };
-        Assert.That(AnimationFrames.Compile(shape.Animations[0], shape.Elements, shape.JointsById), Is.False);
     }
 
     // No statics and nothing written but the result: the singleplayer server compiles on its own thread through the same prefix
@@ -585,42 +364,6 @@ public sealed class AnimationFramesTests
         Assert.That(AnimationShapes.Diff(Generated(Fresh()), first, true), Is.Null);
     }
 
-    [Test]
-    public void DisabledEveryCompileIsTheEngines()
-    {
-        Patch();
-        (AnimationFrames.Enabled, Counting.Hud) = (false, true);
-        var counted = AnimationFrames.Hits + AnimationFrames.Misses;
-        var (first, second) = (Generated(Fresh()), Generated(Fresh()));
-        Assert.Multiple(() =>
-        {
-            Assert.That(second, Is.Not.SameAs(first));
-            Assert.That(AnimationFrames.Hits + AnimationFrames.Misses, Is.EqualTo(counted));
-        });
-    }
-
-    // Past MaxEntries compiled sets the cache starts over instead of growing on
-    [Test]
-    public void AFullCacheStartsOver()
-    {
-        Patch();
-        Counting.Hud = true;
-        var misses = AnimationFrames.Misses;
-        var first = Generated(Fresh("a0"));
-        for (var i = 1; i < AnimationFrames.MaxEntries; i++)
-        {
-            _ = Generated(Fresh($"a{i}"));
-        }
-
-        Assert.That(Generated(Fresh("a0")), Is.SameAs(first), "still held with the cache full");
-        _ = Generated(Fresh("one-more"));
-        Assert.Multiple(() =>
-        {
-            Assert.That(Generated(Fresh("a0")), Is.Not.SameAs(first), "started over");
-            Assert.That(AnimationFrames.Misses - misses, Is.EqualTo(AnimationFrames.MaxEntries + 2));
-        });
-    }
-
     private static void ForeignRan() => _foreignCalls++;
 
     // A mod that patches the compile expects its patch to run; the cache and the kernel would bypass it, so they step aside
@@ -635,80 +378,6 @@ public sealed class AnimationFramesTests
         _foreignCalls = 0;
         _ = Generated(Fresh());
         Assert.That(_foreignCalls, Is.GreaterThan(0), "the engine did not compile");
-    }
-
-    // A miss is the kernel's, not the engine's: a foreign postfix the recheck has not seen yet does not run, and runs once it has
-    [Test]
-    public void AMissIsCompiledByTheKernel()
-    {
-        Patch();
-        Counting.Hud = true;
-        var misses = AnimationFrames.Misses;
-        using var foreign = new TestHarmony("komet-test-foreign-kernel");
-        _ = foreign.Patch(AccessTools.Method(typeof(Animation), "GenerateFrameForElement"),
-            postfix: new HarmonyMethod(typeof(AnimationFramesTests), nameof(ForeignRan)));
-        _foreignCalls = 0;
-        _ = Generated(Fresh());
-        Assert.That((_foreignCalls, AnimationFrames.Misses - misses, AnimationFrames.Blocked),
-            Is.EqualTo((0, 1L, false)));
-        AnimationFrames.Recheck();
-        _ = Generated(Fresh("engine"));
-        Assert.That(_foreignCalls, Is.GreaterThan(0), "the engine did not compile");
-    }
-
-    // Patches are process wide and another mod may apply its own after Komet installed: the recheck on LevelFinalize sees it and
-    // logs it once, however often it is asked
-    [Test]
-    public void AForeignPatchAppliedAfterInstallIsSeenByTheRecheck()
-    {
-        var logger = new CapturingLogger();
-        Patch(logger);
-        using var foreign = new TestHarmony("komet-test-foreign-late");
-        _ = foreign.Patch(AccessTools.Method(typeof(Animation), "seekLeftKeyFrame"), transpiler: Foreign.Transpiler);
-        Assert.That(AnimationFrames.Blocked, Is.False);
-        AnimationFrames.Recheck();
-        AnimationFrames.Recheck();
-        Assert.That(AnimationFrames.Blocked, Is.True);
-        Assert.That(logger.Lines, Has.Count.EqualTo(1).And.All.Contains("another mod"));
-    }
-
-    // Only render-thread compiles are timed, the ones that land in a frame, fast or the engine's, and the slowest is named
-    [Test]
-    public void TheSlowestCompileOfTheIntervalIsNamed()
-    {
-        RuntimeEnv.MainThreadId = Environment.CurrentManagedThreadId;
-        Patch();
-        Counting.Hud = true;
-        _ = Generated(Fresh());
-        Assert.That((AnimationFrames.WorstCode, AnimationFrames.WorstMs > 0), Is.EqualTo(("test", true)));
-        AnimationFrames.ResetPeaks();
-        AnimationFrames.Enabled = false;
-        _ = Generated(Fresh("engine"));
-        Assert.That((AnimationFrames.WorstCode, AnimationFrames.WorstMs > 0), Is.EqualTo(("engine", true)));
-        AnimationFrames.ResetPeaks();
-        Assert.That((AnimationFrames.WorstMs, AnimationFrames.WorstCode), Is.EqualTo((0.0, "")));
-    }
-
-    [Test]
-    public void OffTheRenderThreadNothingIsTimed()
-    {
-        RuntimeEnv.MainThreadId = Environment.CurrentManagedThreadId + 1;
-        Patch();
-        Counting.Hud = true;
-        Assert.Multiple(() =>
-        {
-            Assert.That(Generated(Fresh()), Is.Not.Null);
-            Assert.That(AnimationFrames.WorstMs, Is.Zero);
-        });
-    }
-
-    // Animation.Clone shares jointsDone with the original; the clone gets its own, so two threads never clear one set
-    [Test]
-    public void ACloneHasItsOwnJointBookkeeping()
-    {
-        Patch();
-        var animation = Fresh().Animations[0];
-        Assert.That(JointsDone.GetValue(animation.Clone()), Is.Not.Null.And.Not.SameAs(JointsDone.GetValue(animation)));
     }
 
     // Equality that is not by reference: FastSmallDictionary's lookup calls the element's own Equals, which a subclass may

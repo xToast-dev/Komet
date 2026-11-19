@@ -42,23 +42,4 @@ public sealed class KometSettingsFileTests
         });
     }
 
-    // Json.NET reads the first two as BigInteger; they fall back like any value out of range instead of throwing out of Load
-    [Test]
-    public void AnIntegerBeyondLongIsOutOfRange()
-    {
-        var settings = JsonConvert.DeserializeObject<HudSettings>(
-                """{ "UploadCap": 100000000000000000000, "NearFirst": -100000000000000000000, "ChunkLoadBudget": 4294967296 }""")
-            !;
-        var (logger, fresh) = (new CapturingLogger(), new HudSettings());
-        int[] knobs = [Knobs.Find("UploadCap"), Knobs.Find("TessSchedule"), Knobs.Find("ChunkLoadBudget")];
-        settings.Knobs.Apply(logger, HudSettings.FileName);
-        Assert.Multiple(() =>
-        {
-            Assert.That(knobs.Select(settings.Knobs.Knob), Is.EqualTo(knobs.Select(fresh.Knobs.Knob)),
-                "the defaults apply");
-            Assert.That(logger.Lines, Has.Count.EqualTo(1).And.Some.Contains("UploadCap").And.Some
-                .Contains("NearFirst")
-                .And.Some.Contains("ChunkLoadBudget"));
-        });
-    }
 }

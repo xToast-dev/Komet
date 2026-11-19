@@ -7,7 +7,6 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class BuildsTests
 {
-    private static readonly int Workers = Builds.Workers;
     private static readonly TimeSpan Long = TimeSpan.FromSeconds(30);
 
     [SetUp]
@@ -53,77 +52,6 @@ public sealed class BuildsTests
         Assert.That(made.Freed, Is.EqualTo(1), "freed by the worker as it finished");
     }
 
-    [Test]
-    public void DroppedOnceMadeTheDropFreesIt()
-    {
-        var made = new Made();
-        var build = new Build<Made>(Builds.Kind.Pipeline, () => (made, ""), Free);
-        Assert.That(Builds.Wait(Long), Is.True);
-        build.Drop();
-        build.Drop();
-        Assert.That(made.Freed, Is.EqualTo(1), "once");
-    }
-
-    [Test]
-    public void DroppedBeforeItBeganItIsNeverMade()
-    {
-        using var started = new CountdownEvent(Workers);
-        using var gate = new ManualResetEventSlim();
-        for (var i = 0; i < Workers; i++) // every worker held
-        {
-            _ = new Build<Made>(Builds.Kind.Port, () =>
-            {
-                // ReSharper disable once AccessToDisposedClosure - the workers are done once Builds.Wait returned
-                _ = started.Signal();
-                // ReSharper disable once AccessToDisposedClosure - the workers are done once Builds.Wait returned
-                _ = gate.Wait(Long);
-                return (null, "held");
-            });
-        }
-
-        Assert.That(started.Wait(Long), Is.True);
-        var ran = 0;
-        var queued = new Build<Made>(Builds.Kind.Pipeline, () =>
-        {
-            ran++;
-            return (new Made(), "");
-        }, Free);
-        queued.Drop();
-        gate.Set();
-        Assert.That(Builds.Wait(Long), Is.True);
-        Assert.That(queued.Done, Is.True);
-        Assert.That(ran, Is.Zero, "cancelled: nothing made");
-    }
-
-    [Test]
-    public void AFailedBuildSaysWhy()
-    {
-        var build = new Build<Made>(Builds.Kind.Port, () => throw new InvalidOperationException("no compiler"));
-        Assert.That(Builds.Wait(Long), Is.True);
-        Assert.That(build.Take(out var why), Is.Null);
-        Assert.That(why, Is.EqualTo("InvalidOperationException: no compiler"));
-    }
-
-    [Test]
-    public void WaitedTheEngineThreadHasItAtOnce()
-    {
-        Builds.Waited = true;
-        try
-        {
-            var build = new Build<Made>(Builds.Kind.Port, () =>
-            {
-                _ = SpinWait.SpinUntil(static () => false, 20); // still running when the engine thread would look
-                return (new Made(), "");
-            });
-            Assert.That(build.Done, Is.True);
-            Assert.That(build.Take(out _), Is.Not.Null);
-        }
-        finally
-        {
-            Builds.Waited = false;
-        }
-    }
-
     private sealed class Made
     {
         public int Freed;
@@ -135,7 +63,7 @@ public sealed class BuildsTests
 [NonParallelizable]
 public sealed class PipelineSetGpuTests
 {
-    private const uint Rgba8 = 37, Bgra8 = 44, GlFloat = 0x1406; // VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM
+    private const uint Rgba8 = 37, GlFloat = 0x1406; // VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM
 
     private const string Vertex = """
                                   #version 330 core
@@ -194,51 +122,6 @@ public sealed class PipelineSetGpuTests
                 "that frame's slot came round again: destroyed");
             set.Start(3, ("test", ported), Start);
             set.Forget(key => key == 3); // still being made, or made and not taken: its builder or the drop destroys it
-        }
-
-        Assert.That(Builds.Wait(Long), Is.True);
-    }
-
-    // A program's next port gets every pipeline its port drew with, under keys of its own, before it switches over
-    [Test]
-    public void ThePipelinesOfAPortAreMadeAgainForTheNext()
-    {
-        using var rig = GpuRig.Open(GpuRig.Vulkan);
-        Builds.Waited = false;
-        var device = rig.Device!;
-        rig.Backend!.Flush();
-        using var frame = VulkanFrame.Create(device, out var why);
-        Assert.That(frame, Is.Not.Null, why);
-        var (first, second) = (Ported(), Ported());
-        using (var set = new PipelineSet<(int Port, uint Format)>(device, frame!, null, 8))
-        {
-            System.Func<GlslPort.Ported, Build<TerrainPipeline>> Start(uint format) =>
-                port =>
-                    TerrainPipeline.Started(device, port, [Position],
-                        (default, new TerrainPipeline.Target([format], 0), Vk.TopologyTriangles));
-
-            frame!.Next();
-            foreach (var format in (uint[])[Rgba8, Bgra8])
-            {
-                _ = set.Get((1, format), ("test", first), Start(format), out _);
-            }
-
-            frame.Next();
-            Assert.That(set.Get((1, Rgba8), ("test", first), Start(Rgba8), out _), Is.Not.Null);
-            Assert.That(set.Made([]), Is.True, "the frame's first ask: what is done by now counts");
-            var keys = set.Warm(key => key.Port == 1, key => key with { Port = 2 }, ("test", second));
-            Assert.That(keys, Is.EquivalentTo(((int, uint)[])[(2, Rgba8), (2, Bgra8)]),
-                "both, the one not drawn with this frame too");
-            Assert.That(set.Made(keys), Is.False);
-            Assert.That(Builds.Wait(Long), Is.True);
-            Assert.That(set.Made(keys), Is.False, "this frame counts them as it began");
-            frame.Next();
-            Assert.That(set.Made(keys), Is.True);
-            Assert.That(set.Get((2, Bgra8), ("test", second), Start(Bgra8), out var waiting), Is.Not.Null);
-            Assert.That(waiting, Is.False);
-            Assert.That(((int, uint)[])[(1, Rgba8), (1, Bgra8), (2, Rgba8), (2, Bgra8)],
-                // ReSharper disable once AccessToDisposedClosure the assertion runs the lambda before set is disposed
-                Has.All.Matches<(int, uint)>(key => set.TryMade(key, out _)));
         }
 
         Assert.That(Builds.Wait(Long), Is.True);

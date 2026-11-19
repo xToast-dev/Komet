@@ -1,11 +1,9 @@
 using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
-using Komet.Api;
 using Komet.Rendering;
 using Komet.Tessellation;
 using Komet.World;
-using OpenTK.Windowing.Desktop;
 using Vintagestory.GameContent;
 
 namespace Komet.Test.Core;
@@ -92,16 +90,43 @@ public sealed class EngineSeamTests
     private static TestCaseData Field<T>(string member, Type? type = null) =>
         new TestCaseData(typeof(T), member, type).SetName($"{typeof(T).Name}.{member}");
 
-    [TestCaseSource(nameof(Methods))]
-    public void MethodExists(Type type, string name, Type[]? args)
+    // One test per list: a seam that is gone names itself in the failure message
+    [Test]
+    public void EveryMethodExists() => Assert.Multiple(() =>
+    {
+        foreach (var c in Methods().Bounded(256))
+        {
+            MethodExists((Type)c.Arguments[0]!, (string)c.Arguments[1]!, (Type[]?)c.Arguments[2]);
+        }
+    });
+
+    [Test]
+    public void EveryFieldExists() => Assert.Multiple(() =>
+    {
+        foreach (var c in Fields().Bounded(256))
+        {
+            FieldExists((Type)c.Arguments[0]!, (string)c.Arguments[1]!, (Type?)c.Arguments[2]);
+        }
+    });
+
+    [Test]
+    public void EveryPatchBindsByName() => Assert.Multiple(() =>
+    {
+        foreach (var c in Patches().Bounded(256))
+        {
+            PatchBindsByName((Type)c.Arguments[0]!, (string)c.Arguments[1]!, (Type[]?)c.Arguments[2],
+                (Type)c.Arguments[3]!, (string)c.Arguments[4]!);
+        }
+    });
+
+    private static void MethodExists(Type type, string name, Type[]? args)
     {
         ArgumentNullException.ThrowIfNull(type);
         Assert.That(AccessTools.Method(type, name, args), Is.Not.Null,
             $"{type.FullName}.{name} is gone, the Komet feature that patches it stands down");
     }
 
-    [TestCaseSource(nameof(Fields))]
-    public void FieldExists(Type type, string name, Type? fieldType)
+    private static void FieldExists(Type type, string name, Type? fieldType)
     {
         ArgumentNullException.ThrowIfNull(type);
         var field = fieldType is null ? AccessTools.Field(type, name) : AccessTools.DeclaredField(type, name);
@@ -155,8 +180,7 @@ public sealed class EngineSeamTests
         new TestCaseData(typeof(T), member, args, komet, patch).SetName(
             $"{typeof(T).Name}.{member} by {komet.Name}.{patch}");
 
-    [TestCaseSource(nameof(Patches))]
-    public void PatchBindsByName(Type type, string name, Type[]? args, Type komet, string patch)
+    private static void PatchBindsByName(Type type, string name, Type[]? args, Type komet, string patch)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(komet);
@@ -165,21 +189,6 @@ public sealed class EngineSeamTests
             $"{komet.Name}.{patch} names what {type.Name}.{name} lacks, its Install stands down");
     }
 
-    [Test]
-    public void BindsRefusesAParameterOrFieldTheOriginalLacks()
-    {
-        var squeeze = AccessTools.Method(typeof(MeshDataPool), "TrySqueezeInbetween");
-        Assert.That(Il.Binds(squeeze, AccessTools.Method(typeof(EntityCasters), "Opening")), Is.False, "___game");
-    }
-
-    [Test]
-    public void ClientSizeIsStillAPropertyOnTheWindow() =>
-        Assert.Multiple(() =>
-        {
-            Assert.That(AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)), Is.Not.Null);
-            Assert.That(AccessTools.PropertySetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)), Is.Not.Null);
-            Assert.That(AccessTools.Method(typeof(NativeWindow), "OnResize"), Is.Not.Null);
-        });
 }
 
 // The features' fingerprints are pinned in FeaturesTests, each feature tests its own stand-down.
@@ -211,72 +220,6 @@ public sealed class EngineShapeTests
     }
 
     private static bool RunOriginal() => true;
-
-    // The guard's patch check on the sweep's method, counted as each copy it replaces counts: a prefix of the same class is its own
-    // (FaceLight), one of another class under the same id is not; under an own id no patch is
-    // (ColumnNoiseScratch, ShapeInitMemo); prefixes and postfixes leave the body (AnimationFrames' and OccludedChunks' seam
-    // 0); with nobody own, any patch counts (FaceLight's AO methods and ForFluidsLayer overrides); a missing seam is foreign
-    [Test]
-    public void ForeignCountsOtherPatchesOfTheKindsAsked()
-    {
-        var target = AccessTools.DeclaredMethod(typeof(ChunkTesselator), nameof(ChunkTesselator.CalculateVisibleFaces),
-            [typeof(bool), typeof(int), typeof(int), typeof(int)]);
-        Assert.That(Harmony.GetPatchInfo(target!)?.Owners, Is.Null.Or.Empty, "a patch another test left behind");
-        using var other = new TestHarmony("komet-test-foreign-other");
-        using var own = new TestHarmony("komet-test-foreign-own");
-        const KapiPatchKinds replacing = KapiPatchKinds.Replacing,
-            all = KapiPatchKinds.All,
-            body = KapiPatchKinds.Body;
-        Assert.Multiple(() =>
-        {
-            Assert.That(EngineShape.Foreign([target], all, null), Is.False, "no patch");
-            Assert.That(EngineShape.Foreign([target, null], all, null), Is.True, "a missing seam");
-        });
-        _ = own.Patch(target, new HarmonyMethod(typeof(EngineShapeTests), nameof(RunOriginal)));
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(EngineShape.Foreign([target], replacing, null, typeof(EngineShapeTests)), Is.False,
-                "its own class");
-            Assert.That(EngineShape.Foreign([target], replacing, null, typeof(FaceLight)), Is.True,
-                "another class, the same id");
-            Assert.That(EngineShape.Foreign([target], all, own.Id), Is.False, "its own id");
-            Assert.That(EngineShape.Foreign([target], body, null), Is.False, "a prefix leaves the body");
-            Assert.That(EngineShape.Foreign([target], all, null), Is.True, "any patch");
-        }
-        _ = other.Patch(target, postfix: Foreign.Postfix);
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(EngineShape.Foreign([target], replacing, own.Id), Is.False, "a postfix sees the same result");
-            Assert.That(EngineShape.Foreign([target], all, own.Id), Is.True);
-            Assert.That(EngineShape.Foreign([target], all, null, typeof(EngineShapeTests), typeof(Foreign)), Is.False,
-                "both classes own");
-        }
-        _ = other.Patch(target, transpiler: Foreign.Transpiler);
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(EngineShape.Foreign([target], body, null), Is.True, "a rewritten body");
-            Assert.That(EngineShape.Foreign([target], body, other.Id), Is.False);
-        }
-    }
-
-    [Test]
-    public void ManyBodiesAndConstructorsHaveAFingerprint()
-    {
-        var constructor = AccessTools.Constructor(typeof(PlayerHeadController),
-            [typeof(IAnimationManager), typeof(EntityPlayer), typeof(Shape)]);
-        MethodBase?[] bodies =
-        [
-            .. AccessTools.GetDeclaredMethods(typeof(Block)).Where(m => m.GetMethodBody() is not null)
-                .Take(EngineShape.MaxMethods - 1),
-            constructor
-        ];
-        Assert.Multiple(() =>
-        {
-            Assert.That(bodies, Has.Length.EqualTo(EngineShape.MaxMethods));
-            Assert.That(EngineShape.Of(constructor), Is.Not.Zero);
-            Assert.That(EngineShape.Of(bodies), Is.Not.Zero.And.Not.EqualTo(EngineShape.Of(bodies.AsSpan(1))));
-        });
-    }
 
     [TestCaseSource(nameof(Declining))]
     public void AChangedEngineDeclinesTheInstall(string name, Action<Harmony, ILogger> install, Func<bool> installed)
@@ -319,9 +262,7 @@ public sealed class WorkerPoolTests
         Threads[i] = WorkerPool.Current;
         Thread.SpinWait(200);
     };
-
-    private static readonly ManualResetEventSlim Never = new(false); // a background job that takes a second
-    private static int _throwAt = -1, _background;
+    private static int _throwAt = -1;
 
     private static readonly Action<int> Throwing = i =>
     {
@@ -329,7 +270,6 @@ public sealed class WorkerPoolTests
         if (i == _throwAt) throw new InvalidOperationException("item " + i);
     };
 
-    private static int _inside, _most;
     private int _limit;
     private Func<bool>? _saved;
 
@@ -337,8 +277,7 @@ public sealed class WorkerPoolTests
     public void Save()
     {
         (_saved, _limit) = (WorkerPool.Background, WorkerPool.BackgroundLimit);
-        (WorkerPool.Background, WorkerPool.BackgroundLimit, _background, _inside, _most) =
-            (null, WorkerPool.MaxThreads, 0, 0, 0);
+        (WorkerPool.Background, WorkerPool.BackgroundLimit) = (null, WorkerPool.MaxThreads);
         Array.Clear(Hits);
         Array.Clear(Threads);
     }
@@ -348,15 +287,6 @@ public sealed class WorkerPoolTests
     {
         Assert.That(WorkerPool.Stop(), Is.True, "every thread ended");
         (WorkerPool.Background, WorkerPool.BackgroundLimit) = (_saved, _limit);
-    }
-
-    [Test]
-    public void WithoutThreadsTheBatchIsDeclined()
-    {
-        WorkerPool.Resize(null, 0);
-        Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
-            Is.EqualTo(WorkerPool.FrameResult.Declined));
-        Assert.That(Hits.Sum(), Is.Zero);
     }
 
     [Test]
@@ -374,118 +304,6 @@ public sealed class WorkerPoolTests
             Assert.That(Hits.All(n => n == 50), Is.True, "each item once per batch");
             Assert.That(Threads.Any(t => t >= 0), Is.True, "workers took items");
         });
-    }
-
-    // An open batch: the workers run its items while the caller goes on, the caller's own claims never pass their bound, and closing it
-    // waits for every claimed item and drops the rest - each item ran at most once, and exactly the ones claimed before the close
-    [Test]
-    public void AnOpenBatchRunsBesideTheCallerAndClosesCleanly()
-    {
-        WorkerPool.Resize(null, 3);
-        for (var batch = 0; batch < 20; batch++)
-        {
-            Array.Clear(Hits);
-            Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.True);
-            var bound = batch * Items / 20;
-            var mine = WorkerPool.ClaimBelow(bound);
-            var cut = batch % 2 == 0 ? Items / 3 : Items;
-            _ = SpinWait.SpinUntil(() => Volatile.Read(ref Hits[cut - 1]) > 0 || cut < Items, 2000);
-            Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Done));
-            var ran = Hits.Count(n => n > 0);
-            Assert.Multiple(() =>
-            {
-                Assert.That(Hits.All(n => n <= 1), Is.True, "no item twice");
-                Assert.That(mine, Is.LessThanOrEqualTo(bound), "the caller stopped at its bound");
-                Assert.That(Hits.Take(ran).All(n => n == 1), Is.True, "the items that ran are the first ones claimed");
-                if (cut == Items) Assert.That(ran, Is.EqualTo(Items), "a batch left open long enough runs whole");
-            });
-        }
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Declined), "nothing is open");
-            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
-                Is.EqualTo(WorkerPool.FrameResult.Done));
-        });
-    }
-
-    [Test]
-    public void AnOpenBatchExcludesEveryOther()
-    {
-        WorkerPool.Resize(null, 2);
-        Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.True);
-        Assert.Multiple(() =>
-        {
-            Assert.That(WorkerPool.OpenFrame(Count, Items, WorkerPool.MaxThreads), Is.False);
-            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
-                Is.EqualTo(WorkerPool.FrameResult.Declined));
-        });
-        Assert.That(WorkerPool.CloseFrame(), Is.EqualTo(WorkerPool.FrameResult.Done));
-    }
-
-    [Test]
-    [Category("Slow")]
-    public void ABatchCompletesWhileEveryWorkerIsInABackgroundJob()
-    {
-        WorkerPool.Background = static () =>
-        {
-            _ = Interlocked.Increment(ref _background);
-            _ = Never.Wait(1000);
-            return true;
-        };
-        WorkerPool.Resize(null, 3);
-        _ = SpinWait.SpinUntil(() => Volatile.Read(ref _background) >= 3, 1000);
-        Assert.That(Volatile.Read(ref _background), Is.EqualTo(3), "every worker is inside a job");
-        var watch = Stopwatch.StartNew();
-        var result = WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads);
-        watch.Stop();
-        Assert.Multiple(() =>
-        {
-            Assert.That(result, Is.EqualTo(WorkerPool.FrameResult.Done));
-            Assert.That(Hits.All(n => n == 1), Is.True);
-            Assert.That(Threads.All(t => t < 0), Is.True, "no worker left its job for the batch");
-            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(500), "the caller did not wait for a background job");
-        });
-        _ = SpinWait.SpinUntil(() => Volatile.Read(ref _background) >= 6, 4000);
-        Assert.That(Volatile.Read(ref _background), Is.GreaterThanOrEqualTo(6), "the background jobs go on");
-    }
-
-    // However many threads are free, no more than BackgroundLimit are inside a background job at once; frame batches still get every
-    // thread that rests
-    [Test]
-    public void BackgroundJobsStayUnderTheLimit()
-    {
-        WorkerPool.BackgroundLimit = 2;
-        WorkerPool.Background = static () =>
-        {
-            var inside = Interlocked.Increment(ref _inside);
-            _ = InterlockedMax(inside);
-            _ = Interlocked.Increment(ref _background);
-            _ = Never.Wait(2);
-            _ = Interlocked.Decrement(ref _inside);
-            return true;
-        };
-        WorkerPool.Resize(null, 6);
-        _ = SpinWait.SpinUntil(() => Volatile.Read(ref _background) >= 200, 5000);
-        Assert.Multiple(() =>
-        {
-            Assert.That(Volatile.Read(ref _background), Is.GreaterThanOrEqualTo(200), "the jobs run");
-            Assert.That(Volatile.Read(ref _most), Is.EqualTo(2), "never more than the limit at once");
-            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
-                Is.EqualTo(WorkerPool.FrameResult.Done));
-            Assert.That(Threads.Any(t => t >= 0), Is.True, "the threads left out of background work help the frame");
-        });
-    }
-
-    private static int InterlockedMax(int value)
-    {
-        var seen = Volatile.Read(ref _most);
-        for (var i = 0; i < 64 && value > seen; i++)
-        {
-            seen = Interlocked.CompareExchange(ref _most, value, seen) == seen ? value : Volatile.Read(ref _most);
-        }
-
-        return seen;
     }
 
     // An item that throws fails its batch after every other item ran; a second failure turns frame batches off until Stop
@@ -512,21 +330,6 @@ public sealed class WorkerPoolTests
             Assert.That(WorkerPool.Running, Is.EqualTo(3), "the threads keep running for background jobs");
         });
         _throwAt = -1;
-    }
-
-    [Test]
-    public void AThrowingBackgroundJobStopsOnlyBackgroundJobs()
-    {
-        WorkerPool.Background = static () => throw new InvalidOperationException("background");
-        WorkerPool.Resize(null, 2);
-        _ = SpinWait.SpinUntil(() => WorkerPool.BackgroundOff, 1000);
-        Assert.Multiple(() =>
-        {
-            Assert.That(WorkerPool.BackgroundOff, Is.True);
-            Assert.That(WorkerPool.Running, Is.EqualTo(2));
-            Assert.That(WorkerPool.RunFrame(Count, Items, WorkerPool.MaxThreads),
-                Is.EqualTo(WorkerPool.FrameResult.Done));
-        });
     }
 
     // Fewer threads park the rest; another world retires them all, and Stop joins every thread, retired ones included

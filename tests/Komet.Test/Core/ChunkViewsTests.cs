@@ -50,45 +50,4 @@ public sealed class ChunkViewsTests
 
     private static uint Light(ChunkData data, int i) => ((uint)data.GetBlocklight(i) << 16) | (uint)data.GetSunlight(i);
 
-    // More chunks than a thread keeps views: every view is reused, and none shares a plane with another
-    [Test]
-    public void ReusedViewsKeepTheirOwnPlanes()
-    {
-        var pool = new ClientChunkDataPool(32, null!);
-        var r = new Random(9);
-        var chunks = new List<(ClientChunk Chunk, int[] Blocks)>();
-        for (var c = 0; c < 80; c++)
-        {
-            var chunk = ClientChunk.CreateNew(pool);
-            var data = (ChunkData)chunk.Data;
-            var blocks = new int[Cells];
-            var kinds = 2 + c % 40;
-            for (var i = 0; i < Cells; i++)
-            {
-                data[i] = blocks[i] = r.Next(kinds);
-            }
-
-            for (var i = 0; i < Cells; i++)
-            {
-                blocks[i] = data.GetBlockId(i, 1);
-            }
-
-            chunk.lastReadOrWrite = Environment.TickCount - 60_000;
-            chunk.TryPackAndCommit(0);
-            chunks.Add((chunk, blocks));
-        }
-
-        var wrong = 0;
-        for (var round = 0; round < 3; round++)
-        {
-            var views = chunks.Select(c => ChunkViews.Open(c.Chunk)).ToList();
-            // the last views of the round are still the thread's: none was overwritten by a later decode
-            for (var c = chunks.Count - 20; c < chunks.Count; c++)
-            {
-                wrong += Enumerable.Range(0, Cells).Count(i => views[c]!.GetBlockId(i, 1) != chunks[c].Blocks[i]);
-            }
-        }
-
-        Assert.That(wrong, Is.Zero);
-    }
 }

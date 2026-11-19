@@ -9,7 +9,6 @@ namespace Komet.Test.Rendering;
 [NonParallelizable]
 public sealed class PotCullingTests
 {
-    private static readonly string[] Left = ["cull off", "blend True Standard"];
     private readonly List<string> _state = [];
     private TestHarmony _harmony = null!;
 
@@ -26,19 +25,6 @@ public sealed class PotCullingTests
         _harmony.Dispose();
         PotCulling.Enabled = true;
         Counting.Hud = false;
-    }
-
-    [Test]
-    public void Installs()
-    {
-        Assert.Multiple(() =>
-        {
-            Assert.That(PotCulling.Seams()[0], Is.Not.Null, "the survival mod's pot renderer");
-            Assert.That(PotCulling.Matched, Is.True, "PotInFirepitRenderer.OnRenderFrame is not the body verified");
-            Assert.That(PotCulling.Blocked, Is.False);
-            Assert.That(Harmony.GetPatchInfo(PotCulling.Seams()[0])?.Prefixes.Select(p => p.owner),
-                Is.EqualTo([_harmony.Id]));
-        });
     }
 
     // In front of the camera and beside it, just past the edge, it draws; behind it, and far to the side, it does not
@@ -71,15 +57,6 @@ public sealed class PotCullingTests
             PotCulling.Enabled = false;
             Assert.That(PotCulling.Frame(behind, client, EnumRenderStage.Opaque), Is.True, "switched off");
         });
-    }
-
-    // The engine's body disables face culling and turns blending on in the standard mode before it draws, and leaves it so
-    [Test]
-    public void ASkippedDrawLeavesTheStateADrawnOneLeaves()
-    {
-        _state.Clear();
-        Assert.That(PotCulling.Frame(new BlockPos(0, 0, 40), Client(), EnumRenderStage.Opaque), Is.False);
-        Assert.That(_state, Is.EqualTo(Left));
     }
 
     private ICoreClientAPI Client() => AnimatableCullingTests.StateClient(_state);

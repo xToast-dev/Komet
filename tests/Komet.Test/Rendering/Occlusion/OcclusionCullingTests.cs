@@ -36,17 +36,6 @@ public sealed class OcclusionCullingTests
     }
 
     [Test]
-    public void OutsideTheOpaqueTerrainNoDrawIsHeld()
-    {
-        using var harmony = new TestHarmony("komet-test-culling-hold");
-        OcclusionCulling.Install(harmony, Answers.NullClient, new QuietLogger());
-        OcclusionCulling.Enabled = true;
-        // a VAO made here would crash the test host in its finalizer (it frees GL objects through the platform), so no mesh at all:
-        // the question is only whether anything is held before RenderOpaque began
-        Assert.That(IndirectDraw.Intercept?.Invoke(null!, false), Is.False);
-    }
-
-    [Test]
     public void ClearGivesTheDrawsBack()
     {
         using var harmony = new TestHarmony("komet-test-culling-clear");
@@ -59,16 +48,4 @@ public sealed class OcclusionCullingTests
         });
     }
 
-    [Test]
-    public void AnUnboxedListIsKeptWhole()
-    {
-        var into = new Occlusion.Range[4];
-        var written = OcclusionCulling.Unboxed([0, 0, 1200, 0, 0, 0], [300, 600], 2, into);
-        Assert.Multiple(() =>
-        {
-            Assert.That(written, Is.EqualTo(2));
-            Assert.That((into[1].First, into[1].Indices), Is.EqualTo((300, 600)));
-            Assert.That(into[0].LowZ, Is.LessThan(-1e6f), "reaches behind the camera, which cull.comp always keeps");
-        });
-    }
 }

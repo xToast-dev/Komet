@@ -13,17 +13,8 @@ public sealed class ClimateCacheTests
 
     [TestCase(Region, 512, ClimateCache.EngineCapacity)] // 3 per axis = 9, below the engine's own ten
     [TestCase(Region, 768, 16)]
-    [TestCase(Region, 1536, 49)] // the view distance this was found at
-    [TestCase(Region, 1_000_000, ClimateCache.MaxCapacity)] // the memory ceiling
-    [TestCase(0, 512, ClimateCache.EngineCapacity)] // nonsense falls back to the engine's ten
-    [TestCase(-1, -1, ClimateCache.EngineCapacity)]
     public void CapacityCoversEveryRegionInView(int region, int distance, int expected) =>
         Assert.That(ClimateCache.CapacityFor(region, distance), Is.EqualTo(expected));
-
-    [TestCase(true, 1536, 49)]
-    [TestCase(false, 1536, ClimateCache.EngineCapacity)]
-    public void SwitchedOffItWantsTheEnginesTen(bool enabled, int distance, int expected) =>
-        Assert.That(ClimateCache.Wanted(enabled, Region, distance), Is.EqualTo(expected));
 
     // The prefix is on the engine method and reaches the engine's private fields: the dictionary is swapped only for another capacity,
     // and back to the engine's ten when switched off

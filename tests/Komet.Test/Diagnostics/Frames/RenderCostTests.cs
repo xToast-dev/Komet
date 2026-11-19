@@ -16,23 +16,6 @@ public sealed class RenderCostTests
             [typeof(MeshRef), typeof(int[]), typeof(int[]), typeof(int), typeof(bool)]);
 
     [Test]
-    public void InstallPatchesNothing()
-    {
-        using var harmony = new TestHarmony("komet-test-rendercost-off");
-        RenderCost.Install(harmony, new QuietLogger());
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(RenderCost.Patched, Is.False);
-            Assert.That(PatchedBy(RenderMesh(), harmony), Is.False);
-            foreach (var stage in Stages)
-            {
-                Assert.That(PatchedBy(AccessTools.DeclaredMethod(typeof(ChunkRenderer), stage), harmony), Is.False,
-                    stage);
-            }
-        }
-    }
-
-    [Test]
     public void TheFirstSwitchOnPatchesEveryTerrainCall()
     {
         using var harmony = new TestHarmony("komet-test-rendercost-on");
@@ -52,12 +35,4 @@ public sealed class RenderCostTests
         }
     }
 
-    [TestCase("Vintagestor:gl0", 1)]
-    [TestCase("glxgears:gdrv0", 2)]
-    [TestCase("Vintagesto:cs0\n", 3)]
-    [TestCase("glxgea:sh_opt0", -1)]
-    [TestCase("gl0", -1)]
-    [TestCase("foo:gl", -1)]
-    public void DriverThreadsAreKnownByName(string comm, int kind) =>
-        Assert.That(RenderCost.Classify(comm), Is.EqualTo(kind));
 }

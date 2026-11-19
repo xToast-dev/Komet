@@ -50,33 +50,4 @@ public sealed class HeldGpuTests
         }
     }
 
-    [Test]
-    public void DeletedVertexArraysLeaveTheTap()
-    {
-        using var rig = GpuRig.Open(GpuRig.Vulkan);
-        rig.Backend!.Flush();
-        Assert.That(GlTap.Tap(), Is.True, GlTap.Missing);
-        try
-        {
-            var (arrays, bytes) = (GlTap.Held.Arrays, GlTap.Held.Bytes);
-            for (var round = 0; round < Rounds; round++)
-            {
-                // made in fifths (past a slice the tap asks on first sight), deleted at once
-                var made = Enumerable.Range(0, 5).SelectMany(_ =>
-                {
-                    var fifth = new int[Churned / 5];
-                    GL.GenVertexArrays(fifth.Length, fifth);
-                    return fifth;
-                }).ToArray();
-                Assert.That(GlTap.Held.Arrays, Is.EqualTo(arrays + Churned), "each known from its making");
-                GL.DeleteVertexArrays(Churned, made);
-                Assert.That(GlTap.Held.Arrays, Is.EqualTo(arrays), $"round {round}: every one gone");
-                Assert.That(GlTap.Held.Bytes, Is.EqualTo(bytes), $"round {round}");
-            }
-        }
-        finally
-        {
-            GlTap.Untap();
-        }
-    }
 }

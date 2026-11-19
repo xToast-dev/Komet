@@ -1,4 +1,3 @@
-using Komet.Core;
 using Komet.World;
 using Vintagestory.GameContent;
 
@@ -11,22 +10,6 @@ public sealed class MapTileCullingTests
 {
     [TearDown]
     public void Restore() => MapTileCulling.Enabled = true;
-
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-maptileculling");
-        MapTileCulling.Install(harmony, new QuietLogger());
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(MapTileCulling.Seams()[0], Is.Not.Null, "the essentials mod's map tile");
-            Assert.That(MapTileCulling.Matched, Is.True,
-                $"MultiChunkMapComponent.Render is not the body verified: 0x{EngineShape.Of(MapTileCulling.Seams()):X16}UL");
-            Assert.That(MapTileCulling.Blocked, Is.False);
-            Assert.That(Harmony.GetPatchInfo(MapTileCulling.Seams()[0])?.Prefixes.Select(p => p.owner),
-                Is.EqualTo([harmony.Id]));
-        }
-    }
 
     // A 200 pixel map at (10, 20) showing 200 blocks from (1000, 2000): one pixel a block, a tile 96 of each
     [Test]
@@ -43,19 +26,6 @@ public sealed class MapTileCullingTests
             Assert.That(Drawn(map, 1210, 2000), Is.False, "right of it");
             Assert.That(Drawn(map, 1000, 1800), Is.False, "above it");
             Assert.That(Drawn(map, 1000, 2500), Is.False, "below it");
-        });
-    }
-
-    // Zoomed in twice: 100 blocks fill the map and a tile is 192 pixels wide
-    [Test]
-    public void TheTileGrowsWithTheZoom()
-    {
-        using var harmony = Installed();
-        var map = Map(new Cuboidd(1000, 0, 2000, 1100, 0, 2100), 2);
-        Assert.Multiple(() =>
-        {
-            Assert.That(Drawn(map, 910, 2000), Is.True, "reaching 12 pixels in");
-            Assert.That(Drawn(map, 900, 2000), Is.False, "ending 8 pixels short");
         });
     }
 

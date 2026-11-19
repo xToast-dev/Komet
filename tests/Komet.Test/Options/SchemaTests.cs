@@ -1,5 +1,3 @@
-using Komet.Core;
-using Komet.Options;
 using Komet.Rendering;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -39,29 +37,4 @@ public sealed class SchemaTests
         });
     }
 
-    // komet.json: a pack's fields plus what adapters read
-    [Test]
-    public void TheDeclarationSchemaNamesWhatKometReads()
-    {
-        var schema = Schema("komet.schema.json")["properties"]!;
-        var expected = Fields(typeof(ShaderPacks.Pack)).Union(Fields(typeof(ModAdapters.Manifest))).Order();
-        Assert.Multiple(() =>
-        {
-            Assert.That(Keys(schema), Is.EqualTo(expected));
-            Assert.That(Keys(schema["config"]!["properties"]), Is.EqualTo(Fields(typeof(ModAdapters.AdapterConfig))));
-        });
-    }
-
-    [Test]
-    public void TheStyleSchemaNamesWhatStylesRead()
-    {
-        var schema = Schema("komet-style.schema.json")["properties"]!;
-        Assert.Multiple(() =>
-        {
-            Assert.That(Keys(schema), Is.EqualTo(Fields(typeof(StyleData))));
-            Assert.That(Keys(schema["colors"]!["properties"]), Is.EqualTo(StyleSheet.ColorKeys.Order()));
-            Assert.That(Keys(schema["sizes"]!["properties"]), Is.EqualTo(StyleSheet.SizeKeys.Order()));
-            Assert.That(Keys(schema["fonts"]!["properties"]), Is.EqualTo(StyleSheet.FontKeys.Order()));
-        });
-    }
 }

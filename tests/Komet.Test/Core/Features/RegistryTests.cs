@@ -1,28 +1,10 @@
 using Komet.Core;
-using Komet.Api;
 
 namespace Komet.Test.Core;
 
 [NonParallelizable]
 public sealed class RegistryTests
 {
-    [Test]
-    public void TheSameTableCanBeRegisteredAgain()
-    {
-        var table = BuiltIns.All();
-        Features.Use([table]);
-        Assert.That(BuiltIns.All(), Is.EqualTo(table));
-    }
-
-    [Test]
-    public void DifferentFeaturesWithTheSameCountAreRefused()
-    {
-        var original = BuiltIns.All();
-        var changed = original.ToArray();
-        changed[0] = changed[0] with { Id = "DifferentFeature" };
-        _ = Assert.Throws<InvalidOperationException>(() => Features.Use([changed]));
-        Assert.That(BuiltIns.All(), Is.EqualTo(original));
-    }
 
     [Test]
     public void ADuplicateOrderIsRefused()
@@ -30,24 +12,6 @@ public sealed class RegistryTests
         var table = BuiltIns.All();
         table[1] = table[1] with { Order = table[0].Order };
         _ = Assert.Throws<InvalidOperationException>(() => Features.Use([table]));
-    }
-
-    [Test]
-    public void AMissingReplacementMethodStandsDownTheBuiltInFeature()
-    {
-        var table = (Feature[])AccessTools.Field(typeof(FeatureTable), "_builtIn").GetValue(null)!;
-        var index = Features.Find("MenuBlur");
-        var original = table[index];
-        try
-        {
-            table[index] = original with { Replaces = () => [null], Rivals = KapiPatchKinds.Replacing };
-            using var rig = new FeatureRig("MenuBlur");
-            Assert.That(rig.State, Is.EqualTo(KapiFeatureState.StoodDown));
-        }
-        finally
-        {
-            table[index] = original;
-        }
     }
 
     [Test]

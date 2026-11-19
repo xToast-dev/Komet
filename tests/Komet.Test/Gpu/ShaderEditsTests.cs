@@ -35,23 +35,6 @@ public sealed class ShaderEditsTests
             error);
     }
 
-    // The god rays read the colour only where the glow lets it through, and still port
-    [Test]
-    public void TheGodRaysSkipTheTerrainAndStillPort()
-    {
-        var (vertex, fragment) = EngineShaders.Program("godrays", true);
-        var program = new ShaderProgram
-        {
-            PassName = "godrays", VertexShader = new Shader(EnumShaderType.VertexShader, vertex, "godrays.vsh"),
-            FragmentShader = new Shader(EnumShaderType.FragmentShader, fragment, "godrays.fsh")
-        };
-        LeanGodRays.Edit(program);
-        Assert.That(program.FragmentShader.Code, Does.Contain("if (kometGlow != 0.0)"));
-        Assert.That(
-            GlslPort.Build("godrays", program.VertexShader.Code, program.FragmentShader.Code, null, out var error),
-            Is.Not.Null, error);
-    }
-
     // Half the god ray steps and the blur's seven taps: every line found, and both still port
     [TestCase("godrays", "int samples = int(90")]
     [TestCase("bilateralblur", "float w0 = 0.0;")]

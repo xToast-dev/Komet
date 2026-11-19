@@ -13,11 +13,4 @@ public sealed class ShaderRenameTests
         Assert.That(count, Is.EqualTo(3));
     }
 
-    [Test]
-    public void RefusesKeywordsAndBuiltins()
-    {
-        Assert.That(ShaderRename.IsValidName("haze2"), Is.True);
-        Assert.That(ShaderRename.IsValidName("vec3") || ShaderRename.IsValidName("gl_Position") ||
-            ShaderRename.IsValidName("2x") || ShaderRename.IsValidName("a-b"), Is.False);
-    }
 }

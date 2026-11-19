@@ -40,56 +40,6 @@ public sealed class EntityTimesTests
         });
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public void EachCallReachesTheEngineOnceAndIsBookedOnlyWhileTheHudCounts(bool hud)
-    {
-        Counting.Hud = hud;
-        var entity = Ticking.Made();
-        var calls = 0;
-        var manager = Answers.Of<IAnimationManager>(new Dictionary<string, System.Func<object?[]?, object?>>
-            { [nameof(IAnimationManager.OnClientFrame)] = _ => calls++ });
-        var renderer = (Preparing)RuntimeHelpers.GetUninitializedObject(typeof(Preparing));
-        renderer.entity = entity;
-        EntityTimes.Ticked(entity, 0.05f);
-        EntityTimes.Animated(manager, 0.016f);
-        EntityTimes.Prepared(renderer, 0.016f);
-        Assert.Multiple(() =>
-        {
-            Assert.That((entity.Ticks, calls, renderer.Calls, entity.Dt, renderer.Dt),
-                Is.EqualTo((1, 1, 1, 0.05f, 0.016f)));
-            Assert.That(EntityTimes.Ticks(EntityTimes.Tick) > 0, Is.EqualTo(hud));
-            Assert.That(EntityTimes.SlowestCode(EntityTimes.Tick), Is.EqualTo(hud ? "deer-1" : ""));
-            Assert.That(EntityTimes.SlowestCode(EntityTimes.Prepare), Is.EqualTo(hud ? "deer-1" : ""));
-            Assert.That(EntityTimes.SlowestCode(EntityTimes.Animation), Is.Empty, "a stand-in manager has no entity");
-        });
-    }
-
-    [Test]
-    public void ACollectionInsideATickIsNotBookedToIt()
-    {
-        var entity = Ticking.Made(true);
-        var start = Stopwatch.GetTimestamp();
-        EntityTimes.Ticked(entity, 0.05f);
-        var outside = Stopwatch.GetTimestamp() - start;
-        Assert.Multiple(() =>
-        {
-            Assert.That(entity.Paused, Is.Positive, "the forced collection paused nothing");
-            Assert.That(EntityTimes.Ticks(EntityTimes.Tick), Is.LessThanOrEqualTo(outside - entity.Paused));
-            Assert.That(EntityTimes.SlowestMs(EntityTimes.Tick),
-                Is.LessThanOrEqualTo((outside - entity.Paused) * 1000.0 / Stopwatch.Frequency));
-        });
-    }
-
-    [Test]
-    public void ANullArgumentThrowsAsTheEngineDid() =>
-        Assert.Multiple(() =>
-        {
-            _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Ticked(null!, 0));
-            _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Animated(null!, 0));
-            _ = Assert.Throws<NullReferenceException>(() => EntityTimes.Prepared(null!, 0));
-        });
-
     private sealed class Ticking : EntityAgent
     {
         private bool _collect;

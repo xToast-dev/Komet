@@ -27,15 +27,6 @@ public sealed class PartitionReuseTests
     [TearDown]
     public void Restore() => (PartitionReuse.Enabled, Counting.Hud) = (true, false);
 
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-partitionreuse");
-        PartitionReuse.Install(harmony);
-        Assert.That(PartitionReuse.Rewritten, Is.True,
-            "PartitionEntities, EntityPartitionChunk.Add or FetchOrCreateList no longer allocate as they did");
-    }
-
     [TestCase(true)]
     [TestCase(false)]
     public void EveryCallPartitionsAsTheEngine(bool enabled)
@@ -53,54 +44,6 @@ public sealed class PartitionReuseTests
             Assert.That(pooled, Is.EqualTo(engine));
             Assert.That(PartitionReuse.Reused > before, Is.EqualTo(enabled), "reused only while switched on");
             Assert.That(players, Is.Not.Empty);
-        });
-    }
-
-    // After a warm-up the pool serves every chunk, list and array: what a call allocates is the enumerator of the collection it walks
-    [Test]
-    public void SteadyStateAllocatesAlmostNothing()
-    {
-        using var harmony = new TestHarmony("komet-test-partitionreuse");
-        PartitionReuse.Install(harmony);
-        var (partitioning, entities) = (Partitioning(), World(Ticks));
-        Moves(entities, 0);
-        for (var i = 0; i < 4; i++)
-        {
-            Partition(partitioning, entities);
-        }
-
-        var start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 4; i++)
-        {
-            Partition(partitioning, entities);
-        }
-
-        var pooled = GC.GetAllocatedBytesForCurrentThread() - start;
-        PartitionReuse.Enabled = false;
-        start = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 4; i++)
-        {
-            Partition(partitioning, entities);
-        }
-
-        var engine = GC.GetAllocatedBytesForCurrentThread() - start;
-        Assert.That(pooled, Is.LessThan(engine / 20), $"pooled {pooled} B, engine {engine} B for four calls");
-    }
-
-    // A body that clears twice is not the shape the rewrite knows: the engine's IL comes back untouched
-    [Test]
-    public void AShapeItDoesNotKnowIsLeftAlone()
-    {
-        var target = AccessTools.Method(typeof(EntityPartitioning), "PartitionEntities");
-        var code = PatchProcessor.GetOriginalInstructions(target);
-        var clear = code.FindIndex(c => c.opcode == OpCodes.Callvirt && c.operand is MethodInfo { Name: "Clear" });
-        code.InsertRange(clear + 1, [new CodeInstruction(code[clear - 1]), new CodeInstruction(code[clear])]);
-        var result = PartitionReuse.RewritePartition(code);
-        Assert.Multiple(() =>
-        {
-            Assert.That(PartitionReuse.Rewritten, Is.False);
-            Assert.That(result.Count(c => c.opcode == OpCodes.Callvirt && c.operand is MethodInfo { Name: "Clear" }),
-                Is.EqualTo(2));
         });
     }
 

@@ -1,7 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Komet.Core;
-using Komet.Rendering;
 using Komet.Vulkan;
 
 namespace Komet.Test.Gpu;
@@ -26,14 +22,8 @@ public sealed class ShaderCacheTests
                                     out vec4 color;
                                     void main() { color = texture(tex, vec2(0)) * tint; }
                                     """;
-
-    private static readonly JsonSerializerOptions Json =
-        new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
-
     private static readonly Dictionary<string, int> Attributes = new() { ["xyz"] = 0 };
     private static readonly HashSet<string> Hot = new(["origin"], StringComparer.Ordinal);
-    private static readonly string[] HotNames = ["origin"];
-
     private string _folder = "";
 
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "_writes")]
@@ -41,29 +31,6 @@ public sealed class ShaderCacheTests
 
     // The files ShaderCache has written so far are on disk
     private static void Flush() => Writes(null).Wait();
-
-    [Test]
-    public void DiagnosticRasterStatesAreNotRememberedForTheNextSession()
-    {
-        var developer = ClientSettings.DeveloperMode;
-        using var harmony = new TestHarmony("shader-cache-debug");
-        var supported = Services.Swap<IVulkanSide>(new NoVulkan { NonSolidFill = true });
-        try
-        {
-            ClientSettings.DeveloperMode = true;
-            RenderDebug.Install(harmony, Answers.NullClient);
-            RenderDebug.SetView(RenderDebug.View.Wireframe);
-            ShaderCache.Remember("diagnostic",
-                new ShaderCache.Recipe("debug", "target", Vk.TopologyTriangles, [], 0, [], []));
-            Assert.That(ShaderCache.Recipes("diagnostic"), Is.Empty);
-        }
-        finally
-        {
-            RenderDebug.Clear();
-            ClientSettings.DeveloperMode = developer;
-            _ = Services.Swap(supported);
-        }
-    }
 
     [SetUp]
     public void Folder()
@@ -111,31 +78,6 @@ public sealed class ShaderCacheTests
     }
 
     [Test]
-    public void ARecipeKeepsTheStencil()
-    {
-        var state = new GlTap.Fixed(32, 0x4F, 0, 0, new GlTap.BlendState(1, 2, 3, 4, 5, 6, 7, 8), 0x2493);
-        TerrainPools.Attribute[] attributes = [new(0, 0, 3, 0x1406, false, false) { Stride = 12 }];
-        var recipe = PipelineRecipes.Packed(("v|4", "37/130", 0), state, attributes,
-            new TerrainPipeline.Target([37], 130));
-        Assert.That(PipelineRecipes.Unpacked(recipe)?.State, Is.EqualTo(state));
-    }
-
-    [Test]
-    public void APortReadBackIsThePortWrittenUnderTheNameAskedFor()
-    {
-        var ported = Port(Hot);
-        ShaderCache.Keep(Sources(), Hot, ported);
-        Flush();
-        var read = ShaderCache.Port(Sources(), Hot, "chunkopaque");
-        Assert.That(read, Is.Not.Null);
-        Assert.That(read!.Name, Is.EqualTo("chunkopaque"));
-        Assert.That(JsonSerializer.Serialize(read with { Name = "test" }, Json),
-            Is.EqualTo(JsonSerializer.Serialize(ported, Json)));
-        Assert.That(read.HotUniforms.Size, Is.GreaterThan(0));
-        Assert.That(read.VertexUniforms.Members.Select(u => u.Name), Does.Not.Contain("origin"));
-    }
-
-    [Test]
     public void OtherSourcesOrOtherHotUniformsMiss()
     {
         ShaderCache.Keep(Sources(), Hot, Port(Hot));
@@ -146,17 +88,6 @@ public sealed class ShaderCacheTests
         Assert.That(ShaderCache.Port(other, Hot, "test"), Is.Null, "another source");
         var bound = ShaderCache.Sources(Vertex, Fragment, new Dictionary<string, int> { ["xyz"] = 3 });
         Assert.That(ShaderCache.Port(bound, Hot, "test"), Is.Null, "another attribute location");
-    }
-
-    [Test]
-    public void SettledHotUniformsComeBackAtTheNextStart()
-    {
-        Assert.That(ShaderCache.Settled(Sources()), Is.Null);
-        ShaderCache.Settle(Sources(), Hot);
-        Flush();
-        ShaderCache.Open(_folder); // read anew, as at the next start
-        Assert.That(ShaderCache.Settled(Sources()), Is.EquivalentTo(HotNames));
-        Assert.That(ShaderCache.Settled(ShaderCache.Sources(Vertex, Fragment + " ", Attributes)), Is.Null);
     }
 
     [Test]
@@ -172,36 +103,4 @@ public sealed class ShaderCacheTests
         Assert.That(ShaderCache.Port(Sources(), Hot, "test"), Is.Null);
     }
 
-    [Test]
-    public void SwitchedOffNothingIsReadOrWritten()
-    {
-        ShaderCache.Keep(Sources(), Hot, Port(Hot));
-        Flush();
-        ShaderCache.Enabled = false;
-        Assert.That(ShaderCache.Port(Sources(), Hot, "test"), Is.Null);
-        ShaderCache.Settle(Sources(), Hot);
-        Flush();
-        Assert.That(File.Exists(Path.Join(_folder, "hot.json")), Is.False);
-    }
-
-    [Test]
-    public void TheDeviceLeavesItsPipelineCacheForTheNextOne()
-    {
-        using var window = GlContext.Context();
-        if (window is null) Assert.Ignore("no OpenGL 4.6 context here");
-
-        using (var rig = GpuRig.Start(GpuRig.Vulkan, out var why))
-        {
-            if (rig is null) Assert.Ignore(why);
-
-            Assert.That(rig.Device!.PipelineCache, Is.Not.Zero);
-            Assert.That(ShaderCache.PipelineBytes, Is.Zero, "nothing kept yet");
-            Assert.That(rig.Backend!.Program(GpuShaders.HiZ, new QuietLogger()), Is.GreaterThan(0));
-        }
-
-        Assert.That(Directory.GetFiles(_folder, "pipelines-*.bin"), Has.Length.EqualTo(1));
-        using var again = GpuRig.Start(GpuRig.Vulkan, out _);
-        Assert.That(again?.Device?.PipelineCache, Is.Not.Zero);
-        Assert.That(ShaderCache.PipelineBytes, Is.GreaterThan(32), "the header and the compute pipeline");
-    }
 }

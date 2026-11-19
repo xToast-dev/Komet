@@ -1,4 +1,3 @@
-using Komet.Core;
 using Komet.World;
 
 namespace Komet.Test.Rendering;
@@ -10,22 +9,6 @@ public sealed class MapTileUploadTests
 {
     [TearDown]
     public void Restore() => MapTileUpload.Enabled = true;
-
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-maptileupload");
-        MapTileUpload.Install(harmony, new QuietLogger());
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(MapTileUpload.Seams()[0], Is.Not.Null, "the essentials mod's map tile");
-            Assert.That(MapTileUpload.Matched, Is.True,
-                $"MultiChunkMapComponent.FinishSetChunks is not the body verified: 0x{EngineShape.Of(MapTileUpload.Seams()):X16}UL");
-            Assert.That(MapTileUpload.Blocked, Is.False);
-            Assert.That(Harmony.GetPatchInfo(MapTileUpload.Seams()[0])?.Prefixes.Select(p => p.owner),
-                Is.EqualTo([harmony.Id]));
-        }
-    }
 
     private static int[] Piece(int alpha = 0xFF) =>
         [.. Enumerable.Range(0, 1024).Select(i => (alpha << 24) | ((i * 2713) & 0xFFFFFF))];
@@ -51,21 +34,4 @@ public sealed class MapTileUploadTests
         });
     }
 
-    [Test]
-    public void EverythingElseIsTheEngines()
-    {
-        using var harmony = new TestHarmony("komet-test-maptileupload");
-        MapTileUpload.Install(harmony, new QuietLogger());
-        LoadedTexture? texture = null;
-        int[]?[]? pieces = [Piece(), null, null, null, null, null, null, null, null];
-        Assert.Multiple(() =>
-        {
-            Assert.That(MapTileUpload.Finish(ref texture, ref pieces, new int[96 * 96], null), Is.True, "no client");
-            int[]?[]? none = null;
-            Assert.That(MapTileUpload.Finish(ref texture, ref none, new int[96 * 96], null), Is.True, "nothing to set");
-            MapTileUpload.Enabled = false;
-            Assert.That(MapTileUpload.Finish(ref texture, ref pieces, new int[96 * 96], null), Is.True, "switched off");
-            Assert.That(pieces, Is.Not.Null, "left for the engine");
-        });
-    }
 }

@@ -32,6 +32,22 @@ internal static class GameLang
         Lang.AvailableLanguages["en"] = english;
         Lang.ChangeLanguage("en");
     }
+
+    // Komet's English as the only language, its keys under komet:; the directory it wrote, for the caller to delete
+    public static string LoadKomet()
+    {
+        var assets = Directory.CreateTempSubdirectory("komet-test-lang").FullName;
+        using var json = System.Text.Json.JsonDocument.Parse(
+            File.ReadAllText(Path.Join(Paths.KometDir, "assets", "komet", "lang", "en.json")));
+        var entries = json.RootElement.EnumerateObject().ToDictionary(p => "komet:" + p.Name, p => p.Value.GetString());
+        _ = Directory.CreateDirectory(Path.Join(assets, "game", "lang"));
+        File.WriteAllText(Path.Join(assets, "game", "lang", "en.json"), System.Text.Json.JsonSerializer.Serialize(entries));
+        var english = new TranslationService("en", new QuietLogger());
+        english.PreLoad(assets);
+        Lang.AvailableLanguages["en"] = english;
+        Lang.ChangeLanguage("en");
+        return assets;
+    }
 }
 
 // Komet's own features in install order

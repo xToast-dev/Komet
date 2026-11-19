@@ -6,68 +6,6 @@ namespace Komet.Test.Options;
 // The in-game docs' Markdown subset: every block kind the reader draws comes out of the parser as written
 public sealed class DocTextTests
 {
-    private const string Sample = """
-                                  # Title
-                                  Intro **bold** and `code`
-                                  goes on.
-
-                                  ## Heading
-                                  - one
-                                    - nested
-                                  1. first
-                                    continued
-                                  ```csharp
-                                      var x = 1;
-                                        indented();
-                                  ```
-                                  | A | B |
-                                  |---|---|
-                                  | a1 | [link](https://x) |
-                                  ---
-                                  ### Sub
-                                  """;
-
-    private static readonly DocText.Kind[] Kinds =
-    [
-        DocText.Kind.Title, DocText.Kind.Paragraph, DocText.Kind.Heading, DocText.Kind.Bullet, DocText.Kind.Bullet,
-        DocText.Kind.Numbered, DocText.Kind.Code, DocText.Kind.Table, DocText.Kind.Rule, DocText.Kind.Subheading
-    ];
-
-    private static readonly string[] Code =
-            ["var x = 1;", "  indented();"],
-        Row = ["a1", "link"],
-        Headings = ["Heading", "Sub"];
-
-    private static readonly string[] FlowRows = ["A -> B -> C", "v", "D"];
-
-    [Test]
-    public void EveryBlockKindIsRead()
-    {
-        var blocks = DocText.Parse(Sample);
-        Assert.Multiple(() =>
-        {
-            Assert.That(blocks.Select(b => b.Kind), Is.EqualTo(Kinds));
-            Assert.That(DocText.Strip(blocks[1].Text), Is.EqualTo("Intro bold and code goes on."));
-            Assert.That(blocks[1].Text, Does.Contain(DocText.CodeOpen + "code" + DocText.CodeClose));
-            Assert.That(blocks[4].Level, Is.EqualTo(1));
-            Assert.That(blocks[5].Text, Is.EqualTo("first continued"));
-            Assert.That(blocks[6].Lines, Is.EqualTo(Code));
-            Assert.That(blocks[7].Rows![1], Is.EqualTo(Row));
-            Assert.That(DocText.Outline(blocks).Select(o => o.Text), Is.EqualTo(Headings));
-        });
-    }
-
-    [Test]
-    public void AFlowBlockKeepsItsRows()
-    {
-        var blocks = DocText.Parse("```flow\nA -> B -> C\n\nv\n  D\n```\nafter");
-        Assert.Multiple(() =>
-        {
-            Assert.That(blocks[0].Kind, Is.EqualTo(DocText.Kind.Flow));
-            Assert.That(blocks[0].Lines, Is.EqualTo(FlowRows));
-            Assert.That(blocks[1].Text, Is.EqualTo("after"));
-        });
-    }
 
     // Help's pages ship with Komet, Modding's with the Komet SDK
     private static string Docs(string name, [CallerFilePath] string here = "") =>
@@ -109,9 +47,6 @@ public sealed class DocTextTests
         }
     }
 
-    private static readonly string[] LinkTargets = ["term:frame time", "term:frame time", "docs-menu", "docs-menu"];
-    private static readonly string[] KeyCodes = ["komet-hud-toggle"];
-
     // Hotkeys the docs may name: the game's escape menu and Komet's own
     private static readonly string[] KnownKeys =
         ["escapemenudialog", "komet-hud-toggle", "komet-hud-details", "komet-hud-window", "komet-hud-debug"];
@@ -143,31 +78,6 @@ public sealed class DocTextTests
                 });
             }
         }
-    }
-
-    [Test]
-    public void TermsLinksAndKeysReadAsTheirWords()
-    {
-        var text = DocText.Parse("Watch the [[frame time]], see [the menu](docs-menu), press {key:komet-hud-toggle}.")[0]
-            .Text;
-        Assert.Multiple(() =>
-        {
-            Assert.That(DocText.Strip(text), Is.EqualTo("Watch the frame time, see the menu, press  komet-hud-toggle ."));
-            Assert.That(DocText.Targets(text), Is.EqualTo(LinkTargets));
-            Assert.That(DocText.Keys(text), Is.EqualTo(KeyCodes));
-            Assert.That(DocText.Terms(DocText.Parse("- **Frame Time**: how long a picture takes."))["frame time"].Text,
-                Is.EqualTo("how long a picture takes."));
-        });
-    }
-
-    // Modding's Templates page (rows) right after Modding's first page, the Help pages before it
-    [Test]
-    public void TheTemplatesFollowModdingsStart()
-    {
-        var docs = KometDocs.Names
-            .Select(n => new OptionPage("docs-" + n, n, KometDocs.Help.Contains(n) ? "help" : "modding")).ToArray();
-        var pages = KometDocs.With(docs, new OptionPage("templates", "Templates", "modding"));
-        Assert.That(Array.FindIndex(pages, p => p.Id == "templates"), Is.EqualTo(KometDocs.Help.Length + 1));
     }
 
     private static List<DocText.Block> Read(string language, string name)

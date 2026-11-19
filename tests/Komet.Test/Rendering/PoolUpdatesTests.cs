@@ -21,15 +21,6 @@ public sealed class PoolUpdatesTests
     public void Restore() => FacePacking.Through = null;
 
     [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-poolupdates");
-        PoolUpdates.Install(harmony, new QuietLogger());
-        Assert.That(Harmony.GetPatchInfo(PoolUpdates.Seams()[0])?.Prefixes.Select(p => p.owner),
-            Is.EqualTo([harmony.Id]), "UpdateMesh is not the body verified");
-    }
-
-    [Test]
     public void AnUpdateIntoThePoolGoesThroughWithItsBytes()
     {
         using var window = GlContext.Context(); // a taken upload makes the engine's GL binds

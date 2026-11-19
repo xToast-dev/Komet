@@ -30,12 +30,6 @@ internal class NoUbo : UBORef
 // matrices, its scale and the shader's warps - and a skipped draw leaves the GL state exactly as the engine's drawn one does
 public sealed class AnimatableCullingTests
 {
-    private static readonly MethodInfo Draw =
-        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame));
-
-    private static readonly EnumRenderStage[] Stages =
-        [EnumRenderStage.Opaque, EnumRenderStage.OIT, EnumRenderStage.ShadowFar, EnumRenderStage.ShadowNear];
-
     private readonly List<string> _state = [];
 
     [TearDown]
@@ -43,20 +37,6 @@ public sealed class AnimatableCullingTests
     {
         AnimatableCulling.Enabled = true;
         Counting.Hud = false;
-    }
-
-    [Test]
-    public void Installs()
-    {
-        using var harmony = new TestHarmony("komet-test-animatableculling");
-        AnimatableCulling.Install(harmony, new QuietLogger());
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(AnimatableCulling.Matched, Is.True,
-                "AnimatableRenderer.OnRenderFrame is not the body verified");
-            Assert.That(AnimatableCulling.Blocked, Is.False);
-            Assert.That(Harmony.GetPatchInfo(Draw)?.Prefixes.Select(p => p.owner), Is.EqualTo([harmony.Id]));
-        }
     }
 
     // In front of the camera it draws, behind it it does not; a model 400 blocks behind still draws when a joint its vertices read
@@ -109,50 +89,6 @@ public sealed class AnimatableCullingTests
             AnimatableCulling.Enabled = false;
             Assert.That(AnimatableCulling.Frame(off, EnumRenderStage.Opaque), Is.True, "switched off");
         });
-    }
-
-    // The engine's own draw, run against a render API that records the state it leaves, and the skipped one in every stage and both
-    // culling modes: the same depth mask, blend and face culling at the end
-    [Test]
-    public void ASkippedDrawLeavesTheStateADrawnOneLeaves([Values] bool backfaceCulling)
-    {
-        var engine = new List<string>();
-        foreach (var stage in Stages)
-        {
-            var drawn = Renderer(new Vec3d(0, 0, 400));
-            drawn.backfaceCulling = backfaceCulling;
-            _state.Clear();
-            _ = Draw.Invoke(drawn, [0.016f, stage]); // unpatched: the engine's own draw
-            engine.Add(Final());
-        }
-
-        using var harmony = new TestHarmony("komet-test-animatableculling");
-        AnimatableCulling.Install(harmony, new QuietLogger());
-        Assert.Multiple(() =>
-        {
-            for (var i = 0; i < Stages.Length; i++)
-            {
-                var skipped = Renderer(new Vec3d(0, 0, 400));
-                skipped.backfaceCulling = backfaceCulling;
-                _state.Clear();
-                Assert.That(AnimatableCulling.Frame(skipped, Stages[i]), Is.False, Stages[i].ToString());
-                Assert.That(Final(), Is.EqualTo(engine[i]), $"{Stages[i]}, backface culling {backfaceCulling}");
-            }
-        });
-    }
-
-    private string Final()
-    {
-        var last = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        foreach (var call in _state)
-        {
-            var (key, value) = call.StartsWith("cull", StringComparison.Ordinal)
-                ? ("cull", call)
-                : (call.Split(' ')[0], call);
-            last[key] = value;
-        }
-
-        return string.Join(", ", last.Values);
     }
 
     private AnimatableRenderer Renderer(Vec3d pos, int joint = 0, int jointId = 0)

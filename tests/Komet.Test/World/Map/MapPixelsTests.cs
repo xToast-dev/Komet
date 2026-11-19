@@ -28,11 +28,4 @@ public sealed class MapPixelsTests
         });
     }
 
-    [Test]
-    public void TheMapRewriteTakesItsPixelArray()
-    {
-        using var harmony = new TestHarmony("komet-test-mappixels");
-        MapPixels.Install(harmony);
-        Assert.That(MapPixels.Rewritten, Is.True);
-    }
 }

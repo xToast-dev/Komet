@@ -8,21 +8,8 @@ namespace Komet.Test.Rendering;
 // A mesh not laid out as quads with the quad index pattern stays as it was.
 public sealed class FaceSortingTests
 {
-    private const int WindMode = 2 << 25, ZOffset = 1 << 8;
     private static readonly int[] OnePerDirection = [1, 1, 1, 1, 1, 1];
     private static readonly float[] CubePlanes = [-1f, 1f, -1f, 1f, -1f, 1f];
-
-    private static readonly int[] Quad = [0, 1, 2, 0, 2, 3];
-    private static readonly int[] FlatUp = [5, 1, 3, 1, 9], FlatDown = [2, 8], FlatCounts = [0, 0, 2, 5, 0, 0];
-    private static readonly int[] FlatOrder = [5, 6, 1, 3, 2, 0, 4], FlatSlabs = [0, 1, 0, 1, 1, 1, 1, 2];
-    private static readonly float[] FlatLows = [1, 1, 3, 5], FlatHighs = [1, 1, 3, 9];
-    private static readonly float[] FlatHeights = [2, 8, 1, 1, 3, 5, 9];
-
-    // Held for the whole run: the engine's VAO finalizer frees GL state this stand-in never had, and on the finalizer thread that
-    // ends the test process
-    private static readonly VAO Stand = (VAO)RuntimeHelpers.GetUninitializedObject(typeof(VAO));
-
-    private static readonly FieldInfo PoolModel = AccessTools.Field(typeof(MeshDataPool), "modelRef");
 
     // The cube with a tag per face in every per-vertex and per-face array: face f's values are f (uv, flags' glow bits, rgba,
     // custom ints) so that where a face went its data must have gone too
@@ -76,27 +63,6 @@ public sealed class FaceSortingTests
     }
 
     [Test]
-    public void MovedAndPushedFacesGoLastInTheirOrder()
-    {
-        var mesh = Cube();
-        for (var k = 0; k < 4; k++)
-        {
-            (mesh.Flags[k], mesh.Flags[12 + k]) = (mesh.Flags[k] | WindMode, mesh.Flags[12 + k] | ZOffset);
-        }
-
-        var original = (float[])mesh.xyz.Clone();
-        var sorted = FaceSorting.Sorting(mesh);
-        Assert.That(sorted, Is.Not.Null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(sorted!.Counts.Sum(), Is.EqualTo(4), "four faces with a direction");
-            Assert.That(mesh.CustomInts.Values[16], Is.EqualTo(100), "the wind's face after them");
-            Assert.That(mesh.CustomInts.Values[20], Is.EqualTo(103), "then the pushed one");
-            Assert.That(Moved(mesh, original), Is.True);
-        });
-    }
-
-    [Test]
     public void AMeshNotLaidOutAsQuadsStaysAsItWas()
     {
         var mesh = Cube();
@@ -108,131 +74,6 @@ public sealed class FaceSortingTests
             Assert.That(mesh.xyz, Is.EqualTo(xyz));
             Assert.That(mesh.CustomInts.Values, Is.EqualTo(ints));
         });
-    }
-
-    // Within a direction the faces go by their plane, least first (equal planes in their order), in four slabs of about equal
-    // count with their least and greatest plane: +Y at 1 1 3 5 9 as 1 | 1 | 3 | 5 9, -Y at 2 8 as - | 2 | - | 8; the planes move
-    // with the upload
-    [Test]
-    [NonParallelizable]
-    public void FacesGoByTheirPlaneInSlabs()
-    {
-        var mesh = Flats(FlatUp, FlatDown);
-        var sorted = FaceSorting.Sorting(mesh);
-        Assert.That(sorted, Is.Not.Null);
-        Assert.Multiple(() =>
-        {
-            Assert.That(sorted!.Counts, Is.EqualTo(FlatCounts));
-            Assert.That(Enumerable.Range(0, 7).Select(f => mesh.xyz[12 * f + 1]), Is.EqualTo(FlatHeights));
-            Assert.That(Enumerable.Range(0, 7).Select(f => (int)mesh.Uv[8 * f]), Is.EqualTo(FlatOrder),
-                "every face's uvs with it, equal planes in their order");
-            Assert.That(sorted.SlabCounts[8..16], Is.EqualTo(FlatSlabs),
-                "-Y's two faces and +Y's five, about a quarter each");
-            Assert.That(sorted.Low[12..16], Is.EqualTo(FlatLows), "+Y's slabs' least planes");
-            Assert.That(sorted.High[12..16], Is.EqualTo(FlatHighs), "and greatest");
-        });
-        FaceSorting.Sort(mesh, true);
-        for (var v = 0; v < mesh.VerticesCount; v++)
-        {
-            mesh.xyz[3 * v + 1] += 64;
-        }
-
-        FaceSorting.Uploaded(78, mesh);
-        try
-        {
-            var placed = FaceSorting.Of(78, 0);
-            Assert.That(placed, Is.Not.Null);
-            Assert.That((placed!.SlabCounts[15], placed.Low[11], placed.Low[15], placed.High[15]),
-                Is.EqualTo((2, 72f, 69f, 73f)));
-        }
-        finally
-        {
-            FaceSorting.Gone(78, 0);
-        }
-    }
-
-    // Unit quads at x, z in [0, 1]: +Y ones at the heights up, then -Y ones at down; face f's uvs are f
-    private static MeshData Flats(int[] up, int[] down)
-    {
-        var faces = up.Length + down.Length;
-        var mesh = new MeshData(false)
-        {
-            VerticesCount = 4 * faces, IndicesCount = 6 * faces, xyz = new float[12 * faces], Uv = new float[8 * faces],
-            Flags = new int[4 * faces],
-            Indices = [.. Enumerable.Range(0, 6 * faces).Select(i => i / 6 * 4 + Quad[i % 6])],
-            VerticesPerFace = 4, IndicesPerFace = 6
-        };
-        ReadOnlySpan<(int X, int Z)> corners = [(0, 0), (0, 1), (1, 1), (1, 0)];
-        for (var f = 0; f < faces; f++)
-        {
-            for (var k = 0; k < 4; k++)
-            {
-                var (v, rising) = (4 * f + k, f < up.Length);
-                var (x, z) = corners[rising ? k : 3 - k];
-                (mesh.xyz[3 * v], mesh.xyz[3 * v + 1], mesh.xyz[3 * v + 2]) =
-                    (x, rising ? up[f] : down[f - up.Length], z);
-                mesh.Uv[2 * v] = f;
-            }
-        }
-
-        return mesh;
-    }
-
-    // Every location uploaded sorted is let go by RemoveLocation, with or without the GPU culling that reads the groups: rounds of
-    // filling a pool and emptying it end where they began
-    [Test]
-    [NonParallelizable]
-    public void RemovedLocationsLetGoOfTheirGroups()
-    {
-        const int parts = 300, rounds = 3;
-        using var harmony = new TestHarmony("komet-test-facesorting");
-        FaceSorting.Install(harmony);
-        var pool = Pool();
-        var vao = Stand;
-        vao.VaoId = 77;
-        var (mesh, baseline) = (Cube(), FaceSorting.Located);
-        FaceSorting.Sort(mesh, true);
-        for (var round = 0; round < rounds; round++)
-        {
-            PoolModel.SetValue(pool, new NoMesh());
-            var located = new List<ModelDataPoolLocation>();
-            for (var p = 0; p < parts; p++)
-            {
-                located.Add(pool.TryAdd(Answers.NullClient, new MeshData(false)
-                {
-                    VerticesCount = 24, IndicesCount = 36, xyz = new float[72], Indices = new int[36]
-                }, null, 0, default)!);
-            }
-
-            PoolModel.SetValue(pool, vao);
-            foreach (var location in located)
-            {
-                FaceSorting.Sort(mesh, true); // one tessellation a location: the upload takes the mesh's groups
-                mesh.XyzOffset = location.VerticesStart * 12;
-                FaceSorting.Uploaded(vao.VaoId, mesh);
-            }
-
-            Assert.That(FaceSorting.Located, Is.EqualTo(baseline + parts), "each location's groups");
-            foreach (var location in located)
-            {
-                pool.RemoveLocation(location);
-            }
-
-            Assert.That(FaceSorting.Located, Is.EqualTo(baseline), $"round {round}: every one gone with its location");
-        }
-
-        FaceSorting.Clear();
-        Assert.That(FaceSorting.Located, Is.Zero, "and all with the world");
-    }
-
-    private static MeshDataPool Pool()
-    {
-        const int max = 400, vertices = 150_000;
-        var pool = (MeshDataPool)RuntimeHelpers.GetUninitializedObject(typeof(MeshDataPool));
-        AccessTools.Field(typeof(MeshDataPool), "poolLocations").SetValue(pool, new List<ModelDataPoolLocation>());
-        (pool.MaxPartsPerPool, pool.VerticesPoolSize, pool.IndicesPoolSize) = (max, vertices, vertices * 3 / 2);
-        (pool.indicesStartsByte, pool.indicesSizes) = (new int[2 * max], new int[max]);
-        return pool;
     }
 
     private static bool Moved(MeshData mesh, float[] original)

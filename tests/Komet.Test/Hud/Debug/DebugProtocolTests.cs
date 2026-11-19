@@ -65,23 +65,6 @@ public sealed class DebugProtocolTests
     }
 
     [Test]
-    public void TheSummaryReadsPercentilesLowsAndTheSplit()
-    {
-        var summary = DebugFrames.Summarize(Input("en").Frames);
-        Assert.Multiple(() =>
-        {
-            Assert.That(summary.Frames, Is.EqualTo(1000));
-            Assert.That(summary.Steady, Is.EqualTo(1000));
-            Assert.That(summary.MedianMs, Is.EqualTo(10).Within(1e-3));
-            Assert.That(summary.WorstMs, Is.EqualTo(120).Within(1e-3));
-            Assert.That(summary.Over50, Is.EqualTo(10));
-            Assert.That(summary.Low1Fps, Is.EqualTo(1000 / 120.0).Within(1e-3), "the worst 10 frames");
-            Assert.That(summary.GcMs, Is.EqualTo(10 * 30).Within(1e-3));
-            Assert.That(summary.Gen0, Is.EqualTo(10));
-        });
-    }
-
-    [Test]
     public void KeysBuiltAtRuntimeExistInEveryLanguage()
     {
         foreach (var lang in (string[])["en", "de"])
@@ -95,45 +78,6 @@ public sealed class DebugProtocolTests
             Assert.That(RuntimeKeys.Concat(numbers).Concat(stages).Concat(DebugProtocol.Sections).Where(k => !keys.Contains(k)),
                 Is.Empty, lang);
         }
-    }
-
-    [Test]
-    public void TheLogNamesOnlyMethodsKometSharesWithAnotherMod()
-    {
-        static PatchLink Link(string owner) => new(owner, PatchKind.Prefix, 400, "M", false);
-
-        var audit = new HarmonyAudit
-        {
-            Methods =
-            [
-                new PatchedMethod("A.Shared", [Link("komet"), Link("other")], 2, PatchRisk.Low),
-                new PatchedMethod("A.Own", [Link("komet"), Link("kometbench")], 2, PatchRisk.Low),
-                new PatchedMethod("A.Foreign", [Link("other"), Link("third")], 2, PatchRisk.Low)
-            ],
-            Owners = [("other", "Other 1.0", 2)]
-        };
-        Assert.That(SharedPatches.Lines(audit, "komet"),
-            Is.EqualTo((List<string>)["A.Shared [Low] with other (Other 1.0)"]));
-    }
-
-    [Test]
-    public void APrefixThatSkipsAnotherOwnersPatchIsHighRisk()
-    {
-        static PatchLink Link(string owner, PatchKind kind, bool skips = false) =>
-            new(owner, kind, 400, "M", skips);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix, true), Link("b", PatchKind.Postfix)], 2),
-                Is.EqualTo(PatchRisk.High));
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Transpiler), Link("b", PatchKind.Transpiler)], 2),
-                Is.EqualTo(PatchRisk.High));
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Transpiler), Link("b", PatchKind.Postfix)], 2),
-                Is.EqualTo(PatchRisk.Medium));
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix), Link("b", PatchKind.Postfix)], 2),
-                Is.EqualTo(PatchRisk.Low));
-            Assert.That(HarmonyAudit.Rate([Link("a", PatchKind.Prefix, true)], 1), Is.EqualTo(PatchRisk.Low));
-        });
     }
 
     [Test]

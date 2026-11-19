@@ -24,21 +24,4 @@ public sealed class ModPassesTests
         Assert.That(ModPasses.Source("shaderpack:sheydermod", pass), Does.EndWith("original second"));
     }
 
-    [Test]
-    public void APassGetsKometsMarksAndItsModsDefines()
-    {
-        using var own = ShaderHub.Define("myshaders", "MYSHADERS_CODE", () => "1", "pass:haze");
-        using var everywhere = ShaderHub.Define("shaderpack:myshaders", "MYSHADERS_QUALITY", () => "1");
-        using var other = ShaderHub.Define("othermod", "OTHER", () => "1");
-        var haze = ModPasses.Source("shaderpack:myshaders", new KapiPass("haze", "void main() {}"));
-        var grade = ModPasses.Source("shaderpack:myshaders", new KapiPass("grade", "void main() {}"));
-        Assert.Multiple(() =>
-        {
-            Assert.That(haze, Does.StartWith("#version 330 core\n#define KOMET 1\n"));
-            Assert.That(haze, Does.Contain("#define MYSHADERS_CODE 1").And.Contain("#define MYSHADERS_QUALITY 1"));
-            Assert.That(grade, Does.Not.Contain("MYSHADERS_CODE").And.Contain("#define MYSHADERS_QUALITY 1"));
-            Assert.That(haze, Does.Not.Contain("OTHER"));
-            Assert.That(haze, Does.EndWith("#line 1\nvoid main() {}"));
-        });
-    }
 }

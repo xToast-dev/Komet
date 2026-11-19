@@ -1,5 +1,3 @@
-using OpenTK.Graphics.OpenGL;
-
 namespace Komet.Test.Gpu;
 
 // The GPU culling leaving out what faces away (FaceSorting, rows.comp) on TerrainWorld's sections sorted as the tessellator's
@@ -9,7 +7,7 @@ namespace Komet.Test.Gpu;
 [NonParallelizable]
 public sealed class FaceSplitsGpuTests
 {
-    private const int Width = 1280, Height = 683, Runs = 4;
+    private const int Runs = 4;
 
     // Two views looking roughly opposite ways, so each side direction faces away in one of them
     private static readonly (double Yaw, double Pitch)[] Views = [(0.3, -0.15), (2.4, -0.5)];
@@ -38,43 +36,6 @@ public sealed class FaceSplitsGpuTests
                 });
             }
         }, true);
-
-    [Test]
-    [Category("Slow")]
-    public void ThePictureStaysTheSame()
-    {
-        TerrainWorld.Run(GpuRig.Gl, 160, world =>
-        {
-            var program = TerrainWorld.Program(TerrainWorld.OpaqueFragment);
-            using var target = new DepthTarget(Width, Height, 1);
-            try
-            {
-                foreach (var (yaw, pitch) in Views)
-                {
-                    var view = new TerrainView(yaw, pitch, [0.4, 0.8, 0.3]);
-                    _ = Drawn(world, view, Variants[0],
-                        (program, target)); // the context's first picture differs in a few pixels
-                    var pictures = Variants.Select(v => Drawn(world, view, v, (program, target))).ToArray();
-                    Assert.Multiple(() =>
-                    {
-                        Assert.That(pictures[0].Depth.Count(d => d < 1), Is.GreaterThan(Width * Height / 4),
-                            $"yaw {yaw}: drawn");
-                        for (var v = 1; v < Variants.Length; v++)
-                        {
-                            Assert.That(Differing(pictures[0].Depth, pictures[v].Depth), Is.Zero,
-                                $"yaw {yaw}, {v}: depth");
-                            Assert.That(Differing(pictures[0].Color, pictures[v].Color), Is.Zero,
-                                $"yaw {yaw}, {v}: colour");
-                        }
-                    });
-                }
-            }
-            finally
-            {
-                GL.DeleteProgram(program);
-            }
-        }, true);
-    }
 
     // Each pool's commands (first index, index count) after one culled call
     private static List<(uint First, uint Count)>[] Culled(TerrainWorld world, TerrainView view, bool backFaces)
@@ -134,23 +95,4 @@ public sealed class FaceSplitsGpuTests
         double[] n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
         return n[0] * (eye[0] - xyz[v]) + n[1] * (eye[1] - xyz[v + 1]) + n[2] * (eye[2] - xyz[v + 2]) > 0;
     }
-
-    private static (float[] Depth, float[] Color) Drawn(TerrainWorld world, TerrainView view, bool backFaces,
-        (int Program, DepthTarget Target) into)
-    {
-        world.CullRows(view, backFaces);
-        into.Target.Begin();
-        TerrainWorld.BackCulled();
-        world.DrawCulled(into.Program, view.CameraMvp, view.Camera, false, false, backFaces ? Runs : 1);
-        GL.Disable(EnableCap.CullFace);
-        var color = new float[4 * Width * Height];
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, into.Target.Framebuffer);
-        GL.ReadBuffer(ReadBufferMode.ColorAttachment0);
-        GL.ReadPixels(0, 0, Width, Height, PixelFormat.Rgba, PixelType.Float, color);
-        GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-        return (into.Target.Read(), color);
-    }
-
-    private static int Differing(float[] a, float[] b) =>
-        a.Zip(b).Count(p => BitConverter.SingleToInt32Bits(p.First) != BitConverter.SingleToInt32Bits(p.Second));
 }

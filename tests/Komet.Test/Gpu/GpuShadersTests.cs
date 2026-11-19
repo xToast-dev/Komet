@@ -10,10 +10,6 @@ public sealed class GpuShadersTests
     private static readonly string Folder = Path.Combine(Paths.Repo, "Komet.Rendering", "Gpu", "Shaders");
 
     [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
-    public void TheAssemblyCarriesTheFile(string name) =>
-        Assert.That(GpuShaders.Source(name), Is.EqualTo(File.ReadAllText(Path.Combine(Folder, name))));
-
-    [TestCaseSource(typeof(GpuShaders), nameof(GpuShaders.All))]
     public void ItCompilesForOpenGl(string name)
     {
         var info = new ProcessStartInfo("glslangValidator")

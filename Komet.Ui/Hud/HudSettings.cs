@@ -163,6 +163,12 @@ internal sealed class HudSettings
     public double DetailX { get; set; } = double.NaN;
     public double DetailY { get; set; } = double.NaN;
 
+    // The frame card and the overlay where the player dragged them, NaN: below the overlay, in the overlay's corner
+    public double FramesX { get; set; } = double.NaN;
+    public double FramesY { get; set; } = double.NaN;
+    public double OverlayX { get; set; } = double.NaN;
+    public double OverlayY { get; set; } = double.NaN;
+
     public string DebugLanguage
     {
         get;
@@ -237,7 +243,8 @@ internal sealed class HudSettings
     }
 
     public void ResetPositions() =>
-        (WindowX, WindowY, DetailX, DetailY) = (double.NaN, double.NaN, double.NaN, double.NaN);
+        (WindowX, WindowY, DetailX, DetailY, FramesX, FramesY, OverlayX, OverlayY) =
+        (double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, double.NaN);
 
     private void NotifyChanged() => Changed?.Invoke();
 

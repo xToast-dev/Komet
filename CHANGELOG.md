@@ -18,6 +18,9 @@
 - **Vulkan by default**: a player who never chose a renderer starts with Vulkan-only, lean (OpenGL keeps no copy of the
   world). Where it failed with this Komet version, or a start cannot take it, Komet stays on or falls back to OpenGL. A
   renderer chosen by hand stays.
+- **Frame card**: with K or the HUD window, a card below the overlay shows the frame-time graph, how the frames
+  spread over 8/12/25 ms, FPS with the lows, p50 to p99.9 and max, jitter, spikes and the latest of them. The overlay
+  and both cards drag on the snap grid and stay where they are dropped (right click: back to their own place).
 - **Details beside the game**: a compact card beside the overlay (else a place free of the game's HUD), draggable on the
   same snap grid as the HUD window, staying where it is dropped (right click: back to finding one), with K or while the HUD window is open, shows frames (average,
   p99, worst, 0.1% low, spikes), rendering (renderer, GPU time, draw calls, triangles, culled), CPU (process, system,

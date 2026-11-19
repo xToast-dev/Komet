@@ -7,7 +7,7 @@ namespace Komet.Hud;
 
 // Overlay (F7), the details below it while the HUD window (K) is open, and the spike toast; composed per interval
 // and on settings change, drawn each frame while shown.
-internal sealed class OverlayCard(
+internal sealed partial class OverlayCard(
     ICoreClientAPI capi,
     HudSettings settings,
     HudUiFonts fonts,
@@ -19,15 +19,12 @@ internal sealed class OverlayCard(
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
     private const int MaxDetailRows = 64, MaxDialogs = 256;
     private readonly List<(double X, double Y, double W, double H)> _hud = [];
-    private (double X, double Y, double W, double H) _detailShown;
-    private (double X, double Y) _grab;
-    private bool _dragging;
     private const double DetailWidth = 300;
-    private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas;
+    private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas, _framesCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
 
-    public void Dispose() => Owned.DropAll([_overlayCanvas, _toastCanvas, _detailCanvas]);
+    public void Dispose() => Owned.DropAll([_overlayCanvas, _toastCanvas, _detailCanvas, _framesCanvas]);
 
     // New numbers or settings: composed again at the next draw
     public void Invalidate() => _overlayDirty = true;
@@ -178,59 +175,6 @@ internal sealed class OverlayCard(
         return bottom;
     }
 
-    // Dragging with the mouse while it is free (a dialog open); right click: back to finding a place by itself
-    public void Mouse(IClientEventAPI events, bool on)
-    {
-        if (on)
-        {
-            events.MouseDown += Down;
-            events.MouseMove += Move;
-            events.MouseUp += Up;
-            return;
-        }
-
-        events.MouseDown -= Down;
-        events.MouseMove -= Move;
-        events.MouseUp -= Up;
-    }
-
-    private bool Over(MouseEvent e) =>
-        _detailShown is { W: > 0 } r && e.X >= r.X && e.X < r.X + r.W && e.Y >= r.Y && e.Y < r.Y + r.H;
-
-    private void Down(MouseEvent e)
-    {
-        if (e.Handled || capi.Input.MouseGrabbed || !Over(e)) return;
-
-        e.Handled = true;
-        if (e.Button == EnumMouseButton.Right)
-        {
-            (settings.DetailX, settings.DetailY) = (double.NaN, double.NaN);
-            settings.Save(capi);
-            return;
-        }
-
-        (_grab, _dragging) = ((e.X - _detailShown.X, e.Y - _detailShown.Y), true);
-    }
-
-    private void Move(MouseEvent e)
-    {
-        if (!_dragging) return;
-
-        settings.DetailX = HudMotion.Snap(e.X - _grab.X, _detailShown.W, capi.Render.FrameWidth);
-        settings.DetailY = HudMotion.Snap(e.Y - _grab.Y, _detailShown.H, capi.Render.FrameHeight);
-        e.Handled = true;
-    }
-
-    private void Up(MouseEvent e)
-    {
-        if (!_dragging) return;
-
-        _dragging = false;
-        e.Handled = true;
-        snap.Release();
-        settings.Save(capi);
-    }
-
     private void ComposeDetails()
     {
         FindHud(capi.Render.FrameWidth, capi.Render.FrameHeight);
@@ -371,7 +315,7 @@ internal sealed class OverlayCard(
         _toastCanvas.End();
     }
 
-    // card: the F7 overlay is on; details: the HUD window is open, its numbers go below the card
+    // card: the F7 overlay is on; details: K or the HUD window, the frame and details cards beside it
     public void Draw(bool card, bool details)
     {
         double w = capi.Render.FrameWidth, h = capi.Render.FrameHeight, m = scaled(12);
@@ -381,45 +325,59 @@ internal sealed class OverlayCard(
         {
             if (card || _overlayCanvas is null) ComposeOverlay();
 
-            if (details) ComposeDetails();
+            if (details)
+            {
+                ComposeDetails();
+                ComposeFrames();
+            }
 
             _overlayDirty = false;
         }
 
+        if (_dragging >= 0) snap.Draw();
+
+        var corner = DrawCards(card, details, w, h, m);
+        if (card) DrawToast(corner.Right, corner.Bottom, _shown[Overlay]);
+    }
+
+    private (bool Right, bool Bottom) DrawCards(bool card, bool details, double w, double h, double m)
+    {
         var right = settings.Corner is HudCorner.TopRight or HudCorner.BottomRight;
         var bottom = settings.Corner is HudCorner.BottomLeft or HudCorner.BottomRight;
-        double oh = 0;
-        var placed = (X: 0.0, Y: 0.0, W: 0.0, H: 0.0);
+        Array.Clear(_shown);
+        var gap = scaled(HudSettings.SnapStep);
+        var home = (X: right ? w - m - OverlayWidth * scaled(fonts.Scale) : m, Y: m);
         if (card && _overlayCanvas is { Ready: true } overlay)
         {
-            placed = (right ? w - m - overlay.Width : m, bottom ? h - m - overlay.Height : m, overlay.Width,
-                overlay.Height);
-            overlay.Draw(placed.X, placed.Y);
-            oh = overlay.Height + scaled(8);
+            home = (right ? w - m - overlay.Width : m, bottom ? h - m - overlay.Height : m);
+            Show(Overlay, overlay, home, w, h);
         }
 
-        // the details where the player dragged them, else the first place free of the game's HUD and the overlay
-        _detailShown = default;
-        if (details && _detailCanvas is { Ready: true } detail)
+        if (!details) return (right, bottom);
+
+        var o = _shown[Overlay];
+        if (_framesCanvas is { Ready: true } frames)
         {
-            var (x, y) = double.IsFinite(settings.DetailX) && double.IsFinite(settings.DetailY)
-                ? (Math.Clamp(settings.DetailX, 0, Math.Max(0, w - detail.Width)),
-                    Math.Clamp(settings.DetailY, 0, Math.Max(0, h - detail.Height)))
-                : Beside(detail.Width, detail.Height, w, h, m, right, bottom, placed);
-            (x, y) = (Math.Round(x), Math.Round(y));
-            if (_dragging) snap.Draw();
-
-            detail.Draw(x, y);
-            _detailShown = (x, y, detail.Width, detail.Height);
+            var below = bottom ? o.Y - gap - frames.Height : o.Y + o.H + gap;
+            Show(Frames, frames, o.W > 0 ? (o.X, below) : home, w, h);
         }
 
-        if (!card) return; // the toast belongs to the overlay
+        if (_detailCanvas is { Ready: true } detail)
+        {
+            Show(DetailCard, detail, Beside(detail.Width, detail.Height, w, h, m, right, bottom, o), w, h);
+        }
 
+        return (right, bottom);
+    }
+
+    private void DrawToast(bool right, bool bottom, (double X, double Y, double W, double H) o)
+    {
         var age = Environment.TickCount64 - _toastAt;
-        if (_toastCanvas is not { Ready: true } toast || age > ToastShownSeconds * 1000) return;
+        if (o.W <= 0 || _toastCanvas is not { Ready: true } toast || age > ToastShownSeconds * 1000) return;
 
         var t = Math.Clamp(Math.Min(age / 180.0, (ToastShownSeconds * 1000 - age) / 500.0), 0, 1);
         var shift = (1 - t) * (1 - t) * scaled(16) * (right ? 1 : -1);
-        toast.Fade((right ? w - m - toast.Width : m) + shift, bottom ? h - m - oh - toast.Height : m + oh, 50, t, 1);
+        var gap = scaled(8);
+        toast.Fade(o.X + shift, bottom ? o.Y - gap - toast.Height : o.Y + o.H + gap, 50, t, 1);
     }
 }

@@ -203,6 +203,7 @@ jobs:
             | while read -r tag; do
                 [[ -n "$tag" ]] || continue
                 echo "deleting $tag"
-                gh release delete "$tag" --cleanup-tag --yes
+                # a tag deleted by hand leaves its release: delete that alone
+                gh release delete "$tag" --cleanup-tag --yes || gh release delete "$tag" --yes
               done
           echo "kept the newest $KEEP preview(s)"

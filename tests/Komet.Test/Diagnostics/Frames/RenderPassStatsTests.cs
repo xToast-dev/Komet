@@ -7,7 +7,6 @@ namespace Komet.Test.Diagnostics;
 // the 79 ms spike" needs the one worst frame kept whole, which is what these tests pin down.
 public sealed class RenderPassStatsTests
 {
-
     // The worst steady frame with its own marks, dearest first, and the dearest one's ms
     private static IEnumerable<TestCaseData> WorstFrames()
     {
@@ -65,6 +64,7 @@ public sealed class RenderPassStatsTests
     }
 
     [TestCase(25, false)]
+    [TestCase(26, true)]
     public void SpikesStartAt25MsOverAFastMean(double ms, bool spike)
     {
         var ledger = Settled();
@@ -90,5 +90,4 @@ public sealed class RenderPassStatsTests
             Assert.That(ledger.Latest(0).AtSeconds, Is.EqualTo(7));
         });
     }
-
 }

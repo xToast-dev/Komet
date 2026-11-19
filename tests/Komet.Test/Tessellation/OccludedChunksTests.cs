@@ -119,8 +119,8 @@ public sealed class OccludedChunksTests
     // One change at a time to an enclosed chunk: the fast path has to agree with the engine's face culling on every one, except
     // where it is conservative on purpose - a snow layer block above a block is hidden only if that block allows snow coverage, a
     // virtual the fast path does not call
-    // Every 4th case runs: the cases sit side by side, a sample of them keeps the comparison honest
-    private static IEnumerable<TestCaseData> SampledChanges() => Changes().Where((_, i) => i % 4 == 0);
+    // Every 5th case runs (5 is prime to the six kinds per direction: each kind comes up): the cases sit side by side, a sample of them keeps the comparison honest
+    private static IEnumerable<TestCaseData> SampledChanges() => Changes().Where((_, i) => i % 5 == 0);
 
     private static IEnumerable<TestCaseData> Changes()
     {
@@ -219,7 +219,7 @@ public sealed class OccludedChunksTests
 
         int Any(int x, int y, int z) =>
             ChunkRig.Count +
-                   (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
+            (int)((uint)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (seed * 2654435761u)) % types);
 
         var center = rig.Put(X, Y, Z, Any);
         foreach (var (dx, dy, dz) in Faces)
@@ -294,5 +294,4 @@ public sealed class OccludedChunksTests
         _ = rig.Tesselator.NowProcessChunk(X, Y, Z, rig.Tess(X, Y, Z), false);
         Assert.That((OccludedChunks.StoodDown, OccludedChunks.Hits - before), Is.EqualTo((false, answered + 1)));
     }
-
 }

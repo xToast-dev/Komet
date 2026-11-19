@@ -23,6 +23,7 @@ public sealed class UpdateCheckTests
 
     // Only a later build is an update: a pre-release is ahead of the release before it and behind its own; previews have no order
     [TestCase("v2.0.1-pre", "v2.0.0", false)]
+    [TestCase("v2.0.1-pre", "v2.0.1", true)]
     public void TheNewestTagIsAnUpdateOnlyWhenItIsLater(string tag, string newest, bool behind) =>
         Assert.That(UpdateCheck.Behind(tag, newest), Is.EqualTo(behind));
 

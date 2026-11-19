@@ -1,5 +1,5 @@
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Komet.Rendering;
 using GameMod = Vintagestory.API.Common.Mod;
 
@@ -11,6 +11,9 @@ public sealed class KapiTests
 {
     private string _assets = "";
 
+    private CapturingLogger _log = null!;
+    private int _mainThread;
+
     // Option pages name their section in Komet's language
     [OneTimeSetUp]
     public void Language() => _assets = GameLang.LoadKomet();
@@ -21,9 +24,6 @@ public sealed class KapiTests
         GameLang.LoadEnglish();
         Directory.Delete(_assets, true);
     }
-
-    private CapturingLogger _log = null!;
-    private int _mainThread;
 
     [SetUp]
     public void Open()
@@ -52,6 +52,7 @@ public sealed class KapiTests
         string.Join(" ", Enumerable.Range(0, StyleHub.Count).Select(i => StyleHub.At(i).Id));
 
     [TestCase("1.0", true)]
+    [TestCase("0.9", false)]
     public void OnlyVersionOneZeroIsSupported(string version, bool supported)
     {
         Assert.That(Kapi.Supports(version), Is.EqualTo(supported));

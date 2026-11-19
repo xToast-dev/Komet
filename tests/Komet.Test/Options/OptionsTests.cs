@@ -6,7 +6,6 @@ namespace Komet.Test.Options;
 
 public sealed class OptionsTests
 {
-
     // the API's page ids for other mods' rows are these pages
     private static readonly string[] Areas =
         [FeatureHub.RenderPage, FeatureHub.ChunksPage, FeatureHub.MiscPage, "komet-vulkan"];
@@ -68,6 +67,7 @@ public sealed class OptionsTests
 
     // Two choices, OpenGL and Vulkan: the mode is VulkanOnly alone, every other knob is left as it is
     [TestCase(0)]
+    [TestCase(1)]
     public void TheVulkanModeIsTheVulkanOnlySwitch(int mode)
     {
         var values = Enumerable.Repeat(7, Knobs.Count).ToArray();
@@ -82,5 +82,4 @@ public sealed class OptionsTests
             Assert.That(VulkanMode.Choice(mode), Is.EqualTo(mode));
         });
     }
-
 }

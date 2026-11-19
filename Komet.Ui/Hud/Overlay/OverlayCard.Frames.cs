@@ -120,8 +120,23 @@ internal sealed partial class OverlayCard
         for (var age = 0; age < Math.Min(stored, ShownSpikes); age++)
         {
             var spike = spikes.Latest(age);
-            ui.Row(N(spike.DtMs) + " ms", T("hud-v-ago", N(Math.Max(0, now - spike.AtSeconds))), HudUi.Warn,
-                HudUi.Dim, ui.F.Small);
+            var ago = Math.Max(0, now - spike.AtSeconds);
+            var ms = N(spike.DtMs) + " ms";
+            if (age > 0 || ago >= ToastShownSeconds)
+            {
+                ui.Row(ms, T("hud-v-ago", N(ago)), HudUi.Warn, HudUi.Dim, ui.F.Small);
+                continue;
+            }
+
+            // the newest, a few seconds old: lit up with its cause, where the toast would have stood
+            var right = T("hud-v-just-now");
+            ui.Fill(ui.X - ui.Px(3), ui.Y, ui.W + ui.Px(6), ui.F.SmallRow, HudUi.Warn with { A = 0.22 }, ui.Px(2));
+            var x = ui.X + ui.TextW(ui.F.Small, ms) + ui.Px(5);
+            ui.Text(ui.X, ui.Y, ui.F.SmallRow, ui.F.Small, ms, HudUi.Warn);
+            ui.Text(x, ui.Y, ui.F.SmallRow, ui.F.Small,
+                ui.Fit(ui.F.Small, Describe(spike.Cause), ui.X + ui.W - x - ui.TextW(ui.F.Small, right) - ui.Px(6)));
+            ui.TextRight(ui.X + ui.W, ui.Y, ui.F.SmallRow, ui.F.Small, right, HudUi.Dim);
+            ui.Y += ui.F.SmallRow;
         }
     }
 }

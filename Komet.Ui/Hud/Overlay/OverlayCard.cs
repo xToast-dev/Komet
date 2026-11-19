@@ -337,7 +337,8 @@ internal sealed partial class OverlayCard(
         if (_dragging >= 0) snap.Draw();
 
         var corner = DrawCards(card, details, w, h, m);
-        if (card) DrawToast(corner.Right, corner.Bottom, _shown[Overlay]);
+        // with the frame card open its spike list lights the newest up instead
+        if (card && _shown[Frames].W <= 0) DrawToast(corner.Right, corner.Bottom, _shown[Overlay]);
     }
 
     private (bool Right, bool Bottom) DrawCards(bool card, bool details, double w, double h, double m)

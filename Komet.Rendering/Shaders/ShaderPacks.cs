@@ -1,7 +1,8 @@
 using System.Globalization;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Komet.Rendering;
 
@@ -36,7 +37,7 @@ internal static class ShaderPacks
     // A path as the player finds it, from VintagestoryData on (the full one fills the detail panel)
     internal static string Shown(string path) =>
         NotNull(path) && GamePaths.DataPath is { Length: > 0 } data &&
-               path.StartsWith(data, StringComparison.Ordinal)
+        path.StartsWith(data, StringComparison.Ordinal)
             ? Path.GetFileName(data.TrimEnd('/', '\\')) + path[data.TrimEnd('/', '\\').Length..]
             : path;
 
@@ -247,6 +248,7 @@ internal static class ShaderPacks
     {
         var (id, key, label, hint) = (pack.Id!, setting.Key, Said(setting.Label ?? setting.Key),
             setting.Hint is null ? null : Said(setting.Hint));
+
         void Set(double v)
         {
             // a page left from a pack the last reload no longer found (folder or id changed): nothing to set, no throw
@@ -364,7 +366,8 @@ internal static class ShaderPacks
     {
         if (!Values.TryGetValue(id, out var values)) return;
 
-        ShaderState.Of(api).Values[id] = Delta(ShaderState.Of(api).Values.GetValueOrDefault(id), values, ByMod.GetValueOrDefault(ModPrefix + id));
+        ShaderState.Of(api).Values[id] = Delta(ShaderState.Of(api).Values.GetValueOrDefault(id), values,
+            ByMod.GetValueOrDefault(ModPrefix + id));
         if (ShaderState.Of(api).Values[id].Count == 0) _ = ShaderState.Of(api).Values.Remove(id);
 
         ShaderState.Store(api);
@@ -372,10 +375,11 @@ internal static class ShaderPacks
 
     // Only what differs from the pack's defaults is kept; keys the pack no longer declares stay untouched (a pack
     // update may bring them back). Earlier builds stored every value: those equal to the default leave at the next store.
-    internal static Dictionary<string, double> Delta(Dictionary<string, double>? stored, Dictionary<string, double> values,
+    internal static Dictionary<string, double> Delta(Dictionary<string, double>? stored,
+        Dictionary<string, double> values,
         Pack? pack)
     {
-        Dictionary<string, double> delta = stored is null ? [] : new(stored);
+        var delta = stored is null ? [] : new Dictionary<string, double>(stored);
         foreach (var (key, value) in values.Bounded(MaxSettings))
         {
             var setting = pack?.Settings.Find(s => s.Key == key);
@@ -395,8 +399,8 @@ internal static class ShaderPacks
     // A folder pack the SDK switched off: komet.json "activeShaderProjects" lists the ones on; without the key every
     // folder is on. Read here so a player's Komet honours it without the kit.
     private static bool SwitchedOff(string folder) =>
-        SettingsStore.Section("activeShaderProjects") is Newtonsoft.Json.Linq.JArray on &&
-               !on.Values<string>().Take(MaxPacks * 4).Contains(folder, StringComparer.Ordinal);
+        SettingsStore.Section("activeShaderProjects") is JArray on &&
+        !on.Values<string>().Take(MaxPacks * 4).Contains(folder, StringComparer.Ordinal);
 
     // Reset to defaults: the pack's values back to its komet-shader.json and the player's delta of it gone
     internal static void Reset(ICoreClientAPI api, string id)

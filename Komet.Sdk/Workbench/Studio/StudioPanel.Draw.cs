@@ -7,6 +7,8 @@ namespace Komet.Sdk;
 // The panel's head (PROBLEMS n · OUTPUT · INSPECTOR, ×; docked: the view's name) and its bodies as rows
 internal sealed partial class StudioPanel
 {
+    private readonly List<Line> _found = [];
+
     public void Draw(HudUi ui, double x, double y, double w, double h)
     {
         Actions(ui);
@@ -51,7 +53,8 @@ internal sealed partial class StudioPanel
         var at = x + ui.Px(16);
         if (docked)
         {
-            _ = ui.Spaced(at, y, h, ui.F.Small, Caps(L(_tab == Search ? "search-tab" : "passes-tab")), ui.Px(2.5), HudUi.Soft);
+            _ = ui.Spaced(at, y, h, ui.F.Small, Caps(L(_tab == Search ? "search-tab" : "passes-tab")), ui.Px(2.5),
+                HudUi.Soft);
             return;
         }
 
@@ -136,11 +139,10 @@ internal sealed partial class StudioPanel
         _lines.AddRange(_found);
     }
 
-    private readonly List<Line> _found = [];
-
     private void Find(string q)
     {
-        List<string> files = [.. Files(StudioLink.ProjectsFolder), .. ShaderAssets.Files(), .. InstalledShaders.Files(host.Api)];
+        List<string> files =
+            [.. Files(StudioLink.ProjectsFolder), .. ShaderAssets.Files(), .. InstalledShaders.Files(host.Api)];
 
         foreach (var file in files.Bounded(MaxSearchFiles))
         {

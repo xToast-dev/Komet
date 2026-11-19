@@ -180,7 +180,8 @@ internal static partial class FarLod
     // The band a chunk has (tessellated) or would get now
     private static int BandOf(int cx, int cy, int cz)
     {
-        if (ChunkKey.Pack(cx, cy, cz) is >= 0 and var key && Table.Bands.TryGetValue(key, out var band)) return Resolution(band);
+        if (ChunkKey.Pack(cx, cy, cz) is >= 0 and var key && Table.Bands.TryGetValue(key, out var band))
+            return Resolution(band);
 
         var threshold = Volatile.Read(ref _threshold);
         return Want(Spread(cx, cz, Volatile.Read(ref _x), Volatile.Read(ref _z)), 0, threshold);
@@ -206,7 +207,8 @@ internal static partial class FarLod
 
         var held = Table.Bands.GetValueOrDefault(key);
         var band = skipChunkCenter ? held : Resolution(held);
-        _band = _targetBand = Want(Spread(chunkX, chunkZ, Volatile.Read(ref _x), Volatile.Read(ref _z)), band, threshold);
+        _band = _targetBand = Want(Spread(chunkX, chunkZ, Volatile.Read(ref _x), Volatile.Read(ref _z)), band,
+            threshold);
         if (IsCoarse(_band) || IsCoarse(drawn)) skipChunkCenter = false;
 
         (_tracked, _chunkX, _chunkY, _chunkZ) = (true, chunkX, chunkY, chunkZ);

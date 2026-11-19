@@ -161,6 +161,7 @@ internal static partial class OcclusionCulling
         {
             RowsPass(matrix, shift, flags, draws, _callMaxRows);
         }
+
         // the surfaces blend: far topsoil and opaque texels with alpha between alphaTest and 1 (mip edges) would change with
         // the order every frame, and flickered when sorted
         var sorted = rows is not null && !_surface && Orderless() && Sorted(draws);

@@ -19,11 +19,11 @@ internal static partial class ProjectAssets
     // Copies whose state broke a program with no good state to fall back on: the game's file runs until they build
     private static readonly HashSet<string> Broken = new(StringComparer.Ordinal);
 
-    // A copy that broke its program with no good state: the game's file runs until it builds
-    public static bool IsBroken(string copy) => Broken.Contains(StudioFiles.Full(copy));
-
     // Which copy each game file got at the last load (game file -> copy path)
     public static Dictionary<string, string> Winners { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // A copy that broke its program with no good state: the game's file runs until it builds
+    public static bool IsBroken(string copy) => Broken.Contains(StudioFiles.Full(copy));
 
     // A build's draft of a copy, tried at the next load
     internal static void Try(string copy, byte[] draft) => Trials[StudioFiles.Full(copy)] = draft;
@@ -57,8 +57,8 @@ internal static partial class ProjectAssets
 
     private static bool Reads(ShaderMods.Diagnostic program, string game) =>
         IsProgramStage(game, program.Pass) ||
-               program.Includes.Any(i => Path.GetFileName(i).Equals(Path.GetFileName(game),
-                   StringComparison.OrdinalIgnoreCase));
+        program.Includes.Any(i => Path.GetFileName(i).Equals(Path.GetFileName(game),
+            StringComparison.OrdinalIgnoreCase));
 
     private static bool IsProgramStage(string key, string program) =>
         ShaderAssets.AssetKey(key).StartsWith("shaders/" + program + ".", StringComparison.OrdinalIgnoreCase);
@@ -149,7 +149,7 @@ internal static partial class ProjectAssets
     // Several active projects copy the file and the player picked another one's copy
     private static bool Unpicked(string game, string project) =>
         ShaderModules.Pick(game) is { } pick && pick != project && ShaderProjects.IsActive(pick) &&
-               ShaderProjects.CopyPath(pick, game) is { } copy && File.Exists(copy);
+        ShaderProjects.CopyPath(pick, game) is { } copy && File.Exists(copy);
 
     // The trial's draft, else the last good state, else the file
     private static byte[]? Bytes(string copy)

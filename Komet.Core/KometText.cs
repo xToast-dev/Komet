@@ -11,6 +11,8 @@ internal static class KometText
     private static readonly string[] Grouped = ["N0", "N1", "N2", "N3", "N4"];
     private static string? _locale;
 
+    private static readonly HashSet<string> Untranslated = new(StringComparer.Ordinal);
+
     // NaN (not measured) and infinity (empty window) print as nothing.
     public static string Format(double value, string format, string none = "") =>
         double.IsFinite(value) && Assert(format.Length is 2 or 3)
@@ -26,8 +28,6 @@ internal static class KometText
             : CultureInfo.InvariantCulture;
         return value.ToString(Grouped[decimals], culture);
     }
-
-    private static readonly HashSet<string> Untranslated = new(StringComparer.Ordinal);
 
     // Lang.Get hands the key back when the translation is missing: the key shows, and the log names it once
     public static string Translate(string key, params object[] args)

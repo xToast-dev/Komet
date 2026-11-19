@@ -64,7 +64,8 @@ internal static partial class FarLod
 
         for (var n = 0; n < MaxUnannounced && marks < MaxMarks && Unannounced.TryDequeue(out var told); n++)
         {
-            var (x, y, z) = ChunkKey.Unpack(told); marks += Neighbours(game, x, y, z, now);
+            var (x, y, z) = ChunkKey.Unpack(told);
+            marks += Neighbours(game, x, y, z, now);
         }
 
         Table.Begin(px, pz, published, now);
@@ -72,7 +73,8 @@ internal static partial class FarLod
         {
             if (band == 0) continue;
 
-            var (x, y, z) = ChunkKey.Unpack(key); var want = Pixels > 0 ? Want(Spread(x, z, px, pz), band, threshold) : Near;
+            var (x, y, z) = ChunkKey.Unpack(key);
+            var want = Pixels > 0 ? Want(Spread(x, z, px, pz), band, threshold) : Near;
             if (want == band && Pixels <= 0) Table.Forget(key);
 
             if (want == band || (want > band && busy))
@@ -153,9 +155,9 @@ internal static partial class FarLod
     // The six facing a chunk whose band changed: a coarse one's walls, a full one's open side
     private static int Neighbours(ClientMain game, int x, int y, int z, long now) =>
         Neighbour(game, x - 1, y, z, now) + Neighbour(game, x + 1, y, z, now) +
-               Neighbour(game, x, y, z - 1, now) +
-               Neighbour(game, x, y, z + 1, now) + Neighbour(game, x, y - 1, z, now) +
-               Neighbour(game, x, y + 1, z, now);
+        Neighbour(game, x, y, z - 1, now) +
+        Neighbour(game, x, y, z + 1, now) + Neighbour(game, x, y - 1, z, now) +
+        Neighbour(game, x, y + 1, z, now);
 
     private static int Neighbour(ClientMain game, int x, int y, int z, long now) =>
         ChunkKey.Pack(x, y, z) is >= 0 and var key && (Pixels <= 0 || Table.Bands.ContainsKey(key))

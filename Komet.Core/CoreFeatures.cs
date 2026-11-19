@@ -8,6 +8,8 @@ namespace Komet.Core;
 // Each declares its place (Order, Requires, After); FeatureOrder sorts them among the other modules'.
 internal static class CoreFeatures
 {
+    private const int SteerMs = 250;
+
     internal static readonly Feature[] All =
     [
         new("WorkerPool")
@@ -49,7 +51,6 @@ internal static class CoreFeatures
         }
     ];
 
-    private const int SteerMs = 250;
     private static long _steer;
 
     // The pool follows the world's threads and the wanted count on the main thread's tick (no tick without a client: tests)

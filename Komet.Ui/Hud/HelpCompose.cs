@@ -2,8 +2,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Hud;
@@ -61,7 +61,8 @@ internal static class HelpCompose
     }
 
     // False leaves the composer as it is: the same lines would be drawn
-    private static bool Composing(DrawWorldInteractionUtil __instance, WorldInteraction?[]? wis, ICoreClientAPI? ___capi,
+    private static bool Composing(DrawWorldInteractionUtil __instance, WorldInteraction?[]? wis,
+        ICoreClientAPI? ___capi,
         GuiDialog.DlgComposers ___Composers, string? ___composerKeyCode)
     {
         if (!Enabled || Blocked)

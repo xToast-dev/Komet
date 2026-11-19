@@ -12,6 +12,26 @@ internal sealed class ContextMenu : IIdeRegion
 
     public bool IsOpen { get; private set; }
 
+    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
+    {
+        var index = Index(x, y);
+        IsOpen = false;
+        if (index >= 0 && button == EnumMouseButton.Left) _items[index].Run?.Invoke();
+
+        return true;
+    }
+
+    public void Hover(double x, double y)
+    {
+        if (Index(x, y) is var index and >= 0 && _items[index].Run is not null) _selected = index;
+    }
+
+    public bool Wheel(double x, int lines)
+    {
+        IsOpen = false;
+        return true;
+    }
+
     // A group's heading: drawn faint, never chosen
     public void Header(string label)
     {
@@ -59,29 +79,10 @@ internal sealed class ContextMenu : IIdeRegion
 
             var header = _items[i].Run is null;
             var ink = i == _selected ? HudUi.Link : HudUi.Soft;
-            ui.Text(_x + ui.Px(header ? 6 : 18), y, _row, ui.F.Small, ui.Fit(ui.F.Small, _items[i].Label, _w - ui.Px(24)),
+            ui.Text(_x + ui.Px(header ? 6 : 18), y, _row, ui.F.Small,
+                ui.Fit(ui.F.Small, _items[i].Label, _w - ui.Px(24)),
                 header ? HudUi.Faint : ink);
         }
-    }
-
-    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
-    {
-        var index = Index(x, y);
-        IsOpen = false;
-        if (index >= 0 && button == EnumMouseButton.Left) _items[index].Run?.Invoke();
-
-        return true;
-    }
-
-    public void Hover(double x, double y)
-    {
-        if (Index(x, y) is var index and >= 0 && _items[index].Run is not null) _selected = index;
-    }
-
-    public bool Wheel(double x, int lines)
-    {
-        IsOpen = false;
-        return true;
     }
 
     public bool Key(GlKeys key)

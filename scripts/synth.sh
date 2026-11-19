@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The synthetic bench: every [Category("Synth")] scenario, each feature off against on without the game (tests/Komet.Test/Synth).
+# The synthetic bench: every [Category("Synth")] scenario, each feature off against on without the game (tests/Komet.Synth).
 # One test host, one scenario after the other: no other load while it measures. Prints the table, slowest gain last.
 #
 #   scripts/synth.sh [--no-build] [name filter, e.g. TickMirror]
@@ -11,10 +11,10 @@ FILTER="TestCategory=Synth${1:+&FullyQualifiedName~$1}"
 OUT=${KOMET_SYNTH_OUT:-$(mktemp "${TMPDIR:-/tmp}/komet-synth.XXXXXX.jsonl")}
 : >"$OUT"
 if ((BUILD)); then
-  dotnet build tests/Komet.Test -c Release --disable-build-servers -v q -nologo >/dev/null ||
-    { echo "synth.sh: build failed (dotnet build tests/Komet.Test -c Release)" >&2; exit 1; }
+  dotnet build tests/Komet.Synth -c Release --disable-build-servers -v q -nologo >/dev/null ||
+    { echo "synth.sh: build failed (dotnet build tests/Komet.Synth -c Release)" >&2; exit 1; }
 fi
-KOMET_SYNTH_OUT=$OUT dotnet test tests/Komet.Test -c Release --no-build --filter "$FILTER" -nologo \
+KOMET_SYNTH_OUT=$OUT dotnet test tests/Komet.Synth -c Release --no-build --filter "$FILTER" -nologo \
   -- NUnit.NumberOfTestWorkers=1 >"$OUT.log" 2>&1 || { grep -E "Failed|Fehler|Error Message" -A4 "$OUT.log" | head -40; }
 python3 - "$OUT" <<'EOF'
 import json, sys

@@ -1,4 +1,3 @@
-
 namespace Komet.Vulkan;
 
 // Kept across starts (ShaderCache). VkPipelineCacheHeaderVersionOne must match vendor, device and pipelineCacheUUID.

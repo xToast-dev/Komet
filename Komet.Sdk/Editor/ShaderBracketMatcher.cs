@@ -1,4 +1,3 @@
-
 namespace Komet.Sdk;
 
 internal static class ShaderBracketMatcher

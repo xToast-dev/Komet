@@ -20,8 +20,11 @@ internal static partial class GlTap
     private static readonly Dictionary<uint, uint> TextureTargets = []; // each texture's target, asked once
     private static readonly (uint Buffer, long Offset, long Size)[] Uniforms = new (uint, long, long)[MaxBindings];
     private static readonly (uint Buffer, long Offset, long Size)[] Storages = new (uint, long, long)[MaxBindings];
-    private static readonly uint[] UnitArrays = new uint[MaxUnits], UnitCubes = new uint[MaxUnits],
+
+    private static readonly uint[] UnitArrays = new uint[MaxUnits],
+        UnitCubes = new uint[MaxUnits],
         UnitVolumes = new uint[MaxUnits];
+
     private static uint _vao, _arrayBuffer, _uniformBuffer, _storageBuffer, _copyRead, _copyWrite, _unpackBuffer;
     private static uint _indirect, _packBuffer, _parameters;
 

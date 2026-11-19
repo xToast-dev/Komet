@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using HarmonyLib;
+using Komet.Core;
 using OpenTK.Graphics.OpenGL;
+using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
@@ -26,7 +28,7 @@ internal static class ProgramCache
     public static int Hits { get; private set; }
     public static int Misses { get; private set; }
 
-    private static string Folder => Path.Join(Vintagestory.API.Config.GamePaths.ModConfig, "komet", ".programs");
+    private static string Folder => Path.Join(GamePaths.ModConfig, "komet", ".programs");
 
     public static void Install(Harmony harmony)
     {
@@ -35,7 +37,18 @@ internal static class ProgramCache
         if (!NotNull(link)) return;
 
         _ = harmony.Patch(link, new HarmonyMethod(typeof(ProgramCache), nameof(Linking)) { priority = Priority.Low },
-            postfix: new HarmonyMethod(typeof(ProgramCache), nameof(Linked)));
+            new HarmonyMethod(typeof(ProgramCache), nameof(Linked)));
+        if (AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.GetUniformLocation),
+                [typeof(ShaderProgram), typeof(string)]) is { } uniform)
+        {
+            _ = harmony.Patch(uniform, new HarmonyMethod(UniformLocation));
+        }
+
+        if (AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Dispose)) is { } dispose)
+        {
+            _ = harmony.Patch(dispose, new HarmonyMethod(DisposeUnlinked));
+        }
+
         Installed = true;
     }
 
@@ -46,7 +59,7 @@ internal static class ProgramCache
     {
         __state = null;
         // Vulkan asked for: a program from a binary has no source to port (chunk programs went missing on NVIDIA)
-        if (!Enabled || Core.ShaderHub.VulkanWanted || Key(program) is not { } key) return true;
+        if (!Enabled || ShaderHub.VulkanWanted || Key(program) is not { } key) return true;
 
         __state = key;
         if (Find(key) is not { } binary) return true;
@@ -61,6 +74,11 @@ internal static class ProgramCache
             return true;
         }
 
+        // The engine detaches these stages at disposal, even when the executable came from a binary.
+        GL.AttachShader(id, program.VertexShader.ShaderId);
+        GL.AttachShader(id, program.FragmentShader.ShaderId);
+        if (program.GeometryShader is { } geometry) GL.AttachShader(id, geometry.ShaderId);
+
         program.ProgramId = id;
         (__result, __state) = (true, null);
         Hits++;
@@ -70,24 +88,54 @@ internal static class ProgramCache
     // Harmony: a fresh link's binary kept for the next time
     private static void Linked(ShaderProgram program, bool __result, string? __state)
     {
-        if (__state is not { } key || !__result || program.ProgramId == 0) return;
+        if (!__result && program.ProgramId > 0)
+        {
+            GL.DeleteProgram(program.ProgramId);
+            program.ProgramId = 0;
+        }
+
+        if (__state is not { } key || program.ProgramId == 0) return;
 
         Misses++;
         GL.GetProgram(program.ProgramId, BinaryLength, out var length);
         if (length <= 0 || length > MaxBytes) return;
 
         var data = new byte[length];
-        GL.GetProgramBinary(program.ProgramId, length, out _, out BinaryFormat format, data);
+        GL.GetProgramBinary(program.ProgramId, length, out _, out var format, data);
         if (Memory.Count >= MaxMemory) Memory.Clear();
 
         Memory[key] = (format, data);
         Save(key, format, data);
     }
 
+    // The engine looks up uniforms even when a stage failed before linking.
+    private static bool UniformLocation(ShaderProgram program, ref int __result)
+    {
+        if (program.ProgramId > 0) return true;
+
+        __result = -1;
+        return false;
+    }
+
+    // Stages still need deleting, but an unlinked program has nothing to detach them from.
+    private static void DisposeUnlinked(ShaderProgramBase __instance)
+    {
+        if (__instance.ProgramId > 0 || __instance.Disposed) return;
+
+        foreach (var stage in (ReadOnlySpan<Shader?>)
+                 [__instance.VertexShader, __instance.FragmentShader, __instance.GeometryShader])
+        {
+            if (stage is { ShaderId: > 0 }) GL.DeleteShader(stage.ShaderId);
+        }
+
+        (__instance.VertexShader, __instance.FragmentShader, __instance.GeometryShader) = (null, null, null);
+    }
+
     // The program as the driver sees it: every stage's code and prefix, the attribute slots, the GPU and driver
     private static string? Key(ShaderProgram program)
     {
-        if (program.VertexShader is not { Code: { } vertex } vs || program.FragmentShader is not { Code: { } fragment } fs)
+        if (program.VertexShader is not { Code: { } vertex } vs ||
+            program.FragmentShader is not { Code: { } fragment } fs)
         {
             return null;
         }
@@ -95,10 +143,11 @@ internal static class ProgramCache
         if (_driver.Length == 0)
         {
             _driver = GL.GetString(StringName.Renderer) + "|" + GL.GetString(StringName.Version) + "|" +
-                      (Vintagestory.Client.ScreenManager.Platform is { UseSSBOs: true } ? "ssbo" : "");
+                      (ScreenManager.Platform is { UseSSBOs: true } ? "ssbo" : "");
         }
 
-        var text = new StringBuilder(_driver).Append('\0').Append(vs.PrefixCode).Append('\0').Append(vertex).Append('\0')
+        var text = new StringBuilder(_driver).Append('\0').Append(vs.PrefixCode).Append('\0').Append(vertex)
+            .Append('\0')
             .Append(fs.PrefixCode).Append('\0').Append(fragment).Append('\0');
         if (program.GeometryShader is { } gs) _ = text.Append(gs.PrefixCode).Append('\0').Append(gs.Code).Append('\0');
 

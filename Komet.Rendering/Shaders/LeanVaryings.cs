@@ -162,7 +162,9 @@ internal static class LeanVaryings
             if (!Varying(vs, fs, "vec4", name)) continue;
 
             var uniform = Regex.IsMatch(fs, $@"\buniform\s+(?:highp\s+)?mat4\s+{matrix}\s*;", RegexOptions.None,
-                TimeSpan.FromSeconds(2)) ? "" : $"uniform highp mat4 {matrix}; ";
+                TimeSpan.FromSeconds(2))
+                ? ""
+                : $"uniform highp mat4 {matrix}; ";
             Declared(ref vs, ref fs, "vec4", name, $"out float {weight}; ", $"in float {weight}; {uniform}");
             _ = end.Append(CultureInfo.InvariantCulture, $"\n#if {vsGuard}\n\t{weight} = {name}.w;\n#endif\n");
             _ = body.Append(CultureInfo.InvariantCulture,
@@ -197,15 +199,15 @@ internal static class LeanVaryings
 
     private static bool Applies(Recipe recipe, string vs, string fs) =>
         Varying(vs, fs, recipe.Type, recipe.Name) &&
-               Count(Assigned(recipe.Name), vs) == recipe.Statements.Length &&
-               Array.TrueForAll(recipe.Statements, s => vs.Contains(s, StringComparison.Ordinal)) &&
-               Array.TrueForAll(recipe.Needs,
-                   n => vs.Contains(n, StringComparison.Ordinal) || fs.Contains(n, StringComparison.Ordinal));
+        Count(Assigned(recipe.Name), vs) == recipe.Statements.Length &&
+        Array.TrueForAll(recipe.Statements, s => vs.Contains(s, StringComparison.Ordinal)) &&
+        Array.TrueForAll(recipe.Needs,
+            n => vs.Contains(n, StringComparison.Ordinal) || fs.Contains(n, StringComparison.Ordinal));
 
     // Declared once in both shaders, never set by the FS
     private static bool Varying(string vs, string fs, string type, string name) =>
         Count(Decl("out", type, name), vs) == 1 &&
-               Count(Decl("in", type, name), fs) == 1 && Count(Assigned(name), fs) == 0;
+        Count(Decl("in", type, name), fs) == 1 && Count(Assigned(name), fs) == 0;
 
     // Both declarations (flat or not) made plain globals, plus what follows each
     private static void Declared(ref string vs, ref string fs, string type, string name, string vsAfter = "",
@@ -230,9 +232,9 @@ internal static class LeanVaryings
     // (?!\w), not \b: after an array's ']' (vec4 colorMapRects[40];) \b never matches
     private static bool Has(string code, string declaration) =>
         Regex.IsMatch(code,
-                   $@"\b{Regex.Escape(declaration).Replace(@"\ ", @"\s+", StringComparison.Ordinal)}(?!\w)",
-                   RegexOptions.None, TimeSpan.FromSeconds(2)) ||
-               code.Contains("uniform " + declaration, StringComparison.Ordinal);
+            $@"\b{Regex.Escape(declaration).Replace(@"\ ", @"\s+", StringComparison.Ordinal)}(?!\w)",
+            RegexOptions.None, TimeSpan.FromSeconds(2)) ||
+        code.Contains("uniform " + declaration, StringComparison.Ordinal);
 
     // main's body start (brace + 1), or for the VS its closing brace (main is last)
     private static bool Main(string code, out int at, bool last)

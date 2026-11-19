@@ -45,8 +45,8 @@ internal static partial class ShaderMods
     // The install has the file: under its path, or as an include of that name (see Restore)
     private static bool Vanilla(string file) =>
         GamePaths.AssetsPath is not { Length: > 0 } assets ||
-               File.Exists(Path.Join(assets, "game", file)) ||
-               File.Exists(Path.Join(assets, "game", "shaderincludes", Path.GetFileName(file)));
+        File.Exists(Path.Join(assets, "game", file)) ||
+        File.Exists(Path.Join(assets, "game", "shaderincludes", Path.GetFileName(file)));
 
     private static Found? Made(Mod mod, string[] replaced, string[] own, bool declared, string[] variants,
         string[] foreign)
@@ -151,7 +151,7 @@ internal static partial class ShaderMods
 
     private static bool Shader(string path) =>
         path.EndsWith(".fsh", StringComparison.Ordinal) || path.EndsWith(".vsh", StringComparison.Ordinal) ||
-               path.EndsWith(".gsh", StringComparison.Ordinal) || path.EndsWith(".ash", StringComparison.Ordinal);
+        path.EndsWith(".gsh", StringComparison.Ordinal) || path.EndsWith(".ash", StringComparison.Ordinal);
 
     // A mod's shader files: Replaced as game asset paths (shaders/final.fsh), Own as domain:pass
     internal sealed record Found(

@@ -236,7 +236,8 @@ internal sealed unsafe partial class VulkanFrame
 
         var from = new Vk.SubresourceLayers
             { Aspect = op.Count, Level = (uint)op.Descriptors, BaseLayer = (uint)op.DescriptorCount, Count = 1 };
-        var to = new Vk.SubresourceLayers { Aspect = op.Count, Level = (uint)op.Push, BaseLayer = (uint)op.PushBytes, Count = 1 };
+        var to = new Vk.SubresourceLayers
+            { Aspect = op.Count, Level = (uint)op.Push, BaseLayer = (uint)op.PushBytes, Count = 1 };
         var blit = new Vk.ImageBlit
         {
             Source = from, SourceX0 = (int)op.X, SourceY0 = (int)op.Y, SourceX1 = (int)op.Width,
@@ -428,7 +429,13 @@ internal sealed unsafe partial class VulkanFrame
     }
 
     // Key names the framebuffer, so a target is the same as the rendering under way without comparing its images
-    public sealed class Target(int key, SharedImage?[] colors, SharedImage? depth, bool depthReadOnly, int width, int height)
+    public sealed class Target(
+        int key,
+        SharedImage?[] colors,
+        SharedImage? depth,
+        bool depthReadOnly,
+        int width,
+        int height)
     {
         public int Key { get; } = key;
         public SharedImage?[] Colors { get; } = colors;
@@ -440,7 +447,7 @@ internal sealed unsafe partial class VulkanFrame
         // The view each color attaches (a layer of an array image), 0 for the image's own
         public ulong[] Views { get; init; } = [];
 
-        // Non-engine framebuffer: the GL textures whose images stand in for its attachments; empty for the engine's
+        // GL textures tracked outside TerrainTargets, including temporary attachments on an engine framebuffer
         public int[] Stands { get; init; } = [];
 
         // The level and layer each color attaches, which a blit into it writes

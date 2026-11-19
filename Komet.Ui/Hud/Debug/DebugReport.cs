@@ -9,7 +9,6 @@ internal sealed class DebugReport
     public const int MaxWidth = 100, MaxSections = 1024, MaxLines = 1 << 16;
     private readonly List<string> _head = [];
     private readonly List<Part> _sections = [];
-    private int _lines;
     private string? _text;
 
     public static DebugReport Empty { get; } = new();
@@ -18,7 +17,7 @@ internal sealed class DebugReport
     public IReadOnlyList<Part> Sections => _sections;
 
     // Head, section heads with their blank line, section lines: the rows Text writes
-    public int Lines => _lines;
+    public int Lines { get; private set; }
 
     public void AddHead(string line)
     {
@@ -27,7 +26,7 @@ internal sealed class DebugReport
             if (_head.Count < MaxLines)
             {
                 _head.Add(part);
-                _lines++;
+                Lines++;
             }
         }
 
@@ -39,7 +38,7 @@ internal sealed class DebugReport
         if (!Assert(_sections.Count < MaxSections)) return;
 
         _sections.Add(new Part(number, title, []));
-        (_lines, _text) = (_lines + 2, null);
+        (Lines, _text) = (Lines + 2, null);
     }
 
     // Lines before any section go to the head
@@ -57,7 +56,7 @@ internal sealed class DebugReport
             if (lines.Count < MaxLines)
             {
                 lines.Add(part);
-                _lines++;
+                Lines++;
             }
         }
 

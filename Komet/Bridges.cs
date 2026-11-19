@@ -13,20 +13,27 @@ namespace Komet;
 // only forwards to the statics of the module that owns the answer.
 
 /// <summary>
-/// Vulkan, for Core (who draws), Rendering (its device, watch, pacing, ports and GL tap) and Diagnostics (GPU times and
-/// the thread report)
+///     Vulkan, for Core (who draws), Rendering (its device, watch, pacing, ports and GL tap) and Diagnostics (GPU times
+///     and
+///     the thread report)
 /// </summary>
 internal sealed class VulkanBridge : IRenderPath, IVulkanSide, IGlTapView, IGpuTimes, IThreadReport
 {
     public static readonly VulkanBridge Instance = new();
+    public bool Tapped => GlTap.Tapped;
+    public long Version => GlTap.Version;
+
+    public GlStateView? State() => GlTap.View();
+    public double FrameGpuMs => VulkanRenderer.FrameGpuMs;
+    public bool TimesTerrain => VulkanRenderer.TimesTerrain;
+
+    public bool TerrainGpuMs(Span<double> groups) => VulkanRenderer.TerrainGpuMs(groups);
 
     public bool VulkanDraws => VulkanRenderer.GlIdle;
     public bool VulkanWanted => VulkanRenderer.Requested;
+
+    public string Threads() => VulkanWatch.Threads();
     public bool NonSolidFill => VulkanRenderer.NonSolidFill;
-    public bool Tapped => GlTap.Tapped;
-    public long Version => GlTap.Version;
-    public double FrameGpuMs => VulkanRenderer.FrameGpuMs;
-    public bool TimesTerrain => VulkanRenderer.TimesTerrain;
 
     public void Mark(string step) => VulkanWatch.Mark(step);
 
@@ -41,16 +48,10 @@ internal sealed class VulkanBridge : IRenderPath, IVulkanSide, IGlTapView, IGpuT
     public string? ValidatePass(string vertex, string fragment) => VulkanPorts.ValidatePass(vertex, fragment);
 
     public (Action? Port, string Error) ReadPort(int program, string pass) => VulkanPorts.Read(program, pass);
-
-    public GlStateView? State() => GlTap.View();
-
-    public bool TerrainGpuMs(Span<double> groups) => VulkanRenderer.TerrainGpuMs(groups);
-
-    public string Threads() => VulkanWatch.Threads();
 }
 
 /// <summary>
-/// Chunks and Tessellation, for Rendering's terrain rebuild and pool trim
+///     Chunks and Tessellation, for Rendering's terrain rebuild and pool trim
 /// </summary>
 internal sealed class LoadingBridge : ILoadingSide
 {
@@ -62,7 +63,7 @@ internal sealed class LoadingBridge : ILoadingSide
 }
 
 /// <summary>
-/// Ui, for Rendering's shader packs and mods: the options menu's reload batching, the mod adapters, the overview page
+///     Ui, for Rendering's shader packs and mods: the options menu's reload batching, the mod adapters, the overview page
 /// </summary>
 internal sealed class ShaderUiBridge : IShaderUiHost
 {
@@ -71,7 +72,7 @@ internal sealed class ShaderUiBridge : IShaderUiHost
     public void ReloadShaders(ICoreClientAPI api) => EngineOptions.ReloadShaders(api);
 
     /// <summary>
-    /// A late shader mod's adapter takes Komet's level and holds; its patches may change what the guards see
+    ///     A late shader mod's adapter takes Komet's level and holds; its patches may change what the guards see
     /// </summary>
     /// <param name="api"></param>
     /// <param name="mod"></param>
@@ -95,16 +96,17 @@ internal sealed class ShaderUiBridge : IShaderUiHost
 }
 
 /// <summary>
-/// Rendering and Tessellation, for Diagnostics' mod times (the idle animators' skips) and frame clock (the tessellation
-/// governor follows every frame)
+///     Rendering and Tessellation, for Diagnostics' mod times (the idle animators' skips) and frame clock (the
+///     tessellation
+///     governor follows every frame)
 /// </summary>
 internal sealed class RenderFrameBridge : IRenderSkips, IFrameFollower
 {
     public static readonly RenderFrameBridge Instance = new();
 
+    public void FrameBegun() => TessGovernor.Frame();
+
     public bool SkipIdle(List<RenderHandler?> list, int index) => IdleAnimators.Skip(list, index);
 
     public bool SkipRenderer(IRenderer? renderer) => IdleAnimators.TrySkip(renderer);
-
-    public void FrameBegun() => TessGovernor.Frame();
 }

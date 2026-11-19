@@ -12,9 +12,9 @@ internal sealed partial class ShaderIde
 {
     private const long AutosaveDelayMs = 1500;
     private const int MaxAutosaveBytes = 4 << 20, MaxAutosaveWork = 256;
+    private readonly List<(string File, string? Text)> _autosaveLater = []; // closed tabs' drops, failed writes again
 
     private readonly Dictionary<string, int> _autosaved = new(StringComparer.Ordinal); // path -> version kept
-    private readonly List<(string File, string? Text)> _autosaveLater = []; // closed tabs' drops, failed writes again
     private long _autosaveAt;
     private Task<List<(string File, string? Text)>> _autosaving = Task.FromResult(new List<(string, string?)>());
 
@@ -30,7 +30,8 @@ internal sealed partial class ShaderIde
         if (now < _autosaveAt || !_autosaving.IsCompleted) return;
 
         _autosaveAt = now + AutosaveDelayMs;
-        List<(string File, string? Text)> work = [.. _autosaving.Result, .. _autosaveLater]; // what failed is tried again
+        List<(string File, string? Text)>
+            work = [.. _autosaving.Result, .. _autosaveLater]; // what failed is tried again
         _autosaveLater.Clear();
         for (var i = 0; i < Math.Min(_tabs.Count, MaxTabs + 1); i++)
         {
@@ -51,7 +52,10 @@ internal sealed partial class ShaderIde
         }
 
         // a later entry of one file wins: an older draft never lands after a newer one or a drop
-        work = [.. work.Select((w, i) => (w, i)).GroupBy(p => p.w.File, StringComparer.Ordinal).Select(g => g.Last().w)];
+        work =
+        [
+            .. work.Select((w, i) => (w, i)).GroupBy(p => p.w.File, StringComparer.Ordinal).Select(g => g.Last().w)
+        ];
         if (work.Count > 0) _autosaving = Task.Run(() => WriteAutosaves(work));
     }
 
@@ -126,7 +130,8 @@ internal sealed partial class ShaderIde
     // A new tab: the kept draft comes back unsaved, with a toast that says so
     private ShaderDocument Opening(string path, string disk, bool readOnly)
     {
-        if (readOnly || Recovered(path) is not { } draft || draft == disk) return new ShaderDocument(path, disk, disk, readOnly);
+        if (readOnly || Recovered(path) is not { } draft || draft == disk)
+            return new ShaderDocument(path, disk, disk, readOnly);
 
         Toast(L("autosave-restored", StudioLink.Name(path)));
         var document = new ShaderDocument(path, disk, draft, false);

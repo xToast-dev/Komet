@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
 using static Komet.Tessellation.TessSeams;

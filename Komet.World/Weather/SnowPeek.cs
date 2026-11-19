@@ -87,9 +87,9 @@ internal static class SnowPeek
     // The private members the accessors read, each with the type they expect: a missing one throws at its first use
     private static bool Fields() =>
         ChunkInternals.Present() &&
-               AccessTools.DeclaredField(typeof(ServerAPIComponentBase), "server")?.FieldType == typeof(ServerMain) &&
-               AccessTools.DeclaredField(typeof(ServerMain), "loadedMapChunks")?.FieldType ==
-               typeof(ConcurrentDictionary<long, ServerMapChunk>);
+        AccessTools.DeclaredField(typeof(ServerAPIComponentBase), "server")?.FieldType == typeof(ServerMain) &&
+        AccessTools.DeclaredField(typeof(ServerMain), "loadedMapChunks")?.FieldType ==
+        typeof(ConcurrentDictionary<long, ServerMapChunk>);
 
     // OnServerTick3s's one AllLoadedMapchunks becomes Columns
     internal static List<CodeInstruction> List(IEnumerable<CodeInstruction> instructions)

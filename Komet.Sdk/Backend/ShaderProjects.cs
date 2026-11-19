@@ -33,6 +33,10 @@ internal static class ShaderProjects
     private const string VanillaFolder = "vanilla";
     private const int MaxProjects = 64, MaxFiles = 512;
 
+    internal const string PassTemplate =
+        "// Komet supplies scene, depth, uv, color, resolution, and time.\n" +
+        "void main() {\n    color = texture(scene, uv);\n}\n";
+
     private static string[] _order = [];
     private static bool _orderRead, _saved;
 
@@ -162,10 +166,6 @@ internal static class ShaderProjects
         return ok ? folder : Refuse(StudioFiles.Error);
     }
 
-    internal const string PassTemplate =
-        "// Komet supplies scene, depth, uv, color, resolution, and time.\n" +
-        "void main() {\n    color = texture(scene, uv);\n}\n";
-
     // A game shader copied into the project ("shaders/x.fsh" or "shaderincludes/x.ash", read from the install, never
     // from a swapped asset); the original's hash, game version and text are kept for OriginalChanged
     public static string? CopyIn(string gameAsset, string project)
@@ -194,7 +194,8 @@ internal static class ShaderProjects
 
         var relative = Path.GetRelativePath(Folder(project), StudioFiles.Full(copyPath)).Replace('\\', '/');
         if (relative.StartsWith(VanillaFolder + "/", StringComparison.Ordinal) &&
-            ShaderAssets.Split(relative[(VanillaFolder.Length + 1)..], out var domain, out var asset) && domain != "game")
+            ShaderAssets.Split(relative[(VanillaFolder.Length + 1)..], out var domain, out var asset) &&
+            domain != "game")
         {
             return ShaderAssets.Key(domain, asset);
         }
@@ -281,10 +282,8 @@ internal static class ShaderProjects
     }
 
     // The game's own file as installed, by asset path ("shaders/x.fsh")
-    private static string? Installed(string relative)
-    {
-        return ShaderAssets.InstalledPath(relative) is { } path && File.Exists(path) ? StudioFiles.Read(path) : null;
-    }
+    private static string? Installed(string relative) =>
+        ShaderAssets.InstalledPath(relative) is { } path && File.Exists(path) ? StudioFiles.Read(path) : null;
 
     // The project's copies of game files (shaders/ and includes/)
     public static string[] Copies(string project)

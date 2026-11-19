@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using Komet.Api;
 using Komet.Core;
 using Komet.Hud;
 using Komet.Rendering;
@@ -28,6 +29,8 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
     private const string Style = "komet-style", Templates = "modding-templates";
 
     private const int MaxNeeds = 8; // how far a chain of Knob.Needs is followed
+
+    public const string ModsOverview = "mods-overview";
 
     private static readonly string[] Corners = ["topleft", "topright", "bottomleft", "bottomright"];
 
@@ -96,7 +99,7 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
                     () => _compatibilityNotices > 0 ? T("compat-notices", _compatibilityNotices) : T("do-open"),
                     () => Navigate(CompatibilityPage.Id), T("compat-overview-hint"))
                 .Tagged(CompatibilityTags)
-                .Button(T("connected-title"), () => T("connected-count", global::Komet.Api.Kapi.Mods.Count),
+                .Button(T("connected-title"), () => T("connected-count", Kapi.Mods.Count),
                     () => Navigate(ConnectedModsPage.Id), T("connected-hint"));
         }
 
@@ -357,8 +360,6 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
         return page;
     }
 
-    public const string ModsOverview = "mods-overview";
-
     // The Mods tab's first page: where every mod keeps its settings files, and the mods themselves
     public static OptionPage ModsPage(string section) =>
         new OptionPage(ModsOverview, T("page-mods-overview"), section)
@@ -456,16 +457,16 @@ internal sealed class KometPages(HudSettings settings, KometActions actions)
 
     private OptionPage ModeRow(OptionPage page) =>
         page.Choice(T("vulkan-mode"),
-            Array.ConvertAll(VulkanMode.Choices, choice => T("vulkan-mode-" + choice.Name)),
-            () => VulkanMode.Choice(VulkanMode.Of(settings.Knobs.Knob)),
-            choice =>
-            {
-                if (Index(choice, VulkanMode.Choices.Length))
+                Array.ConvertAll(VulkanMode.Choices, choice => T("vulkan-mode-" + choice.Name)),
+                () => VulkanMode.Choice(VulkanMode.Of(settings.Knobs.Knob)),
+                choice =>
                 {
-                    VulkanMode.Set(VulkanMode.Choices[choice].Mode, settings.Knobs.SetKnob);
-                }
-            },
-            T("vulkan-mode-hint"))
+                    if (Index(choice, VulkanMode.Choices.Length))
+                    {
+                        VulkanMode.Set(VulkanMode.Choices[choice].Mode, settings.Knobs.SetKnob);
+                    }
+                },
+                T("vulkan-mode-hint"))
             .Button(T("vulkan-retry"), T("vulkan-retry-do"), Links.Vulkan.Retry, T("vulkan-retry-hint"))
             .EnabledWhen(static () => Links.Vulkan.Lock.Length > 0); // only while Komet keeps Vulkan off
 }

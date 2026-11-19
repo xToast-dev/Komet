@@ -64,12 +64,10 @@ internal static partial class IdleAnimators
 
         if (at + Near < items.Length && items[at + Near] is { } near) Fetch(near.Renderer, 2);
 
-        if (at + Next < items.Length && items[at + Next]?.Renderer is AnimationUtil util)
-        {
-            Fetch(util.animator);
-            Fetch(util.renderer, 2);
-            Fetch(util.activeAnimationsByAnimCode);
-        }
+        if (at + Next >= items.Length || items[at + Next]?.Renderer is not AnimationUtil util) return;
+        Fetch(util.animator);
+        Fetch(util.renderer, 2);
+        Fetch(util.activeAnimationsByAnimCode);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

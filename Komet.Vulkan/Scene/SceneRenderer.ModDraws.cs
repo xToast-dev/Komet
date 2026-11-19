@@ -1,4 +1,3 @@
-
 namespace Komet.Vulkan;
 
 // Vulkan-only draws only mods ask for: indirect (GPU reads the mirror; multi-draw where supported), indexed line loops

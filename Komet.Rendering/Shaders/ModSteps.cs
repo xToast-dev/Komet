@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Komet.Api;
 
 namespace Komet.Rendering;
@@ -20,7 +21,7 @@ internal sealed class ModSteps : IRenderStepHost
         events.RegisterRenderer(runner, (EnumRenderStage)entry.Stage, "kapi-" + entry.ModId + ":" + entry.Step.Id);
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000",
+    [SuppressMessage("Reliability", "CA2000",
         Justification = "the runner is disposed by the main-thread task it is handed to")]
     public void Remove(StepEntry entry)
     {

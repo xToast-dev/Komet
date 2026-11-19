@@ -67,7 +67,8 @@ internal sealed unsafe partial class VulkanFrame
     {
         if (op.Kind == OpKind.Viewport)
         {
-            var viewport = new Vk.ViewportBox { X = op.X, Y = op.Y, Width = op.Width, Height = op.Height, MaxDepth = 1 };
+            var viewport = new Vk.ViewportBox
+                { X = op.X, Y = op.Y, Width = op.Width, Height = op.Height, MaxDepth = 1 };
             VkApi.CmdSetViewport(commands, 0, 1, &viewport);
             return;
         }
@@ -182,7 +183,8 @@ internal sealed unsafe partial class VulkanFrame
         {
             colors[i] = rendering.Colors[i] != 0
                 ? Kept(rendering.Colors[i], Vk.LayoutColorAttachment)
-                : new Vk.RenderingAttachment { SType = Vk.RenderingAttachmentInfo }; // no view: the output writes nothing
+                : new Vk.RenderingAttachment
+                    { SType = Vk.RenderingAttachmentInfo }; // no view: the output writes nothing
         }
 
         var depth = rendering.Depth != 0 ? Kept(rendering.Depth, rendering.DepthLayout) : default;

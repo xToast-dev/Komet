@@ -96,7 +96,8 @@ internal sealed unsafe partial class TextureImages
         from.Moved(commands, (Vk.LayoutShaderRead, Vk.LayoutTransferSrc));
         for (var level = 0; level < Math.Min(Math.Min(from.Levels, to.Levels), MaxLevels); level++)
         {
-            var layers = new Vk.SubresourceLayers { Aspect = from.Format.Aspect, Level = (uint)level, Count = (uint)from.Layers };
+            var layers = new Vk.SubresourceLayers
+                { Aspect = from.Format.Aspect, Level = (uint)level, Count = (uint)from.Layers };
             var (width, height) = from.LevelSize(level);
             var depth = from.Volume ? from.Slices(level) : 1;
             var blit = new Vk.ImageBlit

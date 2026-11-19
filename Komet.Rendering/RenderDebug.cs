@@ -15,11 +15,11 @@ internal static partial class RenderDebug
     private static ChunkRenderer? _terrain;
     private static View _view;
     private static uint _disabledTerrain;
-    private static bool _noCull, _noDepth, _changed;
+    private static bool _noCull, _noDepth;
 
     internal static bool Installed { get; private set; }
 
-    internal static bool Active => _changed;
+    internal static bool Active { get; private set; }
 
     internal static bool TerrainChanged =>
         Installed && Active && (_disabledTerrain != 0 || _view != View.Filled || _noCull || _noDepth);
@@ -124,7 +124,7 @@ internal static partial class RenderDebug
 
     private static void Changed()
     {
-        _changed = _view != View.Filled || _noCull || _noDepth || _disabledTerrain != 0 || DisabledShaders.Count > 0;
+        Active = _view != View.Filled || _noCull || _noDepth || _disabledTerrain != 0 || DisabledShaders.Count > 0;
         FarShadowReuse.Clear();
         NearShadowReuse.Clear();
     }
@@ -132,7 +132,7 @@ internal static partial class RenderDebug
     internal static void Reset()
     {
         ClearComparison();
-        (_view, _disabledTerrain, _noCull, _noDepth, _changed) = (View.Filled, 0, false, false, false);
+        (_view, _disabledTerrain, _noCull, _noDepth, Active) = (View.Filled, 0, false, false, false);
         DisabledShaders.Clear();
         Managers.Clear();
         FarShadowReuse.Clear();

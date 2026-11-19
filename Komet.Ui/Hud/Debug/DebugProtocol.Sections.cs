@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Runtime;
 using System.Text;
-using Komet.Diagnostics;
 using Komet.Api;
+using Komet.Diagnostics;
 
 namespace Komet.Hud;
 

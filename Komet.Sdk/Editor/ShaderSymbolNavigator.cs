@@ -1,4 +1,3 @@
-
 namespace Komet.Sdk;
 
 internal static class ShaderSymbolNavigator
@@ -23,7 +22,6 @@ internal static class ShaderSymbolNavigator
                 offset = at;
                 return true;
             }
-
         }
 
         return false;

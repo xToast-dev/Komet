@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Komet.Rendering;
 
 namespace Komet.Options;

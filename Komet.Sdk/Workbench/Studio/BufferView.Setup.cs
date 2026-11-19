@@ -5,8 +5,19 @@ namespace Komet.Sdk;
 // Building and releasing the view's GL objects, the saved state around its draw, and the pixel inspector
 internal sealed partial class BufferView
 {
-    private readonly record struct Saved(int Draw, int Read, int Program, int Vao, int Unit, int Tex0, int Tex1,
-        int Sampler0, int Sampler1, bool Blend, bool Scissor, bool Depth);
+    // The workbench closed: every GL object goes
+    public void Dispose()
+    {
+        ReleaseTargets();
+        if (_program != 0)
+        {
+            GL.DeleteProgram(_program);
+            GL.DeleteVertexArray(_vao);
+            GL.DeleteSampler(_sampler);
+        }
+
+        (_program, _vao, _sampler, _failed, Snapshot) = (0, 0, 0, false, "");
+    }
 
     private Saved Save()
     {
@@ -146,17 +157,17 @@ internal sealed partial class BufferView
         (_fb, _snapFb, _target, _snap, _height) = (0, 0, 0, 0, 0);
     }
 
-    // The workbench closed: every GL object goes
-    public void Dispose()
-    {
-        ReleaseTargets();
-        if (_program != 0)
-        {
-            GL.DeleteProgram(_program);
-            GL.DeleteVertexArray(_vao);
-            GL.DeleteSampler(_sampler);
-        }
-
-        (_program, _vao, _sampler, _failed, Snapshot) = (0, 0, 0, false, "");
-    }
+    private readonly record struct Saved(
+        int Draw,
+        int Read,
+        int Program,
+        int Vao,
+        int Unit,
+        int Tex0,
+        int Tex1,
+        int Sampler0,
+        int Sampler1,
+        bool Blend,
+        bool Scissor,
+        bool Depth);
 }

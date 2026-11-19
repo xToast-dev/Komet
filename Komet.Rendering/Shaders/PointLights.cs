@@ -31,9 +31,9 @@ internal static class PointLights
         "\t\tfloat range = length(plc); // " + Marker + ": a light without red has a reach too";
 
     private const string KometFalloff = "\t\trange = min(25, range);\r\n" +
-                                         "\t\trange = max(range, 2.0); // kometReach: a weak light as bright, softly over 2 blocks\r\n" +
-                                         "\t\tif (lightDistance > range) continue;\r\n\t\t\t\r\n" +
-                                         "\t\tfloat bright = (color.r + color.g + color.b) / 3;";
+                                        "\t\trange = max(range, 2.0); // kometReach: a weak light as bright, softly over 2 blocks\r\n" +
+                                        "\t\tif (lightDistance > range) continue;\r\n\t\t\t\r\n" +
+                                        "\t\tfloat bright = (color.r + color.g + color.b) / 3;";
 
     private static readonly double[] World = new double[MaxLights * 3];
     private static readonly long[] Noted = new long[MaxLights]; // the frame each slot's World was noted in
@@ -152,6 +152,10 @@ internal static class PointLights
 
         public void OnRenderFrame(float deltaTime, EnumRenderStage stage) => Reproject();
 
+        public void Dispose()
+        {
+        }
+
         // As the opaque stage begins the modelview matrix is this frame's camera. Only the slots noted this frame: a light a mod
         // wrote straight into ShaderUniforms has no world position here and keeps the engine's
         private static void Reproject()
@@ -174,10 +178,6 @@ internal static class PointLights
                 Mat4d.MulWithVec4(camera, In, Out);
                 (lights[i * 3], lights[i * 3 + 1], lights[i * 3 + 2]) = ((float)Out.X, (float)Out.Y, (float)Out.Z);
             }
-        }
-
-        public void Dispose()
-        {
         }
     }
 }

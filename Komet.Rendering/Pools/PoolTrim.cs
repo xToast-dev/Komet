@@ -123,7 +123,8 @@ internal static class PoolTrim
     private static bool ShouldDrain(MeshDataPool? draining, MeshDataPool? sparsest, long used, long room,
         long sparsestUsed, bool wasteful)
     {
-        var fits = sparsest is not null && room - used - (sparsest.IndicesPoolSize - sparsestUsed) >= 1.5 * sparsestUsed;
+        var fits = sparsest is not null &&
+                   room - used - (sparsest.IndicesPoolSize - sparsestUsed) >= 1.5 * sparsestUsed;
         return draining is null && sparsest is not null && wasteful && fits;
     }
 

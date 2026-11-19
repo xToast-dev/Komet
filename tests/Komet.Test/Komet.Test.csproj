@@ -46,6 +46,7 @@
          installation comes from Komet.Testing's GameInstall. -->
     <ItemGroup>
         <AssemblyMetadata Include="KometRepo" Value="$(KometRepo)"/>
+        <InternalsVisibleTo Include="Komet.Synth"/> <!-- the synthetic bench builds on these rigs -->
     </ItemGroup>
 
 </Project>

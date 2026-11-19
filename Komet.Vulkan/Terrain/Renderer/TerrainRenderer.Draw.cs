@@ -327,7 +327,9 @@ internal sealed partial class TerrainRenderer
         at = (attached.Level, attached.Layer);
         if (attached.Layered) return None<SharedImage>(out why, "reads every layer at once");
 
-        var image = Ours(fbo) ? Attachment(attached, out why) : Copy(attached.Texture, out why);
+        var image = Ours(fbo) && Targets.Owns(attached.Texture)
+            ? Attachment(attached, out why)
+            : Copy(attached.Texture, out why);
         if (image is not null && (attached.Level >= image.Levels || attached.Layer >= image.Layers))
         {
             return None<SharedImage>(out why, "reads past the image's levels or layers");
@@ -397,7 +399,7 @@ internal sealed partial class TerrainRenderer
         if (!Assert(attached.Length == GlFramebuffer.Colors + 1)) return null;
 
         var (images, views, at) = (new SharedImage?[outputs], new ulong[outputs], new (int Level, int Layer)[outputs]);
-        var stands = foreign ? new List<int>() : null; // the textures a foreign target's images stand for
+        List<int>? stands = null; // texture copies, including temporary attachments on an engine framebuffer
         var (width, height, layers) = (int.MaxValue, int.MaxValue, 0);
         for (var i = 0; i < Math.Min(outputs, GlTap.MaxBuffers); i++)
         {
@@ -418,7 +420,7 @@ internal sealed partial class TerrainRenderer
             }
 
             (images[i], views[i], at[i], layers) = (image, view, (a.Level, a.Layer), l);
-            stands?.Add(a.Texture);
+            if (Targets.Find(a.Texture) is null) (stands ??= []).Add(a.Texture);
             (width, height) = (Math.Min(width, w), Math.Min(height, h));
         }
 
@@ -428,8 +430,8 @@ internal sealed partial class TerrainRenderer
         {
             if (DepthOf(d, foreign, layers, out why) is not var (image, view, w, h, l)) return null;
 
-            (depth, depthView, layers) = (image, foreign ? view : 0, l); // ours: the image's own view, level 0
-            stands?.Add(d.Texture);
+            (depth, depthView, layers) = (image, view, l);
+            if (Targets.Find(d.Texture) is null) (stands ??= []).Add(d.Texture);
             (width, height) = (Math.Min(width, w), Math.Min(height, h));
         }
 
@@ -446,13 +448,12 @@ internal sealed partial class TerrainRenderer
     private (SharedImage Image, ulong View, int Width, int Height, int Layers)? DepthOf(GlFramebuffer.Attached d,
         bool foreign, int layers, out string why)
     {
-        if (!foreign && d.Level > 0) return Refused(out why, "draws into a mipmap level of a depth");
-
         if (Attached(d, foreign, out why) is not { } image) return null;
 
         if (_replaced) return Refused(out why, "an attachment was replaced");
 
-        if ((image.Format.Aspect & Vk.AspectDepth) == 0) return Refused(out why, "draws into a depth of a color format");
+        if ((image.Format.Aspect & Vk.AspectDepth) == 0)
+            return Refused(out why, "draws into a depth of a color format");
 
         if (Viewed(image, d) is not var (view, w, h, l) || (layers > 0 && l != layers))
         {
@@ -468,9 +469,11 @@ internal sealed partial class TerrainRenderer
         }
     }
 
-    // Ours: the target's image (Attachment); foreign: the texture's own, any level or layer(s)
+    // A mod can temporarily attach its own texture to an engine framebuffer.
     private SharedImage? Attached(GlFramebuffer.Attached attached, bool foreign, out string why) =>
-        foreign ? Copy(attached.Texture, out why, true) : Attachment(attached, out why);
+        !foreign && Targets.Owns(attached.Texture)
+            ? Attachment(attached, out why)
+            : Copy(attached.Texture, out why, true);
 
     // An image made for the texture first if needed (TerrainTargets.Share)
     private SharedImage? Attachment(GlFramebuffer.Attached attached, out string why)
@@ -530,6 +533,11 @@ internal sealed partial class TerrainRenderer
 
             var image = SampledFind(gl) ?? Copy(gl, out why);
             if (image is null) return Missing(out why, program, sampler.Name, why);
+            if (SpecularFallback(program, sampler, target, image) is { } fallback)
+            {
+                _resolved[i] = fallback;
+                continue;
+            }
 
             var state = samplerObject > 0 ? samplers(samplerObject) : Targets.Sampling(gl) ?? SamplingOf(gl);
             if (state is null) return Missing(out why, program, sampler.Name, $"texture {gl} has no known sampling");

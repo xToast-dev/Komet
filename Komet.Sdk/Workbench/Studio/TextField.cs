@@ -52,18 +52,43 @@ internal sealed class TextField(int max = 200)
     {
         switch (key)
         {
-            case GlKeys.BackSpace when _all: Set(""); return true;
-            case GlKeys.BackSpace when Caret > 0: Remove(Caret - 1); return true;
-            case GlKeys.Delete when _all: Set(""); return true;
-            case GlKeys.Delete when Caret < Text.Length: Remove(Caret); return true;
-            case GlKeys.Left: (Caret, _all) = (Math.Max(0, Caret - 1), false); return true;
-            case GlKeys.Right: (Caret, _all) = (Math.Min(Text.Length, Caret + 1), false); return true;
-            case GlKeys.Home: (Caret, _all) = (0, false); return true;
-            case GlKeys.End: (Caret, _all) = (Text.Length, false); return true;
-            case GlKeys.A when ctrl: SelectAll(); return true;
-            case GlKeys.C when ctrl: capi.Input.ClipboardText = Text; return true;
-            case GlKeys.X when ctrl: capi.Input.ClipboardText = Text; Set(""); return true;
-            case GlKeys.V when ctrl: Insert(capi.Input.ClipboardText ?? ""); return true;
+            case GlKeys.BackSpace when _all:
+                Set("");
+                return true;
+            case GlKeys.BackSpace when Caret > 0:
+                Remove(Caret - 1);
+                return true;
+            case GlKeys.Delete when _all:
+                Set("");
+                return true;
+            case GlKeys.Delete when Caret < Text.Length:
+                Remove(Caret);
+                return true;
+            case GlKeys.Left:
+                (Caret, _all) = (Math.Max(0, Caret - 1), false);
+                return true;
+            case GlKeys.Right:
+                (Caret, _all) = (Math.Min(Text.Length, Caret + 1), false);
+                return true;
+            case GlKeys.Home:
+                (Caret, _all) = (0, false);
+                return true;
+            case GlKeys.End:
+                (Caret, _all) = (Text.Length, false);
+                return true;
+            case GlKeys.A when ctrl:
+                SelectAll();
+                return true;
+            case GlKeys.C when ctrl:
+                capi.Input.ClipboardText = Text;
+                return true;
+            case GlKeys.X when ctrl:
+                capi.Input.ClipboardText = Text;
+                Set("");
+                return true;
+            case GlKeys.V when ctrl:
+                Insert(capi.Input.ClipboardText ?? "");
+                return true;
             case GlKeys.BackSpace or GlKeys.Delete: return true;
             default: return false;
         }

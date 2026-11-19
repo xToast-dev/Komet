@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 
 namespace Komet.Rendering;
@@ -23,7 +23,9 @@ internal static class HearthCulling
 
     private const float Cell = 0.8661f, Reach = 1.25f;
 
-    private static readonly SeamGuard Guard = new(nameof(HearthCulling), KapiPatchKinds.Replacing, [typeof(HearthCulling)]);
+    private static readonly SeamGuard Guard = new(nameof(HearthCulling), KapiPatchKinds.Replacing,
+        [typeof(HearthCulling)]);
+
     private static readonly Tally Counts = new();
     private static Type? _pot;
 

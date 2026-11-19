@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.Common.Entities;
 using ResolvedTable = Vintagestory.API.Datastructures.FastSmallDictionary<Vintagestory.API.Common.ShapeElement,
     Vintagestory.API.Common.AnimationKeyFrameElement>;

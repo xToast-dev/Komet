@@ -69,6 +69,7 @@
             <ModId>$([System.Text.RegularExpressions.Regex]::Match($(KometModInfo), '(?&lt;="modid"\s*:\s*")[^"]+'))</ModId>
             <ReleaseRoot>$(MSBuildProjectDirectory)/../Releases</ReleaseRoot>
             <ReleaseDir>$(ReleaseRoot)/$(ModId)</ReleaseDir>
+            <ReleaseZipName>$(ModId)_$(KometVersion).zip</ReleaseZipName>
             <ShadercPackage>$(MSBuildProjectDirectory)/obj/native/silk.net.shaderc.native.2.23.0.nupkg</ShadercPackage>
             <ShadercUnpacked>$(MSBuildProjectDirectory)/obj/native/unpacked</ShadercUnpacked>
         </PropertyGroup>
@@ -102,7 +103,12 @@
         <Error Condition="!Exists('$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll')" Text="shaderc_shared.dll is missing in $(ShadercPackage)" />
         <Copy SourceFiles="$(ShadercUnpacked)/runtimes/win-x64/native/shaderc_shared.dll" DestinationFolder="$(ReleaseDir)/native/win-x64" />
         <WriteLinesToFile File="$(ReleaseDir)/native/win-x64/NOTICE.txt" Overwrite="true" Lines="shaderc_shared.dll: shaderc by Google (https://github.com/google/shaderc), Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0), unmodified, as built in the nuget package Silk.NET.Shaderc.Native 2.23.0." />
-        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ModId)_$(KometVersion).zip" />
+        <ZipDirectory SourceDirectory="$(ReleaseDir)" DestinationFile="$(ReleaseRoot)/$(ReleaseZipName)" />
+        <GetFileHash Files="$(ReleaseRoot)/$(ReleaseZipName)" Algorithm="SHA256">
+            <Output TaskParameter="Hash" PropertyName="ReleaseZipHash" />
+        </GetFileHash>
+        <WriteLinesToFile File="$(ReleaseRoot)/$(ModId).sha256" Overwrite="true"
+                          Lines="$(ReleaseZipHash.ToLowerInvariant())  $(ReleaseZipName)" />
     </Target>
 
     <!-- The zip carries modinfo.json and the assets as they are, and the game parses them with Newtonsoft. The analyzer reads the lang

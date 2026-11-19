@@ -38,6 +38,11 @@ internal sealed class PassModel
     public const int MaxPasses = 256;
     private const string PackStage = "AfterFinalComposition";
 
+    // Who copies a module's programs and the text of pack fragments: looked up again every few seconds, not every poll
+    private readonly Dictionary<string, string[]> _copiers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _texts = new(StringComparer.Ordinal);
+    private long _cachedAt;
+
     private string _signature = "";
 
     public PassEntry[] Passes { get; private set; } = [];
@@ -45,9 +50,9 @@ internal sealed class PassModel
     // Pack setting keys some pass declares; the others belong to the pack as a whole
     private HashSet<string> Owned { get; } = new(StringComparer.Ordinal);
 
-    public event Action? Changed;
-
     public int OverridesActive => Passes.Count(p => p is { HasOverride: true, OverrideOn: true });
+
+    public event Action? Changed;
 
     // The keys SETTINGS shows: the pack's own settings plus those of passes that are on, minus the pack passes' switches
     public bool Shows(string key)
@@ -59,8 +64,8 @@ internal sealed class PassModel
 
     public PassEntry? Find(string id) => Array.Find(Passes, p => p.Id == id);
 
-    public void Rebuild(ShaderModule[] modules, ShaderPacks.Pack? pack, string? folder, System.Func<string, double> value,
-        System.Func<string, int> errors)
+    public void Rebuild(ShaderModule[] modules, ShaderPacks.Pack? pack, string? folder,
+        System.Func<string, double> value, System.Func<string, int> errors)
     {
         Expire();
         List<PassEntry> passes = [];
@@ -90,11 +95,6 @@ internal sealed class PassModel
             Changed?.Invoke();
         }
     }
-
-    // Who copies a module's programs and the text of pack fragments: looked up again every few seconds, not every poll
-    private readonly Dictionary<string, string[]> _copiers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _texts = new(StringComparer.Ordinal);
-    private long _cachedAt;
 
     private void Expire()
     {
@@ -147,7 +147,8 @@ internal sealed class PassModel
     }
 
     // A pack pass: on while its switch is; it declares the settings whose define or uniform its fragment reads
-    private PassEntry Packed(ShaderPacks.PassSpec spec, ShaderPacks.Pack pack, string folder, System.Func<string, double> value,
+    private PassEntry Packed(ShaderPacks.PassSpec spec, ShaderPacks.Pack pack, string folder,
+        System.Func<string, double> value,
         int order)
     {
         var file = spec.Fragment.Length > 0 ? Path.Join(folder, spec.Fragment) : null;
@@ -157,6 +158,7 @@ internal sealed class PassModel
             text = StudioLink.Read(file, out var read, out _) ? read : "";
             _texts[file] = text;
         }
+
         List<string> declared = [];
         foreach (var setting in pack.Settings.Bounded(64))
         {

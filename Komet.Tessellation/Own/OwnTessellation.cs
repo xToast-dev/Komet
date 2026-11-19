@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.Client.Tesselation;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
@@ -126,7 +126,8 @@ internal static class OwnTessellation
 
     private static bool Check(string feature, bool previous, MethodBase?[] methods) =>
         EngineShape.Report(Logger, feature, previous,
-            EngineShape.Foreign(methods, KapiPatchKinds.All, null, typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)),
+            EngineShape.Foreign(methods, KapiPatchKinds.All, null, typeof(JitWarm), typeof(FaceLight),
+                typeof(TessSafety)),
             methods, KapiPatchKinds.All, null, [typeof(JitWarm), typeof(FaceLight), typeof(TessSafety)]);
 
     internal static void Count(bool ours, bool json = false)

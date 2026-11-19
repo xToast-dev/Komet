@@ -68,7 +68,6 @@ internal sealed partial class StudioTree
                 }
             }
         }
-
     }
 
     private bool Shown(string group) => _filter.Text.Length > 0 || !_open.Contains(group + ":shut");

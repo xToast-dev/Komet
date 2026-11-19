@@ -12,9 +12,9 @@ internal readonly record struct InspectRow(string Name, string Value, float[]? S
 // targets without content at the end
 internal sealed partial class BufferView
 {
-    private (double U, double V)? _ask;
-    private readonly float[] _px = new float[4];
     private readonly List<InspectRow> _empty = [];
+    private readonly float[] _px = new float[4];
+    private (double U, double V)? _ask;
 
     public List<InspectRow> Inspected { get; } = [];
     public (double U, double V)? InspectedAt { get; private set; }
@@ -64,7 +64,8 @@ internal sealed partial class BufferView
     private float[]? ReadAt(ICoreClientAPI capi, BufferTarget target, double u, double v)
     {
         var list = capi.Render.FrameBuffers;
-        if (list is null || (int)target.Fb >= list.Count || list[(int)target.Fb] is not { FboId: > 0, Width: > 0, Height: > 0 } fb)
+        if (list is null || (int)target.Fb >= list.Count || list[(int)target.Fb] is not
+                { FboId: > 0, Width: > 0, Height: > 0 } fb)
         {
             return null;
         }
@@ -99,8 +100,10 @@ internal sealed partial class BufferView
         return target.Kind switch
         {
             BufferKind.Depth => new InspectRow(target.Name, "Depth " + Format(v[0]), null, false),
-            BufferKind.Normal => new InspectRow(target.Name, "Normal " + xyz, [v[0] * 0.5f + 0.5f, v[1] * 0.5f + 0.5f,
-                v[2] * 0.5f + 0.5f, 1], false),
+            BufferKind.Normal => new InspectRow(target.Name, "Normal " + xyz, [
+                v[0] * 0.5f + 0.5f, v[1] * 0.5f + 0.5f,
+                v[2] * 0.5f + 0.5f, 1
+            ], false),
             BufferKind.Position => new InspectRow(target.Name, "Position " + xyz, null, false),
             _ => new InspectRow(target.Name, "R " + Format(v[0]) + " · G " + Format(v[1]) + " · B " + Format(v[2]) +
                                              " · A " + Format(v[3]), [v[0], v[1], v[2], 1], false)
@@ -146,7 +149,8 @@ internal sealed partial class BufferView
         if (ReadAt(capi, target, s[0], s[1]) is { } stored)
         {
             var lit = s[2] - 0.0005f <= stored[0];
-            Add(new InspectRow(target.Name, target.Name + ": stored " + Format(stored[0]) + " · this pixel " + Format(s[2]) +
+            Add(new InspectRow(target.Name, target.Name + ": stored " + Format(stored[0]) + " · this pixel " +
+                                            Format(s[2]) +
                                             (lit ? " · lit" : " · shadowed"), null, false));
         }
         else

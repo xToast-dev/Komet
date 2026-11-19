@@ -58,7 +58,7 @@ internal static class RelightRedraws
     // Neither block emits light and both absorb alike: the engine's task would relight nothing
     internal static bool Unlit(Block old, Block now, IBlockAccessor accessor, BlockPos pos) =>
         Dark(old.GetLightHsv(accessor, pos)) && Dark(now.GetLightHsv(accessor, pos)) &&
-               old.GetLightAbsorption(accessor, pos) == now.GetLightAbsorption(accessor, pos);
+        old.GetLightAbsorption(accessor, pos) == now.GetLightAbsorption(accessor, pos);
 
     // An unreadable HSV counts as light: the engine's own task meets it
     private static bool Dark(byte[]? hsv) => hsv is { Length: > Value } && hsv[Value] == 0;

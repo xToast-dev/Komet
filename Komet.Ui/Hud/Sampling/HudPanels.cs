@@ -61,13 +61,13 @@ internal sealed class HudPanels(ICoreClientAPI capi, HudSampler sampler, HudBuil
 
     private static long ConfigValue(IReadOnlyDictionary<string, object> config, string key) =>
         config.TryGetValue(key, out var value) &&
-               value is IConvertible number
+        value is IConvertible number
             ? number.ToInt64(CultureInfo.InvariantCulture)
             : -1;
 
     private string SpikeCause(int place) =>
         Index(place, SpikeLedger.Shown) &&
-               _spikes.Ranked(place) is { Name.Length: > 0 } cause
+        _spikes.Ranked(place) is { Name.Length: > 0 } cause
             ? KometText.Translate("hud-spike-cause", HudParts.Describe(cause.Name), cause.Count,
                 KometText.Format(cause.MaxMs, "F1"))
             : "";
@@ -103,7 +103,10 @@ internal sealed class HudPanels(ICoreClientAPI capi, HudSampler sampler, HudBuil
     private void FramesPanel() =>
         _ = Panel()
             .Title("title", () => build.EditionBadge().Text)
-            .Line(() => build.Update is { } check ? KometText.Translate(check.Report.Notice().Key, check.Report.Detail) : "",
+            .Line(
+                () => build.Update is { } check
+                    ? KometText.Translate(check.Report.Notice().Key, check.Report.Detail)
+                    : "",
                 sub: true)
             .Value("fps", () => _frames.Fps)
             .Value("low1", () => _frames.Low1Fps, final: true)
@@ -167,7 +170,8 @@ internal sealed class HudPanels(ICoreClientAPI capi, HudSampler sampler, HudBuil
                 .Line(() => KometText.Cached("hud-pass-", _passes.Key(i)), () => _passes.AverageMs(i), "ms",
                     () => _passes.Percent(i))
                 .Rows(RenderPassStats.DetailCount,
-                    j => passes.Line(() => HudParts.Describe(_passes.DetailName(i, j)), () => _passes.DetailMs(i, j), "ms",
+                    j => passes.Line(() => HudParts.Describe(_passes.DetailName(i, j)), () => _passes.DetailMs(i, j),
+                        "ms",
                         sub: true)))
             .Section("total")
             .Value("profiler-marks", sampler.PerFrame(() => _passes.MarkCalls))
@@ -283,7 +287,8 @@ internal sealed class HudPanels(ICoreClientAPI capi, HudSampler sampler, HudBuil
             .Line(UploadCapText)
             .Bar("upload-capped", sampler.PerFrame(() => ChunkBudget.CapHits, 100))
             .Bar("upload-over", sampler.PerFrame(() => ChunkBudget.Over, 100))
-            .Value("upload-over-ms", HudSampler.Ratio(() => ChunkBudget.OverTicks * FrameClock.TickMs, () => ChunkBudget.Over),
+            .Value("upload-over-ms",
+                HudSampler.Ratio(() => ChunkBudget.OverTicks * FrameClock.TickMs, () => ChunkBudget.Over),
                 "ms")
             .Bar("upload-priority-cut", sampler.PerFrame(() => ChunkBudget.PriorityCuts, 100))
             .Value("upload-births", sampler.PerSecond(() => VulkanRenderer.Born))

@@ -29,6 +29,7 @@ internal static class DirectChunks
 
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
+
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "network")]
     private static extern ref DummyNetwork? Network(DummyNetConnection connection);
 
@@ -72,15 +73,15 @@ internal static class DirectChunks
     // Every member the accessors expect, typed: a missing one would throw at its first use on a game thread
     private static bool Present() =>
         AccessTools.DeclaredField(typeof(DummyNetConnection), "network")?.FieldType == typeof(DummyNetwork) &&
-               AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBuffer")?.FieldType ==
-               typeof(Queue<object>) &&
-               AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBufferLock")?.FieldType ==
-               typeof(MonitorObject) &&
-               AccessTools.DeclaredField(typeof(ClientSystem), "game")?.FieldType == typeof(ClientMain) &&
-               AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), "ProcessInBackground", [typeof(Packet_Server)])
-                   ?.ReturnType == typeof(bool) &&
-               AccessTools.DeclaredField(typeof(ProcessPacketTask), "game")?.FieldType == typeof(ClientMain) &&
-               AccessTools.DeclaredField(typeof(ProcessPacketTask), "packet")?.FieldType == typeof(Packet_Server);
+        AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBuffer")?.FieldType ==
+        typeof(Queue<object>) &&
+        AccessTools.DeclaredField(typeof(DummyNetwork), "ClientReceiveBufferLock")?.FieldType ==
+        typeof(MonitorObject) &&
+        AccessTools.DeclaredField(typeof(ClientSystem), "game")?.FieldType == typeof(ClientMain) &&
+        AccessTools.DeclaredMethod(typeof(SystemNetworkProcess), "ProcessInBackground", [typeof(Packet_Server)])
+            ?.ReturnType == typeof(bool) &&
+        AccessTools.DeclaredField(typeof(ProcessPacketTask), "game")?.FieldType == typeof(ClientMain) &&
+        AccessTools.DeclaredField(typeof(ProcessPacketTask), "packet")?.FieldType == typeof(Packet_Server);
 
     // ServerMain.SendPacket(int, Packet_Server) prefix: false when the token went in its place
     private static bool Sending(ServerMain __instance, int clientId, Packet_Server packet)

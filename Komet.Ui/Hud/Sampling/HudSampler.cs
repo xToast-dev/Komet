@@ -67,9 +67,6 @@ internal sealed partial class HudSampler(ICoreClientAPI capi, HudSettings settin
     public bool Benching => _benchLeft > 0;
     public bool Forced => _benchLeft > 0 || Capturing;
 
-    // Each interval after the live snapshot, before the collectors reset (elapsed seconds)
-    public event Action<float>? Interval;
-
     // Each recorded frame, after the spike ledger saw it
     public FrameSink? Recorded { get; set; }
 
@@ -83,6 +80,9 @@ internal sealed partial class HudSampler(ICoreClientAPI capi, HudSettings settin
 
         ModTimes.Enabled = FrameClock.Stats = Counting.Hud = WorkerPool.Timed = false;
     }
+
+    // Each interval after the live snapshot, before the collectors reset (elapsed seconds)
+    public event Action<float>? Interval;
 
     public void Quiet() => _quietUntil = Math.Max(_quietUntil, Environment.TickCount64 + QuietMs);
 

@@ -1,8 +1,8 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 
 namespace Komet.World;
 

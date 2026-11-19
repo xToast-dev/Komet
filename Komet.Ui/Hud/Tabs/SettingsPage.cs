@@ -61,7 +61,7 @@ internal sealed class SettingsPage(ICoreClientAPI capi, HudSettings settings, Ac
     // KeyCombination.ToString writes the modifiers in English, so they are built from lang keys here.
     private string KeyName(string code) =>
         NotNull(capi.Input.HotKeys) && capi.Input.HotKeys.TryGetValue(code, out var key) &&
-               key?.CurrentMapping is { } mapping
+        key?.CurrentMapping is { } mapping
             ? KeyLabel(mapping)
             : "–";
 

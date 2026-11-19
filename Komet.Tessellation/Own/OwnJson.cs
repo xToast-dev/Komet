@@ -70,7 +70,7 @@ internal sealed class OwnJsonSnow(JsonAndSnowLayerTesselator engine) : IBlockTes
         [NotNullWhen(true)] out Block? below,
         [NotNullWhen(true)] out ClientMain? game, out Snowed snow)
     {
-        (below, game, snow) = (null, Game(vars.tct), default(Snowed));
+        (below, game, snow) = (null, Game(vars.tct), default);
         if (!OwnQuads.Ready(vars, faces, out rgbs) || BlocksExt(vars.tct) is not { Length: ExtCells } blocks ||
             game is null || vars.fastBlockTextureSubidsByFace is not { Length: > Faces } fast ||
             vars.textureAtlasPositionsByTextureSubId is not { } positions ||

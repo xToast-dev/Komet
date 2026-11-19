@@ -24,6 +24,9 @@ internal sealed unsafe class WindowSwapchain : IDisposable
     private const ulong AcquireNanoseconds = 1_000_000_000;
     private const uint UsageTransferDst = 0x2;
 
+    private const int SurfaceLost = -1000000000, NativeWindowInUse = -1000000001;
+    private const string Creating = "vkCreateSwapchainKHR returned ";
+
     private readonly VulkanDevice _device;
 
     private readonly uint?[]
@@ -78,13 +81,11 @@ internal sealed unsafe class WindowSwapchain : IDisposable
         (_swapchain, _images, _rendered, _lost, _fence) = (0, [], [], [], 0);
     }
 
-    private const int SurfaceLost = -1000000000, NativeWindowInUse = -1000000001;
-    private const string Creating = "vkCreateSwapchainKHR returned ";
-
     // A failure no retry mends: the surface is gone or another API presents to the window
     public static bool Lost(string why) =>
         NotNull(why) && (why.EndsWith(SurfaceLost.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal) ||
-                         why.EndsWith(NativeWindowInUse.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal));
+                         why.EndsWith(NativeWindowInUse.ToString(CultureInfo.InvariantCulture),
+                             StringComparison.Ordinal));
 
     public static bool Unmade(string why) => NotNull(why) && why.StartsWith(Creating, StringComparison.Ordinal);
 

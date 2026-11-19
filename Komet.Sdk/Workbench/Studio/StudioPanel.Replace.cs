@@ -12,7 +12,8 @@ internal sealed partial class StudioPanel
         var q = _hitText;
         if (q.Length < 2) return;
 
-        var files = _found.Where(l => l.Heading && Editable(l.Path)).Select(l => l.Path).Distinct(StringComparer.Ordinal).ToArray();
+        var files = _found.Where(l => l.Heading && Editable(l.Path)).Select(l => l.Path)
+            .Distinct(StringComparer.Ordinal).ToArray();
         var count = 0;
         foreach (var file in files.Bounded(MaxSearchFiles))
         {
@@ -37,7 +38,9 @@ internal sealed partial class StudioPanel
                 var result = Replaced(text, q, with);
                 if (n == 0 || result == text) continue;
 
-                var ok = FindTab(file) is { } open ? open.Replace(0, open.Text.Length, result) : StudioLink.Write(file, result);
+                var ok = FindTab(file) is { } open
+                    ? open.Replace(0, open.Text.Length, result)
+                    : StudioLink.Write(file, result);
                 if (!ok) continue;
 
                 (done, changed) = (done + n, changed + 1);
@@ -51,7 +54,8 @@ internal sealed partial class StudioPanel
 
     // Only the project copies (never the game's assets or a mod's files)
     private static bool Editable(string path) =>
-        !InstalledShaders.Packed(path) && StudioLink.Within(path, StudioLink.ProjectsFolder) && !StudioLink.Hidden(path) &&
+        !InstalledShaders.Packed(path) && StudioLink.Within(path, StudioLink.ProjectsFolder) &&
+        !StudioLink.Hidden(path) &&
         StudioLink.CanWrite(path);
 
     private string? Text(string file)

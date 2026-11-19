@@ -31,7 +31,7 @@ internal static class ShaderRename
         "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual", "any", "all", "not", "texture",
         "texture2D", "textureLod", "textureSize", "texelFetch", "textureOffset", "textureGrad", "textureProj",
         "textureGather", "dFdx", "dFdy", "fwidth", "floatBitsToInt", "intBitsToFloat", "packUnorm4x8",
-        "unpackUnorm4x8", "packHalf2x16", "unpackHalf2x16", "bitfieldExtract", "findLSB", "findMSB", "main",
+        "unpackUnorm4x8", "packHalf2x16", "unpackHalf2x16", "bitfieldExtract", "findLSB", "findMSB", "main"
     };
 
     // A GLSL identifier that is no keyword, built-in or gl_/__ name

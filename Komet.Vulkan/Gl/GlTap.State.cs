@@ -267,6 +267,7 @@ internal static unsafe partial class GlTap
         {
             asked[i] = buffers[i];
         }
+
         // the same again (the engine's OIT sets them every frame): nothing changed, no array and no rebuilt outputs
         var known = DrawBuffers.TryGetValue(framebuffer, out var held);
         if (known && asked.SequenceEqual(held)) return;
@@ -336,40 +337,40 @@ internal static unsafe partial class GlTap
     }
 
     private static Entry[] StateEntries() =>
-        [
-            new("glEnable", (IntPtr)(delegate* unmanaged<uint, void>)&Enable),
-            new("glDisable", (IntPtr)(delegate* unmanaged<uint, void>)&Disable),
-            new("glEnablei", (IntPtr)(delegate* unmanaged<uint, uint, void>)&Enablei),
-            new("glDisablei", (IntPtr)(delegate* unmanaged<uint, uint, void>)&Disablei),
-            new("glBlendFunc", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendFunc),
-            new("glBlendFuncSeparate",
-                (IntPtr)(delegate* unmanaged<uint, uint, uint, uint, void>)&BlendFuncSeparate),
-            new("glBlendFunci", (IntPtr)(delegate* unmanaged<uint, uint, uint, void>)&BlendFunci),
-            new("glBlendFuncSeparatei",
-                (IntPtr)(delegate* unmanaged<uint, uint, uint, uint, uint, void>)&BlendFuncSeparatei),
-            new("glBlendEquation", (IntPtr)(delegate* unmanaged<uint, void>)&BlendEquation),
-            new("glBlendEquationSeparate", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendEquationSeparate),
-            new("glBlendEquationi", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendEquationi),
-            new("glBlendEquationSeparatei",
-                (IntPtr)(delegate* unmanaged<uint, uint, uint, void>)&BlendEquationSeparatei),
-            new("glDepthFunc", (IntPtr)(delegate* unmanaged<uint, void>)&DepthFunc),
-            new("glDepthMask", (IntPtr)(delegate* unmanaged<byte, void>)&DepthMask),
-            new("glColorMask", (IntPtr)(delegate* unmanaged<byte, byte, byte, byte, void>)&ColorMask),
-            new("glColorMaski", (IntPtr)(delegate* unmanaged<uint, byte, byte, byte, byte, void>)&ColorMaski),
-            new("glCullFace", (IntPtr)(delegate* unmanaged<uint, void>)&CullFace),
-            new("glFrontFace", (IntPtr)(delegate* unmanaged<uint, void>)&FrontFace),
-            new("glViewport", (IntPtr)(delegate* unmanaged<int, int, int, int, void>)&SetViewport),
-            new("glBindFramebuffer", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindFramebuffer),
-            new("glPolygonOffset", (IntPtr)(delegate* unmanaged<float, float, void>)&PolygonOffset),
-            new("glDrawBuffers", (IntPtr)(delegate* unmanaged<int, uint*, void>)&SetDrawBuffers),
-            new("glDrawBuffer", (IntPtr)(delegate* unmanaged<uint, void>)&DrawBuffer),
-            new("glNamedFramebufferDrawBuffers",
-                (IntPtr)(delegate* unmanaged<uint, int, uint*, void>)&NamedDrawBuffers),
-            new("glNamedFramebufferDrawBuffer", (IntPtr)(delegate* unmanaged<uint, uint, void>)&NamedDrawBuffer),
-            new("glDeleteFramebuffers", (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteFramebuffers),
-            new("glDeleteProgram", (IntPtr)(delegate* unmanaged<uint, void>)&DeleteProgram),
-            new("glDeleteTextures", (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteTextures)
-        ];
+    [
+        new("glEnable", (IntPtr)(delegate* unmanaged<uint, void>)&Enable),
+        new("glDisable", (IntPtr)(delegate* unmanaged<uint, void>)&Disable),
+        new("glEnablei", (IntPtr)(delegate* unmanaged<uint, uint, void>)&Enablei),
+        new("glDisablei", (IntPtr)(delegate* unmanaged<uint, uint, void>)&Disablei),
+        new("glBlendFunc", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendFunc),
+        new("glBlendFuncSeparate",
+            (IntPtr)(delegate* unmanaged<uint, uint, uint, uint, void>)&BlendFuncSeparate),
+        new("glBlendFunci", (IntPtr)(delegate* unmanaged<uint, uint, uint, void>)&BlendFunci),
+        new("glBlendFuncSeparatei",
+            (IntPtr)(delegate* unmanaged<uint, uint, uint, uint, uint, void>)&BlendFuncSeparatei),
+        new("glBlendEquation", (IntPtr)(delegate* unmanaged<uint, void>)&BlendEquation),
+        new("glBlendEquationSeparate", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendEquationSeparate),
+        new("glBlendEquationi", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BlendEquationi),
+        new("glBlendEquationSeparatei",
+            (IntPtr)(delegate* unmanaged<uint, uint, uint, void>)&BlendEquationSeparatei),
+        new("glDepthFunc", (IntPtr)(delegate* unmanaged<uint, void>)&DepthFunc),
+        new("glDepthMask", (IntPtr)(delegate* unmanaged<byte, void>)&DepthMask),
+        new("glColorMask", (IntPtr)(delegate* unmanaged<byte, byte, byte, byte, void>)&ColorMask),
+        new("glColorMaski", (IntPtr)(delegate* unmanaged<uint, byte, byte, byte, byte, void>)&ColorMaski),
+        new("glCullFace", (IntPtr)(delegate* unmanaged<uint, void>)&CullFace),
+        new("glFrontFace", (IntPtr)(delegate* unmanaged<uint, void>)&FrontFace),
+        new("glViewport", (IntPtr)(delegate* unmanaged<int, int, int, int, void>)&SetViewport),
+        new("glBindFramebuffer", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindFramebuffer),
+        new("glPolygonOffset", (IntPtr)(delegate* unmanaged<float, float, void>)&PolygonOffset),
+        new("glDrawBuffers", (IntPtr)(delegate* unmanaged<int, uint*, void>)&SetDrawBuffers),
+        new("glDrawBuffer", (IntPtr)(delegate* unmanaged<uint, void>)&DrawBuffer),
+        new("glNamedFramebufferDrawBuffers",
+            (IntPtr)(delegate* unmanaged<uint, int, uint*, void>)&NamedDrawBuffers),
+        new("glNamedFramebufferDrawBuffer", (IntPtr)(delegate* unmanaged<uint, uint, void>)&NamedDrawBuffer),
+        new("glDeleteFramebuffers", (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteFramebuffers),
+        new("glDeleteProgram", (IntPtr)(delegate* unmanaged<uint, void>)&DeleteProgram),
+        new("glDeleteTextures", (IntPtr)(delegate* unmanaged<int, uint*, void>)&DeleteTextures)
+    ];
 
     // A draw pipeline's dependencies, cheap to compare and hash. Depth: bits 0-2 compare op (Vulkan), 3 write, 4-5 cull
     // mode (Vulkan), 6 front face CCW (GL). Stencil: test ops (StencilWord), 0 when off or untapped

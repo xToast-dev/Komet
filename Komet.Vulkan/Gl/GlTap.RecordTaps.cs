@@ -34,45 +34,45 @@ internal static unsafe partial class GlTap
     private const uint VertexStage = 0x8B31, FragmentStage = 0x8B30;
 
     private static Entry[] RecordEntries() =>
-        [
-            new("glCreateShader", (nint)(CreateShaderFn)(&CreateShader), true),
-            new("glShaderSource", (nint)(ShaderSourceFn)(&ShaderSource), true),
-            new("glAttachShader", (nint)(AttachShaderFn)(&AttachShader), true),
-            new("glDetachShader", (nint)(AttachShaderFn)(&DetachShader), true),
-            new("glBindAttribLocation", (nint)(BindAttribFn)(&BindAttribLocation), true),
-            new("glLinkProgram", (nint)(LinkProgramFn)(&LinkProgram), true),
-            new("glGetUniformLocation", (nint)(UniformLocationFn)(&GetUniformLocation), true),
-            new("glGetUniformBlockIndex", (nint)(BlockIndexFn)(&GetUniformBlockIndex), true),
-            new("glUniformBlockBinding", (nint)(BlockBindingFn)(&UniformBlockBinding), true),
-            new("glCreateProgram", (nint)(CreateProgramFn)(&CreateProgram), true),
-            new("glGenFramebuffers", (nint)(MakeNamesFn)(&GenFramebuffers), true),
-            new("glCreateFramebuffers", (nint)(MakeNamesFn)(&CreateFramebuffers), true),
-            new("glFramebufferTexture2D", (nint)(FramebufferTexture2DFn)(&FramebufferTexture2D), true),
-            new("glFramebufferTextureLayer", (nint)(FramebufferTextureLayerFn)(&FramebufferTextureLayer), true),
-            new("glFramebufferTexture", (nint)(FramebufferTextureFn)(&FramebufferTexture), true),
-            new("glNamedFramebufferTexture", (nint)(FramebufferTextureFn)(&NamedFramebufferTexture), true),
-            new("glNamedFramebufferTextureLayer",
-                (nint)(FramebufferTextureLayerFn)(&NamedFramebufferTextureLayer),
-                true),
-            new("glFramebufferRenderbuffer", (nint)(FramebufferRenderbufferFn)(&FramebufferRenderbuffer), true),
-            new("glNamedFramebufferRenderbuffer",
-                (nint)(FramebufferRenderbufferFn)(&NamedFramebufferRenderbuffer),
-                true),
-            new("glCheckFramebufferStatus", (nint)(CheckStatusFn)(&CheckFramebufferStatus), true),
-            new("glCheckFramebufferStatusEXT", (nint)(CheckStatusFn)(&CheckFramebufferStatusExt), true),
-            new("glGenSamplers", (nint)(MakeNamesFn)(&GenSamplers), true),
-            new("glCreateSamplers", (nint)(MakeNamesFn)(&CreateSamplers), true),
-            new("glSamplerParameteri", (nint)(SamplerParameteriFn)(&SamplerParameteri), true),
-            new("glSamplerParameterf", (nint)(SamplerParameterfFn)(&SamplerParameterf), true),
-            new("glGenTextures", (nint)(MakeNamesFn)(&GenTextures), true),
-            new("glCreateTextures", (nint)(CreateTexturesFn)(&CreateTextures), true),
-            new("glTextureStorage2D", (nint)(TextureStorage2DFn)(&TextureStorage2D), true),
-            new("glTextureStorage3D", (nint)(TextureStorage3DFn)(&TextureStorage3D), true),
-            new("glTextureParameterf", (nint)(TextureParameterfFn)(&TextureParameterf), true),
-            new("glTextureParameteriv", (nint)(TextureParameterivFn)(&TextureParameteriv), true),
-            .. SpecEntries(),
-            .. StencilEntries()
-        ];
+    [
+        new("glCreateShader", (nint)(CreateShaderFn)(&CreateShader), true),
+        new("glShaderSource", (nint)(ShaderSourceFn)(&ShaderSource), true),
+        new("glAttachShader", (nint)(AttachShaderFn)(&AttachShader), true),
+        new("glDetachShader", (nint)(AttachShaderFn)(&DetachShader), true),
+        new("glBindAttribLocation", (nint)(BindAttribFn)(&BindAttribLocation), true),
+        new("glLinkProgram", (nint)(LinkProgramFn)(&LinkProgram), true),
+        new("glGetUniformLocation", (nint)(UniformLocationFn)(&GetUniformLocation), true),
+        new("glGetUniformBlockIndex", (nint)(BlockIndexFn)(&GetUniformBlockIndex), true),
+        new("glUniformBlockBinding", (nint)(BlockBindingFn)(&UniformBlockBinding), true),
+        new("glCreateProgram", (nint)(CreateProgramFn)(&CreateProgram), true),
+        new("glGenFramebuffers", (nint)(MakeNamesFn)(&GenFramebuffers), true),
+        new("glCreateFramebuffers", (nint)(MakeNamesFn)(&CreateFramebuffers), true),
+        new("glFramebufferTexture2D", (nint)(FramebufferTexture2DFn)(&FramebufferTexture2D), true),
+        new("glFramebufferTextureLayer", (nint)(FramebufferTextureLayerFn)(&FramebufferTextureLayer), true),
+        new("glFramebufferTexture", (nint)(FramebufferTextureFn)(&FramebufferTexture), true),
+        new("glNamedFramebufferTexture", (nint)(FramebufferTextureFn)(&NamedFramebufferTexture), true),
+        new("glNamedFramebufferTextureLayer",
+            (nint)(FramebufferTextureLayerFn)(&NamedFramebufferTextureLayer),
+            true),
+        new("glFramebufferRenderbuffer", (nint)(FramebufferRenderbufferFn)(&FramebufferRenderbuffer), true),
+        new("glNamedFramebufferRenderbuffer",
+            (nint)(FramebufferRenderbufferFn)(&NamedFramebufferRenderbuffer),
+            true),
+        new("glCheckFramebufferStatus", (nint)(CheckStatusFn)(&CheckFramebufferStatus), true),
+        new("glCheckFramebufferStatusEXT", (nint)(CheckStatusFn)(&CheckFramebufferStatusExt), true),
+        new("glGenSamplers", (nint)(MakeNamesFn)(&GenSamplers), true),
+        new("glCreateSamplers", (nint)(MakeNamesFn)(&CreateSamplers), true),
+        new("glSamplerParameteri", (nint)(SamplerParameteriFn)(&SamplerParameteri), true),
+        new("glSamplerParameterf", (nint)(SamplerParameterfFn)(&SamplerParameterf), true),
+        new("glGenTextures", (nint)(MakeNamesFn)(&GenTextures), true),
+        new("glCreateTextures", (nint)(CreateTexturesFn)(&CreateTextures), true),
+        new("glTextureStorage2D", (nint)(TextureStorage2DFn)(&TextureStorage2D), true),
+        new("glTextureStorage3D", (nint)(TextureStorage3DFn)(&TextureStorage3D), true),
+        new("glTextureParameterf", (nint)(TextureParameterfFn)(&TextureParameterf), true),
+        new("glTextureParameteriv", (nint)(TextureParameterivFn)(&TextureParameteriv), true),
+        .. SpecEntries(),
+        .. StencilEntries()
+    ];
 
     private static bool Kept(int n) => Original[RecordsAt + n] != IntPtr.Zero;
 
@@ -203,6 +203,7 @@ internal static unsafe partial class GlTap
         {
             ((FramebufferTexture2DFn)Original[RecordsAt + 12])(target, attachment, textureTarget, texture, level);
         }
+
         // a cube map's face is its layer
         Heard(static s => Attach(FramebufferAt(s.target), s.attachment,
                 new GlFramebuffer.Attached((int)s.texture, s.level, Face(s.textureTarget), false)),

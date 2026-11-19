@@ -79,13 +79,13 @@ internal static partial class DistantShadows
     }
 
     internal static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(SystemRenderShadowMap), "OnRenderShadowFarDone", [typeof(float)]),
-            AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
-                [typeof(ShaderProgram), typeof(bool)]),
-            AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]),
-            AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(SystemRenderShadowMap), "OnRenderShadowFarDone", [typeof(float)]),
+        AccessTools.DeclaredMethod(typeof(ShaderRegistry), "LoadShaderProgram",
+            [typeof(ShaderProgram), typeof(bool)]),
+        AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderShadow), [typeof(float)]),
+        AccessTools.DeclaredMethod(typeof(ShaderProgramBase), nameof(ShaderProgramBase.Use))
+    ];
 
     // Once per full shader load (reload re-reads assets), both includes or neither. Includes found foreign are
     // remembered by reference, so the programs after the first of a load neither search nor log again.

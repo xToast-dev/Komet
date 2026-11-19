@@ -237,7 +237,8 @@ internal sealed partial class StudioPanel
 
         _dragId = null;
         var index = _passFirst + (int)((_dragTo - _passTop) / _passRowH);
-        if (index < 0 || index >= _passRows.Count || _passRows[index].Pass is not { } target || target.Stage != pass.Stage ||
+        if (index < 0 || index >= _passRows.Count || _passRows[index].Pass is not { } target ||
+            target.Stage != pass.Stage ||
             target.Id == id)
         {
             return;

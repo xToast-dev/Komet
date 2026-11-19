@@ -1,4 +1,3 @@
-
 namespace Komet.Rendering;
 
 // ShaderMods: version mismatches, dependents and dependencies that lock a mod's switch.
@@ -66,8 +65,8 @@ internal static partial class ShaderMods
 
     private static bool Skips(ICoreAPI api, string id, int depth) =>
         depth < MaxChain && ShaderState.Of(api).Stopped.Contains(id) &&
-               All(api).Find(f => f.Id == id) is { Content: false } found &&
-               (found.Replaces || found.Declared) && Dependents(api, id, depth + 1).Length == 0;
+        All(api).Find(f => f.Id == id) is { Content: false } found &&
+        (found.Replaces || found.Declared) && Dependents(api, id, depth + 1).Length == 0;
 
     // The found mods this one depends on (switched on, a held one starts first: its code calls into theirs)
     public static List<Found> Dependencies(ICoreAPI? api, Found mod) =>

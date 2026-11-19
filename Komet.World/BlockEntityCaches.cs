@@ -2,8 +2,8 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.Datastructures;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Util;
@@ -110,7 +110,8 @@ internal static class BlockEntityCaches
             typeof(string[])
         ]);
         var own = typeof(BlockEntityCaches);
-        Foreign[Ignitable] = Rewritten[Ignitable] && EngineShape.Foreign(Bodies[Ignitable], KapiPatchKinds.Body, null, own);
+        Foreign[Ignitable] = Rewritten[Ignitable] &&
+                             EngineShape.Foreign(Bodies[Ignitable], KapiPatchKinds.Body, null, own);
         // A postfix editing the result in place would re-edit the one kept mesh on every call
         Foreign[Meshes] = Rewritten[Meshes] &&
                           (EngineShape.Foreign(Bodies[Meshes], KapiPatchKinds.All, null, own) ||

@@ -40,7 +40,8 @@ internal sealed class LogTab(LogStats log) : IHudTab
         {
             if (log.Entry(back) is not { } entry) break;
 
-            if ((_filter == "wn" && entry.Level < LogLevel.Warning) || (_filter == "er" && entry.Level != LogLevel.Error))
+            if ((_filter == "wn" && entry.Level < LogLevel.Warning) ||
+                (_filter == "er" && entry.Level != LogLevel.Error))
             {
                 continue;
             }

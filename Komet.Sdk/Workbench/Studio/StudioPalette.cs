@@ -8,8 +8,8 @@ namespace Komet.Sdk;
 internal sealed class StudioPalette(ShaderIde host)
 {
     private const int MaxShown = 14, MaxItems = 2048;
-    private readonly TextField _query = new();
     private readonly List<(string Text, string Key, Action Run)> _items = [];
+    private readonly TextField _query = new();
     private readonly List<int> _shown = [];
     private int _selected, _version = -1;
 
@@ -104,7 +104,8 @@ internal sealed class StudioPalette(ShaderIde host)
         {
             try
             {
-                foreach (var file in Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true)).Bounded(MaxItems))
+                foreach (var file in Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true))
+                             .Bounded(MaxItems))
                 {
                     var path = file;
                     if (StudioLink.Hidden(path))
@@ -153,10 +154,18 @@ internal sealed class StudioPalette(ShaderIde host)
         Filter();
         switch (key)
         {
-            case GlKeys.Escape: Close(); return true;
-            case GlKeys.Down: _selected = Math.Min(_shown.Count - 1, _selected + 1); return true;
-            case GlKeys.Up: _selected = Math.Max(0, _selected - 1); return true;
-            case GlKeys.Enter or GlKeys.KeypadEnter: Run(_selected); return true;
+            case GlKeys.Escape:
+                Close();
+                return true;
+            case GlKeys.Down:
+                _selected = Math.Min(_shown.Count - 1, _selected + 1);
+                return true;
+            case GlKeys.Up:
+                _selected = Math.Max(0, _selected - 1);
+                return true;
+            case GlKeys.Enter or GlKeys.KeypadEnter:
+                Run(_selected);
+                return true;
             default:
                 _ = _query.Key(key, ctrl, host.Api);
                 _selected = 0;

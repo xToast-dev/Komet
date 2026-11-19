@@ -142,8 +142,8 @@ internal static class Benchmark
 
     private static bool JitOptimizerDisabled(Assembly assembly) =>
         NotNull(assembly) &&
-               Assert(assembly.GetName().Name is "Komet" or "Komet.Bench") &&
-               assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
+        Assert(assembly.GetName().Name is "Komet" or "Komet.Bench") &&
+        assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled == true;
 
     public static void Collect(ICoreClientAPI capi, BenchRun run)
     {

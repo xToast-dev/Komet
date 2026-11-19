@@ -32,8 +32,8 @@ internal static partial class FaceLight
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int Sample(Block solid, Block fluid) =>
         solid.EmitSideAo |
-               (solid.BlockMaterial == EnumBlockMaterial.Leaves ? Leaves : 0) |
-               (fluid.LightAbsorption > 0 ? Absorbs : 0);
+        (solid.BlockMaterial == EnumBlockMaterial.Leaves ? Leaves : 0) |
+        (fluid.LightAbsorption > 0 ? Absorbs : 0);
 
     // Front cell: its fluid when that absorbs light, else its solid block, as the engine picks it
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -88,7 +88,8 @@ internal static partial class FaceLight
         var edgeLights = Vector128.LoadUnsafe(ref cells.Rgb[0]);
         var cornerLights = Vector128.LoadUnsafe(ref cells.Rgb[Edges]);
         Vector128.ConditionalSelect(first & second, own, edgeLights).StoreUnsafe(ref neighbours[1]);
-        var cornerDesc = Vector128.LoadUnsafe(ref cells.Desc[Edges]); var cornerShown = Vector128.Equals(cornerDesc & absorbs, zero);
+        var cornerDesc = Vector128.LoadUnsafe(ref cells.Desc[Edges]);
+        var cornerShown = Vector128.Equals(cornerDesc & absorbs, zero);
         var occludes = cornerShown &
                        ~Vector128.Equals(cornerDesc & (Vector128.LoadUnsafe(ref side.First[Edges]) | leaf), zero);
         var emits = ~Vector128.Equals(frontV & Vector128.LoadUnsafe(ref side.Second[Edges]), zero);
@@ -127,7 +128,8 @@ internal static partial class FaceLight
         var result = (Scale(Vector128.ShiftRightLogical(high, 16), factor) << 24) |
                      (Scale(Vector128.ShiftRightLogical(low, 16), factor) << 16) |
                      (Scale(high & mask, factor) << 8) | Scale(low & mask, factor);
-        result.StoreUnsafe(ref corners[0]); return (long)result.GetElement(0) + result.GetElement(1) + result.GetElement(2) + result.GetElement(3);
+        result.StoreUnsafe(ref corners[0]);
+        return (long)result.GetElement(0) + result.GetElement(1) + result.GetElement(2) + result.GetElement(3);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

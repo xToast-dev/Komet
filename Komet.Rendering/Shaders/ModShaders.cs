@@ -1,9 +1,9 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using HarmonyLib;
+using Komet.Api;
 using Komet.Core;
 using Komet.Diagnostics;
-using Komet.Api;
 using OpenTK.Graphics.OpenGL;
 using Vintagestory.Client.NoObf;
 
@@ -58,10 +58,10 @@ internal static class ModShaders
 
     // Every mod with a registration, in the order first seen (defines, uniforms, edits, then passes)
     internal static List<string> Mods() =>
-        [
-            .. Defines.Select(d => d.Mod).Concat(Uniforms.Select(u => u.Mod)).Concat(Edits.Select(e => e.Mod))
-                .Concat(ModPasses.Listed().Select(p => p.Mod)).Distinct()
-        ];
+    [
+        .. Defines.Select(d => d.Mod).Concat(Uniforms.Select(u => u.Mod)).Concat(Edits.Select(e => e.Mod))
+            .Concat(ModPasses.Listed().Select(p => p.Mod)).Distinct()
+    ];
 
     // The mod that registered a uniform name, null for none
     internal static string? UniformOwner(string name) => Uniforms.Find(u => u.Name == name)?.Mod;
@@ -72,16 +72,16 @@ internal static class ModShaders
             : default;
 
     internal static string[] Registrations(string mod) =>
-        [
-            .. Defines.Where(d => d.Mod == mod).Select(d => "define " + d.Name + " → " +
-                                                            (d.Programs.Length == 0
-                                                                ? "*"
-                                                                : string.Join(", ", d.Programs))),
-            .. Uniforms.Where(u => u.Mod == mod).Select(u => "uniform " + u.Name),
-            .. Edits.Where(e => e.Mod == mod).Select(e =>
-                "edit " + (e.TargetMod is null ? e.Program : e.TargetMod + ":pass:" + e.Program) + " → " +
-                (e.Vertex is null ? "" : "vertex ") + (e.Fragment is null ? "" : "fragment"))
-        ];
+    [
+        .. Defines.Where(d => d.Mod == mod).Select(d => "define " + d.Name + " → " +
+                                                        (d.Programs.Length == 0
+                                                            ? "*"
+                                                            : string.Join(", ", d.Programs))),
+        .. Uniforms.Where(u => u.Mod == mod).Select(u => "uniform " + u.Name),
+        .. Edits.Where(e => e.Mod == mod).Select(e =>
+            "edit " + (e.TargetMod is null ? e.Program : e.TargetMod + ":pass:" + e.Program) + " → " +
+            (e.Vertex is null ? "" : "vertex ") + (e.Fragment is null ? "" : "fragment"))
+    ];
 
     public static void Install(Harmony harmony, ICoreClientAPI api, ILogger logger)
     {
@@ -186,11 +186,16 @@ internal static class ModShaders
         _reloadAsked = true;
         _api.Event.EnqueueMainThreadTask(() =>
         {
-            _reloadAsked = false;
-            Locations.Clear(); // the programs are made anew under new ids
-            ShaderEdits.Reload();
-            ModPasses.Rebuild(); // their defines and KOMET_VULKAN too
+            if (_reloadAsked) ReloadNow();
         }, "komet-mod-shaders");
+    }
+
+    internal static void ReloadNow()
+    {
+        _reloadAsked = false;
+        Locations.Clear(); // the programs are made anew under new ids
+        ShaderEdits.Reload();
+        ModPasses.Rebuild(); // their defines and KOMET_VULKAN too
     }
 
     // ShaderEdits.Edit, as a program loads. The cached locations go even without defines or edits: a reload deletes every
@@ -401,14 +406,13 @@ internal static class ModShaders
     // Key: unique per registration, so the location cache, asked on every Use for every uniform, hashes two ints, not the name
     private sealed class UniformEntry(string mod, string name, Func<float[]> value, int key)
     {
+        // The value of frame Frame: the API asks once per frame, Use comes per program and pass
+        public long Frame;
+        public float[]? Last;
         public string Mod { get; } = mod;
         public string Name { get; } = name;
         public Func<float[]> Value { get; } = value;
         public int Key { get; } = key;
-
-        // The value of frame Frame: the API asks once per frame, Use comes per program and pass
-        public long Frame;
-        public float[]? Last;
     }
 }
 
@@ -457,5 +461,6 @@ internal sealed class ShaderBackend : IShaderBackend
     }
 
     // A refused registration as KAPI tells it apart (Komet.Core cannot name Registration)
-    private static IDisposable Out(IDisposable made) => ReferenceEquals(made, Registration.None) ? Nothing.Instance : made;
+    private static IDisposable Out(IDisposable made) =>
+        ReferenceEquals(made, Registration.None) ? Nothing.Instance : made;
 }

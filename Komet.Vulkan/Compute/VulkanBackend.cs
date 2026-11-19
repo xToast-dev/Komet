@@ -97,7 +97,7 @@ internal sealed unsafe partial class VulkanBackend : IGpuBackend, IDisposable
 
     public bool Supported() =>
         (_arena is not null || _frame is not null) && (_placeholderImage != 0 || _frame is not null) &&
-               _sampler != 0 && !_disposed;
+        _sampler != 0 && !_disposed;
 
     public bool Doubles() => _device.Float64;
 

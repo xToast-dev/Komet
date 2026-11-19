@@ -6,6 +6,7 @@ namespace Komet.Sdk;
 // and out as full paths; the backend's asset paths stay in here.
 internal sealed partial class StudioLink
 {
+    public static string ModulesError => ShaderModules.Error;
     public static ShaderProject[] Projects() => ShaderProjects.All();
 
     // The project in the editor: its copies win first
@@ -24,7 +25,7 @@ internal sealed partial class StudioLink
 
     public static string? CopyPath(string project, string gameFile) =>
         Relative(gameFile) is { } relative && ShaderProjects.CopyPath(project, relative) is { } copy &&
-               File.Exists(copy)
+        File.Exists(copy)
             ? copy
             : null;
 
@@ -82,8 +83,6 @@ internal sealed partial class StudioLink
 
         ShaderModules.Reset(capi, project);
     }
-
-    public static string ModulesError => ShaderModules.Error;
 
     // Builds the project's changed files: the game runs them or keeps the last good state; each problem on its line
     public BuildReport Build(string project, IReadOnlyList<string> files) =>

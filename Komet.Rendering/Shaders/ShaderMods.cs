@@ -42,23 +42,12 @@ internal static partial class ShaderMods
 
     private static int _kept;
 
-    // The registry's programs by PassId (the Shader Studio's draw count names them)
-    internal static ShaderProgram?[]? Registered => Registry?.Invoke();
-
-    // A program by name, the engine's built-in ones too: those (sky, chunkopaque …, registered by EnumShaderProgram)
-    // are missing from the engine's by-name table, so GetProgramByName alone returns null for them
-    internal static ShaderProgram? ProgramByName(ICoreClientAPI api, string name)
-    {
-        if (api.Shader.GetProgramByName(name) is ShaderProgram named) return named;
-
-        var all = Registered;
-        return all is null ? null : Array.Find(all, p => p?.PassName == name);
-    }
-
     private static readonly Dictionary<string, Found?> Seen = [];
     private static readonly Dictionary<string, Program> Programs = [];
     private static readonly HashSet<string> Porting = [];
-    private static readonly Dictionary<string, int> PortRounds = new(StringComparer.Ordinal); // per pass: the newest port
+
+    private static readonly Dictionary<string, int>
+        PortRounds = new(StringComparer.Ordinal); // per pass: the newest port
 
     // per pass: the newest port that finished, and what it wrote (main thread)
     private static readonly Dictionary<string, (int Round, string? Outcome)> Settled = new(StringComparer.Ordinal);
@@ -88,11 +77,24 @@ internal static partial class ShaderMods
         (s, a) => s.StartClientSide(a)
     ];
 
+    // The registry's programs by PassId (the Shader Studio's draw count names them)
+    internal static ShaderProgram?[]? Registered => Registry?.Invoke();
+
     // The ids held back this session: their systems do not start and their replaced files give way to the game's
     public static HashSet<string> Off { get; } = [];
 
     // A program translated for Vulkan or not, by pass name ("" when it was): written by the builders, read on the main thread
     public static ConcurrentDictionary<string, string> Ported { get; } = new();
+
+    // A program by name, the engine's built-in ones too: those (sky, chunkopaque …, registered by EnumShaderProgram)
+    // are missing from the engine's by-name table, so GetProgramByName alone returns null for them
+    internal static ShaderProgram? ProgramByName(ICoreClientAPI api, string name)
+    {
+        if (api.Shader.GetProgramByName(name) is ShaderProgram named) return named;
+
+        var all = Registered;
+        return all is null ? null : Array.Find(all, p => p?.PassName == name);
+    }
 
     // Whether the mod runs: every mod runs until the player switches it off. Players asked that no mod need an update or a
     // declaration to work beside Komet (Immersive Foliage, unmaintained mods); the switch is theirs, unless other mods
@@ -131,12 +133,13 @@ internal static partial class ShaderMods
     {
         _api = api;
         Programs.Clear();
+        InstallTerrainGate(harmony);
         var load = AccessTools.DeclaredMethod(typeof(ShaderRegistry), "loadRegisteredShaderPrograms");
         var compile = AccessTools.DeclaredMethod(typeof(ShaderProgram), nameof(ShaderProgram.Compile));
         if (!NotNull(load) || !NotNull(compile)) return;
 
         _ = harmony.Patch(load, new HarmonyMethod(typeof(ShaderMods), nameof(Loading)),
-            postfix: new HarmonyMethod(typeof(ShaderMods), nameof(RegistryLoaded)));
+            new HarmonyMethod(typeof(ShaderMods), nameof(RegistryLoaded)));
         _ = harmony.Patch(compile, postfix: new HarmonyMethod(typeof(ShaderMods), nameof(AfterCompile)));
         var stage = AccessTools.DeclaredMethod(typeof(ClientPlatformWindows),
             nameof(ClientPlatformWindows.CompileShader), [typeof(Shader)]);

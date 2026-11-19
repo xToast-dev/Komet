@@ -15,8 +15,6 @@ internal sealed class PreviewRegion(ShaderIde host) : IIdeRegion
     private bool _dragged;
     private long _upAt;
 
-    public void At((double X, double Y, double W, double H) box) => _box = box;
-
     public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
     {
         (_downX, _lastX, _lastY, _dragged) = (x, x, y, false);
@@ -76,6 +74,8 @@ internal sealed class PreviewRegion(ShaderIde host) : IIdeRegion
 
         host.Redraw();
     }
+
+    public void At((double X, double Y, double W, double H) box) => _box = box;
 }
 
 // Takes clicks so nothing under the enlarged preview gets them
@@ -86,13 +86,17 @@ internal sealed class SwallowRegion : IIdeRegion
 
 internal sealed partial class StudioSide
 {
-    private PreviewRegion? _previewRegion;
-    private readonly SwallowRegion _swallow = new();
     private static readonly string[] ChannelNames = ["All", "R", "G", "B", "A"];
+    private readonly SwallowRegion _swallow = new();
+    private PreviewRegion? _previewRegion;
+
+    private Action? _shrink;
 
     private double Picture(HudUi ui, double y)
     {
-        var aspect = host.Api.Render.FrameWidth > 0 ? (double)host.Api.Render.FrameHeight / host.Api.Render.FrameWidth : 0.5625;
+        var aspect = host.Api.Render.FrameWidth > 0
+            ? (double)host.Api.Render.FrameHeight / host.Api.Render.FrameWidth
+            : 0.5625;
         var (bx, bw) = (_x + ui.Px(6), _w - ui.Px(12));
         var bh = bw * aspect;
         if (host.Buffers.Large) return LargeStrip(ui, bx, y, bw); // the picture is over the editor: no empty box here
@@ -114,7 +118,8 @@ internal sealed partial class StudioSide
         if (note.Length > 0)
         {
             var text = ui.Fit(ui.F.Small, note, bw - ui.Px(20));
-            ui.Text(bx + (bw - ui.TextW(ui.F.Small, text)) / 2, y + (bh - ui.F.SmallRow) / 2, ui.F.SmallRow, ui.F.Small, text,
+            ui.Text(bx + (bw - ui.TextW(ui.F.Small, text)) / 2, y + (bh - ui.F.SmallRow) / 2, ui.F.SmallRow, ui.F.Small,
+                text,
                 HudUi.Faint);
         }
 
@@ -135,13 +140,12 @@ internal sealed partial class StudioSide
         var hot = host.Hot(x, y, w, h);
         ui.Fill(x, y, w, h, HudUi.Track with { A = hot ? 0.12 : 0.06 });
         TextField.Frame(ui, x, y, w, h, HudUi.Divider);
-        ui.Text(x + ui.Px(10), y, h, ui.F.Small, ui.Fit(ui.F.Small, L("buffer-enlarged-back"), w - ui.Px(20)), HudUi.Soft);
+        ui.Text(x + ui.Px(10), y, h, ui.F.Small, ui.Fit(ui.F.Small, L("buffer-enlarged-back"), w - ui.Px(20)),
+            HudUi.Soft);
         _shrink ??= () => host.Buffers.Large = false;
         Click(x, y, w, h, _shrink);
         return y + h + ui.Px(8);
     }
-
-    private Action? _shrink;
 
     // What the object's keys do, or the change going on now
     private string TransformHint()
@@ -181,7 +185,9 @@ internal sealed partial class StudioSide
     {
         if (!host.Buffers.Large) return;
 
-        var aspect = host.Api.Render.FrameWidth > 0 ? (double)host.Api.Render.FrameHeight / host.Api.Render.FrameWidth : 0.5625;
+        var aspect = host.Api.Render.FrameWidth > 0
+            ? (double)host.Api.Render.FrameHeight / host.Api.Render.FrameWidth
+            : 0.5625;
         var pw = Math.Min(w - ui.Px(24), (h - ui.Px(48)) / aspect);
         var ph = pw * aspect;
         var (px, py) = (x + (w - pw) / 2, y + ui.Px(36));
@@ -196,7 +202,8 @@ internal sealed partial class StudioSide
         host.SetLive(missing.Length == 0 ? (px, py, pw, ph) : null);
         if (missing.Length > 0)
         {
-            ui.Text(px + ui.Px(12), py + ph / 2, ui.F.BodyRow, ui.F.Small, ui.Fit(ui.F.Small, missing, pw - ui.Px(24)), HudUi.Faint);
+            ui.Text(px + ui.Px(12), py + ph / 2, ui.F.BodyRow, ui.F.Small, ui.Fit(ui.F.Small, missing, pw - ui.Px(24)),
+                HudUi.Faint);
         }
 
         _previewRegion ??= new PreviewRegion(host);
@@ -311,7 +318,8 @@ internal sealed partial class StudioSide
     }
 
     // A toolbar button: lit while on, a frame, its text centred (an icon is drawn by the caller)
-    private void Tool(HudUi ui, double x, double y, double w, double h, string text, bool on, bool enabled, Action click,
+    private void Tool(HudUi ui, double x, double y, double w, double h, string text, bool on, bool enabled,
+        Action click,
         string tip)
     {
         var hot = enabled && host.Hot(x, y, w, h);

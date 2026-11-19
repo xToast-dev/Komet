@@ -11,19 +11,19 @@ internal sealed record HudViews(IHudTab[] Bar, IHudTab Settings, IHudTab Version
 internal sealed class HudWindow : HudDialog
 {
     private const int MaxViews = 32;
-    private double _barNeed;
 
     private const double MaxWidth = 520, MaxHeight = 560, WideWidth = 860, WideHeight = 640, RefreshMs = 400;
     private const float Depth = 60;
 
     private readonly Func<(string Text, Rgba Fill, Rgba Color, Action? Click)[]> _badges;
     private readonly IHudTab[] _bar, _views; // the bar's tabs first, then the pages
+    private readonly HudViews _given;
     private readonly double[] _scroll, _content; // per view
     private readonly HudSettings _settings;
     private readonly (double X, double Y, double W, double H)[] _tabAt;
-    private readonly HudViews _given;
-    private double _bodyTop, _titleH;
     private int _at; // the shown view's index in _views
+    private double _barNeed;
+    private double _bodyTop, _titleH;
 
     public HudWindow(ICoreClientAPI capi, HudSettings settings, HudUiFonts fonts, SnapGrid snap, HudViews views,
         Func<(string Text, Rgba Fill, Rgba Color, Action? Click)[]> badges) : base(capi, settings, fonts, snap, Depth)
@@ -185,7 +185,8 @@ internal sealed class HudWindow : HudDialog
         var settings = _given.Settings;
         var on = ReferenceEquals(Current, settings);
         ui.Gear(right - ui.Px(12), y + (row - ui.Px(12)) / 2, ui.Px(12), on ? Rgba.White(1) : HudUi.Dim);
-        ui.Click(right - ui.Px(16), y, ui.Px(20), row, () => Select(ReferenceEquals(Current, settings) ? _bar[0] : settings));
+        ui.Click(right - ui.Px(16), y, ui.Px(20), row,
+            () => Select(ReferenceEquals(Current, settings) ? _bar[0] : settings));
         right -= ui.Px(26);
         var debug = KometText.Translate("hud-v-debug");
         _ = ui.LinkText(right - ui.TextW(Fonts.Body, debug), y + (row - Fonts.BodyRow) / 2, debug,

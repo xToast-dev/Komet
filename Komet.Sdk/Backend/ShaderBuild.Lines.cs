@@ -10,13 +10,17 @@ internal static partial class ShaderBuild
 {
     private const int MaxLines = 1 << 16, Lookahead = 96, MaxDepth = 8;
 
+    private const int MaxText = 1 << 20;
+
     private static readonly Regex Define =
         new(@"^#define\s+(?<name>[A-Za-z_]\w*)",
-            RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(100));
 
     private static readonly Regex Uniform =
         new(@"^\s*uniform\s+(?:(?:lowp|mediump|highp)\s+)?\w+\s+(?<name>[A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*;",
-            RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(100));
 
     // A failed program's stage logs, each line at the file and line it came from (a copy, an include, the game's file)
     private static List<BuildDiagnostic> Logged(ICoreClientAPI api, string name, string copy)
@@ -24,7 +28,10 @@ internal static partial class ShaderBuild
         List<BuildDiagnostic> found = [];
         var program = ShaderMods.ProgramByName(api, name);
         foreach (var (ext, shader) in (ReadOnlySpan<(string, Shader?)>)
-                 [(".vsh", program?.VertexShader), (".fsh", program?.FragmentShader), (".gsh", program?.GeometryShader)])
+                 [
+                     (".vsh", program?.VertexShader), (".fsh", program?.FragmentShader),
+                     (".gsh", program?.GeometryShader)
+                 ])
         {
             var stage = "shaders/" + name + ext;
             if (ShaderMods.StageError(stage) is not { Length: > 0 } log) continue;
@@ -36,7 +43,10 @@ internal static partial class ShaderBuild
                 var at = diagnostic.Line - 1;
                 found.Add(at >= 0 && at < origins.Length && origins[at] is { } origin
                     ? diagnostic with { File = origin.File, Line = origin.Line }
-                    : diagnostic with { Message = "(" + name + ext + ":" + diagnostic.Line + ") " + diagnostic.Message });
+                    : diagnostic with
+                    {
+                        Message = "(" + name + ext + ":" + diagnostic.Line + ") " + diagnostic.Message
+                    });
             }
         }
 
@@ -63,7 +73,8 @@ internal static partial class ShaderBuild
             for (var k = 0; k < Lookahead && next + k < expanded.Count; k++)
             {
                 // a brace, blank or #endif matches only where the cursor is: it would pull every later line along
-                if (expanded[next + k].Text == line && (k == 0 || (line.Length > 3 && !line.StartsWith("#e", StringComparison.Ordinal))))
+                if (expanded[next + k].Text == line &&
+                    (k == 0 || (line.Length > 3 && !line.StartsWith("#e", StringComparison.Ordinal))))
                 {
                     result[i] = (expanded[next + k].File, expanded[next + k].Line);
                     next += k + 1;
@@ -108,7 +119,8 @@ internal static partial class ShaderBuild
     }
 
     private static string IncludeAsset(string name) =>
-        ProjectAssets.Winners.Keys.FirstOrDefault(key => Path.GetFileName(key).Equals(name, StringComparison.OrdinalIgnoreCase))
+        ProjectAssets.Winners.Keys.FirstOrDefault(key =>
+            Path.GetFileName(key).Equals(name, StringComparison.OrdinalIgnoreCase))
         ?? "shaderincludes/" + name;
 
     // A game file as the tree shows it: the winning copy's path, else the installed file's
@@ -138,8 +150,6 @@ internal static partial class ShaderBuild
 
         return [.. found];
     }
-
-    private const int MaxText = 1 << 20;
 
     // How often a name stands as a whole word in the text
     private static int Words(string text, string name)

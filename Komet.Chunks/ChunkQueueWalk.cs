@@ -1,8 +1,9 @@
-using Komet.Core;
 using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
+using Komet.Core;
 
 namespace Komet.Chunks;
 
@@ -16,12 +17,12 @@ internal static class ChunkQueueWalk
 {
     private const int MaxPatched = 32;
 
+    private static MethodInfo? _rent;
+    private static Type? _queueType;
+
     public static bool Enabled { get; set; }
     public static bool Installed { get; private set; }
     public static int Sites { get; private set; }
-
-    private static MethodInfo? _rent;
-    private static Type? _queueType;
 
     public static void Install(Harmony harmony)
     {
@@ -53,7 +54,8 @@ internal static class ChunkQueueWalk
         try
         {
             return target is not null && PatchProcessor.ReadMethodBody(method)
-                .Any(i => i.Value is MethodInfo { Name: "GetEnumerator" } called && called.DeclaringType == target.DeclaringType);
+                .Any(i => i.Value is MethodInfo { Name: "GetEnumerator" } called &&
+                          called.DeclaringType == target.DeclaringType);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or NotSupportedException)
         {
@@ -70,7 +72,7 @@ internal static class ChunkQueueWalk
         {
             if (code[i].operand is MethodInfo { Name: "GetEnumerator" } called && called.DeclaringType == _queueType)
             {
-                code[i] = new CodeInstruction(System.Reflection.Emit.OpCodes.Call, _rent).WithLabels(code[i].labels)
+                code[i] = new CodeInstruction(OpCodes.Call, _rent).WithLabels(code[i].labels)
                     .WithBlocks(code[i].blocks);
             }
         }
@@ -89,14 +91,43 @@ internal static class ChunkQueueWalk
         private static System.Func<object, T[]>? _items;
         private static System.Func<object, int>? _length;
         private static System.Func<object, uint>? _endOf, _edge;
+        private uint _pos, _endSnapshot;
 
         private object _queue = null!;
-        private uint _pos, _endSnapshot;
         private bool _started, _pooled;
-        private T _current = null!;
 
-        public T Current => _current;
-        object IEnumerator.Current => _current;
+        public T Current { get; private set; } = null!;
+
+        object IEnumerator.Current => Current;
+
+        // The iterator's loop over pos from the bleeding edge to the end snapshot, jumping forward when the edge moved
+        public bool MoveNext()
+        {
+            if (_started) _pos++;
+
+            _started = true;
+            if (_pos == _endSnapshot) return false;
+
+            var edge = _edge!(_queue);
+            if ((int)(edge - _pos) > 0)
+            {
+                _pos = edge;
+                if ((int)(_pos - _endSnapshot) >= 0) return false;
+            }
+
+            Current = _items!(_queue)[(ushort)_pos % _length!(_queue)];
+            return true;
+        }
+
+        public void Reset() => throw new NotSupportedException();
+
+        public void Dispose()
+        {
+            (_queue, Current) = (null!, null!);
+            if (_pooled) Return();
+
+            _pooled = false;
+        }
 
         public static bool Bind(Type queue)
         {
@@ -113,7 +144,8 @@ internal static class ChunkQueueWalk
             if (field is null || field.FieldType != typeof(TField)) return null;
 
             var target = Expression.Parameter(typeof(object));
-            return Expression.Lambda<System.Func<object, TField>>(Expression.Field(Expression.Convert(target, owner), field),
+            return Expression.Lambda<System.Func<object, TField>>(
+                Expression.Field(Expression.Convert(target, owner), field),
                 target).Compile();
         }
 
@@ -144,38 +176,9 @@ internal static class ChunkQueueWalk
             return walker;
         }
 
-        // The iterator's loop over pos from the bleeding edge to the end snapshot, jumping forward when the edge moved
-        public bool MoveNext()
-        {
-            if (_started) _pos++;
-
-            _started = true;
-            if (_pos == _endSnapshot) return false;
-
-            var edge = _edge!(_queue);
-            if ((int)(edge - _pos) > 0)
-            {
-                _pos = edge;
-                if ((int)(_pos - _endSnapshot) >= 0) return false;
-            }
-
-            _current = _items!(_queue)[(ushort)_pos % _length!(_queue)];
-            return true;
-        }
-
-        public void Reset() => throw new NotSupportedException();
-
         private static void Return()
         {
             if (_depth > 0) _depth--;
-        }
-
-        public void Dispose()
-        {
-            (_queue, _current) = (null!, null!);
-            if (_pooled) Return();
-
-            _pooled = false;
         }
     }
 }

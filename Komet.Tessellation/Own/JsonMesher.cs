@@ -93,6 +93,7 @@ internal static class JsonMesher
         {
             return false;
         }
+
         // Engine's lookup, skipped for decors: any entry at the position, even null, leaves the block to the engine
         if (!vars.isDecorTesselate && Entities(vars) is { Count: > 0 } entities)
         {
@@ -208,7 +209,7 @@ internal static class JsonMesher
     {
         if (BlocksExt(vars.tct) is not { } blocks) return false;
 
-        MeshData? same = mesh;
+        var same = mesh;
         var light = s.Json;
         _ = s.At.SetDimension(vars.dimension).Set(vars.posX, vars.posY, vars.posZ);
         TessSafety.Json(block, ref same, ref light, s.At, blocks, vars.extIndex3d);

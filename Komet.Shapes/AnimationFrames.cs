@@ -4,9 +4,9 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using HarmonyLib;
+using Komet.Api;
 using Komet.Core;
 using Komet.Diagnostics;
-using Komet.Api;
 
 namespace Komet.Shapes;
 
@@ -26,7 +26,8 @@ internal static partial class AnimationFrames
     private static readonly HashSet<object> Seen = new(ReferenceEqualityComparer.Instance);
     private static readonly HashSet<object> InKey = new(ReferenceEqualityComparer.Instance); // the current keyframe's
 
-    private static readonly SeamGuard Guard = new(nameof(AnimationFrames), KapiPatchKinds.All, [typeof(AnimationFrames)],
+    private static readonly SeamGuard Guard = new(nameof(AnimationFrames), KapiPatchKinds.All,
+        [typeof(AnimationFrames)],
         unblocked: true);
 
     // Under Gate: the descriptor being built and the cache's entry count
@@ -85,6 +86,7 @@ internal static partial class AnimationFrames
         {
             _ = harmony.Patch(clone, postfix: new HarmonyMethod(Cloned));
         }
+
         // the compile's accessors name fields of those bodies; on a changed engine they could throw
         if (!Guard.Match(Shaped(), fingerprint)) return;
 

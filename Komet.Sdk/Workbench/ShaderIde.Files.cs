@@ -1,3 +1,4 @@
+using Komet.Hud;
 using static Komet.Sdk.IdeText;
 
 namespace Komet.Sdk;
@@ -6,9 +7,13 @@ namespace Komet.Sdk;
 // the build, the toast and the palette's commands
 internal sealed partial class ShaderIde
 {
+    private long _buildPollAt;
+
+    private bool _buildQueued;
+    private bool _pending;
     private long _projectsAt;
-    private string _toastText = "", _toastAction = "";
     private Action? _toastRun;
+    private string _toastText = "", _toastAction = "";
     private long _toastUntil;
 
     // The projects, listed at most every half second
@@ -22,6 +27,8 @@ internal sealed partial class ShaderIde
             return field;
         }
     } = [];
+
+    public void Open(string path, int line = -1) => OpenFile(CopyOf(path) ?? path, line);
 
     public void ProjectsChanged()
     {
@@ -41,8 +48,6 @@ internal sealed partial class ShaderIde
 
         return null;
     }
-
-    public void Open(string path, int line = -1) => OpenFile(CopyOf(path) ?? path, line);
 
     public void OpenExact(string path, int line = -1) => OpenFile(path, line);
 
@@ -77,9 +82,9 @@ internal sealed partial class ShaderIde
 
     public void Select(ShaderDocument document)
     {
-        if (_current != document)
+        if (Current != document)
         {
-            (_current, _original, _engine, Mode) = (document, null, null, EditorMode.Mine);
+            (Current, _original, _engine, Mode) = (document, null, null, EditorMode.Mine);
             Diff.Close();
             Editor.Completion.Close();
             Find.Refresh();
@@ -109,9 +114,9 @@ internal sealed partial class ShaderIde
         if (!document.ReadOnly) AutosaveDrop(document.Path);
         var at = _tabs.IndexOf(document);
         _ = _tabs.Remove(document);
-        if (_current == document)
+        if (Current == document)
         {
-            _current = null;
+            Current = null;
             if (_tabs.Count > 0) Select(_tabs[Math.Clamp(at - 1, 0, _tabs.Count - 1)]);
         }
 
@@ -130,19 +135,21 @@ internal sealed partial class ShaderIde
 
             if (to is not null)
             {
-                var path = StudioLink.PathEquals(tab.Path, from) ? to : Path.Join(to, Path.GetRelativePath(from, tab.Path));
+                var path = StudioLink.PathEquals(tab.Path, from)
+                    ? to
+                    : Path.Join(to, Path.GetRelativePath(from, tab.Path));
                 var moved = new ShaderDocument(path, tab.Disk, tab.Text, !StudioLink.CanWrite(path), tab.Caret);
                 _tabs[i] = moved;
-                _current = _current == tab ? moved : _current;
+                Current = Current == tab ? moved : Current;
             }
             else
             {
                 _tabs.RemoveAt(i);
-                _current = _current == tab ? null : _current;
+                Current = Current == tab ? null : Current;
             }
         }
 
-        _current ??= _tabs.Count > 0 ? _tabs[^1] : null;
+        Current ??= _tabs.Count > 0 ? _tabs[^1] : null;
         Redraw();
     }
 
@@ -159,7 +166,7 @@ internal sealed partial class ShaderIde
             return;
         }
 
-        if (mode != EditorMode.Mine && _current is { } copy && StudioLink.GameFileOf(copy.Path) is { } game)
+        if (mode != EditorMode.Mine && Current is { } copy && StudioLink.GameFileOf(copy.Path) is { } game)
         {
             if (_original?.Path != game && StudioLink.Read(game, out var text, out _))
             {
@@ -168,7 +175,7 @@ internal sealed partial class ShaderIde
 
             if (mode == EditorMode.Diff && _original is { } original)
             {
-                Diff.Show(L("original"), original.Text, L("mine"), copy.Text, [], live: true);
+                Diff.Show(L("original"), original.Text, L("mine"), copy.Text, [], true);
             }
         }
 
@@ -261,7 +268,7 @@ internal sealed partial class ShaderIde
         return true;
     }
 
-    private void DrawToast(Hud.HudUi ui)
+    private void DrawToast(HudUi ui)
     {
         if (_toastText.Length == 0) return;
 
@@ -269,14 +276,14 @@ internal sealed partial class ShaderIde
         var actionW = _toastAction.Length > 0 ? ui.TextW(ui.F.Small, Caps(_toastAction)) + ui.Px(24) : 0;
         var w = Math.Min(ui.W * 0.6, ui.TextW(ui.F.Body, _toastText) + 2 * pad + actionW);
         var h = ui.Px(36);
-        var (x, y) = (ui.X + (ui.W - w) / 2, _height - h - ui.Px(28));
-        ui.Panel(x, y, w, h, Hud.HudUi.PopupBack with { A = 1 });
-        TextField.Frame(ui, x, y, w, h, Hud.HudUi.Divider);
+        var (x, y) = (ui.X + (ui.W - w) / 2, Height - h - ui.Px(28));
+        ui.Panel(x, y, w, h, HudUi.PopupBack with { A = 1 });
+        TextField.Frame(ui, x, y, w, h, HudUi.Divider);
         ui.Text(x + pad, y, h, ui.F.Body, ui.Fit(ui.F.Body, _toastText, w - 2 * pad - actionW));
         if (_toastRun is { } run && actionW > 0)
         {
             var ax = x + w - pad - actionW + ui.Px(12);
-            _ = ui.Spaced(ax, y, h, ui.F.Small, Caps(_toastAction), ui.Px(1), Hud.HudUi.Link);
+            _ = ui.Spaced(ax, y, h, ui.F.Small, Caps(_toastAction), ui.Px(1), HudUi.Link);
             Hits.Add(ax - ui.Px(6), y, actionW, h, () =>
             {
                 (_toastUntil, _toastText, _toastRun) = (0, "", null);
@@ -284,8 +291,6 @@ internal sealed partial class ShaderIde
             });
         }
     }
-
-    private bool _buildQueued;
 
     // Writes the project's changed drafts, builds them, records the result. The build reloads the game's programs, so it
     // runs from the main-thread queue between two frames: a reload in the middle of a frame left the rest of that frame
@@ -296,7 +301,7 @@ internal sealed partial class ShaderIde
         if (_buildQueued) return;
 
         _buildQueued = true;
-        _capi.Event.EnqueueMainThreadTask(() =>
+        Api.Event.EnqueueMainThreadTask(() =>
         {
             _buildQueued = false;
             BuildQueued();
@@ -372,9 +377,6 @@ internal sealed partial class ShaderIde
             Toast(name + " " + (on ? L("on-lower") : L("off-lower")));
         }
     }
-
-    private long _buildPollAt;
-    private bool _pending;
 
     // Every half second while a build has pending states (Vulkan ports, passes): their results come in
     private bool BuildPoll(long now)

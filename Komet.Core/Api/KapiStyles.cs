@@ -51,7 +51,9 @@ public sealed class KapiStyle(string id, string name)
     internal StyleData For(string modId)
     {
         var style = new StyleData
-            { Id = Id, Name = Name, Author = Author, Base = Base, Logo = Logo, Background = Background, Domain = modId };
+        {
+            Id = Id, Name = Name, Author = Author, Base = Base, Logo = Logo, Background = Background, Domain = modId
+        };
         foreach (var (key, value) in Colors.Bounded(MaxKeys)) style.Colors[key] = value;
         foreach (var (key, value) in Fonts.Bounded(MaxKeys)) style.Fonts[key] = value;
         foreach (var (key, value) in Sizes.Bounded(MaxKeys)) style.Sizes[key] = value;

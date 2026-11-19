@@ -25,7 +25,10 @@ internal static class EngineShape
     private const int TwoByte = 0xFE, MaxPatches = 64, MaxOwn = 8, MaxNameSteps = 4096;
     private const ulong Basis = 14695981039346656037UL, Prime = 1099511628211UL;
 
+    private const int EngineWide = 3; // features apart before it is the engine, not one expectation
+
     private static readonly (OpCode?[] One, OpCode?[] Two) Codes = Table();
+    private static int _mismatches;
 
     private static (OpCode?[] One, OpCode?[] Two) Table()
     {
@@ -47,9 +50,6 @@ internal static class EngineShape
         return (one, two);
     }
 
-    private const int EngineWide = 3; // features apart before it is the engine, not one expectation
-    private static int _mismatches;
-
     public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger,
         string? pinnedBy = null)
     {
@@ -67,8 +67,9 @@ internal static class EngineShape
         {
             // the bodies come from the DLL's metadata, which no Harmony patch changes: another build of the engine
             var engine = methods[0]?.Module.Assembly;
-            logger?.Warning("Komet: the engine's code differs from Vintage Story 1.22.7 as released: {0} {1}, MVID {2} " +
-                            "(a modified or other build of the game; reinstalling the game restores it)",
+            logger?.Warning(
+                "Komet: the engine's code differs from Vintage Story 1.22.7 as released: {0} {1}, MVID {2} " +
+                "(a modified or other build of the game; reinstalling the game restores it)",
                 engine?.Location, engine?.GetName().Version, methods[0]?.Module.ModuleVersionId);
         }
 
@@ -425,7 +426,8 @@ internal sealed class SeamGuard(
     // For a feature that asks its own question of which patches are foreign
     public void Report(bool seamed, bool foreign)
     {
-        _foreign = EngineShape.Report(_logger, feature, _foreign, seamed && foreign, Seams, KapiPatchKinds.All, null, own);
+        _foreign = EngineShape.Report(_logger, feature, _foreign, seamed && foreign, Seams, KapiPatchKinds.All, null,
+            own);
         Blocked = !seamed || _foreign;
     }
 }

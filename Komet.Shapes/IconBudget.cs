@@ -50,7 +50,7 @@ internal static class IconBudget
     // before) build whole-body meshes from their shapes at the first draw; other classes as learnt
     internal static bool Heavy(CollectibleObject collectible) =>
         Classes.GetOrAdd(collectible.GetType(), static type => Named(type, typeof(CollectibleObject))) ||
-               Wearable(collectible);
+        Wearable(collectible);
 
     private static bool Wearable(CollectibleObject collectible)
     {

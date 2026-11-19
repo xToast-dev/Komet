@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <!-- Power-of-Ten rules for Komet as a Roslyn analyzer: dotnet build is the gate. Loaded by the SDK's compiler (Roslyn 5.0 in SDK 10.0.1xx),
-         so it must not reference a newer Microsoft.CodeAnalysis. -->
+    <!-- Power-of-Ten rules for Komet as a Roslyn analyzer: dotnet build is the gate. Keep the Roslyn API reference
+         at 5.0 so the analyzer can also load in older IDEs. -->
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>

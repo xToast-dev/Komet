@@ -20,6 +20,16 @@ public sealed class VulkanRendererGpuTests
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "Ports")]
     private static extern ref GlslPort.Ported?[] Ports([UnsafeAccessorType(Renderer)] object? renderer);
 
+    [Test]
+    public void FramebufferLookupSkipsUnusedEngineSlots()
+    {
+        var framebuffer = new FrameBufferRef { FboId = 17 };
+        var targets = new TerrainTargets(null!) { Framebuffers = [null!, framebuffer, null!] };
+
+        Assert.That(targets.Of(17), Is.SameAs(framebuffer));
+        Assert.That(targets.Of(18), Is.Null);
+    }
+
     // The first report comes after one frame, before OcclusionCulling read any statistics back (Stat: NaN): no line about the
     // terrain drawn, and no assertion
     [Test]

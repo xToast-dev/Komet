@@ -25,18 +25,19 @@ internal sealed unsafe partial class TerrainRenderer
         why = "";
         if (!Assert(texture > 0)) return null;
 
-        var image = Images.Get(texture, out why, stand);
+        // A mod framebuffer can attach the engine's depth or normal texture (SheyderMod's G-buffer).
+        var image = Targets.Find(texture) ?? Images.Get(texture, out why, stand);
         if (image is not null && Frame.Open) Hold(image);
 
         return image;
     }
 
-    // Taken on demand from rest (sampling layout)
+    // Taken on demand from its resting layout
     private void Hold(SharedImage image)
     {
         if (!NotNull(image) || Frame.Holds(image) || !Assert(Frame.Open)) return;
 
-        _ = Frame.Take(new VulkanFrame.Shared(image, Vk.LayoutShaderRead));
+        _ = Frame.Take(new VulkanFrame.Shared(image, Targets.RestingOf(image.Texture)));
     }
 
     // Images a draw samples and draws into, held by the open segment (targets come with every segment)
@@ -91,12 +92,27 @@ internal sealed unsafe partial class TerrainRenderer
     // glGenerateMipmap: the image makes its levels too; false when impossible (the image is then changed)
     public bool Mipmapped(int texture) => Assert(texture >= 0) && Images.Mipmapped(texture);
 
+    // SheyderMod can leave the specular atlas unit bound to the current depth target after a live start.
+    public TerrainDraw.Texture? SpecularFallback(Program program, GlslPort.Sampler sampler,
+        VulkanFrame.Target target, SharedImage image) =>
+        image == target.Depth && sampler is { Name: "specularTex", Type: "sampler2D", Count: 1 } &&
+        program.Mirror.EntryOf("sm_specMapOn") is not null
+            ? BlackTexture()
+            : null;
+
     // An empty unit samples incomplete texture 0: (0, 0, 0, 1) (GL 4.6 core 11.1.3.5). Mesa samples it as 1x1 with the
     // unit's sampling, border included, so a clamp-to-border sampler mixes the border in. Without a sampler object a 1x1
     // (0, 0, 0, 1) image matches and untextured GUI draws stay Vulkan's; with one, OpenGL draws.
     public TerrainDraw.Texture? Unbound(string type, int samplerObject)
     {
-        if (type != "sampler2D" || samplerObject != 0 || GlTap.DefaultTextureTouched || _blankless) return null;
+        if (type != "sampler2D" || samplerObject != 0 || GlTap.DefaultTextureTouched) return null;
+
+        return BlackTexture();
+    }
+
+    private TerrainDraw.Texture? BlackTexture()
+    {
+        if (_blankless) return null;
 
         _blank ??= Blank(Device);
         _blankless = _blank is null;
@@ -152,7 +168,8 @@ internal sealed unsafe partial class TerrainRenderer
         var (fromAt, toAt) = ((from.Level, from.Z, Layers: size.Depth), (to.Level, to.Z, Layers: size.Depth));
         var copied = source.Format == into.Format
             ? Exact((source, into), (fromAt, toAt), ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)))
-            : size.Depth == 1 && !source.Volume && !into.Volume && Blitted((source, into), ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)),
+            : size.Depth == 1 && !source.Volume && !into.Volume && Blitted((source, into),
+                ((from.X, from.Y), (to.X, to.Y), (size.Width, size.Height)),
                 ((from.Level, from.Z), (to.Level, to.Z)));
         if (!copied)
         {
@@ -255,8 +272,8 @@ internal sealed unsafe partial class TerrainRenderer
 
     internal static bool Converts(SharedFormat from, SharedFormat to) =>
         Assert(from.Aspect != 0) && Assert(to.Aspect != 0) && (from == to ||
-                                                                      (Blits(from.Vulkan, false) &&
-                                                                       Blits(to.Vulkan, true)));
+                                                               (Blits(from.Vulkan, false) &&
+                                                                Blits(to.Vulkan, true)));
 
     private static bool Blits(uint format, bool into) =>
         Array.IndexOf(Blittable, format) >= 0 || VulkanDevice.Blits(format, into);
@@ -278,7 +295,8 @@ internal sealed unsafe partial class TerrainRenderer
         Hold(images.To);
         var blit = new Vk.ImageBlit
         {
-            Source = new Vk.SubresourceLayers { Level = (uint)at.From.Level, BaseLayer = (uint)at.From.Layer, Count = 1 },
+            Source = new Vk.SubresourceLayers
+                { Level = (uint)at.From.Level, BaseLayer = (uint)at.From.Layer, Count = 1 },
             SourceX0 = region.From.X, SourceY0 = region.From.Y, SourceX1 = region.From.X + region.Size.Width,
             SourceY1 = region.From.Y + region.Size.Height, SourceZ1 = 1,
             Target = new Vk.SubresourceLayers { Level = (uint)at.To.Level, BaseLayer = (uint)at.To.Layer, Count = 1 },

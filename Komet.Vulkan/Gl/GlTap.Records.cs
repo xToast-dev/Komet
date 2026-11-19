@@ -422,7 +422,7 @@ internal static unsafe partial class GlTap
     // A sampler object seen made, as its parameters were set since; null for one the record does not know
     public static Samplers.State? SamplerOf(int sampler) =>
         Tapped && sampler > 0 && SamplerRecords.TryGetValue((uint)sampler, out var s) && Assert(s.Min >= 0) &&
-               Assert(s.Mag >= 0)
+        Assert(s.Mag >= 0)
             ? Samplers.FromGl(s.Min, s.Mag, s.Wrap, s.Compare != 0)
             : null;
 
@@ -558,7 +558,7 @@ internal static unsafe partial class GlTap
     // A uniform's location as the engine was told it since the last link; null when nobody asked
     private static int? LocationOf(int program, string name) =>
         LinkedOf(program) is not null && NotNull(name) && Assert(name.Length > 0) &&
-               ProgramRecords[(uint)program].Locations.TryGetValue(name, out var location)
+        ProgramRecords[(uint)program].Locations.TryGetValue(name, out var location)
             ? location
             : null;
 

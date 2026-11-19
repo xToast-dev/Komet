@@ -28,13 +28,15 @@ internal sealed class DragRegion(Action<double, double> drag, Action? up = null)
 internal sealed partial class ShaderIde
 {
     private const double TopHeight = 46, LeftWidth = 280, StripWidth = 44, MinRight = 240, MaxRight = 560;
+    private DragRegion? _rightSplit;
+    private Rgba _statusColor;
+    private string _statusText = "";
+
+    private (LeftView View, string Tip, Action Click)[]? _strip;
 
     private HudUi? _ui;
-    private double _width, _height;
-    private DragRegion? _rightSplit;
-    private string _statusText = "";
-    private Rgba _statusColor;
-    public double Height => _height;
+    private double _width;
+    public double Height { get; private set; }
 
     // The menu's colours as the studio's grounds
     public Rgba Ground => Darker(BandGround);
@@ -42,43 +44,44 @@ internal sealed partial class ShaderIde
     public Rgba PanelGround => StudioColors.Opaque(Controls?.Style["panel"] ?? HudUi.PanelBack);
     public Rgba BandGround => StudioColors.Opaque(Controls?.Style["band"] ?? HudUi.Band);
 
-    private static Rgba Darker(Rgba color) => new(color.R * 0.8, color.G * 0.8, color.B * 0.8, 1);
-
     public void Draw(HudUi ui)
     {
         _ui = ui;
-        (_width, _height) = (ui.W, ui.Bottom);
+        (_width, Height) = (ui.W, ui.Bottom);
         Hits.Clear();
         Diagnostics.Show(Active);
         (_statusText, _statusColor) = State();
         Live = null; // the side column sets it again when the preview is on screen
-        ui.Fill(ui.X, 0, ui.W, _height, Ground);
+        ui.Fill(ui.X, 0, ui.W, Height, Ground);
         var top = ui.Px(TopHeight);
         TopBar(ui, top);
         var strip = ui.Px(StripWidth);
         var left = strip + (Prefs.LeftShown ? Math.Min(ui.Px(LeftWidth + LeftExtra()), ui.W * 0.3) : 0);
         var right = Math.Clamp(ui.Px(Prefs.Right), ui.Px(MinRight), Math.Min(ui.Px(MaxRight), ui.W * 0.4));
-        Strip(ui, ui.X, top, strip, _height - top);
-        if (Prefs.LeftShown) LeftPane(ui, ui.X + strip, top, left - strip, _height - top);
+        Strip(ui, ui.X, top, strip, Height - top);
+        if (Prefs.LeftShown) LeftPane(ui, ui.X + strip, top, left - strip, Height - top);
         var centerX = ui.X + left;
         var centerW = ui.W - left - right;
-        EditorArea(ui, centerX, top, centerW, _height - top);
-        Side.Draw(ui, ui.X + ui.W - right, top, right, _height - top);
-        Side.DrawLarge(ui, centerX, top, centerW, _height - top - PanelHeight);
+        EditorArea(ui, centerX, top, centerW, Height - top);
+        Side.Draw(ui, ui.X + ui.W - right, top, right, Height - top);
+        Side.DrawLarge(ui, centerX, top, centerW, Height - top - PanelHeight);
         _rightSplit ??= new DragRegion((x, _) => Prefs.Right = Math.Clamp((_width - x) / Math.Max(0.1, ui.Px(1)),
             MinRight, MaxRight));
-        Hits.Region(ui.X + ui.W - right - ui.Px(3), top, ui.Px(6), _height - top, _rightSplit);
+        Hits.Region(ui.X + ui.W - right - ui.Px(3), top, ui.Px(6), Height - top, _rightSplit);
         Overlays(ui);
     }
 
-    private (LeftView View, string Tip, Action Click)[]? _strip;
+    private static Rgba Darker(Rgba color) => new(color.R * 0.8, color.G * 0.8, color.B * 0.8, 1);
 
     // The activity strip: a button a view; the lit one's click folds the left column away, a click brings it back
     private void Strip(HudUi ui, double x, double y, double w, double h)
     {
-        _strip ??= [(LeftView.Files, "tip-view-files", () => PickLeft(LeftView.Files)),
+        _strip ??=
+        [
+            (LeftView.Files, "tip-view-files", () => PickLeft(LeftView.Files)),
             (LeftView.Search, "tip-view-search", () => Search(null)),
-            (LeftView.Passes, "tip-view-passes", () => PickLeft(LeftView.Passes))];
+            (LeftView.Passes, "tip-view-passes", () => PickLeft(LeftView.Passes))
+        ];
         ui.Fill(x, y, w, h, Darker(Ground));
         ui.Fill(x + w - 1, y, 1, h, HudUi.Divider);
         var size = ui.Px(StripWidth);
@@ -160,14 +163,14 @@ internal sealed partial class ShaderIde
         History(ui);
         if (Context.IsOpen)
         {
-            Hits.Region(ui.X, 0, ui.W, _height, Context);
-            Context.Draw(ui.Column(ui.X, ui.W, 0), _height);
+            Hits.Region(ui.X, 0, ui.W, Height, Context);
+            Context.Draw(ui.Column(ui.X, ui.W, 0), Height);
         }
 
         Palette.Draw(ui);
         Modal.Draw(ui);
         DrawToast(ui);
-        Editor.DrawHover(ui.Column(ui.X, ui.W, 0), _height);
+        Editor.DrawHover(ui.Column(ui.X, ui.W, 0), Height);
         DrawTip(ui);
     }
 
@@ -236,7 +239,8 @@ internal sealed partial class ShaderIde
         var tw = ui.TextW(ui.F.Small, caps) + ui.Px(2) * Math.Max(0, caps.Length - 1);
         _ = ui.Spaced(px - ui.Px(10) - tw, 0, h, ui.F.Small, caps, ui.Px(2), HudUi.Faint);
         Hits.Add(px - ui.Px(10) - tw, (h - ui.Px(28)) / 2, tw + ui.Px(10) + pw, ui.Px(28), _toggleAuto);
-        Tip(px - ui.Px(10) - tw, (h - ui.Px(28)) / 2, tw + ui.Px(10) + pw, ui.Px(28), L(Prefs.Auto ? "tip-auto-on" : "tip-auto-off"));
+        Tip(px - ui.Px(10) - tw, (h - ui.Px(28)) / 2, tw + ui.Px(10) + pw, ui.Px(28),
+            L(Prefs.Auto ? "tip-auto-on" : "tip-auto-off"));
     }
 
     // The TEST chip, first that holds: Building, Not tested, Pack off, n errors, the open override's state, Running
@@ -252,7 +256,7 @@ internal sealed partial class ShaderIde
         var errors = ProjectErrors();
         if (errors > 0) return (errors.ToString(CultureInfo.InvariantCulture) + " " + L("errors-word"), HudUi.Err);
 
-        return StatusOf(_current) is { } status
+        return StatusOf(Current) is { } status
             ? (StateWord(status.State), StateInk(status.State))
             : (L("state-running"), HudUi.Ok);
     }
@@ -268,7 +272,7 @@ internal sealed partial class ShaderIde
 
         if (ProjectErrors() > 0) return L("tip-state-errors");
 
-        return StatusOf(_current) is { } status
+        return StatusOf(Current) is { } status
             ? StateWord(status.State) + ": " + status.Reason
             : L("tip-state-running");
     }

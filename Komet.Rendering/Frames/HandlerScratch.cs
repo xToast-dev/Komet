@@ -26,11 +26,11 @@ internal static class HandlerScratch
     public static int Rewritten => Done.Count; // of the three
 
     private static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetClimate)),
-            AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetWindSpeed)),
-            AccessTools.DeclaredMethod(typeof(ParticlePhysics), nameof(ParticlePhysics.UpdateMotion))
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetClimate)),
+        AccessTools.DeclaredMethod(typeof(EventManager), nameof(EventManager.TriggerOnGetWindSpeed)),
+        AccessTools.DeclaredMethod(typeof(ParticlePhysics), nameof(ParticlePhysics.UpdateMotion))
+    ];
 
     public static void Install(Harmony harmony)
     {

@@ -127,7 +127,7 @@ internal static partial class GlslPort
 
     private static bool Opaque(string type) =>
         type.Contains("sampler", StringComparison.Ordinal) || type.Contains("image", StringComparison.Ordinal) ||
-               type == "atomic_uint";
+        type == "atomic_uint";
 
     // Replacement with as many lines, or null to keep it
     private static string? Declaration(string statement, bool vertex, Context context, List<Uniform> uniforms)
@@ -669,6 +669,9 @@ internal static partial class GlslPort
         for (var i = 0; i < Math.Min(Math.Min(parts.Length, values.Length), 16); i++)
         {
             var part = parts[i] switch { "true" => "1", "false" => "0", var p => p.TrimEnd('f', 'F', 'u', 'U') };
+            // The shader preprocessor can separate a unary sign from its literal.
+            if (part.Length > 1 && part[0] is '+' or '-') part = part[..1] + part[1..].TrimStart();
+
             if (!float.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
             {
                 context.Error = $"no port for the default of {name}: {init}";

@@ -91,6 +91,7 @@ internal sealed partial class TextureImages : IDisposable
             {
                 entry = Made(texture, out why); // OpenGL's shape, not the old one's
             }
+
             // renderbuffers (GlTap.RenderbufferName): nothing to read back, nothing drawn yet
             if (entry is null || (!GlTap.IsRenderbuffer(texture) && !ReadBack(texture, entry, out why))) return null;
 

@@ -136,8 +136,8 @@ internal static class ChunkLoadBudget
 
     internal static bool Far(Packet_ServerChunk? chunk, EntityPos pos) =>
         chunk is { Y: >= 0 and < DimensionHeight } &&
-               Math.Max(Math.Abs(chunk.X - ((int)pos.X >> ChunkShift)),
-                   Math.Abs(chunk.Z - ((int)pos.Z >> ChunkShift))) > NearChunks;
+        Math.Max(Math.Abs(chunk.X - ((int)pos.X >> ChunkShift)),
+            Math.Abs(chunk.Z - ((int)pos.Z >> ChunkShift))) > NearChunks;
 
     // The index of the last chunk load among the first MaxScan tasks that may not wait, -1 for none
     private static int LastNear(Queue<ClientTask> queue, EntityPos pos)

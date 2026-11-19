@@ -206,5 +206,5 @@ internal sealed partial class TerrainRenderer
 
     private static bool Feeds(VulkanFrame.Target target, SharedImage image) =>
         NotNull(image) &&
-               (Array.IndexOf(target.Colors, image) >= 0 || (image == target.Depth && !target.DepthReadOnly));
+        (Array.IndexOf(target.Colors, image) >= 0 || (image == target.Depth && !target.DepthReadOnly));
 }

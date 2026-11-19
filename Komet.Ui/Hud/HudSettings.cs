@@ -294,7 +294,9 @@ internal sealed class HudSettings
 
     // The player's binding of one of the HUD's hotkeys (toggle, details, window, debug), for texts that name it
     public static string KeyOf(ICoreClientAPI? capi, string name) =>
-        capi?.Input?.GetHotKeyByCode("komet-hud-" + name)?.CurrentMapping?.ToString() is { Length: > 0 } key ? key : name;
+        capi?.Input?.GetHotKeyByCode("komet-hud-" + name)?.CurrentMapping?.ToString() is { Length: > 0 } key
+            ? key
+            : name;
 
     private static void Hotkey(ICoreClientAPI capi, string name, GlKeys key, bool ctrl, Action act)
     {

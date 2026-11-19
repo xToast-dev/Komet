@@ -94,7 +94,8 @@ internal sealed partial class StudioModal
         {
             var bad = Check();
             var text = bad.Length > 0 ? bad : "Mods/" + _fields[1].Text.Trim() + "-" + _fields[2].Text.Trim() + ".zip";
-            ui.Text(x + ui.Px(20), y, h, ui.F.Small, ui.Fit(ui.F.Small, text, w * 0.45), bad.Length > 0 ? HudUi.Err : HudUi.Faint);
+            ui.Text(x + ui.Px(20), y, h, ui.F.Small, ui.Fit(ui.F.Small, text, w * 0.45),
+                bad.Length > 0 ? HudUi.Err : HudUi.Faint);
         }
 
         var right = x + w - ui.Px(20);

@@ -10,6 +10,18 @@ internal interface IDevTool
     string Title { get; }
     double RefreshMs => 400;
 
+    // False: the tool lays out to the view's bottom itself and the screen does not scroll it
+    bool Scrolls => true;
+
+    // True: the tool takes the whole screen, without the menu's header, title and footer
+    bool FullScreen => false;
+
+    // True while the tool hides the screen to show the game (held)
+    bool Peeking => false;
+
+    // A rectangle (canvas pixels) where the screen draws the live game picture over the tool; null: none
+    (double X, double Y, double W, double H)? Live => null;
+
     void Draw(HudUi ui);
 
     // The tool came on screen or went: collectors it needs run only while it shows
@@ -34,18 +46,6 @@ internal interface IDevTool
 
     // Per frame; true: the tool changed and redraws
     bool Poll() => false;
-
-    // False: the tool lays out to the view's bottom itself and the screen does not scroll it
-    bool Scrolls => true;
-
-    // True: the tool takes the whole screen, without the menu's header, title and footer
-    bool FullScreen => false;
-
-    // True while the tool hides the screen to show the game (held)
-    bool Peeking => false;
-
-    // A rectangle (canvas pixels) where the screen draws the live game picture over the tool; null: none
-    (double X, double Y, double W, double H)? Live => null;
 
     // The texture drawn in Live: the frame so far (sharp, upright) unless the tool shows something of its own (a render
     // target); called once per frame while Live is set, in the GUI stage with the GL state saved by the caller

@@ -68,7 +68,8 @@ internal static partial class OcclusionCulling
     }
 
     // Each pass's atlases as their calls will draw them; returns the most rows a pool of them has
-    private static int LayPasses(MeshDataPoolManager?[]?[] passes, int[] which, (FrustumCulling Culler, Vec3d Camera) at,
+    private static int LayPasses(MeshDataPoolManager?[]?[] passes, int[] which,
+        (FrustumCulling Culler, Vec3d Camera) at,
         (bool Surface, bool BackFaces) how, ref int cursor, ref int draws)
     {
         var most = 0;
@@ -177,7 +178,7 @@ internal static partial class OcclusionCulling
 
     private static bool Same((double X, double Y, double Z) camera, Vec3d playerpos) =>
         Math.Abs(camera.X - playerpos.X) + Math.Abs(camera.Y - playerpos.Y) + Math.Abs(camera.Z - playerpos.Z) <
-               1e-6;
+        1e-6;
 
     private static bool Matches(Batched batched)
     {

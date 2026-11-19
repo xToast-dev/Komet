@@ -23,55 +23,55 @@ internal sealed class StyleScene(ICoreClientAPI capi) : IDisposable
                                   """;
 
     private const string Prelude = """
-                                    #version 330 core
-                                    in vec2 uv;
-                                    out vec4 color;
-                                    uniform float time;
-                                    uniform float fade;
-                                    uniform float page;
-                                    uniform vec2 resolution;
-                                    uniform vec3 camera;
-                                    uniform vec4 accent;
-                                    uniform sampler2D scene;
-                                    uniform vec4 panels[8];
-                                    uniform int panelCount;
-                                    uniform float veil;
-                                    uniform sampler2D worldMap;
-                                    uniform float worldKnown;
-                                    uniform vec3 worldTints[5];
-                                    uniform vec4 worldPlace;
-                                    uniform vec4 worldWeather;
-                                    uniform float planet;
-                                    uniform vec4 worldScale;
-                                    uniform vec4 worldChunk;
-                                    uniform float worldYaw;
-                                    vec3 world(vec2 at) { return texture(scene, vec2(at.x, 1.0 - at.y)).rgb; }
-                                    vec4 worldAt(vec2 at) { return worldKnown > 0.5 ? texture(worldMap, at) : vec4(0.0); }
-                                    vec3 worldTint(int kind, vec3 own) { return worldKnown > 0.5 && worldTints[kind].r >= 0.0 ? worldTints[kind] : own; }
-                                    #define main styleMain
-                                    #line 1
-                                    """;
+                                   #version 330 core
+                                   in vec2 uv;
+                                   out vec4 color;
+                                   uniform float time;
+                                   uniform float fade;
+                                   uniform float page;
+                                   uniform vec2 resolution;
+                                   uniform vec3 camera;
+                                   uniform vec4 accent;
+                                   uniform sampler2D scene;
+                                   uniform vec4 panels[8];
+                                   uniform int panelCount;
+                                   uniform float veil;
+                                   uniform sampler2D worldMap;
+                                   uniform float worldKnown;
+                                   uniform vec3 worldTints[5];
+                                   uniform vec4 worldPlace;
+                                   uniform vec4 worldWeather;
+                                   uniform float planet;
+                                   uniform vec4 worldScale;
+                                   uniform vec4 worldChunk;
+                                   uniform float worldYaw;
+                                   vec3 world(vec2 at) { return texture(scene, vec2(at.x, 1.0 - at.y)).rgb; }
+                                   vec4 worldAt(vec2 at) { return worldKnown > 0.5 ? texture(worldMap, at) : vec4(0.0); }
+                                   vec3 worldTint(int kind, vec3 own) { return worldKnown > 0.5 && worldTints[kind].r >= 0.0 ? worldTints[kind] : own; }
+                                   #define main styleMain
+                                   #line 1
+                                   """;
 
     // After the style's main: the scene darkened behind the panels (veil), soft at their edges, so text stays readable
     // over a bright background and the rest keeps its colour
     private const string Epilogue = """
 
-                                     #undef main
-                                     void main()
-                                     {
-                                         styleMain();
-                                         vec2 px = vec2(uv.x, 1.0 - uv.y) * resolution;
-                                         float feather = resolution.y * 0.03, cover = 0.0;
-                                         for (int i = 0; i < 8; i++)
-                                         {
-                                             if (i >= panelCount) break;
-                                             vec2 d = max(panels[i].xy - px, px - (panels[i].xy + panels[i].zw));
-                                             cover = max(cover, 1.0 - smoothstep(-feather, feather, max(d.x, d.y)));
-                                         }
-                                         vec3 grey = vec3(dot(color.rgb, vec3(0.299, 0.587, 0.114)));
-                                         color.rgb = mix(color.rgb, grey, 0.45 * veil * cover) * (1.0 - veil * cover); // frosted: greyer and darker
-                                     }
-                                     """;
+                                    #undef main
+                                    void main()
+                                    {
+                                        styleMain();
+                                        vec2 px = vec2(uv.x, 1.0 - uv.y) * resolution;
+                                        float feather = resolution.y * 0.03, cover = 0.0;
+                                        for (int i = 0; i < 8; i++)
+                                        {
+                                            if (i >= panelCount) break;
+                                            vec2 d = max(panels[i].xy - px, px - (panels[i].xy + panels[i].zw));
+                                            cover = max(cover, 1.0 - smoothstep(-feather, feather, max(d.x, d.y)));
+                                        }
+                                        vec3 grey = vec3(dot(color.rgb, vec3(0.299, 0.587, 0.114)));
+                                        color.rgb = mix(color.rgb, grey, 0.45 * veil * cover) * (1.0 - veil * cover); // frosted: greyer and darker
+                                    }
+                                    """;
 
     private readonly Vec4f _tint = new(1, 1, 1, 1);
     private readonly int[] _viewport = new int[4];

@@ -9,14 +9,20 @@ internal sealed class SideDiff(ShaderIde host) : IIdeRegion
 {
     private const int MaxLines = 1500;
     private readonly List<(int Left, int Right, bool Changed)> _rows = [];
-    private string[] _left = [], _right = [];
-    private string _leftTitle = "", _rightTitle = "", _summary = "";
     private (string Label, Action Run)[] _actions = [];
     private Action? _close;
-    private bool _live;
     private int _first, _liveVersion = -1;
+    private string[] _left = [], _right = [];
+    private string _leftTitle = "", _rightTitle = "", _summary = "";
+    private bool _live;
 
     public bool Open { get; private set; }
+
+    public bool Wheel(double x, int lines)
+    {
+        _first = Math.Max(0, _first + lines);
+        return true;
+    }
 
     // live: the right side is the shown copy's draft and follows its edits (Vergleich)
     public void Show(string leftTitle, string left, string rightTitle, string right, (string, Action)[] actions,
@@ -53,7 +59,9 @@ internal sealed class SideDiff(ShaderIde host) : IIdeRegion
             for (var q = 0; q < Math.Min(m, MaxLines); q++)
             {
                 var j = m - 1 - q;
-                table[i][j] = _left[i] == _right[j] ? table[i + 1][j + 1] + 1 : Math.Max(table[i + 1][j], table[i][j + 1]);
+                table[i][j] = _left[i] == _right[j]
+                    ? table[i + 1][j + 1] + 1
+                    : Math.Max(table[i + 1][j], table[i][j + 1]);
             }
         }
 
@@ -170,20 +178,22 @@ internal sealed class SideDiff(ShaderIde host) : IIdeRegion
         CodeText.Line(column, ui.Fit(ui.F.Mono, lines[index], w - ui.Px(60)), CodeText.Gutter(index));
     }
 
-    public bool Wheel(double x, int lines)
-    {
-        _first = Math.Max(0, _first + lines);
-        return true;
-    }
-
     public bool Key(GlKeys key)
     {
         switch (key)
         {
-            case GlKeys.Up: _first = Math.Max(0, _first - 1); return true;
-            case GlKeys.Down: _first++; return true;
-            case GlKeys.PageUp: _first = Math.Max(0, _first - 20); return true;
-            case GlKeys.PageDown: _first += 20; return true;
+            case GlKeys.Up:
+                _first = Math.Max(0, _first - 1);
+                return true;
+            case GlKeys.Down:
+                _first++;
+                return true;
+            case GlKeys.PageUp:
+                _first = Math.Max(0, _first - 20);
+                return true;
+            case GlKeys.PageDown:
+                _first += 20;
+                return true;
             default: return false;
         }
     }

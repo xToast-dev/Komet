@@ -9,7 +9,7 @@ public sealed class GlslPortTests
                                   #version 330 core
                                   layout(location = 0) in vec3 xyz;
                                   uniform mat4 mvp;
-                                  uniform float fog = 0.5;
+                                  uniform float fog = - 0.5;
                                   uniform vec3 lights[2 * 2];
                                   uniform sampler2D tex;
                                   out vec4 a;
@@ -24,7 +24,7 @@ public sealed class GlslPortTests
                                     #version 330 core
                                     uniform sampler2D tex;
                                     uniform sampler2D glow;
-                                    uniform vec4 tint = vec4(1, 0.5, 0.25, 1);
+                                    uniform vec4 tint = vec4(1, + 0.5, - 0.25, 1);
                                     flat in int c;
                                     in vec4 a;
                                     layout(location = 0) out vec4 color;
@@ -38,7 +38,7 @@ public sealed class GlslPortTests
     private static readonly (string, int)[] Samplers =
         [("tex", GlslPort.FirstSampler), ("glow", GlslPort.FirstSampler + 1)];
 
-    private static readonly float[] Fog = [0.5f], Tint = [1, 0.5f, 0.25f, 1];
+    private static readonly float[] Fog = [-0.5f], Tint = [1, 0.5f, -0.25f, 1];
     private static readonly int[] TwoOutputs = [0, 1];
     private static readonly string[] Unconditional = ["mvp", "lights"];
     private static readonly GlslPort.Attribute[] Xyz = [new("xyz", "vec3", 0)], BoundXyz = [new("xyz", "vec3", 5)];
@@ -157,7 +157,7 @@ public sealed class GlslPortTests
     {
         const string conditional = "#define FOG 0\n#if FOG > 0\nuniform float fog = 0.5;\n" +
                                    "#else\nconst float fog = 1.0;\n#endif";
-        var vertex = Vertex.Replace("uniform float fog = 0.5;", conditional, StringComparison.Ordinal);
+        var vertex = Vertex.Replace("uniform float fog = - 0.5;", conditional, StringComparison.Ordinal);
         var ported = Port(vertex, Fragment);
         Assert.That(ported.VertexUniforms.Members.Select(u => u.Name), Is.EqualTo(Unconditional));
     }

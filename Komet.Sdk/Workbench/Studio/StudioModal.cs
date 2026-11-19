@@ -8,12 +8,24 @@ namespace Komet.Sdk;
 // and version checked as typed) and a question before something cannot be undone
 internal sealed partial class StudioModal(ShaderIde host)
 {
+    private static readonly Regex NotSlug =
+        new("[^a-z0-9]",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex ModId =
+        new("^[a-z0-9]+$",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex SemVer =
+        new(@"^\d+\.\d+\.\d+$",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
     private readonly TextField[] _fields = [new(80), new(40), new(20)];
     private readonly List<(string Name, string Info, bool Bad)> _parts = [];
-    private string _title = "", _sub = "", _text = "", _ok = "";
-    private string? _project;
     private Action? _confirm, _cancel, _accept;
     private int _focus;
+    private string? _project;
+    private string _title = "", _sub = "", _text = "", _ok = "";
 
     public bool Open { get; private set; }
 
@@ -61,7 +73,9 @@ internal sealed partial class StudioModal(ShaderIde host)
     {
         try
         {
-            return Directory.Exists(folder) ? Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true)).Take(999).Count() : 0;
+            return Directory.Exists(folder)
+                ? Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true)).Take(999).Count()
+                : 0;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -144,9 +158,15 @@ internal sealed partial class StudioModal(ShaderIde host)
     {
         switch (key)
         {
-            case GlKeys.Escape: Close(); return true;
-            case GlKeys.Enter or GlKeys.KeypadEnter: Accept(); return true;
-            case GlKeys.Tab when _project is not null: _focus = (_focus + 1) % _fields.Length; return true;
+            case GlKeys.Escape:
+                Close();
+                return true;
+            case GlKeys.Enter or GlKeys.KeypadEnter:
+                Accept();
+                return true;
+            case GlKeys.Tab when _project is not null:
+                _focus = (_focus + 1) % _fields.Length;
+                return true;
         }
 
         if (_project is not null) _ = _fields[_focus].Key(key, ctrl, host.Api);
@@ -158,16 +178,4 @@ internal sealed partial class StudioModal(ShaderIde host)
     {
         if (_project is not null) _fields[_focus].Type(c);
     }
-
-    private static readonly Regex NotSlug =
-        new("[^a-z0-9]",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex ModId =
-        new("^[a-z0-9]+$",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex SemVer =
-        new(@"^\d+\.\d+\.\d+$",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
 }

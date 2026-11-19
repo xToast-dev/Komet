@@ -22,7 +22,8 @@ internal static class InstalledShaders
         _files = [];
         foreach (var mod in api.ModLoader.Mods.Bounded(1024))
         {
-            if (mod.SourcePath is not { Length: > 0 } source || mod.SourceType is not (EnumModSourceType.Folder or EnumModSourceType.ZIP)) continue;
+            if (mod.SourcePath is not { Length: > 0 } source ||
+                mod.SourceType is not (EnumModSourceType.Folder or EnumModSourceType.ZIP)) continue;
 
             var name = mod.Info?.Name ?? Path.GetFileNameWithoutExtension(source);
             try
@@ -55,9 +56,12 @@ internal static class InstalledShaders
         }
 
         using var zip = ZipFile.OpenRead(source);
-        return [.. zip.Entries.Select(e => e.FullName.Replace('\\', '/'))
-            .Where(e => e.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) && ShaderPaths.IsStage(e))
-            .Select(e => source + Separator + e)];
+        return
+        [
+            .. zip.Entries.Select(e => e.FullName.Replace('\\', '/'))
+                .Where(e => e.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) && ShaderPaths.IsStage(e))
+                .Select(e => source + Separator + e)
+        ];
     }
 
     // The mod's name and the file's folder inside it, for the hit's heading
@@ -65,7 +69,9 @@ internal static class InstalledShaders
     {
         if (!Owners.TryGetValue(path, out var name) || !Roots.TryGetValue(path, out var root)) return null;
 
-        var inner = Packed(path) ? path[(root.Length + Separator.Length)..] : Path.GetRelativePath(root, path).Replace('\\', '/');
+        var inner = Packed(path)
+            ? path[(root.Length + Separator.Length)..]
+            : Path.GetRelativePath(root, path).Replace('\\', '/');
         var cut = inner.LastIndexOf('/');
         return name + "/" + (cut > 0 ? inner[..(cut + 1)] : "");
     }
@@ -81,7 +87,8 @@ internal static class InstalledShaders
         try
         {
             using var zip = ZipFile.OpenRead(archive);
-            var entry = zip.Entries.FirstOrDefault(e => e.FullName.Replace('\\', '/').Equals(inner, StringComparison.Ordinal));
+            var entry = zip.Entries.FirstOrDefault(e =>
+                e.FullName.Replace('\\', '/').Equals(inner, StringComparison.Ordinal));
             if (entry is null || entry.Length > StudioLink.MaxText)
             {
                 error = IdeText.L(entry is null ? "mod-entry-missing" : "large");

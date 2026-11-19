@@ -1,3 +1,4 @@
+using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Sdk;
@@ -7,40 +8,41 @@ namespace Komet.Sdk;
 internal sealed partial class ModelView
 {
     private const int OitAttachments = 6;
+
+    private const string ComposeFragment = """
+                                           #version 330 core
+                                           in vec2 uv;
+                                           out vec4 color;
+                                           uniform sampler2D reveal;
+                                           uniform sampler2D coverage;
+                                           uniform sampler2D bin0;
+                                           uniform sampler2D bin1;
+                                           uniform sampler2D bin2;
+                                           void main() {
+                                               vec3 visibility = vec3(1.0) - texture(reveal, uv).rgb;
+                                               vec4 bins[3] = vec4[3](texture(bin0, uv), texture(bin1, uv), texture(bin2, uv));
+                                               vec3 sum = vec3(0.0);
+                                               float remaining = 1.0;
+                                               for (int i = 0; i < 3; ++i) {
+                                                   sum += bins[i].rgb / max(0.0001, bins[i].a) * visibility[i] * remaining;
+                                                   remaining *= 1.0 - visibility[i];
+                                               }
+                                               color = vec4(sum / max(0.0001, 1.0 - remaining), 1.0 - texture(coverage, uv).r);
+                                           }
+                                           """;
+
     private static readonly DrawBuffersEnum[] OitOutputs =
-        [DrawBuffersEnum.ColorAttachment0, DrawBuffersEnum.ColorAttachment1, DrawBuffersEnum.ColorAttachment2,
-            DrawBuffersEnum.ColorAttachment3, DrawBuffersEnum.ColorAttachment4, DrawBuffersEnum.ColorAttachment5];
+    [
+        DrawBuffersEnum.ColorAttachment0, DrawBuffersEnum.ColorAttachment1, DrawBuffersEnum.ColorAttachment2,
+        DrawBuffersEnum.ColorAttachment3, DrawBuffersEnum.ColorAttachment4, DrawBuffersEnum.ColorAttachment5
+    ];
+
     private static readonly float[] ClearReveal = [1, 1, 1, 1], ClearAccumulation = [0, 0, 0, 0];
     private static readonly string[] ComposeSamplers = ["reveal", "coverage", "bin0", "bin1", "bin2"];
     private readonly int[] _oitTextures = new int[OitAttachments];
     private readonly BlendState[] _savedBlend = new BlendState[OitAttachments];
     private int _oitFb, _compose;
     private bool _usesOit;
-
-    private readonly record struct BlendState(bool On, int SrcRgb, int DstRgb, int SrcAlpha, int DstAlpha,
-        int EquationRgb, int EquationAlpha);
-
-    private const string ComposeFragment = """
-        #version 330 core
-        in vec2 uv;
-        out vec4 color;
-        uniform sampler2D reveal;
-        uniform sampler2D coverage;
-        uniform sampler2D bin0;
-        uniform sampler2D bin1;
-        uniform sampler2D bin2;
-        void main() {
-            vec3 visibility = vec3(1.0) - texture(reveal, uv).rgb;
-            vec4 bins[3] = vec4[3](texture(bin0, uv), texture(bin1, uv), texture(bin2, uv));
-            vec3 sum = vec3(0.0);
-            float remaining = 1.0;
-            for (int i = 0; i < 3; ++i) {
-                sum += bins[i].rgb / max(0.0001, bins[i].a) * visibility[i] * remaining;
-                remaining *= 1.0 - visibility[i];
-            }
-            color = vec4(sum / max(0.0001, 1.0 - remaining), 1.0 - texture(coverage, uv).r);
-        }
-        """;
 
     private bool BeginTransparency(int height)
     {
@@ -66,7 +68,7 @@ internal sealed partial class ModelView
     {
         if (_oitFb != 0) return true;
 
-        if (_compose == 0) _compose = PreviewProgram(Rendering.ModPasses.Vertex, ComposeFragment);
+        if (_compose == 0) _compose = PreviewProgram(ModPasses.Vertex, ComposeFragment);
         if (_compose == 0) return false;
 
         _oitFb = GL.GenFramebuffer();
@@ -197,4 +199,13 @@ internal sealed partial class ModelView
 
         _compose = 0;
     }
+
+    private readonly record struct BlendState(
+        bool On,
+        int SrcRgb,
+        int DstRgb,
+        int SrcAlpha,
+        int DstAlpha,
+        int EquationRgb,
+        int EquationAlpha);
 }

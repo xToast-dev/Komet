@@ -292,11 +292,11 @@ internal static class ShaderCache
     // ReSharper disable RedundantAlwaysMatchSubpattern - read from a JSON file: any member can be missing
     private static bool Whole(Recipe r) =>
         r is
-               {
-                   Inputs: not null, Target: not null, Colors: not null, Fixed.Length: PipelineRecipes.StateWords,
-                   Attributes: not null
-               } &&
-               r.Attributes.Length % PipelineRecipes.AttributeWords == 0 && Assert(r.Colors.Length < 1 << 16);
+        {
+            Inputs: not null, Target: not null, Colors: not null, Fixed.Length: PipelineRecipes.StateWords,
+            Attributes: not null
+        } &&
+        r.Attributes.Length % PipelineRecipes.AttributeWords == 0 && Assert(r.Colors.Length < 1 << 16);
     // ReSharper restore RedundantAlwaysMatchSubpattern
 
     // The device checks the header before handing it to the driver

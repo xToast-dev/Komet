@@ -1,6 +1,6 @@
 using System.Globalization;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using static Komet.Options.OptionsText;
 
 namespace Komet.Options;

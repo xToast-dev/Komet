@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
 using static Komet.Api.KapiFeatureState;

@@ -49,6 +49,12 @@ public static class Kapi
     public static string Version => Major.ToString(CultureInfo.InvariantCulture) + "." +
                                     Minor.ToString(CultureInfo.InvariantCulture);
 
+    // The connected mods and the ones refused this world, for the Connected mods page
+    internal static IReadOnlyList<KapiMod> Mods => [.. Connected.Bounded(MaxMods)];
+
+    internal static IReadOnlyList<(string ModId, string Version, string Why)> Refusals =>
+        [.. RefusedMods.Bounded(MaxMods)];
+
     /// <summary>Whether a mod written against <paramref name="version" /> can connect to this Komet.</summary>
     /// <param name="version"><c>major.minor</c>, for example <c>1.0</c>.</param>
     /// <returns>True when the major versions match and this Komet's minor version is the same or newer.</returns>
@@ -81,10 +87,6 @@ public static class Kapi
         _ = RefusedMods.RemoveAll(r => r.ModId == modId);
         return mod;
     }
-
-    // The connected mods and the ones refused this world, for the Connected mods page
-    internal static IReadOnlyList<KapiMod> Mods => [.. Connected.Bounded(MaxMods)];
-    internal static IReadOnlyList<(string ModId, string Version, string Why)> Refusals => [.. RefusedMods.Bounded(MaxMods)];
 
     // The player switched a mod's render steps off (Connected mods page); kept for the session, every world
     internal static bool IsSilenced(string modId) => Silenced.Contains(modId);
@@ -174,6 +176,9 @@ public sealed class KapiMod : IDisposable
     /// <summary>Styles for Komet's options window.</summary>
     public KapiStyles Styles { get; }
 
+    // Features stay for the world: counted apart from what Dispose undoes
+    internal int FeatureCount { get; set; }
+
     /// <summary>
     ///     Takes away everything the connection registered: passes, defines, uniforms, edits, pages, styles, holds and
     ///     event handlers. Features stay until the world closes (Harmony patches cannot all be taken back at once).
@@ -203,9 +208,6 @@ public sealed class KapiMod : IDisposable
 
     // Live registrations of a kind, for the Connected mods page
     internal int Count(KapiKind kind) => _undo.Count(k => k.Kind == kind && !k.Done);
-
-    // Features stay for the world: counted apart from what Dispose undoes
-    internal int FeatureCount { get; set; }
 
     // What Dispose undoes, last first; false when the connection is gone or full (the caller undoes at once)
     internal bool Keep(Action undo, KapiKind kind = KapiKind.Handler) => Track(undo, kind) is not null;

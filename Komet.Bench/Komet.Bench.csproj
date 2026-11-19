@@ -10,10 +10,12 @@
         <KometShipped>true</KometShipped>   <!-- Directory.Build.targets: /_/-relative paths -->
     </PropertyGroup>
 
+
     <ItemGroup>
         <Using Include="Vintagestory.API.Client.GuiElement" Static="true"/>
         <Using Include="Komet.Contracts" Static="true"/>
         <InternalsVisibleTo Include="Komet.Test"/>
+        <InternalsVisibleTo Include="Komet.Synth"/>
     </ItemGroup>
 
     <!-- Komet is the other mod in the same game, never copied into this one's folder -->

@@ -1,10 +1,7 @@
-
 namespace Komet.Sdk;
 
 internal static class ShaderAutoPairs
 {
-    internal readonly record struct Edit(int Start, int End, string Text, int Caret, bool Skip);
-
     internal static Edit? ForInput(string source, int anchor, int caret, string input)
     {
         if (input.Length != 1) return null;
@@ -27,4 +24,6 @@ internal static class ShaderAutoPairs
     }
 
     private static bool IsClosing(char typed) => typed is ')' or ']' or '}' or '"';
+
+    internal readonly record struct Edit(int Start, int End, string Text, int Caret, bool Skip);
 }

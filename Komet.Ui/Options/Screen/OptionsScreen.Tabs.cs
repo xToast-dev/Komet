@@ -23,10 +23,28 @@ internal sealed partial class OptionsScreen
 
     private const int TabGroup = 6, KeyGroup = 7, MaxSections = 64, MaxDetailLines = 10, MaxTitleLines = 3;
     private const float BackDepth = ScreenDepth - 0.6f, MarkDepth = ScreenDepth - 0.3f;
+    private readonly HashSet<string> _folded = new(StringComparer.Ordinal); // groups folded in the page list
     private OptionRow? _cursor; // the row the keys act on, lit
+
+    // The Favorites tab: the pages pinned with a right click, first among the tabs
+    private bool _favorites;
 
     private (double X, double Y, double Scale, double Alpha) _lens = (0, 0, 1, 1); // the picture's centre, scale, alpha
     private Light _mark, _tabLine;
+
+    private double _sideHeight; // the page list's rows, a doc page's sections among them
+
+    // The shared painter of the menu's controls in the current style
+    private MenuControls Controls
+    {
+        get
+        {
+            field.Style = _style;
+            return field;
+        }
+    }
+
+    private static string FavoritesSection => T("section-favorites");
 
     private Frame Geometry(double width, double bottom)
     {
@@ -157,9 +175,6 @@ internal sealed partial class OptionsScreen
 
         _canvas.Unclip();
     }
-
-    private double _sideHeight; // the page list's rows, a doc page's sections among them
-    private readonly HashSet<string> _folded = new(StringComparer.Ordinal); // groups folded in the page list
 
     // A group's heading in the page list: a click folds its pages away or shows them again
     private void GroupHeading(string heading, (double X, double W, double Top, double View) list, double y)
@@ -552,16 +567,6 @@ internal sealed partial class OptionsScreen
     private double SpacedWidth(CairoFont font, string text, double tracking) =>
         Controls.SpacedWidth(font, text, tracking);
 
-    // The shared painter of the menu's controls in the current style
-    private MenuControls Controls
-    {
-        get
-        {
-            field.Style = _style;
-            return field;
-        }
-    }
-
     private List<string> Sections()
     {
         List<string> sections = Favorites().Length > 0 ? [FavoritesSection] : [];
@@ -579,11 +584,6 @@ internal sealed partial class OptionsScreen
 
         return Array.Find(_pages, p => p.Id == _page)?.Section ?? (_pages.Length > 0 ? _pages[0].Section : "");
     }
-
-    // The Favorites tab: the pages pinned with a right click, first among the tabs
-    private bool _favorites;
-
-    private static string FavoritesSection => T("section-favorites");
 
     // The pinned pages that exist now, in the order pinned (a page gone, a mod removed, is skipped)
     private OptionPage[] Favorites() =>

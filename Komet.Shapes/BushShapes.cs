@@ -42,7 +42,7 @@ internal static class BushShapes
             foreach (var method in AccessTools.GetDeclaredMethods(nested).Bounded(MaxNested))
             {
                 if (method.Name.StartsWith("<ensureMeshExists>", StringComparison.Ordinal) &&
-                method.ReturnType == typeof(MeshData))
+                    method.ReturnType == typeof(MeshData))
                 {
                     return method;
                 }

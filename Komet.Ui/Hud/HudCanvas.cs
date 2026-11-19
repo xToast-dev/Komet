@@ -27,6 +27,12 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
     private static readonly FontOptions
         Subpixel = new() { Antialias = Antialias.Subpixel }; // what CairoFont.SetupContext sets
 
+    // ReSharper disable once ReplaceWithPrimaryConstructorParameter - the other partial files use it, not the parameter
+    private readonly bool _background = background;
+
+    // ReSharper disable once ReplaceWithPrimaryConstructorParameter - the other partial files use it, not the parameter
+    private readonly ICoreClientAPI _capi = capi; // the primary constructor's parameters reach only this file
+
     private readonly Vec4f _tint = new();
     private Page? _abandoned; // the page painting when Drop() came: thrown away, not uploaded
 
@@ -46,11 +52,6 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
     private Page _page = new();
     private ImageSurface? _surface;
     private byte[] _text = new byte[256];
-
-    // ReSharper disable once ReplaceWithPrimaryConstructorParameter - the other partial files use it, not the parameter
-    private readonly ICoreClientAPI _capi = capi; // the primary constructor's parameters reach only this file
-    // ReSharper disable once ReplaceWithPrimaryConstructorParameter - the other partial files use it, not the parameter
-    private readonly bool _background = background;
     private LoadedTexture _texture = new(capi);
     private byte[] _utf8 = new byte[256];
 

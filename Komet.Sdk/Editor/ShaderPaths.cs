@@ -1,4 +1,3 @@
-
 namespace Komet.Sdk;
 
 // Where shader sources live and what they are: the game's read-only shaders and includes, the working copies under the
@@ -10,6 +9,7 @@ internal static class ShaderPaths
     private static string GameShaderFolder => Path.Join(GamePaths.AssetsPath, "game", "shaders");
     private static string GameRoot => Path.GetDirectoryName(GameShaderFolder)!;
     private static string IncludeFolder => Path.Join(GameRoot, "shaderincludes");
+
     public static bool IsStage(string path) =>
         ShaderAssets.IsSource(path);
 

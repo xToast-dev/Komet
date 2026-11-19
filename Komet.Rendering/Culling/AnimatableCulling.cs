@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 
 namespace Komet.Rendering;
@@ -65,12 +65,12 @@ internal static class AnimatableCulling
     }
 
     private static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
-                [typeof(float), typeof(EnumRenderStage)]),
-            AccessTools.DeclaredMethod(typeof(AnimatableRenderer), "mainThreadInit",
-                [typeof(ICoreClientAPI), typeof(MeshData), typeof(EnumRenderStage)])
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
+            [typeof(float), typeof(EnumRenderStage)]),
+        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), "mainThreadInit",
+            [typeof(ICoreClientAPI), typeof(MeshData), typeof(EnumRenderStage)])
+    ];
 
     internal static MethodBase?[] Shaped() => [.. Seams().AsSpan(0, 1)];
 
@@ -126,6 +126,7 @@ internal static class AnimatableCulling
         {
             return true;
         }
+
         // the engine's own exit
         if (__instance.mtmeshrefOpaque is not { Disposed: false, Initialized: true }) return true;
 
@@ -238,7 +239,7 @@ internal static class AnimatableCulling
     // At least the 3x3 part's largest stretch
     private static float Frobenius(ReadOnlySpan<float> m) =>
         MathF.Sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2] +
-                          m[4] * m[4] + m[5] * m[5] + m[6] * m[6] + m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+                   m[4] * m[4] + m[5] * m[5] + m[6] * m[6] + m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
 
     private static float Distance(float x, float y, float z) => MathF.Sqrt(x * x + y * y + z * z);
 

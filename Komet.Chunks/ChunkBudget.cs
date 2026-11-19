@@ -25,7 +25,8 @@ internal static class ChunkBudget
     public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3, CeilingMillis = 6;
 
     private const int BoostMillis = 8,
-        StillMillis = 14, // backlog and a camera that stood still a second: the world catches up while nobody looks around
+        StillMillis =
+            14, // backlog and a camera that stood still a second: the world catches up while nobody looks around
         StillAbove = 1000,
         StillRoomMillis = 25, // the still boost only while frames come faster than this: a slow frame stays at 8 ms
         BoostAbove = 400,
@@ -38,6 +39,9 @@ internal static class ChunkBudget
     private static long _deadline, _ceiling, _began, _spent, _allowed, _typical;
     private static bool _admitted, _fired, _asked, _cut, _yielded;
 
+    private static (double X, double Y, double Z, float Yaw, float Pitch) _seen;
+    private static long _stillSince, _lastBegin, _interval;
+
     public static int CapMillis { get; set; } = DefaultCapMillis;
     public static bool Capped { get; private set; }
     public static bool Ceiled { get; private set; } // the priority loop's gate is in
@@ -47,9 +51,6 @@ internal static class ChunkBudget
 
     // The camera now (position, yaw, pitch); null outside a world. Set by the feature's install.
     public static Func<(double X, double Y, double Z, float Yaw, float Pitch)?>? Camera { get; set; }
-
-    private static (double X, double Y, double Z, float Yaw, float Pitch) _seen;
-    private static long _stillSince, _lastBegin, _interval;
 
     // Totals while Counting.Hud: cap stops, priority cuts, frames over the cap and by how much (Stopwatch ticks)
     public static long CapHits { get; private set; }
@@ -61,9 +62,9 @@ internal static class ChunkBudget
     private static extern ref bool PriorityAsked(ChunkTesselatorManager manager);
 
     internal static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.OnBeforeFrame))
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager), nameof(ChunkTesselatorManager.OnBeforeFrame))
+    ];
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
@@ -93,7 +94,8 @@ internal static class ChunkBudget
         Boosted = Boosted ? waiting >= BoostBelow : waiting > BoostAbove;
         var now = Stopwatch.GetTimestamp();
         (_interval, _lastBegin) = (_lastBegin == 0 ? 0 : now - _lastBegin, now);
-        Still = Boosted && waiting > StillAbove && _interval < StillRoomMillis * Stopwatch.Frequency / 1000 && StoodStill(now);
+        Still = Boosted && waiting > StillAbove && _interval < StillRoomMillis * Stopwatch.Frequency / 1000 &&
+                StoodStill(now);
         var boost = Still ? StillMillis : BoostMillis;
         var millis = CapMillis == Uncapped || !Boosted ? CapMillis : Math.Max(CapMillis, boost);
         var own = millis != Uncapped ? Ticks(millis) : 0;

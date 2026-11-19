@@ -23,7 +23,8 @@ internal static partial class ProjectAssets
             [typeof(string), typeof(HashSet<string>)]);
         if (load is null || collect is null)
         {
-            api.Logger.Warning("Komet Shader Studio: engine bindings cannot be checked; game shader overrides are disabled.");
+            api.Logger.Warning(
+                "Komet Shader Studio: engine bindings cannot be checked; game shader overrides are disabled.");
             return;
         }
 
@@ -36,7 +37,8 @@ internal static partial class ProjectAssets
         else
         {
             ClearInterfaceCheck();
-            api.Logger.Warning("Komet Shader Studio: the binding check could not be installed; game shader overrides are disabled.");
+            api.Logger.Warning(
+                "Komet Shader Studio: the binding check could not be installed; game shader overrides are disabled.");
         }
     }
 
@@ -47,7 +49,8 @@ internal static partial class ProjectAssets
     // The engine's setters index the declaration tables directly. It records declarations even when their
     // OpenGL location is -1, so comparing active GPU uniforms would miss bindings the game still needs.
     [SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
-        Justification = "The original is only loaded as source. Disposing it would make OpenGL calls on uncompiled stages.")]
+        Justification =
+            "The original is only loaded as source. Disposing it would make OpenGL calls on uncompiled stages.")]
     // ReSharper disable once InconsistentNaming Harmony binds the engine's parameter name
     private static void CheckInterface(ShaderProgram program, bool useSSBOs)
     {
@@ -55,7 +58,7 @@ internal static partial class ProjectAssets
             _collectUniforms is not { } collect || !program.LoadFromFile || Winners.Count == 0) return;
 
         var affected = Winners.Where(pair => IsProgramStage(pair.Key, program.PassName) ||
-                                               program.includes.Contains(Path.GetFileName(pair.Key))).ToArray();
+                                             program.includes.Contains(Path.GetFileName(pair.Key))).ToArray();
         if (affected.Length == 0) return;
 
         var original = LoadOriginal(api, program, useSSBOs, load);
@@ -73,7 +76,8 @@ internal static partial class ProjectAssets
         program.includes = original.includes;
         program.LoadError = original.LoadError;
 
-        var error = $"{program.PassName}: missing engine shader bindings ({string.Join(", ", missing)}). The game shader is used instead.";
+        var error =
+            $"{program.PassName}: missing engine shader bindings ({string.Join(", ", missing)}). The game shader is used instead.";
         foreach (var (_, copy) in affected.Bounded(MaxFiles)) InterfaceErrors[copy] = error;
         api.Logger.Warning("Komet Shader Studio: {0}", error);
     }
@@ -135,7 +139,8 @@ internal static partial class ProjectAssets
         var names = new HashSet<string>(StringComparer.Ordinal);
         var scratch = Scratch; // one for every call: it only holds the collector's dictionary, no graphics resources
         scratch.textureLocations.Clear();
-        foreach (var shader in (ReadOnlySpan<Shader?>)[program.VertexShader, program.FragmentShader, program.GeometryShader])
+        foreach (var shader in (ReadOnlySpan<Shader?>)
+                 [program.VertexShader, program.FragmentShader, program.GeometryShader])
         {
             if (shader?.Code is { } code) collect(scratch, code, names);
         }

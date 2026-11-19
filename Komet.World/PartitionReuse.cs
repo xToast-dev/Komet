@@ -58,8 +58,8 @@ internal static class PartitionReuse
 
     private static bool Fields(Type chunk) =>
         Assert(AccessTools.DeclaredField(chunk, "Entities")?.FieldType == typeof(List<Entity>[])) &&
-               Assert(AccessTools.DeclaredField(chunk, "InanimateEntities")?.FieldType == typeof(List<Entity>[])) &&
-               Assert(chunk.IsClass && AccessTools.DeclaredConstructor(chunk, []) is not null);
+        Assert(AccessTools.DeclaredField(chunk, "InanimateEntities")?.FieldType == typeof(List<Entity>[])) &&
+        Assert(chunk.IsClass && AccessTools.DeclaredConstructor(chunk, []) is not null);
 
     internal static List<CodeInstruction> RewritePartition(IEnumerable<CodeInstruction> instructions)
     {

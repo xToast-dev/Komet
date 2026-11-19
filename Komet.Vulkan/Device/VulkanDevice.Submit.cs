@@ -1,4 +1,3 @@
-
 namespace Komet.Vulkan;
 
 // Submitted without waiting; a frame's command buffer is reused only once its fence says the GPU is done with it

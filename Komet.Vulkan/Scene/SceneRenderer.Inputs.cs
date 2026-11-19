@@ -183,6 +183,8 @@ internal sealed partial class SceneRenderer
 
         var samplerObject = GlTap.Unit(unit).Sampler;
         _bound.Add((unit, kind, (uint)texture, samplerObject));
+        if (_terrain.SpecularFallback(program.Program, sampler, target, image) is { } fallback) return fallback;
+
         var state = samplerObject > 0
             ? SamplerObject(samplerObject)
             : _terrain.Targets.Sampling(texture) ?? _terrain.SamplingOf(texture);

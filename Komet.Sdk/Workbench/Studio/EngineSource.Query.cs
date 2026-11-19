@@ -42,8 +42,10 @@ internal static partial class EngineSource
         if (sites.Count == 0) return null;
 
         var text = new StringBuilder();
-        _ = text.Append("// Engine code that uses the shader program \"").Append(program).Append("\", decompiled from your own ")
-            .Append("game installation (read-only).\n// Ctrl+click a uniform's declaration in the shader to jump to where it is set.\n\n");
+        _ = text.Append("// Engine code that uses the shader program \"").Append(program)
+            .Append("\", decompiled from your own ")
+            .Append(
+                "game installation (read-only).\n// Ctrl+click a uniform's declaration in the shader to jump to where it is set.\n\n");
         foreach (var group in sites.GroupBy(s => s.Assembly).ToArray().Bounded(8))
         {
             Decompile(text, group.Key, [.. group]);
@@ -102,7 +104,8 @@ internal static partial class EngineSource
         var resolver = new UniversalAssemblyResolver(path, false, file.DetectTargetFrameworkId());
         resolver.AddSearchDirectory(GamePaths.Binaries);
         resolver.AddSearchDirectory(Path.Join(GamePaths.Binaries, "Lib"));
-        var decompiler = new CSharpDecompiler(file, resolver, new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });
+        var decompiler = new CSharpDecompiler(file, resolver,
+            new DecompilerSettings { ThrowOnAssemblyResolveErrors = false });
         foreach (var site in sites.Bounded(MaxShown))
         {
             var method = file.Metadata.GetMethodDefinition(site.Method);

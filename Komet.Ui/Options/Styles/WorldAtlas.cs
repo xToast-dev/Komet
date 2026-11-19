@@ -240,7 +240,7 @@ internal sealed class WorldAtlas(ICoreClientAPI capi) : IDisposable
             for (var tx = from; tx <= Math.Min(to, Size - 1); tx++)
             {
                 pixels[tz * Size + tx] = Mean(colors, (tx + 0.5) * step - left, (tz + 0.5) * step - top, step) |
-                                     unchecked((int)0xFF000000);
+                                         unchecked((int)0xFF000000);
             }
         }
     }

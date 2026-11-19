@@ -55,14 +55,15 @@ internal static class LiveForce
         AccessTools.FieldRefAccess<AuroraRenderer, bool>("renderAurora");
 
     // Whether the workbench can force this program in the game
-    public static bool Can(string? program) => program is not null && (program == Aurora || Settings.ContainsKey(program));
+    public static bool Can(string? program) =>
+        program is not null && (program == Aurora || Settings.ContainsKey(program));
 
     public static bool IsForced(string? program) => program is not null && Forced.Contains(program);
 
     public static void Install(Harmony harmony)
     {
         if (_patched || AccessTools.DeclaredMethod(typeof(AuroraRenderer), nameof(AuroraRenderer.OnRenderFrame)) is not
-            { } render) return;
+                { } render) return;
 
         _ = harmony.Patch(render, postfix: new HarmonyMethod(typeof(LiveForce), nameof(AuroraPostfix)));
         _patched = true;

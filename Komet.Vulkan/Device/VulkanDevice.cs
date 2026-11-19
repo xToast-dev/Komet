@@ -353,7 +353,7 @@ internal sealed unsafe partial class VulkanDevice : IDisposable
     // Whether the device blits from (into: to) the format, of those Asked; false for any other
     public static bool Blits(uint format, bool into) =>
         Optimal.TryGetValue(format, out var features) &&
-               (features & (into ? Vk.FeatureBlitTarget : Vk.FeatureBlitSource)) != 0;
+        (features & (into ? Vk.FeatureBlitTarget : Vk.FeatureBlitSource)) != 0;
 
     public int MemoryType(uint typeBits, uint wanted, uint unwanted = 0)
     {

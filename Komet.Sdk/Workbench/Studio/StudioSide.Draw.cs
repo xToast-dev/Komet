@@ -1,6 +1,8 @@
+using System.Globalization;
 using Komet.Core;
 using Komet.Hud;
 using Komet.Options;
+using Vintagestory.Client.NoObf;
 using static Komet.Sdk.IdeText;
 
 namespace Komet.Sdk;
@@ -8,9 +10,12 @@ namespace Komet.Sdk;
 // The right column's sections and rows, painted with the options menu's controls
 internal sealed partial class StudioSide
 {
+    private readonly PeekRegion _peek = new(host);
     private OptionRow? _dragRow;
     private double _dragValue, _railFrom, _railW;
     private RailRegion? _rail;
+
+    private double _viewHeight;
 
     public void Draw(HudUi ui, double x, double top, double w, double h)
     {
@@ -54,8 +59,6 @@ internal sealed partial class StudioSide
         ScrollBar(ui, band, h);
     }
 
-    private double _viewHeight;
-
     // The column's scroll bar on its right edge, shown whenever the sections are taller than the column
     private void ScrollBar(HudUi ui, double top, double h)
     {
@@ -71,7 +74,8 @@ internal sealed partial class StudioSide
     // PREVIEW, SETTINGS, THIS SHADER, GAME VALUES, FRAME, each folding (the folds are kept in studio.json)
     private double View(HudUi ui, double y)
     {
-        y = Section(ui, y, "view", L("preview"), ViewCost() is > 0 and var ms ? L("buffer-cost", BufferView.Format((float)ms)) : "");
+        y = Section(ui, y, "view", L("preview"),
+            ViewCost() is > 0 and var ms ? L("buffer-cost", BufferView.Format((float)ms)) : "");
         if (Open("view"))
         {
             y = Toolbar(ui, y);
@@ -116,7 +120,8 @@ internal sealed partial class StudioSide
         ui.Text(_x + ui.Px(14), y, h, ui.F.Small, ui.Fit(ui.F.Small, label, lw - ui.Px(6)), HudUi.Soft);
         ui.Fill(tx, y + h / 2 - ui.Px(3), tw, ui.Px(6), HudUi.Track with { A = 0.15 });
         ui.Fill(tx, y + h / 2 - ui.Px(3), tw * value, ui.Px(6), HudUi.Link);
-        ui.TextRight(tx + tw, y - h * 0.55, h, ui.F.Small, ((int)(value * 100)).ToString(System.Globalization.CultureInfo.InvariantCulture) + " %", HudUi.Faint);
+        ui.TextRight(tx + tw, y - h * 0.55, h, ui.F.Small,
+            ((int)(value * 100)).ToString(CultureInfo.InvariantCulture) + " %", HudUi.Faint);
         Click(tx, y, tw, h, () =>
         {
             set((float)((host.MouseX - tx) / Math.Max(tw, 1)));
@@ -129,16 +134,16 @@ internal sealed partial class StudioSide
     private double CloudPreviewControl(HudUi ui, double y)
     {
         const int volumetric = 1;
-        if (!host.VolumetricModel || Vintagestory.Client.NoObf.ClientSettings.CloudRenderMode == volumetric) return y;
+        if (!host.VolumetricModel || ClientSettings.CloudRenderMode == volumetric) return y;
 
         var label = L("model-enable-volumetric");
         var width = ui.TextW(ui.F.Small, label) + ui.Px(16);
         var height = ui.Px(26);
         Tool(ui, _x + ui.Px(6), y, width, height, label, false, true, () =>
-        {
-            Vintagestory.Client.NoObf.ClientSettings.CloudRenderMode = volumetric;
-            host.AddLog(L("model-enable-volumetric"));
-        },
+            {
+                ClientSettings.CloudRenderMode = volumetric;
+                host.AddLog(L("model-enable-volumetric"));
+            },
             L("tip-model-enable-volumetric"));
         return y + height + ui.Px(6);
     }
@@ -230,7 +235,8 @@ internal sealed partial class StudioSide
         var (mw, vw) = (ui.TextW(ui.F.Small, mine) + ui.Px(16), ui.TextW(ui.F.Small, vanilla) + ui.Px(16));
         var sx = _x + _w - ui.Px(6) - mw - vw;
         var runs = L("game-runs");
-        ui.Text(x + ui.Px(2), y, bh, ui.F.Small, ui.Fit(ui.F.Small, runs, Math.Max(ui.Px(20), sx - x - ui.Px(8))), HudUi.Soft);
+        ui.Text(x + ui.Px(2), y, bh, ui.F.Small, ui.Fit(ui.F.Small, runs, Math.Max(ui.Px(20), sx - x - ui.Px(8))),
+            HudUi.Soft);
         host.Tip(x, y, sx - x, bh, L("tip-game-runs"));
         Tool(ui, sx, y, mw, bh, mine, !RunsVanilla, true, () => ShowOriginal(false), L("tip-game-runs"));
         Tool(ui, sx + mw, y, vw, bh, vanilla, RunsVanilla, true, () => ShowOriginal(true), L("tip-game-runs"));
@@ -248,7 +254,8 @@ internal sealed partial class StudioSide
         if (!LiveForce.Can(program))
         {
             // nothing hides it: the game draws it whenever its object is on screen
-            ui.Text(x + ui.Px(2), y, bh, ui.F.Small, ui.Fit(ui.F.Small, L("force-always"), _w - ui.Px(12)), HudUi.Faint);
+            ui.Text(x + ui.Px(2), y, bh, ui.F.Small, ui.Fit(ui.F.Small, L("force-always"), _w - ui.Px(12)),
+                HudUi.Faint);
             host.Tip(x, y, _w, bh, L("tip-force-always"));
             return y + bh + ui.Px(8);
         }
@@ -257,15 +264,14 @@ internal sealed partial class StudioSide
         var (fw, nw) = (ui.TextW(ui.F.Small, off) + ui.Px(16), ui.TextW(ui.F.Small, on) + ui.Px(16));
         var sx = _x + _w - ui.Px(6) - fw - nw;
         var forced = LiveForce.IsForced(program);
-        ui.Text(x + ui.Px(2), y, bh, ui.F.Small, ui.Fit(ui.F.Small, L("force-live"), Math.Max(ui.Px(20), sx - x - ui.Px(8))),
+        ui.Text(x + ui.Px(2), y, bh, ui.F.Small,
+            ui.Fit(ui.F.Small, L("force-live"), Math.Max(ui.Px(20), sx - x - ui.Px(8))),
             HudUi.Soft);
         host.Tip(x, y, sx - x, bh, L("tip-force-live"));
         Tool(ui, sx, y, fw, bh, off, !forced, true, () => LiveForce.Set(program, false), L("tip-force-live"));
         Tool(ui, sx + fw, y, nw, bh, on, forced, true, () => LiveForce.Set(program, true), L("tip-force-live"));
         return y + bh + ui.Px(8);
     }
-
-    private readonly PeekRegion _peek = new(host);
 
     // What the active pack and its passes that are on declare, as the menu's rows; a pass switched off takes its rows
     // away (their values stay)
@@ -289,7 +295,7 @@ internal sealed partial class StudioSide
 
     private bool Shows(OptionRow row) =>
         row.Kind is OptionKind.Switch or OptionKind.Choice or OptionKind.Slider &&
-               Model.Shows(_keyOf.GetValueOrDefault(row.Label) ?? "");
+        Model.Shows(_keyOf.GetValueOrDefault(row.Label) ?? "");
 
     // A group's heading only over rows that show (an empty LOOK heading stays away)
     private bool GroupHasRows(OptionPage page, int group)

@@ -60,12 +60,17 @@ internal static class ShaderAssets
     public static string[] Folders() =>
         StudioFiles.GameAssets.Length == 0
             ? []
-            : [.. Domains.SelectMany(domain => Categories.Select(category =>
-                Path.Join(StudioFiles.GameAssets, domain, category))).Where(Directory.Exists)];
+            :
+            [
+                .. Domains.SelectMany(domain => Categories.Select(category =>
+                    Path.Join(StudioFiles.GameAssets, domain, category))).Where(Directory.Exists)
+            ];
 
     public static string[] Files() =>
-        [.. Folders().SelectMany(ShaderProjects.Files).Take(FileLimit)
-            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ThenBy(path => path, StringComparer.Ordinal)];
+    [
+        .. Folders().SelectMany(ShaderProjects.Files).Take(FileLimit)
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).ThenBy(path => path, StringComparer.Ordinal)
+    ];
 
     public static string ProgramKey(string program, string ext)
     {

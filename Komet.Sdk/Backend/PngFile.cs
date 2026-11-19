@@ -50,7 +50,8 @@ internal static class PngFile
     }
 
     private static void BigEndian(byte[] to, int at, uint value) =>
-        (to[at], to[at + 1], to[at + 2], to[at + 3]) = ((byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value);
+        (to[at], to[at + 1], to[at + 2], to[at + 3]) =
+        ((byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value);
 
     private static uint[] MakeCrc()
     {

@@ -1,8 +1,13 @@
-
 namespace Komet.Sdk;
 
 // A problem a build found in a file, on the editor's line (0-based) and column (1-based)
-internal readonly record struct BuildIssue(string File, int Line, int Column, bool Error, string Message, string Renderer);
+internal readonly record struct BuildIssue(
+    string File,
+    int Line,
+    int Column,
+    bool Error,
+    string Message,
+    string Renderer);
 
 // A build as the screen shows it: good, its problems, skipped (reloads held back), states still pending, files
 internal sealed record BuildReport(bool Ok, BuildIssue[] Issues, bool Skipped, bool Pending, string[] Files);
@@ -27,7 +32,8 @@ internal sealed partial class StudioLink(ICoreClientAPI capi)
     public static bool Within(string path, string folder)
     {
         var relative = Path.GetRelativePath(folder, path);
-        return relative == "." || (!relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative));
+        return relative == "." ||
+               (!relative.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(relative));
     }
 
     // The project a path belongs to, null outside the projects folder
@@ -53,14 +59,12 @@ internal sealed partial class StudioLink(ICoreClientAPI capi)
     // Folders the studio keeps: never renamed, moved or deleted
     public static bool Fixed(string path) =>
         PathEquals(path, DataRoot) || PathEquals(path, KometFolder) || PathEquals(path, ProjectsFolder) ||
-               PathEquals(path, TrashFolder) || PathEquals(path, AssetsRoot) ||
-               PathEquals(path, StudioFiles.SettingsFile);
+        PathEquals(path, TrashFolder) || PathEquals(path, AssetsRoot) ||
+        PathEquals(path, StudioFiles.SettingsFile);
 
     // The game shader a project copy stands for (shaders/x.fsh, includes/x.fsh in a project), else null
-    public static string? GameFileOf(string path)
-    {
-        return ShaderProjects.GameFileOf(path) is { } key ? ShaderAssets.InstalledPath(key) : null;
-    }
+    public static string? GameFileOf(string path) =>
+        ShaderProjects.GameFileOf(path) is { } key ? ShaderAssets.InstalledPath(key) : null;
 
     // A game shader's asset path for the backend ("shaders/x.fsh", "shaderincludes/x.ash"), null for anything else
     public static string? Relative(string gameFile) => ShaderAssets.FromDisk(gameFile);

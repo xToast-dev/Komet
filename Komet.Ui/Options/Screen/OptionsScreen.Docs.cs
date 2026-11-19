@@ -28,11 +28,11 @@ internal sealed partial class OptionsScreen
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
 
     private (int Block, long At) _copied = (-1, 0);
-    private (string Page, string Term, double X, double Y)? _term; // the explanation open beside a clicked term
-    private (string Page, int Block, long At)? _termFlash; // a glossary entry lit after a jump to it
-    private (string Page, int Block)? _jump; // scroll to this block once its page is laid out
 
     private DocLayout? _doc;
+    private (string Page, int Block)? _jump; // scroll to this block once its page is laid out
+    private (string Page, string Term, double X, double Y)? _term; // the explanation open beside a clicked term
+    private (string Page, int Block, long At)? _termFlash; // a glossary entry lit after a jump to it
 
     private static bool IsDoc(OptionPage? page) => page?.Doc is { Count: > 0 };
 
@@ -127,7 +127,7 @@ internal sealed partial class OptionsScreen
         }
 
         if (line.Font is { } font && blocks[line.Block] is
-            { Kind: DocText.Kind.Code, Language: "csharp" or "glsl" or "json" or "xml" })
+                { Kind: DocText.Kind.Code, Language: "csharp" or "glsl" or "json" or "xml" })
         {
             DrawCode(line, x, y, font);
             return;
@@ -410,7 +410,8 @@ internal sealed partial class OptionsScreen
 
         // the deepest heading once per layout, not per compose (each scroll tick recomposes)
         var last = anchors.Count > 0 ? anchors.Values.Max() : 0;
-        (_doc, _dirty) = (new DocLayout(page, width, _fonts.Epoch, lines, y + S(24), anchors, last), true); // the tree too
+        (_doc, _dirty) =
+            (new DocLayout(page, width, _fonts.Epoch, lines, y + S(24), anchors, last), true); // the tree too
         return _doc;
     }
 
@@ -582,7 +583,7 @@ internal sealed partial class OptionsScreen
         foreach (var row in rows.Bounded(64))
         {
             foreach (var part in row.Split("->", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                     .Bounded(16))
+                         .Bounded(16))
             {
                 if (part is not ("v" or "↓")) steps.Add(DocText.Strip(DocText.Plain(part)));
             }

@@ -282,14 +282,16 @@ internal sealed unsafe class SharedImage : IDisposable
     {
         why = "";
         if (!NotNull(device) || !Assert(size is { Width: > 0, Height: > 0 }) || !Assert(size.Levels is > 0 and <= 16) ||
-            !Assert(size.Layers is > 0 and <= MaxLayers) || !Assert(!cube || size.Layers == 6) || !Assert(stands >= 0) ||
-            !Assert(depth is >= 0 and <= MaxDepth) || !Assert(depth == 0 || (size.Layers == 1 && !cube && !arrayed)))
+            !Assert(size.Layers is > 0 and <= MaxLayers) || !Assert(!cube || size.Layers == 6) ||
+            !Assert(stands >= 0) ||
+            !Assert(depth is >= 0 and <= MaxDepth) || !Assert(depth == 0 || (size.Layers == 1 && !arrayed)))
         {
             return null;
         }
 
         return Owned.Kept(
-            new SharedImage(device.Handle, size, format) { Cube = cube, Texture = stands, Arrayed = arrayed, Depth = depth },
+            new SharedImage(device.Handle, size, format)
+                { Cube = cube, Texture = stands, Arrayed = arrayed, Depth = depth },
             (device, usage), static (image, s) => image.Allocate(s.device, s.usage), out why);
     }
 
@@ -302,7 +304,8 @@ internal sealed unsafe class SharedImage : IDisposable
             SType = Vk.ImageCreateInfo, Flags = Cube ? Vk.CubeCompatible : 0,
             ImageType = Volume ? 2u : 1, Format = Format.Vulkan,
             Width = (uint)Width,
-            Height = (uint)Height, Depth = Volume ? (uint)Depth : 1, MipLevels = (uint)Levels, ArrayLayers = (uint)Layers, Samples = 1,
+            Height = (uint)Height, Depth = Volume ? (uint)Depth : 1, MipLevels = (uint)Levels,
+            ArrayLayers = (uint)Layers, Samples = 1,
             Usage = usage,
             InitialLayout = Vk.LayoutUndefined
         };

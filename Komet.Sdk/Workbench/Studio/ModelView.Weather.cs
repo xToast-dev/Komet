@@ -11,11 +11,11 @@ internal sealed partial class ModelView
     private const float WorldUnits = 50f, AuroraUnits = 125f;
     private const float AuroraAltitude = 300f, AuroraHeight = 200f;
     private const float CloudAltitude = 160f;
-    private int _weatherMap, _weatherColor, _clearLiquidDepth;
-    private int _weatherInputs, _weatherWind, _mapFb, _mapTiles, _mapColors, _companion;
-    private (string Vertex, string Fragment)? _weatherSource;
     private bool _companionPending;
     private (int First, int Count) _ribbon, _cloudTiles;
+    private int _weatherInputs, _weatherWind, _mapFb, _mapTiles, _mapColors, _companion;
+    private int _weatherMap, _weatherColor, _clearLiquidDepth;
+    private (string Vertex, string Fragment)? _weatherSource;
 
     public void WeatherCompanion(string vertex, string fragment)
     {
@@ -122,7 +122,8 @@ internal sealed partial class ModelView
         var rows = (height + 3) / 4;
         var farDepth = new float[width * rows];
         Array.Fill(farDepth, 1f);
-        _clearLiquidDepth = Texture(width, rows, PixelInternalFormat.DepthComponent24, PixelFormat.DepthComponent, farDepth);
+        _clearLiquidDepth = Texture(width, rows, PixelInternalFormat.DepthComponent24, PixelFormat.DepthComponent,
+            farDepth);
     }
 
     private void BuildWeatherMap()
@@ -202,10 +203,10 @@ internal sealed partial class ModelView
         for (var tile = 0; tile < 24; tile++)
         {
             var angle = tile / 24f * MathF.Tau;
-            var distance = 350f + (tile % 4) * 68f;
+            var distance = 350f + tile % 4 * 68f;
             var x = MathF.Sin(angle) * distance;
             var z = MathF.Cos(angle) * distance;
-            var y = CloudAltitude - 30f + (tile % 4) * 9f;
+            var y = CloudAltitude - 30f + tile % 4 * 9f;
             for (var side = 0; side < 6; side++)
             {
                 foreach (var (s, t) in Corners.Bounded(6))

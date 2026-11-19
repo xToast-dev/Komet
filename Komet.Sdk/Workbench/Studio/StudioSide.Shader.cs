@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Komet.Hud;
 using Komet.Options;
 using static Komet.Sdk.IdeText;
@@ -11,11 +12,11 @@ namespace Komet.Sdk;
 internal sealed partial class StudioSide
 {
     private const long LiveEveryMs = 250;
+    private readonly Dictionary<string, float[]?> _live = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _unfolded = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, float[]?> _live = new(StringComparer.Ordinal);
-    private List<ShaderItem> _items = [];
     private List<(string Name, string Value)> _defines = [];
+    private List<ShaderItem> _items = [];
     private string? _itemsOf;
     private long _liveAt;
     private double _liveMs; // the last refresh's cost (glGetUniform of every uniform), shown in the head
@@ -23,11 +24,13 @@ internal sealed partial class StudioSide
     // The open file's declarations again when its text changed, the live values when due
     private void ShaderRefresh(ShaderDocument document)
     {
-        var key = document.Path + "\n" + document.Text.Length + ":" + document.Text.GetHashCode(StringComparison.Ordinal);
+        var key = document.Path + "\n" + document.Text.Length + ":" +
+                  document.Text.GetHashCode(StringComparison.Ordinal);
         if (key != _itemsOf)
         {
             _itemsOf = key;
-            _items = ShaderInfo.Declared(document.Text, document.Path.EndsWith(".vsh", StringComparison.OrdinalIgnoreCase));
+            _items = ShaderInfo.Declared(document.Text,
+                document.Path.EndsWith(".vsh", StringComparison.OrdinalIgnoreCase));
             _liveAt = 0;
         }
 
@@ -35,7 +38,7 @@ internal sealed partial class StudioSide
         if (now - _liveAt < LiveEveryMs) return;
 
         _liveAt = now;
-        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var clock = Stopwatch.StartNew();
         _defines = ShaderInfo.Defines(document.Path);
         _live.Clear();
         if (ShaderInfo.ProgramOf(document.Path) is { } program)
@@ -61,7 +64,8 @@ internal sealed partial class StudioSide
         }
 
         ShaderRefresh(document);
-        y = SubHead(ui, y, L("this-uniforms") + "  ·  " + L("buffer-cost", BufferView.Format((float)_liveMs)) + " / 250 ms");
+        y = SubHead(ui, y,
+            L("this-uniforms") + "  ·  " + L("buffer-cost", BufferView.Format((float)_liveMs)) + " / 250 ms");
         foreach (var item in _items.Bounded(ShaderInfo.MaxItems))
         {
             y = item.Kind == ShaderItemKind.Uniform ? UniformRow(ui, y, item, document) : y;
@@ -80,7 +84,8 @@ internal sealed partial class StudioSide
             if (item.Kind is ShaderItemKind.Input or ShaderItemKind.Output)
             {
                 var offset = item.Offset;
-                y = Line(ui, y, (item.Kind == ShaderItemKind.Input ? "in  " : "out ") + item.Name, item.Type, item.Detail,
+                y = Line(ui, y, (item.Kind == ShaderItemKind.Input ? "in  " : "out ") + item.Name, item.Type,
+                    item.Detail,
                     () => Jump(document, offset));
             }
         }
@@ -127,7 +132,8 @@ internal sealed partial class StudioSide
         }
 
         ui.Text(_x + ui.Px(14), y, h, ui.F.Mono, ui.Fit(ui.F.Mono, name, _w * 0.5), HudUi.Soft);
-        ui.TextRight(_x + _w - ui.Px(14), y, h, ui.F.Small, ui.Fit(ui.F.Small, (value + "  " + note).Trim(), _w * 0.45), HudUi.Faint);
+        ui.TextRight(_x + _w - ui.Px(14), y, h, ui.F.Small, ui.Fit(ui.F.Small, (value + "  " + note).Trim(), _w * 0.45),
+            HudUi.Faint);
         Click(_x, y, _w, h, click);
         return y + h;
     }

@@ -54,11 +54,11 @@ internal static class FeatureHolds
     // A refused hold (feature -1, e.g. the server thread's) holds nothing; off the main thread Handles is not ours to change
     public static bool Release(KapiHold hold) =>
         NotNull(hold) && hold.Feature >= 0 && !FeatureLog.OffMain("releasing", hold.FeatureId) &&
-               Handles.Remove(hold) && Release(hold.Feature);
+        Handles.Remove(hold) && Release(hold.Feature);
 
     public static bool Held(int knob) =>
         Index(knob, Knobs.Count) && Index(Knobs.At(knob).Owner, FeatureTable.Count) &&
-               Holds[Knobs.At(knob).Owner] > 0;
+        Holds[Knobs.At(knob).Owner] > 0;
 
     public static string? LockText(int knob)
     {

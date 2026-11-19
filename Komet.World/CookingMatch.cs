@@ -2,8 +2,8 @@ using System.Collections;
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 
 namespace Komet.World;
 

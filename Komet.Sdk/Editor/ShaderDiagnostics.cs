@@ -6,7 +6,12 @@ namespace Komet.Sdk;
 
 // A problem on a line (0-based) at a column (1-based). Renderer names the one renderer it fails under ("" both).
 // Inherited: a copy's warning the game's own file carries already (grey in the editor, not under PROBLEMS)
-internal readonly record struct Diagnostic(int Line, int Column, string Message, bool Error, string Renderer = "",
+internal readonly record struct Diagnostic(
+    int Line,
+    int Column,
+    string Message,
+    bool Error,
+    string Renderer = "",
     bool Inherited = false);
 
 // The problems of the studio's files: the quick checks of the draft (a missing ';', braces, unused defines and uniforms,
@@ -16,11 +21,36 @@ internal sealed class ShaderDiagnostics
 {
     private const int MaxIssues = 128, MaxFiles = 256;
 
-    private readonly Dictionary<string, (string Text, Diagnostic[] Issues)> _checked = new(StringComparer.Ordinal);
+    private static readonly Regex DefineRx =
+        new(@"#define\s+(\w+)",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex UniformRx =
+        new(@"uniform\s+\w+\s+(\w+)\s*;",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex VulkanRx =
+        new(@"\b(texture2D|gl_FragColor|gl_FragData)\b",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex CommentRx =
+        new(@"//[^\n]*",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
     private readonly Dictionary<string, Diagnostic[]> _built = new(StringComparer.Ordinal);
     private readonly Dictionary<int, (int Start, int Count, int First)> _byLine = []; // First: its own issue, -1 none
+
+    private readonly Dictionary<string, (string Text, Diagnostic[] Issues)> _checked = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, (HashSet<(string, string)> Theirs, HashSet<string> Unchanged)> _vanilla =
+        new(StringComparer.Ordinal);
+
+    private (string Path, string Text, Diagnostic[]? Built, Diagnostic[] Issues)? _classified;
     private Diagnostic[] _shown = [];
     private string? _shownPath, _shownText;
+
+    // Says whether something sets a uniform a file declares (the studio: game, Komet, pack, a mod); null: no checks
+    public static System.Func<string, string, bool>? IsSet { get; set; }
 
     // The problems of a file's text, its build's after the checks
     private Diagnostic[] Of(string path, string text)
@@ -61,8 +91,11 @@ internal sealed class ShaderDiagnostics
         foreach (var issue in issues.Bounded(MaxIssues * 4))
         {
             var list = _built.TryGetValue(issue.File, out var known) ? known : [];
-            _built[issue.File] = [.. list, new Diagnostic(issue.Line, issue.Column, issue.Message, issue.Error,
-                issue.Renderer)];
+            _built[issue.File] =
+            [
+                .. list, new Diagnostic(issue.Line, issue.Column, issue.Message, issue.Error,
+                    issue.Renderer)
+            ];
         }
 
         _shownText = null;
@@ -126,17 +159,14 @@ internal sealed class ShaderDiagnostics
             var issue = issues[i];
             var line = (uint)issue.Line < (uint)lines.Length ? lines[issue.Line].Trim() : null;
             var inherited = !issue.Error && line is not null && (theirs.Contains((issue.Message, line)) ||
-                                                                 (Array.IndexOf(built, issue) >= 0 && unchanged.Contains(line)));
+                                                                 (Array.IndexOf(built, issue) >= 0 &&
+                                                                  unchanged.Contains(line)));
             marked[i] = issue with { Inherited = inherited };
         }
 
         _classified = (path, text, _built.GetValueOrDefault(path), marked);
         return marked;
     }
-
-    private (string Path, string Text, Diagnostic[]? Built, Diagnostic[] Issues)? _classified;
-    private readonly Dictionary<string, (HashSet<(string, string)> Theirs, HashSet<string> Unchanged)> _vanilla =
-        new(StringComparer.Ordinal);
 
     // The game's file's own warnings and code lines, read and inspected once per file (it never changes in a session)
     private (HashSet<(string, string)> Theirs, HashSet<string> Unchanged)? Vanilla(string game)
@@ -179,9 +209,6 @@ internal sealed class ShaderDiagnostics
         return [.. issues.Take(MaxIssues)];
     }
 
-    // Says whether something sets a uniform a file declares (the studio: game, Komet, pack, a mod); null: no checks
-    public static System.Func<string, string, bool>? IsSet { get; set; }
-
     private static void NotSet(List<Diagnostic> issues, string path, string text)
     {
         if (IsSet is not { } isSet) return;
@@ -209,8 +236,11 @@ internal sealed class ShaderDiagnostics
         {
             var message = e.Message;
             var cut = message.IndexOf(" Path:", StringComparison.Ordinal);
-            return [new Diagnostic((int)(e.LineNumber ?? 0), (int)(e.BytePositionInLine ?? 0) + 1,
-                L("json-invalid") + ": " + (cut > 0 ? message[..cut] : message), true)];
+            return
+            [
+                new Diagnostic((int)(e.LineNumber ?? 0), (int)(e.BytePositionInLine ?? 0) + 1,
+                    L("json-invalid") + ": " + (cut > 0 ? message[..cut] : message), true)
+            ];
         }
     }
 
@@ -283,7 +313,8 @@ internal sealed class ShaderDiagnostics
             if (next.Length > 0)
             {
                 // the statement goes on, or its ';' stands alone on the next line (rift.fsh, galaxy.fsh)
-                return next[0] is not ('+' or '-' or '*' or '/' or '=' or '&' or '|' or '?' or ':' or '.' or ')' or '<' or
+                return next[0] is not ('+' or '-' or '*' or '/' or '=' or '&' or '|' or '?' or ':' or '.' or ')' or '<'
+                    or
                     '>' or '{' or ';' or ',' or ']');
             }
         }
@@ -307,20 +338,4 @@ internal sealed class ShaderDiagnostics
             }
         }
     }
-
-    private static readonly Regex DefineRx =
-        new(@"#define\s+(\w+)",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex UniformRx =
-        new(@"uniform\s+\w+\s+(\w+)\s*;",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex VulkanRx =
-        new(@"\b(texture2D|gl_FragColor|gl_FragData)\b",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex CommentRx =
-        new(@"//[^\n]*",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
 }

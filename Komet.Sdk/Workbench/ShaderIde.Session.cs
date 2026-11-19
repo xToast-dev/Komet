@@ -15,6 +15,8 @@ internal sealed partial class ShaderIde
 
     public BufferView Buffers { get; } = new();
 
+    public bool TakingSnapshot => _snapCountdown >= 0;
+
     // IDevTool: the preview's texture this frame
     public int Picture(int sharp)
     {
@@ -29,14 +31,14 @@ internal sealed partial class ShaderIde
 
         try
         {
-            Buffers.Inspect(_capi);
+            Buffers.Inspect(Api);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException)
         {
             AddLog(L("buffer-inspect-failed", e.Message)); // a debug read never takes the game down
         }
 
-        var texture = Buffers.Picture(_capi, sharp);
+        var texture = Buffers.Picture(Api, sharp);
         SnapshotStep();
         return texture;
     }
@@ -54,8 +56,6 @@ internal sealed partial class ShaderIde
         (_snapCountdown, _snapWaited) = (_snapToggled ? SnapshotFrames : 1, 0);
         AddLog(L("buffer-snapshot-taking"));
     }
-
-    public bool TakingSnapshot => _snapCountdown >= 0;
 
     // A left-click menu (the preview's target list): filled by the caller, shown at the place
     public void Dropdown(double x, double y, Action<ContextMenu> fill)

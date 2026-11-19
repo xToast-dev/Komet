@@ -34,7 +34,8 @@ Drop the release zip (`komet_<version>.zip`) into the game's `Mods` folder.
 
 ## Building
 
-Needs the .NET 10 SDK and Vintage Story. Windows defaults to `%APPDATA%/Vintagestory`; Linux checks
+Building with C# 14 requires the .NET 10 SDK specified in `global.json` and a Vintage Story installation.
+Windows defaults to `%APPDATA%/Vintagestory`. Linux checks
 `$XDG_DATA_HOME/vintagestory`, `~/.local/share/vintagestory`, then `/opt/vintagestory`.
 Set `VINTAGE_STORY` or pass `-p:VsInstall=…` for another installation.
 

@@ -1,6 +1,7 @@
 using Komet.Diagnostics;
-using Vintagestory.Client;
+using Komet.Options;
 using Komet.Ui.Hud;
+using Vintagestory.Client;
 using static Komet.Hud.HudParts;
 
 namespace Komet.Hud;
@@ -18,8 +19,8 @@ internal sealed partial class OverlayCard(
 {
     private const double OverlayWidth = 212, ToastEverySeconds = 3, ToastShownSeconds = 5;
     private const int MaxDetailRows = 64, MaxDialogs = 256;
-    private readonly List<(double X, double Y, double W, double H)> _hud = [];
     private const double DetailWidth = 300;
+    private readonly List<(double X, double Y, double W, double H)> _hud = [];
     private HudCanvas? _overlayCanvas, _toastCanvas, _detailCanvas, _framesCanvas;
     private bool _overlayDirty = true;
     private long _toastAt = long.MinValue / 2, _spikesSeen;
@@ -82,7 +83,7 @@ internal sealed partial class OverlayCard(
             (T("hud-d-frametime"), N(l.AvgMs, 1) + " / " + N(l.P99, 1) + " / " + N(frames.WorstMs, 1) + " ms"),
             (T("hud-d-lows"), N(l.Low01) + " FPS · " + N(sampler.Spikes.Count)),
             ("", ""),
-            (T("hud-renderer"), Komet.Options.VulkanMode.Renderer()),
+            (T("hud-renderer"), VulkanMode.Renderer()),
             (T("hud-d-gpu"), N(l.GpuMs, 2) + " ms · " + N(draws)),
             (T("hud-d-tris"), N(l.DrawnTriangles / 1e6, 1) + " / " + N(l.Triangles / 1e6, 1) + " M"),
             (T("hud-v-culled"), double.IsFinite(l.CulledPercent) ? N(l.CulledPercent) + " %" : "–"),
@@ -92,11 +93,13 @@ internal sealed partial class OverlayCard(
             ("", ""),
             (T("hud-d-ram"), Gb(r.UsedRamMb) + " / " + Gb(r.TotalRamMb) + " GB"),
             (T("hud-d-process"), Gb(r.WorkingSetMb) + " / " + Gb(r.ManagedUsedMb) + " GB"),
-            (T("hud-d-vram"), double.IsFinite(g.VramUsedMb) ? Gb(g.VramUsedMb) + " / " + Gb(g.VramTotalMb) + " GB" : "–"),
+            (T("hud-d-vram"),
+                double.IsFinite(g.VramUsedMb) ? Gb(g.VramUsedMb) + " / " + Gb(g.VramTotalMb) + " GB" : "–"),
             (T("hud-d-gc"), N(r.GcPausePercent, 1) + " % · " + N(r.AllocatedMbPerSec) + " MB/s"),
             ("", ""),
             (T("hud-d-chunks"), N(RuntimeStats.chunksReceived - RuntimeStats.chunksUnloaded) + " · " +
-                                N(RuntimeStats.chunksAwaitingTesselation) + " / " + N(RuntimeStats.chunksAwaitingPooling)),
+                                N(RuntimeStats.chunksAwaitingTesselation) + " / " +
+                                N(RuntimeStats.chunksAwaitingPooling)),
             (T("hud-d-entities"), N(RuntimeStats.renderedEntities) + " / " + N(capi.World?.LoadedEntities?.Count ?? 0))
         ];
     }
@@ -116,9 +119,11 @@ internal sealed partial class OverlayCard(
 
             foreach (var (_, composer) in dialog.Composers.Bounded(MaxDialogs))
             {
-                if (composer?.Bounds is not { } b || !double.IsFinite(b.renderX) || !double.IsFinite(b.renderY)) continue;
+                if (composer?.Bounds is not { } b || !double.IsFinite(b.renderX) ||
+                    !double.IsFinite(b.renderY)) continue;
 
-                if (b.OuterWidth <= 0 || b.OuterHeight <= 0 || b.OuterWidth * b.OuterHeight > width * height / 4) continue;
+                if (b.OuterWidth <= 0 || b.OuterHeight <= 0 ||
+                    b.OuterWidth * b.OuterHeight > width * height / 4) continue;
 
                 if (_hud.Count < MaxDialogs) _hud.Add((b.renderX, b.renderY, b.OuterWidth, b.OuterHeight));
             }
@@ -183,7 +188,7 @@ internal sealed partial class OverlayCard(
         var rows = Details();
         var lines = Array.FindAll(rows, row => row.Label.Length == 0).Length;
         var w = DetailWidth * px;
-        var h = 12 * px + f.StrongRow + 2 * px + (rows.Length - lines) * f.SmallRow + lines * 7 * px;
+        var h = 12 * px + f.StrongRow + 2 * px + (rows.Length - lines) * f.SmallRow + lines * (7 * px);
         if (!_detailCanvas.Blank(w, h)) return;
 
         HudUi.Ground(_detailCanvas, w, h, HudUi.Back with { A = 0.95 * settings.Opacity }, scaled(4));

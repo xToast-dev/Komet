@@ -10,8 +10,11 @@ internal sealed class FindWidget(ShaderIde host)
     private const int MaxMatches = 4096;
     private readonly TextField _query = new(), _replace = new();
     private bool _case;
-    private int _queryVersion = -1, _textVersion = -1;
+    private int _countAt = -2, _countOf = -2;
+
+    private string _countText = "";
     private ShaderDocument? _of;
+    private int _queryVersion = -1, _textVersion = -1;
     private Action? _toggle, _caseClick, _prev, _next, _close, _one, _all, _focusQuery, _focusReplace;
 
     public bool Open { get; private set; }
@@ -89,7 +92,7 @@ internal sealed class FindWidget(ShaderIde host)
         if (matches.Count == 0 || host.Active is not { } document) return;
 
         var index = step == 0 ? Math.Max(0, matches.FindIndex(m => m >= from)) : host.Editor.Match + step;
-        index = ((index % matches.Count) + matches.Count) % matches.Count;
+        index = (index % matches.Count + matches.Count) % matches.Count;
         host.Editor.Match = index;
         document.Select(matches[index], matches[index] + _query.Text.Length);
     }
@@ -135,7 +138,9 @@ internal sealed class FindWidget(ShaderIde host)
                 }
 
                 return true;
-            case GlKeys.Enter or GlKeys.KeypadEnter: Go(shift ? -1 : 1); return true;
+            case GlKeys.Enter or GlKeys.KeypadEnter:
+                Go(shift ? -1 : 1);
+                return true;
             case GlKeys.Tab when Replacing && !ReadOnly:
                 host.Focus = host.Focus == StudioFocus.Find ? StudioFocus.Replace : StudioFocus.Find;
                 return true;
@@ -217,9 +222,6 @@ internal sealed class FindWidget(ShaderIde host)
         StudioIcons.Close(ui, at + 3 * b + b / 2, y + h / 2, ui.Px(8), HudUi.Faint);
     }
 
-    private string _countText = "";
-    private int _countAt = -2, _countOf = -2;
-
     private string Count()
     {
         var matches = host.Editor.Matches;
@@ -228,7 +230,8 @@ internal sealed class FindWidget(ShaderIde host)
         if (_countAt != host.Editor.Match || _countOf != matches.Count)
         {
             (_countAt, _countOf) = (host.Editor.Match, matches.Count);
-            _countText = matches.Count == 0 ? L("no-hits")
+            _countText = matches.Count == 0
+                ? L("no-hits")
                 : L("n-of-m", host.Editor.Match + 1, matches.Count);
         }
 

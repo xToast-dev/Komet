@@ -20,10 +20,10 @@ internal sealed partial class TerrainRenderer
     private long _bridgedBefore; // by bridges let go (a resize or the switch remakes them): Bridged only grows
     private FrameBridge.Shot? _bridging; // this frame's scene copied, before the GUI
     private long _dropRun, _dropRuns, _unmadeChains;
-    private bool _shownOnce;
     private bool _noSwapchain;
     private long _refreshAsked; // Stopwatch ticks of the last look at the monitor's rate
     private int _refreshHz;
+    private bool _shownOnce;
     private WindowSwapchain? _swapchain;
 
     private FrameBufferRef? _window;

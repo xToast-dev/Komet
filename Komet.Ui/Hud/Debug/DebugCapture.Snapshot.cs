@@ -66,11 +66,11 @@ internal sealed partial class DebugCapture
     }
 
     private (string Mod, double Ms, (string Name, double Ms)[] Top)[] DebugModTimes() =>
-        [
-            .. _debugMods.Select(m => (m.Key, m.Value.Sum / Math.Max(1, m.Value.Intervals),
-                    _debugModTop.GetValueOrDefault(m.Key, [])))
-                .OrderByDescending(static m => m.Item2)
-        ];
+    [
+        .. _debugMods.Select(m => (m.Key, m.Value.Sum / Math.Max(1, m.Value.Intervals),
+                _debugModTop.GetValueOrDefault(m.Key, [])))
+            .OrderByDescending(static m => m.Item2)
+    ];
 
     private (string, string)[] SystemRows()
     {

@@ -76,7 +76,7 @@ internal sealed class StyleSheet
 
     public static string Current(string id) =>
         NotNull(id) &&
-               Array.Exists(Former, old => string.Equals(id.Trim(), old, StringComparison.OrdinalIgnoreCase))
+        Array.Exists(Former, old => string.Equals(id.Trim(), old, StringComparison.OrdinalIgnoreCase))
             ? Pragmatic
             : id;
 

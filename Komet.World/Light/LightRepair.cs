@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 using Vintagestory.Common;
@@ -387,7 +387,7 @@ internal static partial class LightRepair
                     whole[(x, z)] = column;
                 }
                 else if (loaded.Keys.Any(key => key.X == x && key.Z == z) && Waiting.Count < MaxWaiting &&
-                     !Waiting.Contains((dimension, x, z)))
+                         !Waiting.Contains((dimension, x, z)))
                 {
                     Waiting.Enqueue((dimension, x, z));
                 }

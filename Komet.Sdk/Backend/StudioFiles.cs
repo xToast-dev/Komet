@@ -40,7 +40,8 @@ internal static class StudioFiles
         try
         {
             var entries = new DirectoryInfo(full).EnumerateFileSystemInfos("*", Shallow).Take(MaxEntries)
-                .Select(info => new StudioEntry(info.FullName, info.Name, info is DirectoryInfo, CanWrite(info.FullName)))
+                .Select(info =>
+                    new StudioEntry(info.FullName, info.Name, info is DirectoryInfo, CanWrite(info.FullName)))
                 .OrderBy(e => e.Folder ? 0 : 1).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
             return [.. entries];
         }

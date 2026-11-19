@@ -32,7 +32,12 @@ internal static class DocText
     // A clickable word: the link opening, its target, the separator, the word, the link closing; each word of a link
     // stands alone so lines break between them. The target is a docs page id or the term prefix and the term. A key:
     // the key opening, the hotkey code, the key closing.
-    public const char LinkOpen = '\u0003', LinkClose = '\u0004', LinkTo = '\u0005', KeyOpen = '\u0006', KeyClose = '\u0007';
+    public const char LinkOpen = '\u0003',
+        LinkClose = '\u0004',
+        LinkTo = '\u0005',
+        KeyOpen = '\u0006',
+        KeyClose = '\u0007';
+
     public const string TermTarget = "term:";
 
     private static readonly char[] Marks = [CodeOpen, CodeClose, LinkOpen, LinkClose, LinkTo, KeyOpen, KeyClose];
@@ -48,15 +53,15 @@ internal static class DocText
     private static readonly Regex Entry = new(@"^(.+?):\s+(.+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
 
-    // The player's binding of a hotkey code ("Ctrl + F7"); the options screen sets it, without it the code shows
-    public static System.Func<string, string>? KeyName { get; set; }
-
     private static readonly Regex PageLink = new(@"^\[([^\]]+)\]\((docs-[a-z0-9-]+)\)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
 
     private static readonly Regex Number = new(@"^(\d{1,3})\.\s+(.*)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(200));
+
+    // The player's binding of a hotkey code ("Ctrl + F7"); the options screen sets it, without it the code shows
+    public static System.Func<string, string>? KeyName { get; set; }
 
     public static List<Block> Parse(string markdown)
     {
@@ -194,7 +199,7 @@ internal static class DocText
 
     private static bool IsSeparator(string line) =>
         line.Trim().StartsWith('|') &&
-               line.Replace("|", "", StringComparison.Ordinal).Trim().Trim('-', ':', ' ').Length == 0;
+        line.Replace("|", "", StringComparison.Ordinal).Trim().Trim('-', ':', ' ').Length == 0;
 
     // **bold**, `code` and [text](url) as their text
     internal static string Plain(string text)

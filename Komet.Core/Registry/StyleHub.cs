@@ -7,13 +7,13 @@ namespace Komet.Core;
 // styles. Styles registered from code go when the world closes.
 internal static class StyleHub
 {
-    // Its styles and subscriptions belong to the world they were registered in
-    static StyleHub() => WorldEnd.On(nameof(StyleHub), Clear);
-
     /// <summary>How many styles code may register.</summary>
     public const int MaxStyles = 32;
 
     private static readonly List<StyleData> Registered = [];
+
+    // Its styles and subscriptions belong to the world they were registered in
+    static StyleHub() => WorldEnd.On(nameof(StyleHub), Clear);
 
     internal static int Count => Registered.Count;
 

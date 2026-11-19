@@ -6,8 +6,8 @@ internal sealed partial class OverlayCard
 {
     private const int Overlay = 0, Frames = 1, DetailCard = 2, Cards = 3;
     private readonly (double X, double Y, double W, double H)[] _shown = new (double, double, double, double)[Cards];
-    private (double X, double Y) _grab;
     private int _dragging = -1;
+    private (double X, double Y) _grab;
 
     // Where the player dropped the card, NaN when it takes its own place
     private (double X, double Y) Saved(int card) => card switch

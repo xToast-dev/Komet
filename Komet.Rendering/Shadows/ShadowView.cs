@@ -116,14 +116,14 @@ internal static class ShadowView
 
     private static bool Same(Plane a, Plane b) =>
         Bits(a.normalX) == Bits(b.normalX) && Bits(a.normalY) == Bits(b.normalY) &&
-               Bits(a.normalZ) == Bits(b.normalZ) && Bits(a.D) == Bits(b.D);
+        Bits(a.normalZ) == Bits(b.normalZ) && Bits(a.D) == Bits(b.D);
 
     private static long Bits(double value) => BitConverter.DoubleToInt64Bits(value);
 
     // Shadow pass moves no vertex far (wind only): no world warp or perception effect
     internal static bool Unwarped(ICoreClientAPI? api) =>
         api?.Render?.ShaderUniforms is { GlitchWaviness: <= 0, GlobalWorldWarp: <= 0 } u &&
-               (u.PerceptionEffectId == 1 || u.PerceptionEffectIntensity <= 0);
+        (u.PerceptionEffectId == 1 || u.PerceptionEffectIntensity <= 0);
 
     // light: the shadow pass's near plane, facing along it. Returns planes written.
     public static int Casters(Plane light, Span<Plane> into)

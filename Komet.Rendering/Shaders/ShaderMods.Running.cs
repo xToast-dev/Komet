@@ -1,6 +1,5 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
@@ -8,12 +7,38 @@ namespace Komet.Rendering;
 // ShaderMods: starting, pausing and resuming a mod's systems while the game runs.
 internal static partial class ShaderMods
 {
+    // A mesh may call into a mod's Harmony wrappers from the engine or Komet's workers.
+    private static readonly ReaderWriterLockSlim TerrainGate = new(LockRecursionPolicy.SupportsRecursion);
+
+    private static void InstallTerrainGate(Harmony harmony)
+    {
+        var pass = AccessTools.DeclaredMethod(typeof(ChunkTesselatorManager),
+            nameof(ChunkTesselatorManager.TesselateChunk),
+            [typeof(int), typeof(int), typeof(int), typeof(bool), typeof(bool), typeof(bool).MakeByRefType()]);
+        if (!NotNull(pass)) return;
+
+        _ = harmony.Patch(pass, new HarmonyMethod(TerrainBegins) { priority = Priority.First },
+            finalizer: new HarmonyMethod(TerrainEnds) { priority = Priority.Last });
+    }
+
+    private static void TerrainBegins(out bool __state)
+    {
+        TerrainGate.EnterReadLock();
+        __state = true;
+    }
+
+    private static void TerrainEnds(bool __state)
+    {
+        if (__state) TerrainGate.ExitReadLock();
+    }
+
     // A held-back mod switched on: its systems run every phase now, in the game's order, then its files and the shaders
     // load again. False when it may not start (a dependency of another major version) or one of its phases threw.
     public static bool Start(ICoreClientAPI api, Found mod)
     {
         if (!NotNull(mod) || !Off.Contains(mod.Id) || Mismatch(api, mod.Id) is not null) return false;
 
+        using var terrain = new TerrainChange();
         if (Pauses.Remove(mod.Id, out var paused))
         {
             return Resume(api, mod, paused); // ran before: its phases ran already
@@ -37,8 +62,8 @@ internal static partial class ShaderMods
             }
         }
 
-        Reloaded(api);
         Links.ShaderUi.ModStarted(api, mod.Id); // Komet's holds and the mod's settings from Komet's level
+        Reloaded(api);
         api.Logger?.Notification("Komet: shader mod {0} started late ({1} systems){2}", mod.Id, systems.Count,
             started ? "" : ", a phase failed");
         return started;
@@ -51,6 +76,7 @@ internal static partial class ShaderMods
     {
         if (!NotNull(mod) || Off.Contains(mod.Id) || api.World is not ClientMain game) return false;
 
+        using var terrain = new TerrainChange();
         var assemblies = (api.ModLoader?.Systems ?? []).Where(s => s?.Mod?.Info?.ModID == mod.Id)
             .Select(s => s.GetType().Assembly)
             .Distinct().ToHashSet();
@@ -121,7 +147,7 @@ internal static partial class ShaderMods
                          ])
                 {
                     foreach (var patch in patches.Where(p => p.PatchMethod.DeclaringType?.Assembly is { } assembly &&
-                                                            assemblies.Contains(assembly)).Bounded(256))
+                                                             assemblies.Contains(assembly)).Bounded(256))
                     {
                         paused.Patches.Add((target, patch, kind));
                         new Harmony(patch.owner).Unpatch(target, patch.PatchMethod);
@@ -162,20 +188,21 @@ internal static partial class ShaderMods
             api.Event.RegisterRenderer(renderer, stage, name);
         }
 
+        Links.ShaderUi.ModStarted(api, mod.Id);
+
         // patches that follow the terrain's meshes (SheyderMod mirrors every pool add and remove) missed what changed
         // while they were out: the terrain is built again, so every mesh passes them once more (else the distance
         // drew from stale pool ranges)
         if (paused.Patches.Exists(p => FollowsTerrain(p.Target))) TerrainRebuild.Request();
 
         Reloaded(api);
-        Links.ShaderUi.ModStarted(api, mod.Id);
         api.Logger?.Notification("Komet: shader mod {0} resumed", mod.Id);
         Changed?.Invoke();
         return true;
     }
 
     private static bool FollowsTerrain(MethodBase target) =>
-        target.DeclaringType is { } type && (type == typeof(Vintagestory.API.Client.MeshDataPool) ||
+        target.DeclaringType is { } type && (type == typeof(MeshDataPool) ||
                                              type.Name.Contains("Tesselator", StringComparison.Ordinal) ||
                                              type.Name is "TCTCache" or "ClientWorldMap" or "ChunkRenderer");
 
@@ -192,7 +219,8 @@ internal static partial class ShaderMods
     {
         _ = api.Assets?.Reload(AssetCategory.shaders);
         _ = api.Assets?.Reload(AssetCategory.shaderincludes);
-        ShaderHub.Reload();
+        // The mod's renderers and patches already changed. Give them matching shader programs before another frame.
+        ModShaders.ReloadNow();
     }
 
     private static bool Run(ICoreClientAPI api, ModSystem system, Action<ModSystem, ICoreClientAPI> phase)
@@ -207,5 +235,12 @@ internal static partial class ShaderMods
             api.Logger?.Error("Komet: {0} failed to start late: {1}", system, e);
             return false;
         }
+    }
+
+    private readonly struct TerrainChange : IDisposable
+    {
+        public TerrainChange() => TerrainGate.EnterWriteLock();
+
+        public void Dispose() => TerrainGate.ExitWriteLock();
     }
 }

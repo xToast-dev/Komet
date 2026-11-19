@@ -11,11 +11,6 @@ internal static class ShaderPreprocessor
     internal const int MaxTokens = 256;
     private const int MaxLines = 8192, MaxDepth = 32;
 
-    private struct Block
-    {
-        public bool Parent, Taken, Active, Unknown;
-    }
-
     public static bool[] Inactive(IReadOnlyList<string> lines, IReadOnlyList<(string Name, string Value)> engine)
     {
         var defines = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -195,12 +190,19 @@ internal static class ShaderPreprocessor
         {
             var end = Ident(text, i);
             var digits = text[i..end].TrimEnd('u', 'U', 'l', 'L');
-            return long.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) ? (digits, end) : (null, end);
+            return long.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)
+                ? (digits, end)
+                : (null, end);
         }
 
         var two = i + 1 < text.Length ? text.Substring(i, 2) : "";
         if (two is "&&" or "||" or "==" or "!=" or "<=" or ">=") return (two, i + 2);
 
         return "!~*/%+-<>()".Contains(text[i], StringComparison.Ordinal) ? (text[i].ToString(), i + 1) : (null, i + 1);
+    }
+
+    private struct Block
+    {
+        public bool Parent, Taken, Active, Unknown;
     }
 }

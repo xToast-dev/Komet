@@ -30,30 +30,30 @@ internal static unsafe partial class GlTap
     public static long DeleteVersion { get; private set; }
 
     private static Entry[] ProgramEntries() =>
-        [
-            new("glUseProgram", (IntPtr)(delegate* unmanaged<uint, void>)&UseProgram),
-            new("glUniform1f", (IntPtr)(delegate* unmanaged<int, float, void>)&U1F),
-            new("glUniform2f", (IntPtr)(delegate* unmanaged<int, float, float, void>)&U2F),
-            new("glUniform3f", (IntPtr)(delegate* unmanaged<int, float, float, float, void>)&U3F),
-            new("glUniform4f", (IntPtr)(delegate* unmanaged<int, float, float, float, float, void>)&U4F),
-            new("glUniform1i", (IntPtr)(delegate* unmanaged<int, int, void>)&U1I),
-            new("glUniform2i", (IntPtr)(delegate* unmanaged<int, int, int, void>)&U2I),
-            new("glUniform3i", (IntPtr)(delegate* unmanaged<int, int, int, int, void>)&U3I),
-            new("glUniform4i", (IntPtr)(delegate* unmanaged<int, int, int, int, int, void>)&U4I),
-            new("glUniform1fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U1Fv),
-            new("glUniform2fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U2Fv),
-            new("glUniform3fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U3Fv),
-            new("glUniform4fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U4Fv),
-            new("glUniform1iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U1Iv),
-            new("glUniform2iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U2Iv),
-            new("glUniform3iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U3Iv),
-            new("glUniform4iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U4Iv),
-            new("glUniformMatrix4fv", (IntPtr)(delegate* unmanaged<int, int, byte, float*, void>)&M4Fv),
-            new("glActiveTexture", (IntPtr)(delegate* unmanaged<uint, void>)&ActiveTexture),
-            new("glBindTexture", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindTexture),
-            new("glBindTextureUnit", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindTextureUnit),
-            new("glBindSampler", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindSampler)
-        ];
+    [
+        new("glUseProgram", (IntPtr)(delegate* unmanaged<uint, void>)&UseProgram),
+        new("glUniform1f", (IntPtr)(delegate* unmanaged<int, float, void>)&U1F),
+        new("glUniform2f", (IntPtr)(delegate* unmanaged<int, float, float, void>)&U2F),
+        new("glUniform3f", (IntPtr)(delegate* unmanaged<int, float, float, float, void>)&U3F),
+        new("glUniform4f", (IntPtr)(delegate* unmanaged<int, float, float, float, float, void>)&U4F),
+        new("glUniform1i", (IntPtr)(delegate* unmanaged<int, int, void>)&U1I),
+        new("glUniform2i", (IntPtr)(delegate* unmanaged<int, int, int, void>)&U2I),
+        new("glUniform3i", (IntPtr)(delegate* unmanaged<int, int, int, int, void>)&U3I),
+        new("glUniform4i", (IntPtr)(delegate* unmanaged<int, int, int, int, int, void>)&U4I),
+        new("glUniform1fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U1Fv),
+        new("glUniform2fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U2Fv),
+        new("glUniform3fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U3Fv),
+        new("glUniform4fv", (IntPtr)(delegate* unmanaged<int, int, float*, void>)&U4Fv),
+        new("glUniform1iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U1Iv),
+        new("glUniform2iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U2Iv),
+        new("glUniform3iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U3Iv),
+        new("glUniform4iv", (IntPtr)(delegate* unmanaged<int, int, int*, void>)&U4Iv),
+        new("glUniformMatrix4fv", (IntPtr)(delegate* unmanaged<int, int, byte, float*, void>)&M4Fv),
+        new("glActiveTexture", (IntPtr)(delegate* unmanaged<uint, void>)&ActiveTexture),
+        new("glBindTexture", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindTexture),
+        new("glBindTextureUnit", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindTextureUnit),
+        new("glBindSampler", (IntPtr)(delegate* unmanaged<uint, uint, void>)&BindSampler)
+    ];
 
     // Watches a program: uniforms (from the port) by location into the mirror, seeded with the program's current values
     public static void Watch(int program, GlslPort.Ported ported, UniformMirror mirror)
@@ -263,11 +263,11 @@ internal static unsafe partial class GlTap
 
     private static bool Floats(int location, ReadOnlySpan<float> values) =>
         Assert(values.Length <= 4096) && Assert(location >= -1) &&
-               Note(location, MemoryMarshal.Cast<float, uint>(values));
+        Note(location, MemoryMarshal.Cast<float, uint>(values));
 
     private static bool Ints(int location, ReadOnlySpan<int> values) =>
         Assert(values.Length <= 4096) && Assert(location >= -1) &&
-               Note(location, MemoryMarshal.Cast<int, uint>(values));
+        Note(location, MemoryMarshal.Cast<int, uint>(values));
 
     // Whether the unit held another texture for the target (the targets not held count as changed)
     private static bool Rebound(uint unit, uint target, uint texture)

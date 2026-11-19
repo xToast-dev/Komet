@@ -123,7 +123,7 @@ internal static class HeldItemsLast
     // First person draws held items in its hand field of view, within its own DoRender3DOpaque
     private static bool Hands(object renderer) =>
         _player is { } player && player.IsInstanceOfType(renderer) && _mode is { } mode &&
-               mode(renderer) == FirstPerson;
+        mode(renderer) == FirstPerson;
 
     // Postfix: the bodies are drawn; the held items in the state the opaque pass gave them, left as they found it
     internal static void Flush(ClientMain? ___game)

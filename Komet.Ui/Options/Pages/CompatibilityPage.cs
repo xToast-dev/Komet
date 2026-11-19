@@ -1,7 +1,8 @@
 using System.Text;
+using Komet.Api;
 using Komet.Core;
 using Komet.Diagnostics;
-using Komet.Api;
+using Komet.Hud;
 using static Komet.Options.OptionsText;
 
 namespace Komet.Options;
@@ -13,8 +14,8 @@ internal static class CompatibilityPage
 
     internal static bool Relevant(KapiFeatureInfo feature) =>
         feature.State is KapiFeatureState.HeldOff or KapiFeatureState.StoodDown
-                   or KapiFeatureState.EngineChanged or KapiFeatureState.Failed or KapiFeatureState.Unknown ||
-               CompatibilityLog.HasDetails(feature.Id);
+            or KapiFeatureState.EngineChanged or KapiFeatureState.Failed or KapiFeatureState.Unknown ||
+        CompatibilityLog.HasDetails(feature.Id);
 
     internal static OptionPage Build(ICoreClientAPI? api, string section, Action<string> navigate, KometActions actions,
         out int notices)
@@ -29,7 +30,7 @@ internal static class CompatibilityPage
                 Report(issues, changes, api?.ModLoader?.GetMod(KometMod.Id)?.Info?.Version ?? "unknown", failure)))
             .Button(T("compat-guide"), T("do-open"), () => navigate(Guide), T("compat-guide-hint"))
             .Button(T("checksum"), T("do-verify"), actions.Verify, T("compat-integrity"))
-            .Button(T("debugwindow", Hud.HudSettings.KeyOf(api, "window")), T("do-open"), actions.Debug);
+            .Button(T("debugwindow", HudSettings.KeyOf(api, "window")), T("do-open"), actions.Debug);
         _ = page.Group(T("compat-features"));
         if (issues.Length == 0) _ = page.Group(T("compat-none"));
 

@@ -145,7 +145,8 @@ internal sealed partial class HudOverlay : IRenderer
         Features.Cleanup("Hud", "save settings", () => _settings.Save(_capi));
         Features.Cleanup("Hud", "release resources", () => Owned.DropAll(
         [
-            _window, _overlay, _shaders, _ask, Options, _devTools is [IDisposable tool, ..] ? tool : null, _snap, _sampler, _build
+            _window, _overlay, _shaders, _ask, Options, _devTools is [IDisposable tool, ..] ? tool : null, _snap,
+            _sampler, _build
         ]));
     }
 

@@ -232,8 +232,8 @@ internal sealed class UniformMirror
     // A GLSL type OpenGL holds as integers: int, uint, bool and their vectors
     internal static bool Integer(string type) =>
         NotNull(type) &&
-               (type is "int" or "uint" or "bool" ||
-                (type.Length == 5 && type[1..4] == "vec" && type[0] is 'i' or 'u' or 'b'));
+        (type is "int" or "uint" or "bool" ||
+         (type.Length == 5 && type[1..4] == "vec" && type[0] is 'i' or 'u' or 'b'));
 
     // Touched: set since the last draw
     public sealed class Entry(string name)

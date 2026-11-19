@@ -29,7 +29,8 @@ internal sealed partial class StudioSide
     {
         _focusValues ??= () => host.Focus = StudioFocus.Values;
         var fw = _w - ui.Px(28);
-        var h = _valueQuery.Draw(ui, _x + ui.Px(14), y + ui.Px(4), fw, L("search-values"), host.Focus == StudioFocus.Values);
+        var h = _valueQuery.Draw(ui, _x + ui.Px(14), y + ui.Px(4), fw, L("search-values"),
+            host.Focus == StudioFocus.Values);
         Click(_x + ui.Px(14), y + ui.Px(4), fw, h, _focusValues);
         y += h + ui.Px(10);
         var q = _valueQuery.Text.Trim();
@@ -45,7 +46,8 @@ internal sealed partial class StudioSide
 
         if (shown == 0)
         {
-            ui.Text(_x + ui.Px(14), y, ui.F.BodyRow, ui.F.Small, ui.Fit(ui.F.Small, L("no-values-match", q), fw), HudUi.Faint);
+            ui.Text(_x + ui.Px(14), y, ui.F.BodyRow, ui.F.Small, ui.Fit(ui.F.Small, L("no-values-match", q), fw),
+                HudUi.Faint);
             y += ui.F.BodyRow;
         }
 
@@ -66,7 +68,8 @@ internal sealed partial class StudioSide
             x += ui.Px(16);
         }
 
-        ui.Text(x, y, ui.F.BodyRow, ui.F.Mono, ui.Fit(ui.F.Mono, value.Name, _w * 0.6), declared ? HudUi.Link : HudUi.Soft);
+        ui.Text(x, y, ui.F.BodyRow, ui.F.Mono, ui.Fit(ui.F.Mono, value.Name, _w * 0.6),
+            declared ? HudUi.Link : HudUi.Soft);
         ui.TextRight(_x + _w - ui.Px(14), y, ui.F.BodyRow, ui.F.Small, declared ? L("value-declared") : value.Type,
             declared ? HudUi.Link : HudUi.Faint);
         var numbers = ui.Fit(ui.F.Mono, ShaderIde.Format(live), _w - ui.Px(28));

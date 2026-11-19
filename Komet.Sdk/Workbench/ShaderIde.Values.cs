@@ -13,8 +13,27 @@ namespace Komet.Sdk;
 internal sealed partial class ShaderIde
 {
     private static readonly string[] PassInputs = ["scene", "depth", "resolution", "time"];
+
+    // A game include declares it (fogandlight, shadowcoords …): includes are read once
+    private string[]? _includes;
     private string? _vanillaOf;
     private string _vanillaText = "";
+
+    // The editor's hover over a word: a declared uniform's type, live value and origin
+    public string? Describe(string word)
+    {
+        if (Active is not { } document || word.Length == 0) return null;
+
+        var declared = Regex.Match(document.Text, @"uniform\s+(\w+)\s+" + Regex.Escape(word) + @"\b", RegexOptions.None,
+            TimeSpan.FromMilliseconds(50));
+        var known = GameValues.Find(word);
+        if (!declared.Success && known is null) return null;
+
+        var type = declared.Success ? declared.Groups[1].Value : known!.Type;
+        var (origin, value, _) = Origin(document.Path, word);
+        return "uniform " + type + " " + word + "  ·  " + origin + (value is null ? "" : "  ·  " + value) +
+               (known is null ? "" : "  ·  " + known.Doc);
+    }
 
     // The origin's words and, when Komet knows it, the live value
     public (string Origin, string? Value, bool Set) Origin(string path, string name)
@@ -26,7 +45,8 @@ internal sealed partial class ShaderIde
             return (L("origin-pack"), Side.RowOf(setting.Key) is { } row ? row.ValueText(row.Get()) : null, true);
         }
 
-        if (Array.IndexOf(PassInputs, name) >= 0 && path.Replace('\\', '/').Contains("/passes/", StringComparison.Ordinal))
+        if (Array.IndexOf(PassInputs, name) >= 0 &&
+            path.Replace('\\', '/').Contains("/passes/", StringComparison.Ordinal))
         {
             return (L("origin-pass"), null, true);
         }
@@ -56,13 +76,13 @@ internal sealed partial class ShaderIde
             TimeSpan.FromMilliseconds(50)) || Includes(name);
     }
 
-    // A game include declares it (fogandlight, shadowcoords …): includes are read once
-    private string[]? _includes;
-
     private bool Includes(string name)
     {
-        _includes ??= [.. StudioLink.List(Path.Join(StudioLink.AssetsRoot, "game", "shaderincludes"))
-            .Where(e => !e.Folder).Select(e => StudioLink.Read(e.Path, out var text, out _) ? text : "")];
+        _includes ??=
+        [
+            .. StudioLink.List(Path.Join(StudioLink.AssetsRoot, "game", "shaderincludes"))
+                .Where(e => !e.Folder).Select(e => StudioLink.Read(e.Path, out var text, out _) ? text : "")
+        ];
         return Array.Exists(_includes, text => text.Contains(" " + name + ";", StringComparison.Ordinal) &&
                                                text.Contains("uniform", StringComparison.Ordinal));
     }
@@ -70,26 +90,10 @@ internal sealed partial class ShaderIde
     public static string Format(float[] values) =>
         string.Join(", ", values.Select(v => v.ToString("0.00", CultureInfo.InvariantCulture)));
 
-    // The editor's hover over a word: a declared uniform's type, live value and origin
-    public string? Describe(string word)
-    {
-        if (Active is not { } document || word.Length == 0) return null;
-
-        var declared = Regex.Match(document.Text, @"uniform\s+(\w+)\s+" + Regex.Escape(word) + @"\b", RegexOptions.None,
-            TimeSpan.FromMilliseconds(50));
-        var known = GameValues.Find(word);
-        if (!declared.Success && known is null) return null;
-
-        var type = declared.Success ? declared.Groups[1].Value : known!.Type;
-        var (origin, value, _) = Origin(document.Path, word);
-        return "uniform " + type + " " + word + "  ·  " + origin + (value is null ? "" : "  ·  " + value) +
-               (known is null ? "" : "  ·  " + known.Doc);
-    }
-
     // GAME VALUES' click: the declaration after the file's last uniform, else after #version and the includes
     public void Declare(GameValues.Value value)
     {
-        if (_current is not { } document || Mode != EditorMode.Mine)
+        if (Current is not { } document || Mode != EditorMode.Mine)
         {
             Toast(L("value-no-file"));
             return;
@@ -116,7 +120,7 @@ internal sealed partial class ShaderIde
     private static int DeclarationAt(string text)
     {
         var at = 0;
-        foreach (Match line in Regex.Matches(text, @"^[ \t]*(uniform\s|#version|#include|precision\s).*$\n?",
+        foreach (var line in Regex.Matches(text, @"^[ \t]*(uniform\s|#version|#include|precision\s).*$\n?",
                      RegexOptions.Multiline, TimeSpan.FromMilliseconds(100)).Bounded(512))
         {
             at = line.Index + line.Length;

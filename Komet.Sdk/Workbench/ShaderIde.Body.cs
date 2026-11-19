@@ -9,8 +9,8 @@ internal sealed class TabStrip(ShaderIde host) : IIdeRegion
 {
     private const double DragStart = 6;
     private int _from = -1;
-    private double _pressX;
     private bool _moving;
+    private double _pressX;
 
     public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
     {
@@ -49,6 +49,13 @@ internal sealed class TabStrip(ShaderIde host) : IIdeRegion
 // The code (or the comparison) with the find widget, the read-only footer, the history dropdown
 internal sealed partial class ShaderIde
 {
+    private string[]? _baselineLines;
+
+    private string? _baselineOf;
+
+    // The insertion slot a tab drag shows (0..count), -1 while none
+    public int TabDrop { get; set; } = -1;
+
     // The tab under x (its ×: the last 26 px), -1 for none
     public int TabAt(double x, out bool onClose)
     {
@@ -65,9 +72,6 @@ internal sealed partial class ShaderIde
 
         return -1;
     }
-
-    // The insertion slot a tab drag shows (0..count), -1 while none
-    public int TabDrop { get; set; } = -1;
 
     // The slot between tabs nearest x: before the first tab whose middle lies right of x
     public int TabSlotAt(double x)
@@ -115,9 +119,6 @@ internal sealed partial class ShaderIde
         Rename.Draw(ui, x + w - ui.Px(450) - ui.Px(20), y + ui.Px(Find.Open ? 80 : 6), ui.Px(450));
     }
 
-    private string? _baselineOf;
-    private string[]? _baselineLines;
-
     // The game original's lines for the changed-line marks, read once per file
     private string[]? Baseline(string game)
     {
@@ -140,7 +141,8 @@ internal sealed partial class ShaderIde
         if (!game) return;
 
         var copy = Project is null ? null : StudioLink.CopyPath(Project, document.Path);
-        var label = copy is not null ? L("open-my-copy")
+        var label = copy is not null
+            ? L("open-my-copy")
             : L("copy-into", Project ?? L("project-word"));
         var bw = ui.TextW(ui.F.Small, label) + ui.Px(24);
         var (bx, by, bh) = (x + w - ui.Px(18) - bw, y + (h - ui.Px(24)) / 2, ui.Px(24));
@@ -155,7 +157,7 @@ internal sealed partial class ShaderIde
 
     private void OpenHistory()
     {
-        if (_current is null || _current.ReadOnly)
+        if (Current is null || Current.ReadOnly)
         {
             Toast(L("no-history"));
             return;
@@ -167,7 +169,7 @@ internal sealed partial class ShaderIde
     // Verlauf: each good build's state of the file, the newest the last good one; a row compares, its link restores
     private void History(HudUi ui)
     {
-        if (!_historyOpen || _current is not { } document)
+        if (!_historyOpen || Current is not { } document)
         {
             _historyOpen = false;
             return;
@@ -178,8 +180,8 @@ internal sealed partial class ShaderIde
         var w = ui.Px(300);
         var h = ui.Px(30) + Math.Max(1, shots.Length) * row + ui.Px(8);
         var (x, y) = (Math.Max(ui.X, _historyX - w), _historyY + ui.Px(2));
-        Hits.Block(ui.X, 0, ui.W, _height);
-        Hits.Add(ui.X, 0, ui.W, _height, ToggleHistory);
+        Hits.Block(ui.X, 0, ui.W, Height);
+        Hits.Add(ui.X, 0, ui.W, Height, ToggleHistory);
         ui.Panel(x, y, w, h, HudUi.PopupBack with { A = 1 });
         TextField.Frame(ui, x, y, w, h, HudUi.Divider);
         Hits.Block(x, y, w, h);
@@ -243,7 +245,7 @@ internal sealed partial class ShaderIde
 
     private void RestoreGood()
     {
-        if (_current is not { } document || StudioLink.History(document.Path) is not { Length: > 0 } shots)
+        if (Current is not { } document || StudioLink.History(document.Path) is not { Length: > 0 } shots)
         {
             Toast(L("no-good-state"));
             return;

@@ -282,6 +282,7 @@ internal static partial class FrustumSweep
         {
             return; // a pass without pools: nothing to cull, nothing a batch holds
         }
+
         // before the player exists (world load) the engine's loop culls
         if (!NotNull(pools) || !NotNull(culler) ||
             (frustumCullMode != EnumFrustumCullMode.CullInstant && PlayerPos(culler) is null) ||

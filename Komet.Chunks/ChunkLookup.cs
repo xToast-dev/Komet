@@ -190,7 +190,8 @@ internal static class ChunkLookup
             {
                 for (var k = -1; k <= 1; k++)
                 {
-                    if (!Mirror.TryGetValue(Key(__instance, chunkX + i, chunkY + j, chunkZ + k), out var chunk)) return true;
+                    if (!Mirror.TryGetValue(Key(__instance, chunkX + i, chunkY + j, chunkZ + k), out var chunk))
+                        return true;
 
                     if (chunk.Empty) chunk = empty;
 

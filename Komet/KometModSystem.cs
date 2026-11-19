@@ -1,17 +1,20 @@
+using Komet.Core;
+using Komet.Sdk;
+
 namespace Komet;
 
 /// <summary>
-/// The game's entry: a thin lifecycle that forwards to ClientRuntime (the composition root's run of one world)
+///     The game's entry: a thin lifecycle that forwards to ClientRuntime (the composition root's run of one world)
 /// </summary>
 public sealed class KometModSystem : ModSystem, IDisposable
 {
-    private const string ModId = Core.KometMod.Id;
+    private const string ModId = KometMod.Id;
 
     private ClientRuntime? _runtime;
 
     public override void Dispose()
     {
-        Sdk.KometSdk.Dispose();
+        KometSdk.Dispose();
         var runtime = _runtime ?? new ClientRuntime();
         _runtime = null;
         runtime.Stop();
@@ -21,7 +24,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
     {
         if (NotNull(api) && NotNull(Mod.Logger))
         {
-            Core.VulkanRecord.Build = Mod.Info?.Version ?? ""; // a Vulkan failure holds for this version only
+            VulkanRecord.Build = Mod.Info?.Version ?? ""; // a Vulkan failure holds for this version only
             ClientRuntime.Prepare(api, Mod.Logger, typeof(KometModSystem).Assembly);
         }
     }
@@ -29,7 +32,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
     // The Shader Studio's hooks go in before any mod's StartClientSide
     public override void Start(ICoreAPI api)
     {
-        if (NotNull(api)) Sdk.KometSdk.Start(api);
+        if (NotNull(api)) KometSdk.Start(api);
     }
 
     public override void AssetsLoaded(ICoreAPI api)
@@ -38,8 +41,9 @@ public sealed class KometModSystem : ModSystem, IDisposable
     }
 
     /// <summary>
-    /// Client only, though modinfo says "Universal" for MapTracking: a singleplayer server instance's Dispose would clear the
-    /// client's statics
+    ///     Client only, though modinfo says "Universal" for MapTracking: a singleplayer server instance's Dispose would clear
+    ///     the
+    ///     client's statics
     /// </summary>
     /// <param name="forSide"></param>
     /// <returns></returns>
@@ -56,7 +60,7 @@ public sealed class KometModSystem : ModSystem, IDisposable
         try
         {
             _runtime.Start(api, Mod.Logger, Mod.Info.ModID);
-            Sdk.KometSdk.StartClientSide(api);
+            KometSdk.StartClientSide(api);
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

@@ -79,7 +79,7 @@ internal static partial class ShaderModules
     // A game file whose program a module keeps on the game's version (ProjectAssets)
     internal static bool KeepsGame(string gameFile, string project) =>
         ShaderAssets.Split(gameFile, out _, out var path) && path.StartsWith("shaders/", StringComparison.Ordinal) &&
-               Delta(project) is { } delta && delta.Vanilla.Contains(Path.GetFileNameWithoutExtension(path));
+        Delta(project) is { } delta && delta.Vanilla.Contains(Path.GetFileNameWithoutExtension(path));
 
     public static ShaderStage[] Stages(ICoreClientAPI api)
     {
@@ -375,7 +375,8 @@ internal static partial class ShaderModules
 
     private static Dictionary<string, int> Stored() =>
         SettingsStore.Section("shaderStudio") is JObject studio && studio["restore"] is JObject restore
-            ? restore.Properties().Take(8).ToDictionary(p => p.Name, p => p.Value.Type == JTokenType.Integer ? (int)p.Value : 0)
+            ? restore.Properties().Take(8)
+                .ToDictionary(p => p.Name, p => p.Value.Type == JTokenType.Integer ? (int)p.Value : 0)
             : [];
 
     private static void Write(Dictionary<string, int> stored)
@@ -407,9 +408,9 @@ internal static partial class ShaderModules
             if (!DrawCounter.Listening) return;
 
             var ms = Ticks * 1000.0 / Stopwatch.Frequency;
-            Ms = Samples == 0 ? ms : Ms + ((ms - Ms) * Smoothing);
+            Ms = Samples == 0 ? ms : Ms + (ms - Ms) * Smoothing;
             Samples++;
-            Ran = Runs > 0 || Ticks == 0 && Ran;
+            Ran = Runs > 0 || (Ticks == 0 && Ran);
             (Ticks, Runs) = (0, 0);
         }
     }

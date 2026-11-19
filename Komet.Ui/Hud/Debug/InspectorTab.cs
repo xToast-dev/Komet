@@ -15,15 +15,11 @@ internal sealed partial class InspectorTab(ICoreClientAPI capi) : IHudTab
     private long _programRefresh;
     private ShaderMods.Diagnostic[] _programs = [];
     private int _renderMatches;
-    private bool _sources;
     private RenderDebug.RendererInfo[] _renderers = [];
+    private bool _sources;
 
     public string Id => "inspector";
     public bool Wide => true;
-
-    private static string T(string key, params object[] args) => KometText.Translate(key, args);
-
-    private static string R(string key, params object[] args) => T("hud-render-" + key, args);
 
     public bool Live() => true;
 
@@ -61,6 +57,10 @@ internal sealed partial class InspectorTab(ICoreClientAPI capi) : IHudTab
         RenderPrograms(ui);
         if (_renderMatches == 0) ui.Wrap(R("no-matches"), HudUi.Warn);
     }
+
+    private static string T(string key, params object[] args) => KometText.Translate(key, args);
+
+    private static string R(string key, params object[] args) => T("hud-render-" + key, args);
 
     private void RenderControls(HudUi ui)
     {
@@ -118,10 +118,10 @@ internal sealed partial class InspectorTab(ICoreClientAPI capi) : IHudTab
 
     private static string PassDetails(ModPasses.Diagnostic p) =>
         R("pass-detail", p.RenderStage, p.Order, p.Program, ModShaders.IsOn(p.Mod),
-                   p.LastEnabled?.ToString() ?? R("unobserved"),
-                   p.Failed ? p.Failure : R("no-error")) + "\n" + R("inputs") +
-               " scene, depth, resolution, time, uv\n" +
-               R("uniforms") + " " + string.Join(", ", p.Uniforms);
+            p.LastEnabled?.ToString() ?? R("unobserved"),
+            p.Failed ? p.Failure : R("no-error")) + "\n" + R("inputs") +
+        " scene, depth, resolution, time, uv\n" +
+        R("uniforms") + " " + string.Join(", ", p.Uniforms);
 
     private void RenderMods(HudUi ui)
     {

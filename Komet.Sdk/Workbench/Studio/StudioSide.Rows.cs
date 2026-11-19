@@ -16,10 +16,8 @@ internal sealed class PeekRegion(ShaderIde host) : IIdeRegion
 
     public void Up() => host.Peeking = false;
 
-    public bool Wheel(double x, int lines)
-    {
-        return host.Side.Wheel(x, lines); // the column scrolls as a whole, over the button too
-    }
+    public bool Wheel(double x, int lines) =>
+        host.Side.Wheel(x, lines); // the column scrolls as a whole, over the button too
 }
 
 // A setting's rail dragged: the knob follows, the value lands in the #define on release
@@ -39,6 +37,8 @@ internal sealed class RailRegion(StudioSide side) : IIdeRegion
 // A setting's row and the Frame section
 internal sealed partial class StudioSide
 {
+    private readonly List<(double Y, double From, double W, OptionRow Row)> _railRows = [];
+
     // A row of the pack's page as the menu draws it: a group, a pill, a wheel or a rail (buttons and keys are left out)
     private double Setting(MenuControls menu, double y, OptionRow row)
     {
@@ -102,8 +102,6 @@ internal sealed partial class StudioSide
         }
     }
 
-    private readonly List<(double Y, double From, double W, OptionRow Row)> _railRows = [];
-
     public void RailDrag(double x)
     {
         if (_dragRow is null)
@@ -135,7 +133,7 @@ internal sealed partial class StudioSide
     // the Passes tab
     private double Frame(HudUi ui, MenuControls menu, double y)
     {
-        if (_modules.Length == 0)
+        if (Modules.Length == 0)
         {
             ui.Text(_x + ui.Px(14), y, ui.F.BodyRow, ui.F.Small, ui.Fit(ui.F.Small, L("no-modules"), _w - ui.Px(28)),
                 HudUi.Faint);

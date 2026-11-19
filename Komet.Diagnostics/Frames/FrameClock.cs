@@ -22,7 +22,7 @@ internal readonly record struct FrameCounters(int Gen0, int Gen1, int Gen2, long
 {
     public FrameCounters Since(in FrameCounters before) =>
         Assert(Gen0 >= before.Gen0 && Gen1 >= before.Gen1 && Gen2 >= before.Gen2) &&
-               Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
+        Assert(Allocated >= before.Allocated && MainAllocated >= before.MainAllocated)
             ? new FrameCounters(Gen0 - before.Gen0, Gen1 - before.Gen1, Gen2 - before.Gen2,
                 Allocated - before.Allocated, MainAllocated - before.MainAllocated)
             : default;

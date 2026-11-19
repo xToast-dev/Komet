@@ -122,17 +122,17 @@ internal sealed partial class SceneRenderer : IGlWrites, IDisposable
     public bool TextureSubImaged(uint texture, uint target, int level,
         (int X, int Y, int Z, int Width, int Height, int Depth) box, (uint Format, uint Type) data, IntPtr pixels) =>
         texture > 0 && Assert(texture < int.MaxValue) && Assert(target > 0) &&
-               _terrain.SubImaged((int)texture, level, box, data, pixels);
+        _terrain.SubImaged((int)texture, level, box, data, pixels);
 
     public bool TextureCopied((uint Texture, int Level, int X, int Y, int Z) to,
         (uint Texture, int Level, int X, int Y, int Z) from, (int Width, int Height, int Depth) size) =>
         to.Texture is > 0 and < int.MaxValue && Assert(from.Texture < int.MaxValue) &&
-               _terrain.Copied(to, from, size);
+        _terrain.Copied(to, from, size);
 
     public bool TextureRead(uint texture, int level, (int X, int Y, int Z) at, (int Fbo, int Read) from,
         (int X, int Y, int Width, int Height) rect) =>
         texture is > 0 and < int.MaxValue && Assert(level >= 0) &&
-               _terrain.FramebufferRead((int)texture, level, at, from, rect);
+        _terrain.FramebufferRead((int)texture, level, at, from, rect);
 
     public static SceneRenderer? Create(TerrainRenderer terrain, ILogger? logger)
     {

@@ -7,14 +7,6 @@ internal sealed partial class StudioTree
 {
     private const double DragStart = 6;
 
-    private Node? RowAt(double y)
-    {
-        if (_row <= 0 || y < _rowsTop) return null;
-
-        var index = _first + (int)((y - _rowsTop) / _row);
-        return index >= 0 && index < _rows.Count ? _rows[index] : null;
-    }
-
     public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
     {
         if (RowAt(y) is not { } node || button != EnumMouseButton.Left) return false;
@@ -67,6 +59,14 @@ internal sealed partial class StudioTree
         return true;
     }
 
+    private Node? RowAt(double y)
+    {
+        if (_row <= 0 || y < _rowsTop) return null;
+
+        var index = _first + (int)((y - _rowsTop) / _row);
+        return index >= 0 && index < _rows.Count ? _rows[index] : null;
+    }
+
     private void Toggle(string folder)
     {
         _ = _open.Remove(folder) || _open.Add(folder);
@@ -116,8 +116,12 @@ internal sealed partial class StudioTree
             case GlKeys.Enter or GlKeys.KeypadEnter when node is { Folder: false } file:
                 host.Open(file.Path);
                 return true;
-            case GlKeys.F2 when node is { } renamed: BeginRename(renamed.Path); return true;
-            case GlKeys.Delete when node is { } deleted: Delete(deleted.Path); return true;
+            case GlKeys.F2 when node is { } renamed:
+                BeginRename(renamed.Path);
+                return true;
+            case GlKeys.Delete when node is { } deleted:
+                Delete(deleted.Path);
+                return true;
             default: return true;
         }
     }
@@ -151,8 +155,12 @@ internal sealed partial class StudioTree
     {
         switch (key)
         {
-            case GlKeys.Enter or GlKeys.KeypadEnter: EndRename(true); return true;
-            case GlKeys.Escape: EndRename(false); return true;
+            case GlKeys.Enter or GlKeys.KeypadEnter:
+                EndRename(true);
+                return true;
+            case GlKeys.Escape:
+                EndRename(false);
+                return true;
             default:
                 _ = _rename.Key(key, ctrl, host.Api);
                 return true;

@@ -1,4 +1,3 @@
-
 namespace Komet.Sdk;
 
 // One open file: its text on disk and the draft, caret and selection, undo history, and the line, bracket and fold
@@ -6,13 +5,13 @@ namespace Komet.Sdk;
 internal sealed class ShaderDocument
 {
     private const int MaxSource = ShaderPaths.MaxSource, HistoryLimit = 64;
+    private readonly HashSet<int> _collapsed = [];
 
     private readonly List<Edit> _undo = [], _redo = [];
-    private readonly HashSet<int> _collapsed = [];
-    private string? _linesOf, _bracketsOf;
-    private string[] _lines = [""];
-    private int[] _offsets = [0];
     private Dictionary<int, int> _brackets = [], _folds = [];
+    private string[] _lines = [""];
+    private string? _linesOf, _bracketsOf;
+    private int[] _offsets = [0];
 
     public ShaderDocument(string path, string disk, string text, bool readOnly, int caret = 0, int firstLine = 0)
     {

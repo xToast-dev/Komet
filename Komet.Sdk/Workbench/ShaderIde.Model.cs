@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Komet.Api;
 using Komet.Rendering;
 using static Komet.Sdk.IdeText;
@@ -11,9 +13,23 @@ internal sealed partial class ShaderIde
 {
     private const long ModelDelayMs = 300;
 
-    private long _modelStamp = -1, _modelAt;
+    private const long AutoAfterMs = 1500;
+
+    // Shaders the game draws on single things (an entity, an item, a particle, the GUI), not on the terrain: on the
+    // terrain they drew nothing (the shader test showed only the water)
+    private static readonly string[] ObjectNames = ["gear", "mech", "entity", "gui", "item", "instanced", "particle"];
+
+    private static readonly Regex InRx =
+        new(@"^\s*in\s+(\w+)\s+(\w+)\s*;", RegexOptions.Multiline,
+            TimeSpan.FromMilliseconds(100));
+
+    private bool _autoModel;
+    private ShaderDocument? _declinedFor; // the player closed the automatic 3D view for this file: it stays closed
     private int _modelDisk = -1;
     private ShaderDocument? _modelFor;
+
+    private long _modelStamp = -1, _modelAt;
+    private long _undrawnSince = -1;
 
     public ModelView Model3D { get; } = new();
 
@@ -23,10 +39,10 @@ internal sealed partial class ShaderIde
     {
         get
         {
-            if (!ReferenceEquals(_current, _modelFor) || _modelDisk != DiskVersion)
+            if (!ReferenceEquals(Current, _modelFor) || _modelDisk != DiskVersion)
             {
-                field = ModelOwner(_current, field);
-                (_modelFor, _modelDisk) = (_current, DiskVersion);
+                field = ModelOwner(Current, field);
+                (_modelFor, _modelDisk) = (Current, DiskVersion);
             }
 
             return field;
@@ -35,15 +51,18 @@ internal sealed partial class ShaderIde
 
     public bool HasEngineScene => PreviewProgram is not null;
 
-    public string? PreviewIncludeOwner => IncludeFile(_current) is not null ? PreviewProgram : null;
+    public string? PreviewIncludeOwner => IncludeFile(Current) is not null ? PreviewProgram : null;
 
     public bool LiveModel => Model3D is { On: true, Shape: ModelView.ShapeCount } && HasEngineScene;
 
-    public bool VolumetricModel => LiveModel && PreviewProgram is ("cloudvolumetric" or "cloudmap");
+    public bool VolumetricModel => LiveModel && PreviewProgram is "cloudvolumetric" or "cloudmap";
+
+    // True while the 3D view shows because the game does not draw the open shader
+    public bool AutoModelShown => _autoModel && Model3D.On;
 
     public void ToggleModel()
     {
-        if (_autoModel && Model3D.On) _declinedFor = _current;
+        if (_autoModel && Model3D.On) _declinedFor = Current;
 
         _autoModel = false; // a click makes the view the player's
         Model3D.On = !Model3D.On;
@@ -61,18 +80,13 @@ internal sealed partial class ShaderIde
         }
     }
 
-    private const long AutoAfterMs = 1500;
-    private bool _autoModel;
-    private ShaderDocument? _declinedFor; // the player closed the automatic 3D view for this file: it stays closed
-    private long _undrawnSince = -1;
-
     // A shader the game is not drawing now (rift outside a storm, colormap, a pass that is off): the preview shows it in
     // the 3D view instead of an empty picture, and goes back to the game's picture once the game draws it again or
     // another file opens. A 3D view the player turned on stays theirs.
     private bool AutoModel(long now)
     {
         if (Testing) return false; // the shader test holds the view
-        var program = _current is { } document && ShaderPaths.IsStage(document.Path) ? PreviewProgram : null;
+        var program = Current is { } document && ShaderPaths.IsStage(document.Path) ? PreviewProgram : null;
         var drawn = program is null || DrawCounter.Drawn(program);
         if (drawn || (Model3D.On && !_autoModel))
         {
@@ -83,7 +97,7 @@ internal sealed partial class ShaderIde
             return true;
         }
 
-        if (Model3D.On || ReferenceEquals(_declinedFor, _current)) return false;
+        if (Model3D.On || ReferenceEquals(_declinedFor, Current)) return false;
 
         if (_undrawnSince < 0) _undrawnSince = now;
         if (now - _undrawnSince < AutoAfterMs) return false;
@@ -103,13 +117,6 @@ internal sealed partial class ShaderIde
         return Array.Exists(ObjectNames, n => program.Contains(n, StringComparison.OrdinalIgnoreCase)) ? cube : 0;
     }
 
-    // Shaders the game draws on single things (an entity, an item, a particle, the GUI), not on the terrain: on the
-    // terrain they drew nothing (the shader test showed only the water)
-    private static readonly string[] ObjectNames = ["gear", "mech", "entity", "gui", "item", "instanced", "particle"];
-
-    // True while the 3D view shows because the game does not draw the open shader
-    public bool AutoModelShown => _autoModel && Model3D.On;
-
     // Per poll: the sources again after an edit, a tab or project switch
     private bool ModelPoll(long now)
     {
@@ -122,8 +129,8 @@ internal sealed partial class ShaderIde
             return false;
         }
 
-        long stamp = (_current?.Path.GetHashCode(StringComparison.Ordinal) ?? 0) * 31L +
-                     (Project?.GetHashCode(StringComparison.Ordinal) ?? 0) + Model3D.Shape;
+        var stamp = (Current?.Path.GetHashCode(StringComparison.Ordinal) ?? 0) * 31L +
+                    (Project?.GetHashCode(StringComparison.Ordinal) ?? 0) + Model3D.Shape;
         for (var i = 0; i < Math.Min(_tabs.Count, MaxTabs + 1); i++)
         {
             stamp = stamp * 31 + _tabs[i].Version;
@@ -132,8 +139,8 @@ internal sealed partial class ShaderIde
         // a reload of the game's shaders (a build, a render setting): new program objects, another prefix and
         // include table for the draft
         var engine = PreviewProgram is { } program ? DrawCounter.Program(program) : null;
-        stamp = stamp * 31 + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(engine);
-        stamp = stamp * 31 + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(engine?.VertexShader?.PrefixCode);
+        stamp = stamp * 31 + RuntimeHelpers.GetHashCode(engine);
+        stamp = stamp * 31 + RuntimeHelpers.GetHashCode(engine?.VertexShader?.PrefixCode);
         stamp = stamp * 31 + DiskVersion;
         if (stamp != _modelStamp) (_modelStamp, _modelAt) = (stamp, now + (Model3D.Has ? ModelDelayMs : 0));
 
@@ -146,7 +153,7 @@ internal sealed partial class ShaderIde
 
     private void ModelSources()
     {
-        if (_current is not { } document)
+        if (Current is not { } document)
         {
             Model3D.Clear("");
             return;
@@ -175,24 +182,23 @@ internal sealed partial class ShaderIde
         if (program == "cloudmap") CloudMapCompanion();
 
         string? Include(string name) => DraftInclude(name, document, vanilla);
-        Model3D.Source(program, ShaderBuild.Draft(_capi, program, ".vsh", vertex, Include),
-            ShaderBuild.Draft(_capi, program, ".fsh", fragment, Include));
+        Model3D.Source(program, ShaderBuild.Draft(Api, program, ".vsh", vertex, Include),
+            ShaderBuild.Draft(Api, program, ".fsh", fragment, Include));
     }
-
-    private static readonly System.Text.RegularExpressions.Regex InRx =
-        new(@"^\s*in\s+(\w+)\s+(\w+)\s*;", System.Text.RegularExpressions.RegexOptions.Multiline,
-            TimeSpan.FromMilliseconds(100));
 
     // A vertex stage for a lone fragment stage: the quad's position through the camera, every input the fragment reads
     // written (uv from the quad, colours white, the rest zero)
     private static string StandInVertex(string fragment)
     {
-        var inputs = InRx.Matches(fragment).Take(32).Select(m => (Type: m.Groups[1].Value, Name: m.Groups[2].Value)).ToArray();
+        var inputs = InRx.Matches(fragment).Take(32).Select(m => (Type: m.Groups[1].Value, Name: m.Groups[2].Value))
+            .ToArray();
         var outs = string.Concat(inputs.Select(i => $"out {i.Type} {i.Name};\n"));
-        var sets = string.Concat(inputs.Select(i => $"    {i.Name} = {StandInValue(i.Type, i.Name.ToLowerInvariant())};\n"));
+        var sets = string.Concat(inputs.Select(i =>
+            $"    {i.Name} = {StandInValue(i.Type, i.Name.ToLowerInvariant())};\n"));
         return "#version 330 core\nlayout(location = 0) in vec3 vertexPosition;\nlayout(location = 1) in vec2 uvIn;\n" +
                "uniform mat4 projectionMatrix;\nuniform mat4 modelViewMatrix;\n" + outs +
-               "void main()\n{\n    gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n" + sets + "}\n";
+               "void main()\n{\n    gl_Position = projectionMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n" +
+               sets + "}\n";
     }
 
     // galaxy.fsh calls cnoise(vec2), a name noise2d.ash no longer has (it is cnoise2 now); the game never loads the
@@ -210,8 +216,10 @@ internal sealed partial class ShaderIde
 
     private static string StandInValue(string type, string name) => type switch
     {
-        "vec2" when name.Contains("uv", StringComparison.Ordinal) || name.Contains("tex", StringComparison.Ordinal) => "uvIn",
-        "vec4" when name.Contains("color", StringComparison.Ordinal) || name.Contains("rgba", StringComparison.Ordinal) => "vec4(1.0)",
+        "vec2" when name.Contains("uv", StringComparison.Ordinal) ||
+                    name.Contains("tex", StringComparison.Ordinal) => "uvIn",
+        "vec4" when name.Contains("color", StringComparison.Ordinal) ||
+                    name.Contains("rgba", StringComparison.Ordinal) => "vec4(1.0)",
         "float" => "0.0",
         "int" => "0",
         _ => type + "(0.0)"
@@ -241,18 +249,23 @@ internal sealed partial class ShaderIde
     {
         if (IncludeFile(document) is not { } include) return Program(document);
 
-        var consumers = ShaderMods.Diagnostics(_capi).Where(p => p.Compiled &&
-            p.Includes.Contains(include, StringComparer.OrdinalIgnoreCase) && File.Exists(ModelGameFile(p.Pass)) &&
-            File.Exists(Path.ChangeExtension(ModelGameFile(p.Pass), ".vsh"))).Select(p => p.Pass).ToArray();
+        var consumers = ShaderMods.Diagnostics(Api).Where(p => p.Compiled &&
+                                                               p.Includes.Contains(include,
+                                                                   StringComparer.OrdinalIgnoreCase) &&
+                                                               File.Exists(ModelGameFile(p.Pass)) &&
+                                                               File.Exists(Path.ChangeExtension(ModelGameFile(p.Pass),
+                                                                   ".vsh"))).Select(p => p.Pass).ToArray();
         if (previous is not null && consumers.Contains(previous, StringComparer.Ordinal)) return previous;
 
-        foreach (var preferred in (ReadOnlySpan<string>)["chunkopaque", "standard", "entityanimated", "helditem", "sky", "final"])
+        foreach (var preferred in (ReadOnlySpan<string>)
+                 ["chunkopaque", "standard", "entityanimated", "helditem", "sky", "final"])
         {
             if (consumers.Contains(preferred, StringComparer.Ordinal)) return preferred;
         }
 
         // an include the game's GUI also reads (normalshading): a world program shows it in the scene, the GUI's not
-        return consumers.FirstOrDefault(p => !p.StartsWith("gui", StringComparison.Ordinal)) ?? consumers.FirstOrDefault();
+        return consumers.FirstOrDefault(p => !p.StartsWith("gui", StringComparison.Ordinal)) ??
+               consumers.FirstOrDefault();
     }
 
     private string? DraftInclude(string name, ShaderDocument document, bool vanilla)
@@ -273,8 +286,8 @@ internal sealed partial class ShaderIde
         if (game is null || StageText(game, ".vsh", true) is not { } vertex ||
             StageText(game, ".fsh", true) is not { } fragment) return;
 
-        Model3D.WeatherCompanion(ShaderBuild.Draft(_capi, program, ".vsh", vertex),
-            ShaderBuild.Draft(_capi, program, ".fsh", fragment));
+        Model3D.WeatherCompanion(ShaderBuild.Draft(Api, program, ".vsh", vertex),
+            ShaderBuild.Draft(Api, program, ".fsh", fragment));
     }
 
     // A Komet pass is a fragment body. Preview it even before it is registered in the manifest.
@@ -289,12 +302,13 @@ internal sealed partial class ShaderIde
         var json = _tabs.Find(tab => StudioLink.PathEquals(tab.Path, manifest))?.Text ?? StudioFiles.Read(manifest);
         var pack = json is null ? null : ShaderPacks.Parsed(null, json, project.ToLowerInvariant(), manifest);
         var spec = pack?.Passes.Find(pass => pass.Fragment.Replace('\\', '/') == relative);
-        if (spec is null && !relative.StartsWith(ShaderProjects.PassesFolder + "/", StringComparison.Ordinal)) return false;
+        if (spec is null && !relative.StartsWith(ShaderProjects.PassesFolder + "/", StringComparison.Ordinal))
+            return false;
 
         var mod = ShaderPacks.ModPrefix + (pack?.Id ?? project.ToLowerInvariant());
         var id = spec?.Id ?? Path.GetFileNameWithoutExtension(document.Path);
         var pass = new KapiPass(id, document.Text);
-        Model3D.Source(id, ModPasses.Vertex, ModPasses.Source(mod, pass), fullscreenPass: true);
+        Model3D.Source(id, ModPasses.Vertex, ModPasses.Source(mod, pass), true);
         return true;
     }
 
@@ -303,7 +317,9 @@ internal sealed partial class ShaderIde
     {
         var file = Path.ChangeExtension(game, ext);
         var path = !vanilla && Project is { } project && StudioLink.CopyPath(project, file) is { } copy &&
-                   File.Exists(copy) ? copy : file;
+                   File.Exists(copy)
+            ? copy
+            : file;
         for (var i = 0; i < Math.Min(_tabs.Count, MaxTabs + 1); i++)
         {
             if (StudioLink.PathEquals(_tabs[i].Path, path)) return _tabs[i].Text;
@@ -315,7 +331,7 @@ internal sealed partial class ShaderIde
     private int ModelPicture(int sharp)
     {
         var engine = PreviewProgram is { } name ? DrawCounter.Program(name)?.ProgramId ?? 0 : 0;
-        var texture = Model3D.Picture(_capi, sharp, engine);
+        var texture = Model3D.Picture(Api, sharp, engine);
         if (Model3D.TakeLog() is { Length: > 0 } log) AddLog(L("model-failed", log.Trim()), true);
 
         return texture;

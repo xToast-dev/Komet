@@ -1,5 +1,5 @@
-using Komet.Diagnostics;
 using Komet.Api;
+using Komet.Diagnostics;
 
 namespace Komet.Hud;
 
@@ -232,7 +232,8 @@ internal static partial class DebugProtocol
 
         foreach (var feature in input.Features.Bounded(MaxRows))
         {
-            if (feature.State is KapiFeatureState.Failed or KapiFeatureState.StoodDown or KapiFeatureState.EngineChanged)
+            if (feature.State is KapiFeatureState.Failed or KapiFeatureState.StoodDown
+                or KapiFeatureState.EngineChanged)
             {
                 list.Add(
                     new Finding(Severity.Info, "hud-dbg-s-komet", "hud-dbg-f-feature", [feature.Id, feature.State]));

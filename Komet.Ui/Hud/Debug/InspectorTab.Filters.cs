@@ -9,6 +9,39 @@ internal sealed partial class InspectorTab
     private HudBody? _body;
     private bool _renderSearching;
 
+    // Typing into the inspector's search; true: taken
+    public bool Char(char c, HudBody body)
+    {
+        _body = body;
+        if (!_renderSearching || char.IsControl(c) || _filter.Query.Length >= 128) return false;
+
+        _filter.Query += c;
+        Top();
+        return true;
+    }
+
+    public bool Key(KeyEvent args, HudBody body)
+    {
+        _body = body;
+        if (!_renderSearching || !NotNull(args)) return false;
+
+        if (args.KeyCode == (int)GlKeys.BackSpace && _filter.Query.Length > 0)
+        {
+            _filter.Query = _filter.Query[..^1];
+        }
+        else if (args.KeyCode is (int)GlKeys.Enter or (int)GlKeys.KeypadEnter or (int)GlKeys.Escape)
+        {
+            _renderSearching = false;
+        }
+        else
+        {
+            return false;
+        }
+
+        Top();
+        return true;
+    }
+
     private void Top()
     {
         if (_body is { } body) body.Scroll = 0;
@@ -72,38 +105,5 @@ internal sealed partial class InspectorTab
         var next = Array.IndexOf(stages, _filter.Stage) + 1;
         _filter.Stage = next >= stages.Length ? "" : stages[next];
         Top();
-    }
-
-    // Typing into the inspector's search; true: taken
-    public bool Char(char c, HudBody body)
-    {
-        _body = body;
-        if (!_renderSearching || char.IsControl(c) || _filter.Query.Length >= 128) return false;
-
-        _filter.Query += c;
-        Top();
-        return true;
-    }
-
-    public bool Key(KeyEvent args, HudBody body)
-    {
-        _body = body;
-        if (!_renderSearching || !NotNull(args)) return false;
-
-        if (args.KeyCode == (int)GlKeys.BackSpace && _filter.Query.Length > 0)
-        {
-            _filter.Query = _filter.Query[..^1];
-        }
-        else if (args.KeyCode is (int)GlKeys.Enter or (int)GlKeys.KeypadEnter or (int)GlKeys.Escape)
-        {
-            _renderSearching = false;
-        }
-        else
-        {
-            return false;
-        }
-
-        Top();
-        return true;
     }
 }

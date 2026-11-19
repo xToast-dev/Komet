@@ -258,6 +258,7 @@ internal sealed unsafe partial class VulkanFrame
         {
             sums[i % Statistics] += results[i];
         }
+
         // written vertex invocations, clipping invocations, clipping primitives, fragment invocations
         (_lastStatistics[0], _lastStatistics[1], _lastStatistics[2], _lastStatistics[3]) =
             (sums[0], sums[3], sums[1], sums[2]);

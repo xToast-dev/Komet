@@ -37,26 +37,22 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
     internal const int MaxTabs = 8;
     private const int MaxLog = 60;
     private const long BuildDelayMs = 1200, UndoMs = 30_000, SlowMs = 3000, FullMs = 30_000;
-    private readonly StudioWatch _watch = new();
-    private long _nextFull;
 
-    // Counts the times the disk was read again: what was parsed from a project's files is good until it moves
-    public int DiskVersion { get; private set; }
-
-    private readonly ICoreClientAPI _capi;
-    private readonly Action _gamePreview;
-    private readonly List<ShaderDocument> _tabs = [];
-    private readonly List<(string Time, string Text, bool Error)> _log = [];
     private readonly HashSet<string> _changed = new(StringComparer.Ordinal);
-    private ShaderDocument? _current, _original;
-    private int _seenVersion = -1;
+    private readonly Action _gamePreview;
+    private readonly List<(string Time, string Text, bool Error)> _log = [];
+    private readonly List<ShaderDocument> _tabs = [];
+    private readonly StudioWatch _watch = new();
     private long _buildAt, _nextRefresh;
-    private bool _busy, _unbuilt, _shown, _redraw;
+    private bool _busy, _unbuilt, _redraw;
+    private ShaderDocument? _original;
+    private long _nextFull;
+    private int _seenVersion = -1;
     private (TrashToken Token, long At)? _undo;
 
     public ShaderIde(ICoreClientAPI capi, Action gamePreview)
     {
-        (_capi, _gamePreview) = (capi, gamePreview);
+        (Api, _gamePreview) = (capi, gamePreview);
         Link = new StudioLink(capi);
         Prefs = StudioPrefs.Load();
 
@@ -71,21 +67,16 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
         Palette = new StudioPalette(this);
         Modal = new StudioModal(this);
         Side.Model.Changed += ModelChanged;
-        ShaderDiagnostics.IsSet = (path, name) => Origin(path, name).Set; // one event: the tab, SETTINGS, the FRAME bar, badges and notices follow
+        ShaderDiagnostics.IsSet =
+            (path, name) =>
+                Origin(path, name).Set; // one event: the tab, SETTINGS, the FRAME bar, badges and notices follow
         InitInput();
     }
 
-    public string Id => "ide";
-    public string Title => L("title");
-    public double RefreshMs => 0;
-    public bool Scrolls => false;
-    public bool FullScreen => true;
-    public bool Peeking { get; set; }
-    public bool IsShown => _shown;
+    // Counts the times the disk was read again: what was parsed from a project's files is good until it moves
+    public int DiskVersion { get; private set; }
+    public bool IsShown { get; private set; }
 
-    public ICoreClientAPI Api => _capi;
-    public IdeStatus Status { get; } = new();
-    public ShaderDiagnostics Diagnostics { get; } = new();
     public StudioLink Link { get; }
     public StudioPrefs Prefs { get; }
     public CodeEditor Editor { get; }
@@ -104,17 +95,9 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
     public StudioFocus Focus { get; set; } = StudioFocus.Editor;
     public EditorMode Mode { get; set; }
     public IReadOnlyList<ShaderDocument> Tabs => _tabs;
-    public ShaderDocument? Current => _current;
-    public IReadOnlyList<(string Time, string Text, bool Error)> Log => _log;
-    public string Root => StudioLink.DataRoot;
+    public ShaderDocument? Current { get; private set; }
 
-    // The editor's document: the original in the Original view
-    public ShaderDocument? Active => Mode switch
-    {
-        EditorMode.Original when _original is not null => _original,
-        EditorMode.Engine when _engine is not null => _engine,
-        _ => _current
-    };
+    public IReadOnlyList<(string Time, string Text, bool Error)> Log => _log;
 
     // The project the screen works on: the open file's, else the last chosen
     public string? Project
@@ -128,7 +111,88 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
     }
 
     public bool Auto => Prefs.Auto;
+
+    public string Id => "ide";
+    public string Title => L("title");
+    public double RefreshMs => 0;
+    public bool Scrolls => false;
+    public bool FullScreen => true;
+    public bool Peeking { get; set; }
     public void Skin(MenuControls controls) => Controls = controls;
+
+    public void Shown(bool shown)
+    {
+        IsShown = shown;
+        Context.Close();
+        Editor.Leave();
+        Peeking = false;
+        if (shown)
+        {
+            GameValues.Ensure(Api); // the GAME VALUES list and a project's new declarations read them
+            _watch.Start(StudioLink.ProjectsFolder);
+            Opened();
+            return;
+        }
+
+        Gone();
+        Persist();
+    }
+
+    // Per frame: the debounced build, toasts and the slow refreshes; allocation-free while nothing is due
+    public bool Poll()
+    {
+        var now = Environment.TickCount64;
+        SnapshotWatch();
+        var taken = Status.Take();
+        var redraw = _redraw || taken;
+        _redraw = false;
+        if (taken && Status.Text.Length > 0)
+        {
+            Toast(Status.Text); // the editor's messages: the studio has no status line
+            Status.Set("");
+        }
+
+        if (Editor.Completion.Added.Length > 0) Toast(Editor.Completion.TakeAdded() + " " + L("added"));
+
+        if (Current is { } document && document.Version != _seenVersion)
+        {
+            _seenVersion = document.Version;
+            if (document is { Dirty: true, ReadOnly: false }) Changed(document.Path);
+
+            Find.Refresh();
+            redraw = true;
+        }
+
+        if (_buildAt > 0 && now >= _buildAt)
+        {
+            _buildAt = 0;
+            BuildNow();
+            redraw = true;
+        }
+
+        if (now >= _nextRefresh && IsShown)
+        {
+            // the folders and every project file's problems are read again only after a change on disk (or every
+            // FullMs for what the watcher does not see); it used to be every SlowMs, a hitch each time
+            _nextRefresh = now + SlowMs;
+            if (_watch.Take() || !_watch.Working || now >= _nextFull)
+            {
+                _nextFull = now + FullMs;
+                DiskVersion++;
+                Relist(true);
+                redraw = true;
+            }
+        }
+
+        redraw |= EnginePoll();
+        var side = Side.Poll(now);
+        var toast = ToastPoll(now);
+        var panel = Panel.Poll();
+        var test = TestPoll(now);
+        var model = ModelPoll(now) || test;
+        AutosavePoll(now);
+        return redraw || side || toast || panel || model || BuildPoll(now);
+    }
 
     // The world ends: unsaved drafts go to their files (not built), the studio's state is kept
     public void Dispose()
@@ -142,30 +206,28 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
         Gone();
     }
 
+    public ICoreClientAPI Api { get; }
+
+    public IdeStatus Status { get; } = new();
+    public ShaderDiagnostics Diagnostics { get; } = new();
+    public string Root => StudioLink.DataRoot;
+
+    // The editor's document: the original in the Original view
+    public ShaderDocument? Active => Mode switch
+    {
+        EditorMode.Original when _original is not null => _original,
+        EditorMode.Engine when _engine is not null => _engine,
+        _ => Current
+    };
+
+    public void Run(string command) => RunCommand(command);
+
     // The screen goes: nothing watches the folder, the side lets go of the game, the session's changes are undone
     private void Gone()
     {
         _watch.Dispose();
         StudioLink.Listening(false); // "Game runs: Vanilla" stays as chosen
         EndSession();
-    }
-
-    public void Shown(bool shown)
-    {
-        _shown = shown;
-        Context.Close();
-        Editor.Leave();
-        Peeking = false;
-        if (shown)
-        {
-            GameValues.Ensure(_capi); // the GAME VALUES list and a project's new declarations read them
-            _watch.Start(StudioLink.ProjectsFolder);
-            Opened();
-            return;
-        }
-
-        Gone();
-        Persist();
     }
 
     // The screen comes up: the last tabs once, the project, the tree at the active file
@@ -210,64 +272,6 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
         Prefs.Project = Project ?? "";
         Prefs.Open = Tree.OpenFolders();
         Prefs.Save();
-    }
-
-    public void Run(string command) => RunCommand(command);
-
-    // Per frame: the debounced build, toasts and the slow refreshes; allocation-free while nothing is due
-    public bool Poll()
-    {
-        var now = Environment.TickCount64;
-        SnapshotWatch();
-        var taken = Status.Take();
-        var redraw = _redraw || taken;
-        _redraw = false;
-        if (taken && Status.Text.Length > 0)
-        {
-            Toast(Status.Text); // the editor's messages: the studio has no status line
-            Status.Set("");
-        }
-
-        if (Editor.Completion.Added.Length > 0) Toast(Editor.Completion.TakeAdded() + " " + L("added"));
-
-        if (_current is { } document && document.Version != _seenVersion)
-        {
-            _seenVersion = document.Version;
-            if (document is { Dirty: true, ReadOnly: false }) Changed(document.Path);
-
-            Find.Refresh();
-            redraw = true;
-        }
-
-        if (_buildAt > 0 && now >= _buildAt)
-        {
-            _buildAt = 0;
-            BuildNow();
-            redraw = true;
-        }
-
-        if (now >= _nextRefresh && _shown)
-        {
-            // the folders and every project file's problems are read again only after a change on disk (or every
-            // FullMs for what the watcher does not see); it used to be every SlowMs, a hitch each time
-            _nextRefresh = now + SlowMs;
-            if (_watch.Take() || !_watch.Working || now >= _nextFull)
-            {
-                _nextFull = now + FullMs;
-                DiskVersion++;
-                Relist(true);
-                redraw = true;
-            }
-        }
-
-        redraw |= EnginePoll();
-        var side = Side.Poll(now);
-        var toast = ToastPoll(now);
-        var panel = Panel.Poll();
-        var test = TestPoll(now);
-        var model = ModelPoll(now) || test;
-        AutosavePoll(now);
-        return redraw || side || toast || panel || model || BuildPoll(now);
     }
 
     public void Redraw() => _redraw = true;
@@ -332,5 +336,5 @@ internal sealed partial class ShaderIde : IDevTool, IIdeHost, IDisposable
 
     // Hover in content pixels, for the parts' hover grounds
     public bool Hot(double x, double y, double w, double h) =>
-        _mouseX >= x && _mouseX < x + w && _mouseY >= y && _mouseY < y + h;
+        MouseX >= x && MouseX < x + w && MouseY >= y && MouseY < y + h;
 }

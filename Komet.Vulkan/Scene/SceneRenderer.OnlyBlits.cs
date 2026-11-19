@@ -115,7 +115,8 @@ internal sealed partial class SceneRenderer
             _pairs[count] = (source.Image, into);
             _regions[count++] = region with
             {
-                Source = new Vk.SubresourceLayers { Level = (uint)source.At.Level, BaseLayer = (uint)source.At.Layer, Count = 1 },
+                Source = new Vk.SubresourceLayers
+                    { Level = (uint)source.At.Level, BaseLayer = (uint)source.At.Layer, Count = 1 },
                 Target = new Vk.SubresourceLayers { Level = (uint)to.Level, BaseLayer = (uint)to.Layer, Count = 1 }
             };
         }

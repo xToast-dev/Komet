@@ -40,23 +40,23 @@ internal static unsafe partial class GlTap
     public static Action<uint>? Unmapping { get; set; }
 
     private static Entry[] SpecEntries() =>
-        [
-            new("glCompressedTexImage2D", (nint)(CompressedImage2DFn)(&CompressedTexImage2D), true),
-            new("glCompressedTexSubImage2D", (nint)(CompressedSubImage2DFn)(&CompressedTexSubImage2D), true),
-            new("glCompressedTexImage3D", (nint)(CompressedImage3DFn)(&CompressedTexImage3D), true),
-            new("glCopyTexImage2D", (nint)(CopyImage2DFn)(&CopyTexImage2D), true),
-            new("glTexImage2DMultisample", (nint)(ImageMultisampleFn)(&TexImage2DMultisample), true),
-            new("glTextureView", (nint)(TextureViewFn)(&TextureView), true),
-            new("glTexBuffer", (nint)(TexBufferFn)(&TexBuffer), true),
-            new("glRenderbufferStorage", (nint)(RenderbufferStorageFn)(&RenderbufferStorage), true),
-            new("glRenderbufferStorageMultisample",
-                (nint)(RenderbufferMultisampleFn)(&RenderbufferStorageMultisample),
-                true),
-            new("glNamedRenderbufferStorage", (nint)(RenderbufferStorageFn)(&NamedRenderbufferStorage), true),
-            new("glBindRenderbuffer", (nint)(BindRenderbufferFn)(&BindRenderbuffer), true),
-            new("glUnmapBuffer", (nint)(UnmapFn)(&UnmapBuffer), true),
-            new("glUnmapNamedBuffer", (nint)(UnmapFn)(&UnmapNamedBuffer), true)
-        ];
+    [
+        new("glCompressedTexImage2D", (nint)(CompressedImage2DFn)(&CompressedTexImage2D), true),
+        new("glCompressedTexSubImage2D", (nint)(CompressedSubImage2DFn)(&CompressedTexSubImage2D), true),
+        new("glCompressedTexImage3D", (nint)(CompressedImage3DFn)(&CompressedTexImage3D), true),
+        new("glCopyTexImage2D", (nint)(CopyImage2DFn)(&CopyTexImage2D), true),
+        new("glTexImage2DMultisample", (nint)(ImageMultisampleFn)(&TexImage2DMultisample), true),
+        new("glTextureView", (nint)(TextureViewFn)(&TextureView), true),
+        new("glTexBuffer", (nint)(TexBufferFn)(&TexBuffer), true),
+        new("glRenderbufferStorage", (nint)(RenderbufferStorageFn)(&RenderbufferStorage), true),
+        new("glRenderbufferStorageMultisample",
+            (nint)(RenderbufferMultisampleFn)(&RenderbufferStorageMultisample),
+            true),
+        new("glNamedRenderbufferStorage", (nint)(RenderbufferStorageFn)(&NamedRenderbufferStorage), true),
+        new("glBindRenderbuffer", (nint)(BindRenderbufferFn)(&BindRenderbuffer), true),
+        new("glUnmapBuffer", (nint)(UnmapFn)(&UnmapBuffer), true),
+        new("glUnmapNamedBuffer", (nint)(UnmapFn)(&UnmapNamedBuffer), true)
+    ];
 
     [UnmanagedCallersOnly]
     private static byte UnmapBuffer(uint target)
@@ -354,7 +354,7 @@ internal static unsafe partial class GlTap
     // A renderbuffer attachment completing a framebuffer: stored, single-sampled, sized format the attachment renders
     private static bool RenderbufferFits(uint renderbuffer, bool depth) =>
         RenderbufferRecords.TryGetValue(renderbuffer, out var r) && r.Samples == 0 && !Unsized(r.Format) &&
-               DepthFormat(r.Format) == depth;
+        DepthFormat(r.Format) == depth;
 
     private static void Unrenderbuffered()
     {

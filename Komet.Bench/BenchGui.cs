@@ -102,7 +102,7 @@ internal static class BenchGui
 
     private static GuiElementScrollbar? Scrollbar() =>
         _dialog is { } dialog && dialog.IsOpened() &&
-               dialog.Composers["maininventory"] is { } composer
+        dialog.Composers["maininventory"] is { } composer
             ? composer.GetScrollbar("scrollbar")
             : null;
 

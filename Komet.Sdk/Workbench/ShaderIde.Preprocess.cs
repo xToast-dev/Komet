@@ -8,14 +8,14 @@ namespace Komet.Sdk;
 internal sealed partial class ShaderIde
 {
     private const long DefinesEveryMs = 500;
+    private long _definesAt;
+    private string _definesKey = "";
+    private List<(string Name, string Value)> _definesNow = [];
+    private string? _definesPath;
 
     private bool[] _inactive = [];
-    private string? _inactiveText;
     private string _inactiveDefines = "";
-    private string _definesKey = "";
-    private string? _definesPath;
-    private List<(string Name, string Value)> _definesNow = [];
-    private long _definesAt;
+    private string? _inactiveText;
 
     public Rgba InactiveTint => Ground with { A = 0.62 };
 

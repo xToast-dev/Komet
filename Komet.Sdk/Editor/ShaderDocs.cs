@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Komet.Rendering;
 using static Komet.Sdk.IdeText;
 
 namespace Komet.Sdk;
@@ -24,6 +25,25 @@ internal static class ShaderDocs
 
     private static ShaderSymbol[]? _glsl, _engine, _snippets;
 
+    private static ShaderSymbol[]? _komet, _includes;
+
+    private static readonly Regex UniformRx =
+        new(@"uniform\s+(\w+)\s+(\w+)\s*;",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex DefineRx =
+        new(@"#define\s+(\w+)\s+([^\n]*)",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex FunctionRx =
+        new(@"\b(float|vec[234]|int|void|bool)\s+(\w+)\s*\(([^)]*)\)\s*\{",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+
+    private static readonly Regex InOutRx =
+        new(@"^\s*(?:in|out)\s+(\w+)\s+(\w+)\s*;",
+            RegexOptions.CultureInvariant | RegexOptions.Multiline | RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(100));
+
     public static ShaderSymbol[] Glsl => _glsl ??= BuildGlsl();
     public static ShaderSymbol[] Engine => _engine ??= BuildEngine();
     public static ShaderSymbol[] Snippets => _snippets ??= BuildSnippets();
@@ -31,7 +51,7 @@ internal static class ShaderDocs
     // Komet's game values (GAME VALUES declares them on a click)
     public static ShaderSymbol[] Komet => _komet ??=
     [
-        .. Rendering.GameValues.All.Select(v => new ShaderSymbol(v.Name, 'u', "uniform " + v.Type + " " + v.Name, v.Doc,
+        .. GameValues.All.Select(v => new ShaderSymbol(v.Name, 'u', "uniform " + v.Type + " " + v.Name, v.Doc,
             "Komet", null, "uniform " + v.Type + " " + v.Name + ";"))
     ];
 
@@ -41,8 +61,6 @@ internal static class ShaderDocs
         .. StudioLink.List(Path.Join(StudioLink.AssetsRoot, "game", "shaderincludes")).Where(e => !e.Folder)
             .Select(e => new ShaderSymbol(e.Name, 'k', "#include " + e.Name, L("doc-include"), "Vintage Story"))
     ];
-
-    private static ShaderSymbol[]? _komet, _includes;
 
     private static ShaderSymbol F(string name, string signature) =>
         new(name, 'f', signature, L("doc-" + name), "GLSL");
@@ -71,7 +89,10 @@ internal static class ShaderDocs
         }
 
         foreach (var word in (ReadOnlySpan<string>)
-                 ["uniform", "in", "out", "const", "if", "else", "for", "return", "discard", "void", "#define", "#include"])
+                 [
+                     "uniform", "in", "out", "const", "if", "else", "for", "return", "discard", "void", "#define",
+                     "#include"
+                 ])
         {
             list.Add(new ShaderSymbol(word, 'k', word, L("doc-keyword"), ""));
         }
@@ -84,30 +105,31 @@ internal static class ShaderDocs
         const string game = "Vintage Story";
         return
         [
-            new("applyFog", 'f', "vec4 applyFog(vec4 rgbaPixel, float fogWeight)", L("doc-applyfog"), FogInclude),
-            new("getFogLevel", 'f', "float getFogLevel(vec4 worldPos, float fogMin, float fogDensity)",
+            new ShaderSymbol("applyFog", 'f', "vec4 applyFog(vec4 rgbaPixel, float fogWeight)", L("doc-applyfog"),
+                FogInclude),
+            new ShaderSymbol("getFogLevel", 'f', "float getFogLevel(vec4 worldPos, float fogMin, float fogDensity)",
                 L("doc-getfoglevel"), FogInclude),
-            new("rgbaFogIn", 'u', "uniform vec4 rgbaFogIn", L("doc-rgbafogin"), FogInclude),
-            new("fogDensityIn", 'u', "uniform float fogDensityIn", L("doc-fogdensityin"), FogInclude),
-            new("fogMinIn", 'u', "uniform float fogMinIn", L("doc-fogminin"), FogInclude),
-            new("dayLight", 'u', "uniform float dayLight", L("doc-daylight"), game),
-            new("sunPosition", 'u', "uniform vec3 sunPosition", L("doc-sunposition"), game),
-            new("windWaveCounter", 'u', "uniform float windWaveCounter", L("doc-windwavecounter"), game)
+            new ShaderSymbol("rgbaFogIn", 'u', "uniform vec4 rgbaFogIn", L("doc-rgbafogin"), FogInclude),
+            new ShaderSymbol("fogDensityIn", 'u', "uniform float fogDensityIn", L("doc-fogdensityin"), FogInclude),
+            new ShaderSymbol("fogMinIn", 'u', "uniform float fogMinIn", L("doc-fogminin"), FogInclude),
+            new ShaderSymbol("dayLight", 'u', "uniform float dayLight", L("doc-daylight"), game),
+            new ShaderSymbol("sunPosition", 'u', "uniform vec3 sunPosition", L("doc-sunposition"), game),
+            new ShaderSymbol("windWaveCounter", 'u', "uniform float windWaveCounter", L("doc-windwavecounter"), game)
         ];
     }
 
     private static ShaderSymbol[] BuildSnippets() =>
-        [
-            new(L("snip-fog"), 's',
-                "float fogAmount = getFogLevel(worldPos, fogMinIn, fogDensityIn);\noutColor = applyFog(outColor, fogAmount);",
-                L("snip-fog-doc"), "Snippet", FogInclude, null, ["nebel", "fog", "applyfog"]),
-            new(L("snip-vignette"), 's', "float vd = length(uv - 0.5);\noutColor.rgb *= smoothstep(0.85, 0.25, vd);",
-                L("snip-vignette-doc"), "Snippet", null, null, ["vignette"]),
-            new(L("snip-tint"), 's', "outColor.rgb *= vec3(1.05, 1.0, 0.92);", L("snip-tint-doc"), "Snippet", null,
-                null, ["farbton", "tint"]),
-            new(L("snip-daylight"), 's', "outColor.rgb *= mix(0.35, 1.0, dayLight);", L("snip-daylight-doc"),
-                "Snippet", null, "uniform float dayLight;", ["tageslicht", "daylight"])
-        ];
+    [
+        new(L("snip-fog"), 's',
+            "float fogAmount = getFogLevel(worldPos, fogMinIn, fogDensityIn);\noutColor = applyFog(outColor, fogAmount);",
+            L("snip-fog-doc"), "Snippet", FogInclude, null, ["nebel", "fog", "applyfog"]),
+        new(L("snip-vignette"), 's', "float vd = length(uv - 0.5);\noutColor.rgb *= smoothstep(0.85, 0.25, vd);",
+            L("snip-vignette-doc"), "Snippet", null, null, ["vignette"]),
+        new(L("snip-tint"), 's', "outColor.rgb *= vec3(1.05, 1.0, 0.92);", L("snip-tint-doc"), "Snippet", null,
+            null, ["farbton", "tint"]),
+        new(L("snip-daylight"), 's', "outColor.rgb *= mix(0.35, 1.0, dayLight);", L("snip-daylight-doc"),
+            "Snippet", null, "uniform float dayLight;", ["tageslicht", "daylight"])
+    ];
 
     // The open file's uniforms, defines, functions and ins/outs
     public static List<ShaderSymbol> FileSymbols(string source)
@@ -117,13 +139,13 @@ internal static class ShaderDocs
         foreach (var g in UniformRx.Matches(source).Select(m => m.Groups).Bounded(64))
         {
             symbols.Add(new ShaderSymbol(g[2].Value, 'u', "uniform " + g[1].Value + " " +
-                                                                g[2].Value, L("doc-in-file"), file));
+                                                          g[2].Value, L("doc-in-file"), file));
         }
 
         foreach (var g in DefineRx.Matches(source).Select(m => m.Groups).Bounded(64))
         {
             symbols.Add(new ShaderSymbol(g[1].Value, 'd', "#define " + g[1].Value + " " +
-                                                                g[2].Value.Trim(), L("doc-file-constant"), file));
+                                                          g[2].Value.Trim(), L("doc-file-constant"), file));
         }
 
         foreach (var g in FunctionRx.Matches(source).Select(m => m.Groups).Bounded(64))
@@ -131,7 +153,7 @@ internal static class ShaderDocs
             if (g[2].Value != "main")
             {
                 symbols.Add(new ShaderSymbol(g[2].Value, 'f', g[1].Value + " " + g[2].Value + "(" +
-                                                                     g[3].Value + ")", L("doc-file-function"), file));
+                                                              g[3].Value + ")", L("doc-file-function"), file));
             }
         }
 
@@ -143,20 +165,4 @@ internal static class ShaderDocs
 
         return symbols;
     }
-
-    private static readonly Regex UniformRx =
-        new(@"uniform\s+(\w+)\s+(\w+)\s*;",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex DefineRx =
-        new(@"#define\s+(\w+)\s+([^\n]*)",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex FunctionRx =
-        new(@"\b(float|vec[234]|int|void|bool)\s+(\w+)\s*\(([^)]*)\)\s*\{",
-            RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-
-    private static readonly Regex InOutRx =
-        new(@"^\s*(?:in|out)\s+(\w+)\s+(\w+)\s*;",
-            RegexOptions.CultureInvariant | RegexOptions.Multiline | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
 }

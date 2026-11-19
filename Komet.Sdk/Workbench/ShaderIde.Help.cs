@@ -7,6 +7,7 @@ namespace Komet.Sdk;
 // drawn last over everything), the override state of a file as the backend sees it, and the start surface without a tab
 internal sealed partial class ShaderIde
 {
+    private Action? _startOverride, _startPack, _startPasses;
     private string _tip = "";
 
     // While a scrolled band draws: tips only inside it (a row scrolled out of it has none)
@@ -20,7 +21,6 @@ internal sealed partial class ShaderIde
         var covered = Context.IsOpen || Palette.Open || Modal.Open || _historyOpen || Peeking;
         Live = covered ? null : rect;
     }
-    private Action? _startOverride, _startPack, _startPasses;
 
     private void ModelChanged()
     {
@@ -33,7 +33,7 @@ internal sealed partial class ShaderIde
     // Registers a tooltip for a rectangle; the one under the mouse shows after the frame
     public void Tip(double x, double y, double w, double h, string text)
     {
-        if (Hot(x, y, w, h) && _mouseY >= TipBand.Top && _mouseY < TipBand.Bottom) _tip = text;
+        if (Hot(x, y, w, h) && MouseY >= TipBand.Top && MouseY < TipBand.Bottom) _tip = text;
     }
 
     private void DrawTip(HudUi ui)
@@ -44,7 +44,7 @@ internal sealed partial class ShaderIde
 
         var width = Math.Min(ui.Px(420), ui.TextW(ui.F.Small, text) + ui.Px(16));
         var x = Math.Clamp(MouseX + ui.Px(14), ui.X, ui.X + ui.W - width);
-        var y = Math.Clamp(MouseY + ui.Px(18), ui.Y, _height - ui.F.SmallRow - ui.Px(8));
+        var y = Math.Clamp(MouseY + ui.Px(18), ui.Y, Height - ui.F.SmallRow - ui.Px(8));
         ui.Panel(x, y, width, ui.F.SmallRow + ui.Px(6), HudUi.PopupBack);
         ui.Text(x + ui.Px(8), y + ui.Px(3), ui.F.SmallRow, ui.F.Small, ui.Fit(ui.F.Small, text, width - ui.Px(16)),
             HudUi.Soft);
@@ -55,7 +55,7 @@ internal sealed partial class ShaderIde
 
     public string? CopyOf(string path) =>
         StudioLink.IsGameShader(path) && Project is { } project && StudioLink.CopyPath(project, path) is { } copy &&
-               File.Exists(copy)
+        File.Exists(copy)
             ? copy
             : null;
 
@@ -89,7 +89,8 @@ internal sealed partial class ShaderIde
         var ew = ui.TextW(ui.F.Small, engine) + ui.Px(1.5) * engine.Length + ui.Px(20);
         var ex = bx - ui.Px(8) - ew;
         ui.Fill(ex, by, ew, bh, Mode == EditorMode.Engine ? HudUi.SelectionBack : HudUi.Track with { A = 0.06 });
-        _ = ui.Spaced(ex + ui.Px(10), by, bh, ui.F.Small, engine, ui.Px(1.5), Mode == EditorMode.Engine ? Rgba.White(1) : HudUi.Soft);
+        _ = ui.Spaced(ex + ui.Px(10), by, bh, ui.F.Small, engine, ui.Px(1.5),
+            Mode == EditorMode.Engine ? Rgba.White(1) : HudUi.Soft);
         Hits.Add(ex, by, ew, bh, _modeEngine!);
         Tip(ex, by, ew, bh, L("tip-engine"));
         bx = ex;
@@ -123,7 +124,8 @@ internal sealed partial class ShaderIde
                  ])
         {
             var bh = ui.Px(34);
-            ui.Fill(bx, at, bw, bh, Hot(bx, at, bw, bh) ? HudUi.Track with { A = 0.12 } : HudUi.Track with { A = 0.05 });
+            ui.Fill(bx, at, bw, bh,
+                Hot(bx, at, bw, bh) ? HudUi.Track with { A = 0.12 } : HudUi.Track with { A = 0.05 });
             TextField.Frame(ui, bx, at, bw, bh, HudUi.Divider);
             ui.Text(bx + ui.Px(14), at, bh, ui.F.Body, label, Rgba.White(1));
             Hits.Add(bx, at, bw, bh, run);

@@ -6,15 +6,18 @@ namespace Komet.Core;
 // own. Pages and subscriptions go when the world closes. Main thread only.
 internal static class OptionPages
 {
-    // Its pages and subscriptions belong to the world they were made in
-    static OptionPages() => WorldEnd.On(nameof(OptionPages), Clear);
-
     /// <summary>How many pages all mods together may add.</summary>
     public const int MaxPages = 32;
 
     private static readonly List<OptionPage> Registered = [];
 
+    // Its pages and subscriptions belong to the world they were made in
+    static OptionPages() => WorldEnd.On(nameof(OptionPages), Clear);
+
     internal static int Count => Registered.Count;
+
+    /// <summary>The tab every mod's page joins unless it names its own.</summary>
+    public static string ModsSection => KometText.Translate("settings-section-mods");
 
     /// <summary>
     ///     Raised after the player applied changes (Apply or Done): the moment to save or to act on several options at
@@ -22,22 +25,20 @@ internal static class OptionPages
     /// </summary>
     public static event EventHandler? Applied;
 
-    /// <summary>The tab every mod's page joins unless it names its own.</summary>
-    public static string ModsSection => KometText.Translate("settings-section-mods");
-
     /// <summary>A new, empty page. Reusing an id starts it over, so a rejoin does not double the rows.</summary>
     /// <param name="id">The page id, unique among all mods.</param>
     /// <param name="title">The page title; already translated.</param>
     /// <param name="section">The section (a tab) the page joins; null: the Mods tab.</param>
+    /// <param name="capacity">The maximum number of rows, including group headings.</param>
     /// <returns>The page, to add rows to.</returns>
-    public static OptionPage Page(string id, string title, string? section = null)
+    public static OptionPage Page(string id, string title, string? section = null, int capacity = OptionPage.MaxOptions)
     {
         if (!NotNull(id) || !NotNull(title) || !Assert(id.Length > 0) || !Assert(title.Length > 0))
         {
             return new OptionPage("invalid", "?", "?");
         }
 
-        var page = new OptionPage(id, title, section ?? ModsSection); // a mod's page goes to the Mods tab
+        var page = new OptionPage(id, title, section ?? ModsSection) { Capacity = capacity };
         var at = Registered.FindIndex(p => p.Id == id);
         if (at >= 0)
         {

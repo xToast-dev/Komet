@@ -20,14 +20,14 @@ internal static class Links
 internal interface IVulkanSide
 {
     bool NonSolidFill { get; }
+
+    // Why Komet keeps Vulkan off now (an earlier failure on this GPU, safety mode), empty when it does not
+    string Lock { get; }
     void Mark(string step);
     void Paced();
     void Rebuilding();
     string? ValidatePass(string vertex, string fragment);
     (Action? Port, string Error) ReadPort(int program, string pass);
-
-    // Why Komet keeps Vulkan off now (an earlier failure on this GPU, safety mode), empty when it does not
-    string Lock { get; }
 
     // The player's way past that: the failure forgotten, Vulkan tried again (now, or at the next world when it failed
     // in this one)

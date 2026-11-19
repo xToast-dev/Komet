@@ -36,7 +36,7 @@ internal sealed class CodeCompletion
     {
         Open = false;
         if (document.HasSelection || document.ReadOnly || (!ShaderPaths.IsStage(document.Path) &&
-            !document.Path.EndsWith(".ash", StringComparison.Ordinal)))
+                                                           !document.Path.EndsWith(".ash", StringComparison.Ordinal)))
         {
             return;
         }
@@ -63,7 +63,8 @@ internal sealed class CodeCompletion
         {
             foreach (var snippet in ShaderDocs.Snippets.Bounded(16))
             {
-                if (prefix.Length == 0 || snippet.Name.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                if (prefix.Length == 0 ||
+                    snippet.Name.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
                     Array.Exists(snippet.Keys ?? [], k => k.StartsWith(typed, StringComparison.OrdinalIgnoreCase)))
                 {
                     Add(snippet);
@@ -286,12 +287,18 @@ internal sealed class CodeCompletion
     {
         switch (key)
         {
-            case GlKeys.Up: _selected = (_selected - 1 + _items.Count) % Math.Max(1, _items.Count); return true;
-            case GlKeys.Down: _selected = (_selected + 1) % Math.Max(1, _items.Count); return true;
+            case GlKeys.Up:
+                _selected = (_selected - 1 + _items.Count) % Math.Max(1, _items.Count);
+                return true;
+            case GlKeys.Down:
+                _selected = (_selected + 1) % Math.Max(1, _items.Count);
+                return true;
             case GlKeys.Tab or GlKeys.Enter:
                 Accept(document, _items[Math.Clamp(_selected, 0, _items.Count - 1)]);
                 return true;
-            case GlKeys.Escape: Open = false; return true;
+            case GlKeys.Escape:
+                Open = false;
+                return true;
             default: return false;
         }
     }
@@ -334,7 +341,8 @@ internal sealed class CodeCompletion
             add.Add("#include " + inc);
         }
 
-        if (item.Declaration is { } decl && !document.Text.Contains(item.Declaration.TrimEnd(';'), StringComparison.Ordinal))
+        if (item.Declaration is { } decl &&
+            !document.Text.Contains(item.Declaration.TrimEnd(';'), StringComparison.Ordinal))
         {
             add.Add(decl);
         }

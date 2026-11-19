@@ -153,7 +153,7 @@ internal sealed partial class HudCanvas
 
     public bool Holds(object tag) =>
         NotNull(tag) && (ReferenceEquals(Shown, tag) || ReferenceEquals(_next?.Tag, tag) ||
-                                ReferenceEquals(_busy?.Tag, tag));
+                         ReferenceEquals(_busy?.Tag, tag));
 
     public void End(object? tag = null)
     {

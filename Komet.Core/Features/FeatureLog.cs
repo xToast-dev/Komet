@@ -1,4 +1,3 @@
-
 namespace Komet.Core;
 
 // Where the feature registry logs (the world's logger while one runs, else the public API's from StartPre), its main-thread

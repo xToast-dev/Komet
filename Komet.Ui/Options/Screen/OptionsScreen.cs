@@ -361,6 +361,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         if (!NotNull(args) || !IsOpened()) return;
 
+        args.Handled |= Developer;
         var (x, y) = (args.X - _canvas.X, args.Y - _canvas.Y);
         _mouse = (x, y);
         if (_drag is null && Tool?.MouseMove(x, y) == true)
@@ -415,7 +416,7 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         if (NotNull(args) && IsOpened())
         {
-            args.Handled = _drag is not null || (_binding is not null && _capturer.OnMouseUp(args, Bound));
+            args.Handled = _drag is not null || (_binding is not null && _capturer.OnMouseUp(args, Bound)) || Developer;
         }
 
         Tool?.MouseUp();
@@ -450,15 +451,17 @@ internal sealed partial class OptionsScreen : GuiDialog
 
     public override void OnKeyPress(KeyEvent args)
     {
-        if (NotNull(args) && _binding is not null) args.Handled = true;
+        if (!NotNull(args)) return;
 
-        if (NotNull(args) && !_searching && _binding is null && Tool?.Char(args.KeyChar) == true)
+        args.Handled |= Developer || _binding is not null;
+
+        if (!_searching && _binding is null && Tool?.Char(args.KeyChar) == true)
         {
             (args.Handled, _dirty) = (true, true);
             return;
         }
 
-        if (!NotNull(args) || !_searching || !Assert(_query.Length <= MaxQuery)) return;
+        if (!_searching || !Assert(_query.Length <= MaxQuery)) return;
 
         if (!char.IsControl(args.KeyChar) && _query.Length < MaxQuery)
         {
@@ -472,6 +475,8 @@ internal sealed partial class OptionsScreen : GuiDialog
     {
         if (!NotNull(args)) return;
 
+        // Escape can still reach GuiManager, which asks the dialog to close.
+        args.Handled |= Developer && args.KeyCode != (int)GlKeys.Escape;
         if (_binding is not null)
         {
             if (_capturer.OnKeyDown(args) && !_capturer.IsCapturing())
@@ -521,7 +526,10 @@ internal sealed partial class OptionsScreen : GuiDialog
 
     public override void OnKeyUp(KeyEvent args)
     {
-        if (!NotNull(args) || _binding is null) return;
+        if (!NotNull(args)) return;
+
+        args.Handled |= Developer;
+        if (_binding is null) return;
 
         _ = _capturer.OnKeyUp(args, Bound);
         args.Handled = true;

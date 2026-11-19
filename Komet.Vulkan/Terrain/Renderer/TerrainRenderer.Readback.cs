@@ -236,7 +236,7 @@ internal sealed unsafe partial class TerrainRenderer
     // GL_UNSIGNED_INT for depth only; a color read of it needs an integer image
     private static int PixelBytes(uint format, uint type) =>
         (type == GlEnum.UnsignedInt && format != GlEnum.DepthComponent) ||
-               (type == GlEnum.HalfFloat && format == GlEnum.DepthComponent)
+        (type == GlEnum.HalfFloat && format == GlEnum.DepthComponent)
             ? 0
             : Components(format) * TypeBytes(type);
 

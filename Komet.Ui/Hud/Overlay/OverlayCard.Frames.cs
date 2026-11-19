@@ -27,7 +27,8 @@ internal sealed partial class OverlayCard
         return n;
     }
 
-    private static double At(int n, double share) => n == 0 ? double.NaN : Sorted[Math.Clamp((int)(share * n), 0, n - 1)];
+    private static double At(int n, double share) =>
+        n == 0 ? double.NaN : Sorted[Math.Clamp((int)(share * n), 0, n - 1)];
 
     private static double Spread(int n)
     {

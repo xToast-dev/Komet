@@ -10,6 +10,8 @@ internal static class KometDocs
 {
     private const string Fallback = "en";
 
+    public const string SdkDomain = "kometsdk";
+
     // Help's pages, then Modding's; the Templates page (rows, not a doc) goes after Modding's first page
     public static readonly string[] Help = ["komet", "menu", "hud", "vulkan", "problems", "glossary"];
 
@@ -71,6 +73,4 @@ internal static class KometDocs
             .TryGet(new AssetLocation(Array.IndexOf(Help, name) >= 0 ? "komet" : SdkDomain,
                 string.Join('/', "config", "komet-docs", locale, name + ".md")))
             ?.ToText();
-
-    public const string SdkDomain = "kometsdk";
 }

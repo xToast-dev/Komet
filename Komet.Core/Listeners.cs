@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Komet.Core;
 
 // The engine lets a tick listener go only on the main thread and throws on any other. A world torn down from another
@@ -25,11 +27,25 @@ internal sealed class FrameTimer : IRenderer
     private long _last;
 
     private FrameTimer(ICoreClientAPI api, int everyMs, Action<float> run) =>
-        (_api, _every, _run, _last) = (api, everyMs * System.Diagnostics.Stopwatch.Frequency / 1000, run,
-            System.Diagnostics.Stopwatch.GetTimestamp());
+        (_api, _every, _run, _last) = (api, everyMs * Stopwatch.Frequency / 1000, run,
+            Stopwatch.GetTimestamp());
 
     public double RenderOrder => 0.001;
     public int RenderRange => 0;
+
+    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (now - _last < _every) return;
+
+        var seconds = (float)((now - _last) / (double)Stopwatch.Frequency);
+        _last = now;
+        _run(Math.Min(seconds, 1f));
+    }
+
+    public void Dispose()
+    {
+    }
 
     public static FrameTimer Start(ICoreClientAPI api, string name, int everyMs, Action<float> run)
     {
@@ -38,25 +54,11 @@ internal sealed class FrameTimer : IRenderer
         return timer;
     }
 
-    public void OnRenderFrame(float deltaTime, EnumRenderStage stage)
-    {
-        var now = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (now - _last < _every) return;
-
-        var seconds = (float)((now - _last) / (double)System.Diagnostics.Stopwatch.Frequency);
-        _last = now;
-        _run(Math.Min(seconds, 1f));
-    }
-
     public void Stop()
     {
         if (Environment.CurrentManagedThreadId == RuntimeEnv.MainThreadId)
         {
             _api.Event.UnregisterRenderer(this, EnumRenderStage.Before);
         }
-    }
-
-    public void Dispose()
-    {
     }
 }

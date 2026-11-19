@@ -1,8 +1,8 @@
+using Komet.Api;
 using Komet.Chunks;
 using Komet.Core;
 using Komet.Diagnostics;
 using Komet.Hud;
-using Komet.Api;
 using Komet.Options;
 using Komet.Rendering;
 using Komet.Shapes;
@@ -13,13 +13,14 @@ using Komet.World;
 namespace Komet;
 
 /// <summary>
-/// The composition root: the one place that names Komet's modules. All: which feature lists make up the mod (in any order:
-/// each feature declares its place, FeatureOrder sorts them; Order keeps the knobs' order in komet.json and on the
-/// settings pages). Bind: the services a lower module asks of a higher one (its Links), each answered by a bridge
-/// (Bridges.cs). A module project never names a project above it: the compiler refuses the reference.
-/// 
-/// To remove a module: delete its project, its line in All and its bridge registrations in Bind; the compiler then names
-/// every other place that still used it, FeatureOrder every feature that still names one of its features.
+///     The composition root: the one place that names Komet's modules. All: which feature lists make up the mod (in any
+///     order:
+///     each feature declares its place, FeatureOrder sorts them; Order keeps the knobs' order in komet.json and on the
+///     settings pages). Bind: the services a lower module asks of a higher one (its Links), each answered by a bridge
+///     (Bridges.cs). A module project never names a project above it: the compiler refuses the reference.
+///     To remove a module: delete its project, its line in All and its bridge registrations in Bind; the compiler then
+///     names
+///     every other place that still used it, FeatureOrder every feature that still names one of its features.
 /// </summary>
 internal static class Modules
 {
@@ -30,8 +31,8 @@ internal static class Modules
     ];
 
     /// <summary>
-    /// Before anything reads the feature table or a service: the mod system's StartPre, the tests' set-up. Again after
-    /// Release (the next world), it registers the same.
+    ///     Before anything reads the feature table or a service: the mod system's StartPre, the tests' set-up. Again after
+    ///     Release (the next world), it registers the same.
     /// </summary>
     public static void Register()
     {
@@ -40,7 +41,7 @@ internal static class Modules
     }
 
     /// <summary>
-    /// The world closed: the services go with it (KometModSystem.Dispose, last)
+    ///     The world closed: the services go with it (KometModSystem.Dispose, last)
     /// </summary>
     public static void Release() => Services.Clear();
 

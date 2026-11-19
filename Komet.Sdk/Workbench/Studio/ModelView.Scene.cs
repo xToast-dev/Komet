@@ -9,16 +9,76 @@ namespace Komet.Sdk;
 // shows the way it would look in the game instead of on a lone shape fed with guesses.
 internal sealed partial class ModelView
 {
-    private const int FamilyBlocks = 0, FamilySky = 1, FamilyLiquid = 2, FamilyPost = 3,
-        FamilyCloudVolume = 4, FamilyAurora = 5, FamilyCloudMap = 6, FamilyClassicCloud = 7, FamilyCelestial = 8,
+    private const int FamilyBlocks = 0,
+        FamilySky = 1,
+        FamilyLiquid = 2,
+        FamilyPost = 3,
+        FamilyCloudVolume = 4,
+        FamilyAurora = 5,
+        FamilyCloudMap = 6,
+        FamilyClassicCloud = 7,
+        FamilyCelestial = 8,
         FamilyEffect = 9;
+
     private const int PartDome = 0, PartBlocks = 1, PartWater = 2, Parts = 3;
     private const float Block = 0.4f, DomeRadius = 24;
     private const int Grid = 11;
 
+    private const string BuiltinVertex = """
+                                         #version 330 core
+                                         layout(location = 0) in vec3 position;
+                                         layout(location = 1) in vec3 normal;
+                                         layout(location = 2) in vec2 uv;
+                                         uniform mat4 uProj;
+                                         uniform mat4 uView;
+                                         out vec3 vNormal;
+                                         out vec2 vUv;
+                                         out vec3 vPos;
+                                         void main() {
+                                             vNormal = normal; vUv = uv; vPos = position;
+                                             gl_Position = uProj * uView * vec4(position, 1.0);
+                                         }
+                                         """;
+
+    private const string BuiltinFragment = """
+                                           #version 330 core
+                                           in vec3 vNormal;
+                                           in vec2 vUv;
+                                           in vec3 vPos;
+                                           uniform sampler2D uTex;
+                                           uniform int uKind;
+                                           uniform vec3 uSun;
+                                           uniform float uDaylight;
+                                           out vec4 outColor;
+                                           vec3 sky(vec3 d) {
+                                               float h = clamp(d.y, -0.2, 1.0);
+                                               vec3 c = mix(vec3(0.78, 0.86, 0.95), vec3(0.32, 0.52, 0.86), smoothstep(0.0, 0.7, h));
+                                               float sun = max(dot(normalize(d), normalize(uSun)), 0.0);
+                                               return c + vec3(1.0, 0.9, 0.7) * (pow(sun, 400.0) * 4.0 + pow(sun, 8.0) * 0.25);
+                                           }
+                                           void main() {
+                                               if (uKind == 2) { outColor = vec4(sky(normalize(vPos)), 1.0); return; }
+                                               if (uKind == 3) { outColor = vec4(sky(normalize(vPos)) * vec3(0.07, 0.08, 0.13), 1.0); return; }
+                                               vec3 n = normalize(vNormal);
+                                               float light = (0.45 + 0.6 * max(dot(n, normalize(uSun)), 0.0)) * uDaylight;
+                                               if (uKind == 1) {
+                                                   float f = 0.25 + 0.5 * pow(1.0 - abs(n.y), 2.0);
+                                                   outColor = vec4(mix(vec3(0.12, 0.32, 0.55), sky(reflect(vec3(0.0, -1.0, 0.0), n)), f) * light, 0.75);
+                                                   return;
+                                               }
+                                               float grain = texture(uTex, vUv).r;
+                                               vec3 base = n.y > 0.5 ? vec3(0.36, 0.58, 0.22) : vec3(0.45, 0.32, 0.2);
+                                               if (n.y <= 0.5 && vUv.y < 0.2 && vPos.y > -0.01) base = mix(base, vec3(0.36, 0.58, 0.22), 0.6);
+                                               outColor = vec4(base * (0.7 + 0.6 * grain) * light, 1.0);
+                                           }
+                                           """;
+
     private static readonly string[] PostNames =
-        ["final", "blur", "bloom", "godray", "colorgrade", "luma", "ssao", "blit", "autocamera", "tonemap", "fxaa",
-            "compose", "composite", "findbright", "texture2texture", "post", "chromatic", "vignette", "sharpen", "dof"];
+    [
+        "final", "blur", "bloom", "godray", "colorgrade", "luma", "ssao", "blit", "autocamera", "tonemap", "fxaa",
+        "compose", "composite", "findbright", "texture2texture", "post", "chromatic", "vignette", "sharpen", "dof"
+    ];
+
     private static readonly string[] SkyNames = ["sky", "celestial", "aurora", "cloud", "sun", "moon", "star"];
     private static readonly string[] LiquidNames = ["liquid", "water"];
 
@@ -30,6 +90,8 @@ internal sealed partial class ModelView
     // depth range): copied into a scene a few units wide they move or fog it away, so the view keeps its own
     private static readonly string[] Placing =
         ["origin", "offset", "playerpos", "viewdistance", "zfar", "znear", "framesize", "camera", "world"];
+
+    private static readonly (float S, float T)[] Corners = [(0, 0), (1, 0), (1, 1), (0, 0), (1, 1), (0, 1)];
 
     private readonly (int First, int Count)[] _parts = new (int, int)[Parts];
     private int _builtin, _builtinVao, _blocks, _water, _family, _skyGradient, _sunGlow, _stars;
@@ -162,6 +224,7 @@ internal sealed partial class ModelView
         {
             GL.Disable(IndexedEnableCap.Blend, 0); // a post shader's alpha is no coverage
         }
+
         var range = ScreenRange();
         DrawUserPart(range, engine, aspect, height, _scene, true);
     }
@@ -232,7 +295,8 @@ internal sealed partial class ModelView
     {
         if (screen) return (Matrix4x4.Identity, Matrix4x4.Identity);
 
-        var eye = new Vector3(MathF.Sin(_yaw) * MathF.Cos(_pitch), MathF.Sin(_pitch), MathF.Cos(_yaw) * MathF.Cos(_pitch)) *
+        var eye = new Vector3(MathF.Sin(_yaw) * MathF.Cos(_pitch), MathF.Sin(_pitch),
+                      MathF.Cos(_yaw) * MathF.Cos(_pitch)) *
                   _distance;
         var target = SceneOnly || Shape == SceneShape ? new Vector3(0, Block, 0) : Vector3.Zero;
         const float near = 0.05f, far = 80f;
@@ -255,7 +319,8 @@ internal sealed partial class ModelView
         var (w, y) = (Grid / 2f * Block, 0.8f * Block);
         foreach (var (s, t) in Corners.Bounded(6))
         {
-            Vertex(v, -w + s * Block * 4, y, -w + t * Block * 4, 0, 1, 0, s * 4, t * 4); // the pond in the hill's corner
+            Vertex(v, -w + s * Block * 4, y, -w + t * Block * 4, 0, 1, 0, s * 4,
+                t * 4); // the pond in the hill's corner
         }
 
         _parts[PartWater] = (first, v.Count / 8 - first);
@@ -264,8 +329,6 @@ internal sealed partial class ModelView
         MakeCelestial(v);
         MakeEffect(v);
     }
-
-    private static readonly (float S, float T)[] Corners = [(0, 0), (1, 0), (1, 1), (0, 0), (1, 1), (0, 1)];
 
     private static void Dome(List<float> v)
     {
@@ -277,7 +340,8 @@ internal sealed partial class ModelView
             {
                 var (s, t) = ((a + cs) / around, (b + ct) / up);
                 var (phi, theta) = (s * MathF.Tau, t * MathF.PI);
-                var (x, y, z) = (MathF.Sin(theta) * MathF.Sin(phi), MathF.Cos(theta), MathF.Sin(theta) * MathF.Cos(phi));
+                var (x, y, z) = (MathF.Sin(theta) * MathF.Sin(phi), MathF.Cos(theta),
+                    MathF.Sin(theta) * MathF.Cos(phi));
                 Vertex(v, x * DomeRadius, y * DomeRadius, z * DomeRadius, -x, -y, -z, s, t); // seen from inside
             }
         }
@@ -291,7 +355,8 @@ internal sealed partial class ModelView
         if (x < 4 && z < 4) return 0;
 
         var (dx, dz) = (x - 7, z - 7);
-        return Math.Clamp(4 - (int)MathF.Sqrt((float)dx * dx + (float)dz * dz) + ((x * 7 + z * 3) % 5 == 0 ? 1 : 0), 1, 5);
+        return Math.Clamp(4 - (int)MathF.Sqrt((float)dx * dx + (float)dz * dz) + ((x * 7 + z * 3) % 5 == 0 ? 1 : 0), 1,
+            5);
     }
 
     // The hill as block faces: every top, and the sides that stand above their neighbour
@@ -305,8 +370,11 @@ internal sealed partial class ModelView
                 var h = Height(x, z);
                 var (x0, z0) = (x * Block - half, z * Block - half);
                 Face(v, x0, h * Block - Block, z0, 1, 2); // the top
-                ReadOnlySpan<(int Dx, int Dz, int Axis, int Sign)> sides = [(1, 0, 0, 1), (-1, 0, 0, -1), (0, 1, 2, 1),
-                    (0, -1, 2, -1)];
+                ReadOnlySpan<(int Dx, int Dz, int Axis, int Sign)> sides =
+                [
+                    (1, 0, 0, 1), (-1, 0, 0, -1), (0, 1, 2, 1),
+                    (0, -1, 2, -1)
+                ];
                 foreach (var (dx, dz, axis, sign) in sides.ToArray().Bounded(4))
                 {
                     var below = Math.Max(Height(x + dx, z + dz), -1);
@@ -335,55 +403,6 @@ internal sealed partial class ModelView
             Vertex(v, px, py, pz, nx, ny, nz, s * 0.5f, 1 - t); // the block: the atlas' left half
         }
     }
-
-    private const string BuiltinVertex = """
-        #version 330 core
-        layout(location = 0) in vec3 position;
-        layout(location = 1) in vec3 normal;
-        layout(location = 2) in vec2 uv;
-        uniform mat4 uProj;
-        uniform mat4 uView;
-        out vec3 vNormal;
-        out vec2 vUv;
-        out vec3 vPos;
-        void main() {
-            vNormal = normal; vUv = uv; vPos = position;
-            gl_Position = uProj * uView * vec4(position, 1.0);
-        }
-        """;
-
-    private const string BuiltinFragment = """
-        #version 330 core
-        in vec3 vNormal;
-        in vec2 vUv;
-        in vec3 vPos;
-        uniform sampler2D uTex;
-        uniform int uKind;
-        uniform vec3 uSun;
-        uniform float uDaylight;
-        out vec4 outColor;
-        vec3 sky(vec3 d) {
-            float h = clamp(d.y, -0.2, 1.0);
-            vec3 c = mix(vec3(0.78, 0.86, 0.95), vec3(0.32, 0.52, 0.86), smoothstep(0.0, 0.7, h));
-            float sun = max(dot(normalize(d), normalize(uSun)), 0.0);
-            return c + vec3(1.0, 0.9, 0.7) * (pow(sun, 400.0) * 4.0 + pow(sun, 8.0) * 0.25);
-        }
-        void main() {
-            if (uKind == 2) { outColor = vec4(sky(normalize(vPos)), 1.0); return; }
-            if (uKind == 3) { outColor = vec4(sky(normalize(vPos)) * vec3(0.07, 0.08, 0.13), 1.0); return; }
-            vec3 n = normalize(vNormal);
-            float light = (0.45 + 0.6 * max(dot(n, normalize(uSun)), 0.0)) * uDaylight;
-            if (uKind == 1) {
-                float f = 0.25 + 0.5 * pow(1.0 - abs(n.y), 2.0);
-                outColor = vec4(mix(vec3(0.12, 0.32, 0.55), sky(reflect(vec3(0.0, -1.0, 0.0), n)), f) * light, 0.75);
-                return;
-            }
-            float grain = texture(uTex, vUv).r;
-            vec3 base = n.y > 0.5 ? vec3(0.36, 0.58, 0.22) : vec3(0.45, 0.32, 0.2);
-            if (n.y <= 0.5 && vUv.y < 0.2 && vPos.y > -0.01) base = mix(base, vec3(0.36, 0.58, 0.22), 0.6);
-            outColor = vec4(base * (0.7 + 0.6 * grain) * light, 1.0);
-        }
-        """;
 
     private void BuiltinProgram()
     {

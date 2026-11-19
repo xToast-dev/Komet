@@ -22,9 +22,6 @@ internal static partial class EngineSource
     private static readonly List<string> Paths = [];
     private static volatile int _state; // 0 not started, 1 indexing, 2 ready, 3 failed
 
-    // A method of one of the indexed assemblies
-    private readonly record struct Site(int Assembly, MethodDefinitionHandle Method);
-
     public static string Error { get; private set; } = "";
     public static bool Ready => _state == 2;
     public static bool Failed => _state == 3;
@@ -79,7 +76,7 @@ internal static partial class EngineSource
             Error = Paths.Count > 0 ? "" : "the game's assemblies were not found";
         }
         catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException or
-                                       UnauthorizedAccessException)
+                                      UnauthorizedAccessException)
         {
             Error = e.Message;
             _state = 3;
@@ -158,7 +155,11 @@ internal static partial class EngineSource
         parent.Kind switch
         {
             HandleKind.TypeReference => metadata.GetString(metadata.GetTypeReference((TypeReferenceHandle)parent).Name),
-            HandleKind.TypeDefinition => metadata.GetString(metadata.GetTypeDefinition((TypeDefinitionHandle)parent).Name),
+            HandleKind.TypeDefinition => metadata.GetString(metadata.GetTypeDefinition((TypeDefinitionHandle)parent)
+                .Name),
             _ => "?"
         };
+
+    // A method of one of the indexed assemblies
+    private readonly record struct Site(int Assembly, MethodDefinitionHandle Method);
 }

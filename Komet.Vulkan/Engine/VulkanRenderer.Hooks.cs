@@ -522,6 +522,7 @@ internal static partial class VulkanRenderer
         {
             LetGo(); // before Untap: handing back is quiet OpenGL work
         }
+
         // the record tapped at the start stays while Vulkan is on: what it hears now Vulkan needs later
         if (!GlTap.Tapped || (Only && !VulkanCore.Failed)) return;
 

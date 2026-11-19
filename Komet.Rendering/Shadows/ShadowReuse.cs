@@ -212,8 +212,8 @@ internal sealed class ShadowReuse(ShadowReuse.Pass pass)
 
     private static bool Vanilla(Assembly? owner) =>
         owner?.FullName is { } name && (name.StartsWith("VSSurvivalMod,", StringComparison.Ordinal) ||
-                                               name.StartsWith("VSEssentials,", StringComparison.Ordinal) ||
-                                               name.StartsWith("VSCreativeMod,", StringComparison.Ordinal));
+                                        name.StartsWith("VSEssentials,", StringComparison.Ordinal) ||
+                                        name.StartsWith("VSCreativeMod,", StringComparison.Ordinal));
 
     // ShadowView's input: camera rotation and projection, `above` matrices below the stack top
     private static bool View(ClientMain game, Span<double> into, int above)

@@ -120,6 +120,7 @@ internal static partial class ShaderMods
             {
                 return false; // not the held mod's
             }
+
             // a running mod that replaces the file too (SheyderMod beside a held DRTAgX) keeps its version
             if (instead is not null && Bytes(instead, "game", file) is { } theirs)
             {

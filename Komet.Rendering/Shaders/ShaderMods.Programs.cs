@@ -1,5 +1,5 @@
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using OpenTK.Graphics.OpenGL4;
 using Vintagestory.Client.NoObf;
 
@@ -8,6 +8,8 @@ namespace Komet.Rendering;
 // ShaderMods: the mods' programs, their OpenGL compiles and Vulkan ports.
 internal static partial class ShaderMods
 {
+    private static bool _validating;
+
     // Mods with shader files, in load order
     public static List<Found> All(ICoreAPI? api)
     {
@@ -97,7 +99,7 @@ internal static partial class ShaderMods
                 Ported[pass] = "the port threw: " + e.Message;
             }
 
-            var outcome = Ported.TryGetValue(pass, out var wrote) ? wrote : null; // what this port wrote
+            var outcome = Ported.GetValueOrDefault(pass); // what this port wrote
             var api = _api;
             api?.Event?.EnqueueMainThreadTask(() => Finished(key, pass, (kept, round, outcome)), "komet-shader-mods");
         });
@@ -208,11 +210,9 @@ internal static partial class ShaderMods
 
     private static void Loading()
     {
-        if (_api is { } api)
-        {
-            Swap(api);
-            StudioHooks.Loading?.Invoke(api); // the SDK's active projects' copies go in
-        }
+        if (_api is not { } api) return;
+        Swap(api);
+        StudioHooks.Loading?.Invoke(api); // the SDK's active projects' copies go in
     }
 
     // Checked once the reload is through: the mods recompile their programs in the ReloadShader event after this
@@ -226,15 +226,12 @@ internal static partial class ShaderMods
         {
             _validating = false;
             // ReSharper disable once ConstantConditionalAccessQualifier the task runs later: the SDK may unhook meanwhile
-            if (_api is { } now && StudioHooks.Validate?.Invoke(Diagnostics(now)) == true)
-            {
-                now.Logger?.Warning("Komet Shader Studio: a project copy without a good state broke a program, the game's file runs");
-                _ = now.Shader.ReloadShaders();
-            }
+            if (_api is not { } now || StudioHooks.Validate?.Invoke(Diagnostics(now)) != true) return;
+            now.Logger?.Warning(
+                "Komet Shader Studio: a project copy without a good state broke a program, the game's file runs");
+            _ = now.Shader.ReloadShaders();
         }, "komet-shader-validate");
     }
-
-    private static bool _validating;
 
     // Whether the program's last compile went through (Compile's result; LoadError only marks a missing file); null when
     // no program of that name compiled this session

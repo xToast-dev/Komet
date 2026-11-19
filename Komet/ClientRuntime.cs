@@ -1,3 +1,4 @@
+using System.Reflection;
 using HarmonyLib;
 using Komet.Core;
 using Komet.Options;
@@ -6,9 +7,10 @@ using Komet.Rendering;
 namespace Komet;
 
 /// <summary>
-/// One client world's run of Komet, which KometModSystem only forwards its lifecycle to: the composition (Modules) and the
-/// shader mods' hold-back before any other mod starts, the features' install, the mod adapters, the recheck at
-/// LevelFinalize and the state poll, and the teardown in reverse. Each module's own start lives in its features.
+///     One client world's run of Komet, which KometModSystem only forwards its lifecycle to: the composition (Modules) and
+///     the
+///     shader mods' hold-back before any other mod starts, the features' install, the mod adapters, the recheck at
+///     LevelFinalize and the state poll, and the teardown in reverse. Each module's own start lives in its features.
 /// </summary>
 internal sealed class ClientRuntime
 {
@@ -20,12 +22,12 @@ internal sealed class ClientRuntime
     private long _poll;
 
     /// <summary>
-    /// Before any mod's Start: the public API logs what it refuses from then on
+    ///     Before any mod's Start: the public API logs what it refuses from then on
     /// </summary>
     /// <param name="api"></param>
     /// <param name="logger"></param>
     /// <param name="mod"></param>
-    public static void Prepare(ICoreAPI api, ILogger logger, System.Reflection.Assembly mod)
+    public static void Prepare(ICoreAPI api, ILogger logger, Assembly mod)
     {
         KometMod.Attach(mod);
         Modules.Register();
@@ -37,13 +39,13 @@ internal sealed class ClientRuntime
     }
 
     /// <summary>
-    /// The mods assets are there, no other mod has started: held-back mods' files give way, Komet versions stand in
+    ///     The mods assets are there, no other mod has started: held-back mods' files give way, Komet versions stand in
     /// </summary>
     /// <param name="api"></param>
     public static void AssetsLoaded(ICoreClientAPI api) => ShaderMods.Swap(api);
 
     /// <summary>
-    /// A throw propagates: the mod system stands Komet down as a whole
+    ///     A throw propagates: the mod system stands Komet down as a whole
     /// </summary>
     /// <param name="api"></param>
     /// <param name="logger"></param>
@@ -57,7 +59,7 @@ internal sealed class ClientRuntime
             : "Komet: remote server, Komet patches the client only");
         Features.Start(_context);
         ModAdapters.Start(api);
-        Options.ConfigLibPages.Start(api);
+        ConfigLibPages.Start(api);
         api.Event.LevelFinalize += Features.Recheck;
         _poll = api.Event.RegisterGameTickListener(Poll, PollMs);
         logger.Notification("Komet HUD ready – F7 toggles it, .komet or Escape → Settings opens the options");
@@ -69,7 +71,7 @@ internal sealed class ClientRuntime
     }
 
     /// <summary>
-    /// Also after a failed Start: what was attached goes, every step on its own
+    ///     Also after a failed Start: what was attached goes, every step on its own
     /// </summary>
     public void Stop()
     {
@@ -90,7 +92,7 @@ internal sealed class ClientRuntime
 
         Features.Cleanup(Owner, "release shader mods", ShaderMods.Release);
         Features.Cleanup(Owner, "release mod adapters", ModAdapters.Stop);
-        Features.Cleanup(Owner, "release ConfigLib pages", Options.ConfigLibPages.Stop);
+        Features.Cleanup(Owner, "release ConfigLib pages", ConfigLibPages.Stop);
         Features.Cleanup(Owner, "release services", Modules.Release);
     }
 }

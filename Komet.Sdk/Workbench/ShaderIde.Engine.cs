@@ -9,22 +9,39 @@ namespace Komet.Sdk;
 internal sealed partial class ShaderIde
 {
     private ShaderDocument? _engine;
-    private string? _engineFor, _engineJump;
     private bool _engineDone;
+    private string? _engineFor, _engineJump;
+
+    public bool JumpToEngine(string uniform)
+    {
+        if (Program(Current) is null || uniform.Length == 0) return false;
+
+        SetMode(EditorMode.Engine);
+        if (_engineDone)
+        {
+            Jump(uniform);
+        }
+        else
+        {
+            _engineJump = uniform;
+        }
+
+        return true;
+    }
 
     private void ShowEngine()
     {
         EngineSource.Start();
-        var program = Program(_current);
+        var program = Program(Current);
         if (program is null)
         {
             SetEngine("none", L("engine-not-shader"), true);
             return;
         }
 
-        if (_engineFor != _current!.Path)
+        if (_engineFor != Current!.Path)
         {
-            (_engineFor, _engineDone) = (_current.Path, false);
+            (_engineFor, _engineDone) = (Current.Path, false);
             SetEngine(program, L("engine-loading"), false);
         }
 
@@ -34,12 +51,13 @@ internal sealed partial class ShaderIde
     // Per frame while the view waits: the finished text replaces the notice once
     private bool EnginePoll()
     {
-        if (Mode != EditorMode.Engine || _engineDone || _current is null || Program(_current) is not { } program)
+        if (Mode != EditorMode.Engine || _engineDone || Current is null || Program(Current) is not { } program)
         {
             return false;
         }
 
-        var uniforms = Regex.Matches(_current.Text, @"uniform\s+\w+\s+(\w+)", RegexOptions.None, TimeSpan.FromMilliseconds(100))
+        var uniforms = Regex.Matches(Current.Text, @"uniform\s+\w+\s+(\w+)", RegexOptions.None,
+                TimeSpan.FromMilliseconds(100))
             .Select(m => m.Groups[1].Value).Distinct().Take(32).ToArray();
         if (EngineSource.Query(program, uniforms) is not { } text) return false;
 
@@ -68,23 +86,6 @@ internal sealed partial class ShaderIde
 
         var game = StudioLink.IsGameShader(document.Path) ? document.Path : StudioLink.GameFileOf(document.Path);
         return game is not null && ShaderPaths.IsStage(game) ? Path.GetFileNameWithoutExtension(game) : null;
-    }
-
-    public bool JumpToEngine(string uniform)
-    {
-        if (Program(_current) is null || uniform.Length == 0) return false;
-
-        SetMode(EditorMode.Engine);
-        if (_engineDone)
-        {
-            Jump(uniform);
-        }
-        else
-        {
-            _engineJump = uniform;
-        }
-
-        return true;
     }
 
     private void Jump(string uniform)

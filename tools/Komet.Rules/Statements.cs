@@ -88,8 +88,8 @@ internal static class Statements
     // A call of Contracts.Bounded: the collection itself, or a spread `[.. items.Bounded(n)]` in a collection expression
     private static bool IsBounded(SyntaxNodeAnalysisContext context, ExpressionSyntax expression) =>
         Symbols.Unparenthesized(expression) is InvocationExpressionSyntax call &&
-               Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol,
-                   "Bounded");
+        Symbols.IsContractsCall(context.SemanticModel.GetSymbolInfo(call, context.CancellationToken).Symbol,
+            "Bounded");
 
     private static void Length(SyntaxNodeAnalysisContext context)
     {
@@ -470,6 +470,6 @@ internal static class ForLoop
     private static bool Is(ExpressionSyntax expression, ILocalSymbol variable, SemanticModel model,
         CancellationToken token) =>
         Symbols.Unparenthesized(expression) is IdentifierNameSyntax name &&
-               name.Identifier.ValueText == variable.Name &&
-               SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
+        name.Identifier.ValueText == variable.Name &&
+        SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(name, token).Symbol, variable);
 }

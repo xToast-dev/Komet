@@ -19,24 +19,24 @@ internal sealed partial class ModelView : IDisposable
     private const int SceneShape = 0, Screen = 4, CopyEvery = 30;
     private const float MinDistance = 1.4f, MaxDistance = 12;
 
-    private readonly record struct Input(string Name, int Location, int Type, int Role);
-
     private readonly List<Input> _attributes = [], _uniforms = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly float[] _floats = new float[16];
     private readonly int[] _ints = new int[4];
-    private (string Name, string Vertex, string Fragment, bool FullscreenPass)? _pending;
-    private string _log = "";
-    private float _yaw = -2.4f, _pitch = 0.26f, _distance = 6.1f;
     private int _frame, _copiedFrom;
+    private string _log = "";
+    private (string Name, string Vertex, string Fragment, bool FullscreenPass)? _pending;
+    private float _yaw = -2.4f, _pitch = 0.26f, _distance = 6.1f;
 
     public bool On { get; set; }
     public int Shape { get; set; } // 0 the scene (the default), then sphere, cube, plane, screen quad
     public string Note { get; private set; } = ""; // why no picture shows ("" one does)
     public double LastMs { get; private set; }
     public bool Has => _program != 0;
+
     public bool SceneOnly => (_pending?.FullscreenPass ?? _fullscreenPass) ||
                              (_pending is null && (!Has || WeatherScene));
+
     private bool WeatherScene =>
         _family is FamilyCloudVolume or FamilyCloudMap or FamilyClassicCloud or FamilyAurora or FamilyCelestial or
             FamilyEffect;
@@ -208,7 +208,8 @@ internal sealed partial class ModelView : IDisposable
                 case ("viewDistance" or "viewDistanceLod0", ActiveUniformType.Float):
                     GL.Uniform1(location, 80f);
                     break;
-                case ("cloudBrightness" or "cloudOpaqueness" or "globalCloudBrightness" or "dayLight", ActiveUniformType.Float):
+                case ("cloudBrightness" or "cloudOpaqueness" or "globalCloudBrightness" or "dayLight", ActiveUniformType
+                    .Float):
                     GL.Uniform1(location, uniform.Name == "dayLight" && _linkedName == "nightsky" ? 0f : 1f);
                     break;
                 case ("cloudsLength", ActiveUniformType.Float):
@@ -237,7 +238,8 @@ internal sealed partial class ModelView : IDisposable
         for (var i = 0; i < Math.Min(_uniforms.Count, MaxInputs); i++)
         {
             var u = _uniforms[i];
-            if (u.Role != RoleValue || Placed(u.Name.ToLowerInvariant()) || GL.GetUniformLocation(engine, u.Name) is not (>= 0 and var from)) continue;
+            if (u.Role != RoleValue || Placed(u.Name.ToLowerInvariant()) ||
+                GL.GetUniformLocation(engine, u.Name) is not (>= 0 and var from)) continue;
 
             var n = Components((ActiveUniformType)u.Type, out var integer);
             if (integer)
@@ -276,4 +278,6 @@ internal sealed partial class ModelView : IDisposable
             _ => 0
         };
     }
+
+    private readonly record struct Input(string Name, int Location, int Type, int Role);
 }

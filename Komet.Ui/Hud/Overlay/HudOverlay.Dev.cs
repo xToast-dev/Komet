@@ -19,7 +19,8 @@ internal sealed partial class HudOverlay
             foreach (var key in (ReadOnlySpan<string>)["settings-sdk-missing", "settings-sdk-missing-hint"])
             {
                 var text = HudParts.T(key);
-                ui.Text(ui.X + ui.Px(24), y, ui.F.BodyRow, ui.F.Body, ui.Fit(ui.F.Body, text, ui.W - ui.Px(48)), HudUi.Soft);
+                ui.Text(ui.X + ui.Px(24), y, ui.F.BodyRow, ui.F.Body, ui.Fit(ui.F.Body, text, ui.W - ui.Px(48)),
+                    HudUi.Soft);
                 y += ui.F.BodyRow + ui.Px(8);
             }
         });

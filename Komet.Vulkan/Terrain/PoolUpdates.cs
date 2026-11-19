@@ -39,10 +39,10 @@ internal static class PoolUpdates
     }
 
     internal static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.UpdateMesh),
-                [typeof(MeshRef), typeof(MeshData)])
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(ClientPlatformWindows), nameof(ClientPlatformWindows.UpdateMesh),
+            [typeof(MeshRef), typeof(MeshData)])
+    ];
 
     // false when the update was made here
     internal static bool Updating(ClientPlatformWindows __instance, MeshRef modelRef, MeshData? data)

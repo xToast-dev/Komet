@@ -162,7 +162,7 @@ internal static partial class EngineOptions
 
     internal static bool Unbound(string code) =>
         NotNull(code) && Assert(code.Length > 0) && HotKeys is { } keys && keys.TryGetValue(code, out var key) &&
-               key.CurrentMapping?.KeyCode == NoKey;
+        key.CurrentMapping?.KeyCode == NoKey;
 
     // The game's own texts (interaction help, its controls tab) name an unbound key as such, not as key 511
     internal static void NameUnbound(Harmony harmony)

@@ -1,5 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Vintagestory.Client;
+using Vintagestory.Client.NoObf;
 
 namespace Komet.Sdk;
 
@@ -11,19 +14,6 @@ internal sealed partial class ShaderIde
 {
     private const long SettleMs = 2500, CaptureMs = 2000;
     private const int Thumb = 4, SheetColumns = 4, SheetRows = 5, MaxPixels = 1 << 24, MaxFiles = 4096, MaxSide = 4096;
-
-    private sealed class ShaderTest(string folder, string[] files, bool exit)
-    {
-        public string Folder { get; } = folder;
-        public string[] Files { get; } = files;
-        public bool Exit { get; } = exit;
-        public int At { get; set; } = -1;
-        public long Since { get; set; }
-        public bool Want { get; set; }
-        public (byte[] Rgba, int Width, int Height)? Shot { get; set; }
-        public List<string> Lines { get; } = [];
-        public List<(byte[] Rgba, int Width, int Height)?> Pictures { get; } = [];
-    }
 
     private ShaderTest? _test;
 
@@ -45,7 +35,7 @@ internal sealed partial class ShaderIde
     {
         if (_test is not { } test) return false;
 
-        if (test.At < 0 || (test.Shot is not null || now - test.Since > SettleMs + CaptureMs) && !Next(test, now))
+        if (test.At < 0 || ((test.Shot is not null || now - test.Since > SettleMs + CaptureMs) && !Next(test, now)))
         {
             if (test.At < 0) return Next(test, now);
 
@@ -102,7 +92,8 @@ internal sealed partial class ShaderIde
         if (test.Shot is { } picture)
         {
             PngFile.Write(Path.Join(test.Folder, index.ToString("000", CultureInfo.InvariantCulture) + "-" +
-                                                 Path.GetFileName(file) + ".png"), picture.Rgba, picture.Width, picture.Height);
+                                                 Path.GetFileName(file) + ".png"), picture.Rgba, picture.Width,
+                picture.Height);
         }
 
         test.Pictures.Add(test.Shot);
@@ -150,8 +141,8 @@ internal sealed partial class ShaderIde
         AddLog("shader test done: " + test.Folder);
         if (test.Exit)
         {
-            Vintagestory.Client.ScreenManager.EnqueueMainThreadTask(() =>
-                Vintagestory.Client.ScreenManager.Platform.WindowExit("komet shader test done", EnumExitMode.SoftExit));
+            ScreenManager.EnqueueMainThreadTask(() =>
+                ScreenManager.Platform.WindowExit("komet shader test done", EnumExitMode.SoftExit));
         }
     }
 
@@ -162,15 +153,15 @@ internal sealed partial class ShaderIde
         var (assets, engine, whole) = (double.MaxValue, double.MaxValue, double.MaxValue);
         for (var i = 0; i < 3; i++)
         {
-            var clock = System.Diagnostics.Stopwatch.StartNew();
-            _ = Vintagestory.Client.ScreenManager.Platform.AssetManager.Reload(AssetCategory.shaders);
-            _ = Vintagestory.Client.ScreenManager.Platform.AssetManager.Reload(AssetCategory.shaderincludes);
+            var clock = Stopwatch.StartNew();
+            _ = ScreenManager.Platform.AssetManager.Reload(AssetCategory.shaders);
+            _ = ScreenManager.Platform.AssetManager.Reload(AssetCategory.shaderincludes);
             assets = Math.Min(assets, clock.Elapsed.TotalMilliseconds);
             clock.Restart();
-            _ = Vintagestory.Client.NoObf.ShaderRegistry.ReloadShaders();
+            _ = ShaderRegistry.ReloadShaders();
             engine = Math.Min(engine, clock.Elapsed.TotalMilliseconds);
             clock.Restart();
-            _ = _capi.Shader.ReloadShaders();
+            _ = Api.Shader.ReloadShaders();
             whole = Math.Min(whole, clock.Elapsed.TotalMilliseconds);
         }
 
@@ -191,27 +182,44 @@ internal sealed partial class ShaderIde
         {
             var (w, h) = (SheetColumns * (tw + 2), SheetRows * (th + 2));
             var pixels = new byte[w * h * 4];
-            for (var i = 0; i < Math.Min(pixels.Length, MaxPixels * 4); i += 4) (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) = (60, 0, 60, 255);
+            for (var i = 0; i < Math.Min(pixels.Length, MaxPixels * 4); i += 4)
+                (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]) = (60, 0, 60, 255);
 
             for (var cell = 0; cell < per && sheet * per + cell < test.Pictures.Count; cell++)
             {
-                if (test.Pictures[sheet * per + cell] is { } p) Place(pixels, w, p, (cell % SheetColumns) * (tw + 2) + 1, (cell / SheetColumns) * (th + 2) + 1, tw, th);
+                if (test.Pictures[sheet * per + cell] is { } p)
+                    Place(pixels, w, p, cell % SheetColumns * (tw + 2) + 1, cell / SheetColumns * (th + 2) + 1, tw, th);
             }
 
-            PngFile.Write(Path.Join(test.Folder, string.Create(CultureInfo.InvariantCulture, $"sheet-{sheet}.png")), pixels, w, h);
+            PngFile.Write(Path.Join(test.Folder, string.Create(CultureInfo.InvariantCulture, $"sheet-{sheet}.png")),
+                pixels, w, h);
         }
     }
 
-    private static void Place(byte[] to, int width, (byte[] Rgba, int Width, int Height) from, int x, int y, int tw, int th)
+    private static void Place(byte[] to, int width, (byte[] Rgba, int Width, int Height) from, int x, int y, int tw,
+        int th)
     {
         for (var row = 0; row < Math.Min(Math.Min(th, from.Height / Thumb), MaxSide); row++)
         {
             for (var col = 0; col < Math.Min(tw, MaxSide); col++)
             {
-                var source = ((row * Thumb) * from.Width + col * Thumb) * 4;
+                var source = (row * Thumb * from.Width + col * Thumb) * 4;
                 var target = ((y + row) * width + x + col) * 4;
                 Array.Copy(from.Rgba, source, to, target, 4);
             }
         }
+    }
+
+    private sealed class ShaderTest(string folder, string[] files, bool exit)
+    {
+        public string Folder { get; } = folder;
+        public string[] Files { get; } = files;
+        public bool Exit { get; } = exit;
+        public int At { get; set; } = -1;
+        public long Since { get; set; }
+        public bool Want { get; set; }
+        public (byte[] Rgba, int Width, int Height)? Shot { get; set; }
+        public List<string> Lines { get; } = [];
+        public List<(byte[] Rgba, int Width, int Height)?> Pictures { get; } = [];
     }
 }

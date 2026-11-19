@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using OpenTK.Graphics.OpenGL;
 using Vintagestory.API.MathTools;
 
@@ -100,7 +100,8 @@ internal static class MapTileUpload
     private const string Component = "Vintagestory.GameContent.MultiChunkMapComponent";
     private const int Side = 32, Cells = 3, Tile = Side * Cells, Opaque = unchecked((int)0xFF000000);
 
-    private static readonly SeamGuard Guard = new(nameof(MapTileUpload), KapiPatchKinds.Replacing, [typeof(MapTileUpload)]);
+    private static readonly SeamGuard Guard = new(nameof(MapTileUpload), KapiPatchKinds.Replacing,
+        [typeof(MapTileUpload)]);
 
     public static bool Enabled { get; set; } = true;
 

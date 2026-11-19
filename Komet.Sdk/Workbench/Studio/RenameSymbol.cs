@@ -10,14 +10,15 @@ internal sealed class RenameSymbol(ShaderIde host)
 {
     private const int MaxIncludes = 16;
     private readonly TextField _name = new(128);
-    private string _symbol = "";
     private Action? _focus;
+    private string _symbol = "";
 
     public bool Open { get; private set; }
 
     public void Begin()
     {
-        if (host.Active is not { } document || host.Mode != EditorMode.Mine || host.Editor.SymbolAtCaret() is not { } symbol)
+        if (host.Active is not { } document || host.Mode != EditorMode.Mine ||
+            host.Editor.SymbolAtCaret() is not { } symbol)
         {
             host.Toast(L("rename-no-symbol"));
             return;
@@ -76,7 +77,8 @@ internal sealed class RenameSymbol(ShaderIde host)
         if (DefiningInclude(document, _symbol) is { } include)
         {
             var (from, origin) = (_symbol, document);
-            host.Toast(L("rename-done", count), L("rename-in-includes"), () => RenameShared(origin, include, from, name));
+            host.Toast(L("rename-done", count), L("rename-in-includes"),
+                () => RenameShared(origin, include, from, name));
             return;
         }
 

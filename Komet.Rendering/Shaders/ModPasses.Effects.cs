@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace Komet.Rendering;

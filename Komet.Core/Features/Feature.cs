@@ -58,6 +58,7 @@ internal sealed record Feature(string Id)
     public FeatureLife Life { get; private init; }
     public FeaturePlace Place { get; private init; } = FeaturePlace.None;
     public FeatureGuard Guard { get; private init; } = FeatureGuard.None;
+
     // ReSharper disable once TypeWithSuspiciousEqualityIsUsedInRecord.Global features are never compared by value
     public Knob[] Knobs { get; init; } = [];
 

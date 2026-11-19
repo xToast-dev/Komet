@@ -1,4 +1,6 @@
+using System.Globalization;
 using HarmonyLib;
+using Komet.Hud;
 using Komet.Options;
 using Komet.Rendering;
 
@@ -38,9 +40,10 @@ internal static class KometSdk
         ShaderModules.Install(_harmony ??= new Harmony(HarmonyId), api);
         LiveForce.Install(_harmony);
         _ = api.ChatCommands.GetOrCreate("komet").BeginSubCommand("shadertest")
-            .WithDescription("Shows every vanilla shader in the workbench's 3D view and saves the pictures and a report")
+            .WithDescription(
+                "Shows every vanilla shader in the workbench's 3D view and saves the pictures and a report")
             .HandleWith(_ => ShaderTest(api, Path.Join(GamePaths.Logs, "komet-shadertest",
-                DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", System.Globalization.CultureInfo.InvariantCulture)), false))
+                DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture)), false))
             .EndSubCommand();
         if (Environment.GetEnvironmentVariable("KOMET_SHADER_TEST") is { Length: > 0 } folder && api.Event is { } world)
         {
@@ -57,8 +60,9 @@ internal static class KometSdk
     // The developer screen opens and its workbench runs the shader test into the folder
     private static TextCommandResult ShaderTest(ICoreClientAPI api, string folder, bool exit)
     {
-        Hud.HudOverlay.DeveloperForBench?.Invoke();
-        if (_ide?.TryGetTarget(out var ide) != true || ide is null) return TextCommandResult.Error("workbench not open");
+        HudOverlay.DeveloperForBench?.Invoke();
+        if (_ide?.TryGetTarget(out var ide) != true || ide is null)
+            return TextCommandResult.Error("workbench not open");
 
         ide.StartTest(folder, exit);
         api.Logger.Notification("Komet SDK: shader test into {0}", folder);
@@ -69,7 +73,7 @@ internal static class KometSdk
     // open for the run, its PREVIEW section open or folded
     private static void BenchStudio(ICoreClientAPI api, bool preview)
     {
-        Hud.HudOverlay.DeveloperForBench?.Invoke();
+        HudOverlay.DeveloperForBench?.Invoke();
         if (_ide?.TryGetTarget(out var ide) == true)
         {
             _ = ide.Prefs.Sections.Remove("view");

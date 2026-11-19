@@ -1,7 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 using Vintagestory.API.MathTools;

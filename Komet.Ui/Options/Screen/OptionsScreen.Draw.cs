@@ -1,4 +1,5 @@
 using Komet.Core;
+using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
 using static Komet.Options.OptionsText;
 
@@ -19,7 +20,7 @@ internal sealed partial class OptionsScreen
         Pad = 18,
         ClearWidth = 26;
 
-    private const int MaxItems = 512, MaxLines = 12, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
+    private const int MaxItems = 512, MaxParagraphs = 256, MaxWords = 256, MaxSteps = 64, MaxDialogs = 256;
 
     private const double
         GearSize = 85, GearShown = 0.55, MinShare = 0.5; // the hotbar's temporal gear: its size, the part above
@@ -37,9 +38,13 @@ internal sealed partial class OptionsScreen
 
     private const int TopGroup = 1, SideGroup = 2, ListGroup = 3;
     private const float GlowDepth = ScreenDepth + 1;
+
+    private readonly Vec4f _liveTint = new(1, 1, 1, 1);
     private double _fade; // how far the blur and the dim have come in since the screen opened, 0 to 1
     private double _flash;
     private Light _glow, _target;
+
+    private int _liveTexture, _liveFrame;
     private (double X, double Y) _mouse = (-1, -1); // in canvas pixels
     private double _sideScroll; // the page list's
 
@@ -66,6 +71,7 @@ internal sealed partial class OptionsScreen
         {
             Compose(w, h, bottom);
         }
+
         // HUD depth left behind would let hotbar, chat and minimap beat the screen; no depth test, no depth written.
         capi.Render.GLDisableDepthTest();
         try
@@ -92,10 +98,6 @@ internal sealed partial class OptionsScreen
             capi.Render.GLEnableDepthTest(); // as the ortho stage has it
         }
     }
-
-    private readonly Vintagestory.API.MathTools.Vec4f _liveTint = new(1, 1, 1, 1);
-
-    private int _liveTexture, _liveFrame;
 
     // The game's picture for the tool's preview: taken every second frame (the copy of the whole frame and its shrink are
     // the preview's main cost; at the game's frame rates half of them still look live), the last one shown between
@@ -292,7 +294,7 @@ internal sealed partial class OptionsScreen
         List<string> lines = [];
         if (!NotNull(text) || !Assert(width > 0)) return lines;
 
-        foreach (var paragraph in text.Split('\n').Bounded(MaxLines))
+        foreach (var paragraph in text.Split('\n').Bounded(MaxParagraphs))
         {
             _canvas.Wrap(font, paragraph, width, MaxWords, lines);
         }

@@ -160,13 +160,13 @@ internal static partial class GlTap
     // Each list starts where its numbered constants say, and the entries called from other files are where they are named
     private static bool Ordered() =>
         Index(RecordsAt + StencilAt, _entries.Length) && _entries[UseAt].Name == "glUseProgram" &&
-               _entries[EnableAt].Name == "glEnable" && _entries[TouchAt].Name == "glDrawArrays" &&
-               _entries[BufferDataAt].Name == "glBufferData" &&
-               _entries[NamedBufferDataAt].Name == "glNamedBufferData" &&
-               _entries[TexImage2DAt].Name == "glTexImage2D" && _entries[ObjectsAt].Name == "glBindBuffer" &&
-               _entries[RecordsAt].Name == "glCreateShader" &&
-               _entries[RecordsAt + SpecsAt].Name == "glCompressedTexImage2D" &&
-               _entries[RecordsAt + StencilAt].Name == "glStencilFunc";
+        _entries[EnableAt].Name == "glEnable" && _entries[TouchAt].Name == "glDrawArrays" &&
+        _entries[BufferDataAt].Name == "glBufferData" &&
+        _entries[NamedBufferDataAt].Name == "glNamedBufferData" &&
+        _entries[TexImage2DAt].Name == "glTexImage2D" && _entries[ObjectsAt].Name == "glBindBuffer" &&
+        _entries[RecordsAt].Name == "glCreateShader" &&
+        _entries[RecordsAt + SpecsAt].Name == "glCompressedTexImage2D" &&
+        _entries[RecordsAt + StencilAt].Name == "glStencilFunc";
 
     private static void Faulted(Exception e)
     {

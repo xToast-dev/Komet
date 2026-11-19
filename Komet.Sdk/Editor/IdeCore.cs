@@ -19,6 +19,8 @@ internal interface IIdeHost
     // Where includes resolve besides the file's own folder
     string Root { get; }
 
+    Rgba InactiveTint => new(0, 0, 0, 0);
+
     // Opens a file in the editor, its caret on a line (-1: where it was)
     void Open(string path, int line = -1);
     void Run(string command);
@@ -28,8 +30,6 @@ internal interface IIdeHost
 
     // A line in an #if branch the engine's defines drop (drawn greyed)
     bool Inactive(ShaderDocument document, int line) => false;
-
-    Rgba InactiveTint => new(0, 0, 0, 0);
 
     // Ctrl+click on a uniform's declaration: the engine code that sets it; false when there is none to show
     bool JumpToEngine(string uniform) => false;

@@ -77,6 +77,7 @@ internal static class ChunkPacking
         {
             return;
         }
+
         // the patched method itself (its postfix sees _inside), compiled once: no allocation per call
         var (system, dt) = (Expression.Parameter(typeof(object)), Expression.Parameter(typeof(float)));
         _tick = Expression.Lambda<Action<object, float>>(
@@ -93,7 +94,7 @@ internal static class ChunkPacking
 
     public static void Stop() =>
         (_tick, _ttls, _engineTtls, _appliedLevel, _engineSpares, _serverScanned, Installed) =
-            (null, null, null, -1, null, false, false);
+        (null, null, null, -1, null, false, false);
 
     // Level 3: cap the data pool's spare chunk datas, its own caps back below 3; on the main thread
     public static void Spares(ClientMain game)
@@ -231,7 +232,8 @@ internal static class ChunkPacking
             }
         }
 
-        var ttl = Math.Max(MinTtlMs, MagicNum.UncompressedChunkTTL / Divisor[level]); var now = Environment.TickCount;
+        var ttl = Math.Max(MinTtlMs, MagicNum.UncompressedChunkTTL / Divisor[level]);
+        var now = Environment.TickCount;
         (_serverScanAt, _serverScanned) = (now, true);
         lock (gate)
         {

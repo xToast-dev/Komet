@@ -49,7 +49,8 @@ internal sealed class Backdrop(ICoreClientAPI capi) : IDisposable
                                     """;
 
     private readonly int[]
-        _small = new int[Buffers], _smallFb = new int[Buffers]; // the quarter picture, ping-ponged by the passes; [2] sharp
+        _small = new int[Buffers],
+        _smallFb = new int[Buffers]; // the quarter picture, ping-ponged by the passes; [2] sharp
 
     private readonly Vec4f _tint = new(1, 1, 1, 1); // Render2DTexture reads it into a uniform during the call
     private readonly int[] _viewport = new int[4];

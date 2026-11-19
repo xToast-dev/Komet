@@ -1,3 +1,4 @@
+using System.Text;
 using Komet.Rendering;
 
 namespace Komet.Sdk;
@@ -18,7 +19,7 @@ internal static partial class ShaderBuild
                   "#ifndef USEOIT\n#define USEOIT 1\n#endif\n";
         List<(string Text, string File, int Line)> lines = [];
         Expand(text, "", lines, draftInclude);
-        var builder = new System.Text.StringBuilder(text.Length + prefix.Length + 1024);
+        var builder = new StringBuilder(text.Length + prefix.Length + 1024);
         var prefixed = false;
         for (var i = 0; i < Math.Min(lines.Count, MaxLines); i++)
         {

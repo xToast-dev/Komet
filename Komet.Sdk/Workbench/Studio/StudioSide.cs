@@ -16,22 +16,39 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
     public const int MaxModules = 128;
     private const double RowHeight = 38, HeadHeight = 36, GroupHeight = 30;
 
-    private ShaderModule[] _modules = [];
-    private ShaderPacks.Pack? _pack;
-    private string? _packOf;
-    private long _packAt, _modulesAt;
-    private int _packDisk = -1;
-    private double _x, _w, _top, _bottom, _scroll, _content;
-    private string _total = "";
-    private OptionPage? _page;
-
-    public ShaderModule[] Modules => _modules;
-
-    public PassModel Model { get; } = new();
+    private const long TimesMs = 2000;
 
     private readonly Dictionary<string, string> _keyOf = new(StringComparer.Ordinal); // row label -> setting key
 
+    private long _modulesSign = -1;
+    private ShaderPacks.Pack? _pack;
+    private long _packAt, _modulesAt;
+    private int _packDisk = -1;
+    private string? _packOf;
+    private OptionPage? _page;
+    private long _timesSign = -1, _timesAt;
+    private string _total = "";
+    private double _x, _w, _top, _bottom, _scroll, _content;
+
+    public ShaderModule[] Modules { get; private set; } = [];
+
+    public PassModel Model { get; } = new();
+
     private MenuControls? Menu => host.Controls;
+
+    public ShaderPacks.Pack? Pack => _page is null ? null : _pack;
+
+    // "Game runs: Vanilla" is the project switched off: read from it, so it holds across closing and restarts
+    private bool RunsVanilla => host.Project is { } project && host.ProjectInfo(project) is { Active: false };
+
+    public bool ShowsOriginal => RunsVanilla;
+
+    public bool Wheel(double x, int lines)
+    {
+        _scroll = Math.Clamp(_scroll + lines * S(RowHeight) / 3, 0, Math.Max(0, _content - (_bottom - _top)));
+        return true;
+    }
+
     private static double S(double size) => MenuControls.S(size);
 
     // The manifest, its page and the modules again
@@ -50,12 +67,12 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
         {
             StudioLink.Listening(host is { IsShown: true, Peeking: false });
             _modulesAt = now;
-            _modules = host.Link.Modules();
+            Modules = host.Link.Modules();
             // a full-screen recompose (and its texture upload) only when what the rows show moved: the poll used to
             // redraw the whole workbench twice a second
             // what the rows are redraws at once; their ms (to a tenth) at most every TimesMs: a full recompose is a
             // Cairo frame and a texture upload, and the ms change on nearly every poll
-            var (sign, times) = (Sign(_modules), Times(_modules));
+            var (sign, times) = (Sign(Modules), Times(Modules));
             if (sign != _modulesSign || (times != _timesSign && now - _timesAt >= TimesMs))
             {
                 (_modulesSign, _timesSign, _timesAt) = (sign, times, now);
@@ -80,8 +97,6 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
         return redraw;
     }
 
-    private long _modulesSign = -1;
-
     // What the module rows are: names, state, slot and order
     private static long Sign(ShaderModule[] modules)
     {
@@ -95,9 +110,6 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
 
         return sign;
     }
-
-    private const long TimesMs = 2000;
-    private long _timesSign = -1, _timesAt;
 
     // The rows' ms as drawn to a tenth
     private static long Times(ShaderModule[] modules)
@@ -125,7 +137,7 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
     public void RebuildModel()
     {
         var folder = host.Project is { } project ? Path.Join(StudioLink.ProjectsFolder, project) : null;
-        Model.Rebuild(_modules, _page is null ? null : _pack, folder, ValueOf, host.Panel.ErrorsIn);
+        Model.Rebuild(Modules, _page is null ? null : _pack, folder, ValueOf, host.Panel.ErrorsIn);
     }
 
     // A pack setting's current value through its row on the pack's page (0 without one)
@@ -142,13 +154,6 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
 
         return null;
     }
-
-    public ShaderPacks.Pack? Pack => _page is null ? null : _pack;
-
-    // "Game runs: Vanilla" is the project switched off: read from it, so it holds across closing and restarts
-    private bool RunsVanilla => host.Project is { } project && host.ProjectInfo(project) is { Active: false };
-
-    public bool ShowsOriginal => RunsVanilla;
 
     private bool Open(string section) => host.Prefs.Sections.Contains(section);
 
@@ -201,11 +206,5 @@ internal sealed partial class StudioSide(ShaderIde host) : IIdeRegion
         if (RunsVanilla == original || host.Project is not { } project) return;
 
         host.SetProjectOn(project, !original, false);
-    }
-
-    public bool Wheel(double x, int lines)
-    {
-        _scroll = Math.Clamp(_scroll + lines * S(RowHeight) / 3, 0, Math.Max(0, _content - (_bottom - _top)));
-        return true;
     }
 }

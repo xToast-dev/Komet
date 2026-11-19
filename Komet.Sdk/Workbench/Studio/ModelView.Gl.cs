@@ -7,29 +7,68 @@ namespace Komet.Sdk;
 // depth, then turned upright into the picture), the test textures, and the state saved around its draw
 internal sealed partial class ModelView
 {
-    private const int RoleValue = 0, RoleProjection = 1, RoleView = 2, RoleModelView = 3, RoleModel = 4,
-        RoleIdentity = 5, RoleTime = 6, RoleSkip = 7;
+    private const int RoleValue = 0,
+        RoleProjection = 1,
+        RoleView = 2,
+        RoleModelView = 3,
+        RoleModel = 4,
+        RoleIdentity = 5,
+        RoleTime = 6,
+        RoleSkip = 7;
+
     private const int AttrPosition = 0, AttrNormal = 1, AttrUv = 2, AttrWhite = 3, AttrZero = 4, AttrInt = 5;
     private const int AttrRibbonX = 6, AttrRenderFlags = 7, AttrTint = 8, AttrMatrix = 9;
     private const int Stride = 8 * sizeof(float), Units = 8, StarUnit = 7;
-    private static readonly string[] Lit = ["color", "rgba", "alpha", "tint", "light", "bright", "opacity", "scale", "size"];
 
-    private readonly record struct Saved(int Draw, int Read, int Program, int Vao, int Buffer, int Unit,
-        bool Scissor, bool Depth, bool Cull, bool DepthMask, int DepthFunc);
+    private const int AnimationBinding = 9;
 
-    private readonly (int First, int Count)[] _ranges = new (int, int)[ShapeCount];
-    private readonly int[] _viewport = new int[4];
+    private static readonly string[] Lit =
+        ["color", "rgba", "alpha", "tint", "light", "bright", "opacity", "scale", "size"];
+
     private readonly float[] _clear = new float[4];
     private readonly bool[] _mask = new bool[4];
+
+    private readonly (int First, int Count)[] _ranges = new (int, int)[ShapeCount];
     private readonly int[] _savedTextures = new int[Units], _savedSamplers = new int[Units];
-    private int _savedCube;
-    private string? _linkedName;
-    private int _program, _vao, _vbo, _fb, _color, _depth, _picture, _pictureFb, _pattern, _white, _shadow, _height;
-    private int _scene, _sceneDepth, _sceneFb, _readFb;
-    private int _flags, _black, _tints;
+    private readonly int[] _viewport = new int[4];
+    private int _animation;
     private float _clearDepth = 1;
     private bool _drop, _fullscreenPass, _screenVertexIds;
+    private int _flags, _black, _tints;
+    private string? _linkedName;
     private int _passResolution = -1;
+    private int _program, _vao, _vbo, _fb, _color, _depth, _picture, _pictureFb, _pattern, _white, _shadow, _height;
+    private int _savedCube;
+    private int _scene, _sceneDepth, _sceneFb, _readFb;
+
+    // The workbench closed (or the view went off): every GL object goes
+    public void Dispose()
+    {
+        ReleaseTargets();
+        DropProgram();
+        DisposeScene();
+        DisposeTransparency();
+        DisposeWeather();
+        if (_vbo != 0)
+        {
+            GL.DeleteBuffer(_vbo);
+            GL.DeleteBuffer(_flags);
+            GL.DeleteBuffer(_tints);
+            if (_colormap != 0) GL.DeleteBuffer(_colormap);
+            if (_animation != 0) GL.DeleteBuffer(_animation);
+
+            _animation = 0;
+            GL.DeleteVertexArray(_vao);
+            GL.DeleteTexture(_pattern);
+            GL.DeleteTexture(_white);
+            GL.DeleteTexture(_black);
+            GL.DeleteTexture(_sunParts);
+            GL.DeleteTexture(_shadow);
+        }
+
+        (_vbo, _vao, _pattern, _white, _shadow, _pending, Note) = (0, 0, 0, 0, 0, null, "");
+        (_flags, _black, _tints, _colormap, _vertices, _climateDirty) = (0, 0, 0, 0, null, true);
+    }
 
     private void Link(string name, string vertex, string fragment, bool fullscreenPass)
     {
@@ -85,9 +124,6 @@ internal sealed partial class ModelView
         _godrays = false;
     }
 
-    private const int AnimationBinding = 9;
-    private int _animation;
-
     // Animated entities and the GUI read their joints from the "Animation" block: identity joints, else every vertex
     // lands on the origin (the shader test showed them empty)
     private void AnimationBlock()
@@ -124,7 +160,7 @@ internal sealed partial class ModelView
         GL.GetProgram(_program, GetProgramParameterName.ActiveAttributes, out var attributes);
         for (var i = 0; i < Math.Min(attributes, MaxInputs); i++)
         {
-            GL.GetActiveAttrib(_program, i, 256, out _, out _, out ActiveAttribType type, out string name);
+            GL.GetActiveAttrib(_program, i, 256, out _, out _, out var type, out var name);
             var location = GL.GetAttribLocation(_program, name);
             if (location < 0)
             {
@@ -152,11 +188,12 @@ internal sealed partial class ModelView
         GL.GetProgram(_program, GetProgramParameterName.ActiveUniforms, out var uniforms);
         for (var i = 0; i < Math.Min(uniforms, MaxInputs); i++)
         {
-            GL.GetActiveUniform(_program, i, 256, out _, out _, out ActiveUniformType type, out string name);
+            GL.GetActiveUniform(_program, i, 256, out _, out _, out var type, out var name);
             var location = GL.GetUniformLocation(_program, name);
             if (location >= 0)
             {
-                _uniforms.Add(new Input(name, location, (int)type, UniformRole(location, name.ToLowerInvariant(), type)));
+                _uniforms.Add(
+                    new Input(name, location, (int)type, UniformRole(location, name.ToLowerInvariant(), type)));
                 _godrays |= name == "sunPosScreenIn";
                 UsesClimate |= name is "seasonRel" or "colorMapRects[0]";
             }
@@ -201,7 +238,9 @@ internal sealed partial class ModelView
             or ActiveAttribType.FloatVec4))
         {
             return type is ActiveAttribType.Int or ActiveAttribType.IntVec2 or ActiveAttribType.IntVec3
-                or ActiveAttribType.IntVec4 or ActiveAttribType.UnsignedInt ? AttrInt : AttrZero;
+                or ActiveAttribType.IntVec4 or ActiveAttribType.UnsignedInt
+                ? AttrInt
+                : AttrZero;
         }
 
         if (name.Contains("uv", StringComparison.Ordinal) || name.Contains("texcoord", StringComparison.Ordinal))
@@ -330,7 +369,9 @@ internal sealed partial class ModelView
     private void Textures(int first, int depth = 0)
     {
         ReadOnlySpan<int> textures =
-            [first, depth != 0 ? depth : _white, _shadow, _godrays ? _sunParts : _black, _white, _skyGradient, _sunGlow];
+        [
+            first, depth != 0 ? depth : _white, _shadow, _godrays ? _sunParts : _black, _white, _skyGradient, _sunGlow
+        ];
         for (var unit = 0; unit < StarUnit; unit++)
         {
             GL.ActiveTexture(TextureUnit.Texture0 + unit);
@@ -361,13 +402,15 @@ internal sealed partial class ModelView
             TextureTarget.Texture2D, _color, 0);
         GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment,
             RenderbufferTarget.Renderbuffer, _depth);
-        var whole = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer) == FramebufferErrorCode.FramebufferComplete;
+        var whole = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer) ==
+                    FramebufferErrorCode.FramebufferComplete;
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, _pictureFb);
         GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
             TextureTarget.Texture2D, _picture, 0);
         whole &= GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer) == FramebufferErrorCode.FramebufferComplete;
         _scene = Texture<byte>(Width, height, PixelInternalFormat.Rgba8, PixelFormat.Rgba, null);
-        _sceneDepth = Texture<float>(Width, height, PixelInternalFormat.DepthComponent24, PixelFormat.DepthComponent, null);
+        _sceneDepth = Texture<float>(Width, height, PixelInternalFormat.DepthComponent24, PixelFormat.DepthComponent,
+            null);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
         (_sceneFb, _readFb) = (GL.GenFramebuffer(), GL.GenFramebuffer());
@@ -394,7 +437,8 @@ internal sealed partial class ModelView
         GL.FramebufferTexture2D(FramebufferTarget.ReadFramebuffer, FramebufferAttachment.ColorAttachment0,
             TextureTarget.Texture2D, sharp, 0);
         GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _sceneFb);
-        GL.BlitFramebuffer(0, 0, w, h, 0, height, Width, 0, ClearBufferMask.ColorBufferBit, BlitFramebufferFilter.Linear);
+        GL.BlitFramebuffer(0, 0, w, h, 0, height, Width, 0, ClearBufferMask.ColorBufferBit,
+            BlitFramebufferFilter.Linear);
         GL.FramebufferTexture2D(FramebufferTarget.ReadFramebuffer, FramebufferAttachment.ColorAttachment0,
             TextureTarget.Texture2D, 0, 0);
         return _scene;
@@ -446,14 +490,14 @@ internal sealed partial class ModelView
         for (var i = 0; i < size * size; i++)
         {
             var (x, y) = (i % size, i / size);
-            var light = ((x / 8) + (y / 8)) % 2 == 0 ? 210 : 120;
+            var light = (x / 8 + y / 8) % 2 == 0 ? 210 : 120;
             (pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2], pixels[i * 4 + 3]) =
                 ((byte)(light * (0.55 + 0.45 * x / size)), (byte)(light * (0.55 + 0.45 * y / size)), (byte)light, 255);
         }
 
         BuiltinProgram();
         _blocks = AtlasTexture();
-        _water = BlockTexture(water: true);
+        _water = BlockTexture(true);
         _pattern = Texture(size, size, PixelInternalFormat.Rgba8, PixelFormat.Rgba, pixels);
 
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
@@ -503,10 +547,9 @@ internal sealed partial class ModelView
         return up ? (0.55f, 0.82f, 0.38f, 1f) : (0.72f, 0.54f, 0.4f, 1f); // grass on top, dirt on the sides
     }
 
-    private static void Vertex(List<float> v, float x, float y, float z, float nx, float ny, float nz, float s, float t)
-    {
+    private static void
+        Vertex(List<float> v, float x, float y, float z, float nx, float ny, float nz, float s, float t) =>
         v.AddRange([x, y, z, nx, ny, nz, s, t]);
-    }
 
     private static (int, int) Sphere(List<float> v)
     {
@@ -520,7 +563,8 @@ internal sealed partial class ModelView
             {
                 var (s, t) = ((a + corners[c].A) / (float)around, (b + corners[c].B) / (float)up);
                 var (phi, theta) = (s * MathF.Tau, t * MathF.PI);
-                var (x, y, z) = (MathF.Sin(theta) * MathF.Sin(phi), MathF.Cos(theta), MathF.Sin(theta) * MathF.Cos(phi));
+                var (x, y, z) = (MathF.Sin(theta) * MathF.Sin(phi), MathF.Cos(theta),
+                    MathF.Sin(theta) * MathF.Cos(phi));
                 Vertex(v, x, y, z, x, y, z, s, t);
             }
         }
@@ -657,32 +701,16 @@ internal sealed partial class ModelView
         (_scene, _sceneDepth, _sceneFb, _readFb) = (0, 0, 0, 0);
     }
 
-    // The workbench closed (or the view went off): every GL object goes
-    public void Dispose()
-    {
-        ReleaseTargets();
-        DropProgram();
-        DisposeScene();
-        DisposeTransparency();
-        DisposeWeather();
-        if (_vbo != 0)
-        {
-            GL.DeleteBuffer(_vbo);
-            GL.DeleteBuffer(_flags);
-            GL.DeleteBuffer(_tints);
-            if (_colormap != 0) GL.DeleteBuffer(_colormap);
-            if (_animation != 0) GL.DeleteBuffer(_animation);
-
-            _animation = 0;
-            GL.DeleteVertexArray(_vao);
-            GL.DeleteTexture(_pattern);
-            GL.DeleteTexture(_white);
-            GL.DeleteTexture(_black);
-            GL.DeleteTexture(_sunParts);
-            GL.DeleteTexture(_shadow);
-        }
-
-        (_vbo, _vao, _pattern, _white, _shadow, _pending, Note) = (0, 0, 0, 0, 0, null, "");
-        (_flags, _black, _tints, _colormap, _vertices, _climateDirty) = (0, 0, 0, 0, null, true);
-    }
+    private readonly record struct Saved(
+        int Draw,
+        int Read,
+        int Program,
+        int Vao,
+        int Buffer,
+        int Unit,
+        bool Scissor,
+        bool Depth,
+        bool Cull,
+        bool DepthMask,
+        int DepthFunc);
 }

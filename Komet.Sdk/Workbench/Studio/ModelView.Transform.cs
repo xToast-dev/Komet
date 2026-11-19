@@ -1,4 +1,5 @@
 using System.Numerics;
+using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Sdk;
 
@@ -15,10 +16,10 @@ internal enum TransformMode
 
 internal sealed partial class ModelView
 {
-    private Vector3 _position, _rotation, _scale = Vector3.One;
-    private (Vector3 Position, Vector3 Rotation, Vector3 Scale) _before;
-    private double _startX, _startY;
     private int _axis = -1; // -1 free, 0 x, 1 up (Blender's Z), 2 depth (Blender's Y)
+    private (Vector3 Position, Vector3 Rotation, Vector3 Scale) _before;
+    private Vector3 _position, _rotation, _scale = Vector3.One;
+    private double _startX, _startY;
 
     public TransformMode Transforming { get; private set; }
 
@@ -34,7 +35,8 @@ internal sealed partial class ModelView
     // The object's matrix: scaled and turned about its foot, then moved
     private Matrix4x4 ObjectMatrix(Vector3 pivot) =>
         Matrix4x4.CreateTranslation(-pivot) * Matrix4x4.CreateScale(_scale) *
-        Matrix4x4.CreateFromYawPitchRoll(_rotation.Y, _rotation.X, _rotation.Z) * Matrix4x4.CreateTranslation(pivot + _position);
+        Matrix4x4.CreateFromYawPitchRoll(_rotation.Y, _rotation.X, _rotation.Z) *
+        Matrix4x4.CreateTranslation(pivot + _position);
 
     public void Begin(TransformMode mode, double x, double y)
     {
@@ -97,7 +99,8 @@ internal sealed partial class ModelView
     {
         var step = _distance * 0.0025f;
         var right = new Vector3(MathF.Cos(_yaw), 0, -MathF.Sin(_yaw));
-        var up = new Vector3(-MathF.Sin(_pitch) * MathF.Sin(_yaw), MathF.Cos(_pitch), -MathF.Sin(_pitch) * MathF.Cos(_yaw));
+        var up = new Vector3(-MathF.Sin(_pitch) * MathF.Sin(_yaw), MathF.Cos(_pitch),
+            -MathF.Sin(_pitch) * MathF.Cos(_yaw));
         var move = (right * dx - up * dy) * step;
         return _axis switch
         {
@@ -123,11 +126,11 @@ internal sealed partial class ModelView
         if (_picture == 0 || _height <= 0) return null;
 
         var pixels = new byte[Width * _height * 4];
-        OpenTK.Graphics.OpenGL.GL.GetInteger(OpenTK.Graphics.OpenGL.GetPName.TextureBinding2D, out var bound);
-        OpenTK.Graphics.OpenGL.GL.BindTexture(OpenTK.Graphics.OpenGL.TextureTarget.Texture2D, _picture);
-        OpenTK.Graphics.OpenGL.GL.GetTexImage(OpenTK.Graphics.OpenGL.TextureTarget.Texture2D, 0,
-            OpenTK.Graphics.OpenGL.PixelFormat.Rgba, OpenTK.Graphics.OpenGL.PixelType.UnsignedByte, pixels);
-        OpenTK.Graphics.OpenGL.GL.BindTexture(OpenTK.Graphics.OpenGL.TextureTarget.Texture2D, bound);
+        GL.GetInteger(GetPName.TextureBinding2D, out var bound);
+        GL.BindTexture(TextureTarget.Texture2D, _picture);
+        GL.GetTexImage(TextureTarget.Texture2D, 0,
+            PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
+        GL.BindTexture(TextureTarget.Texture2D, bound);
         return (pixels, Width, _height);
     }
 

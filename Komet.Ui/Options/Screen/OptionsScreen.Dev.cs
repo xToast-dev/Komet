@@ -1,6 +1,7 @@
 using Komet.Core;
 using Komet.Hud;
 using Komet.Ui.Hud;
+using Vintagestory.Client.NoObf;
 using static Komet.Options.OptionsText;
 
 namespace Komet.Options;
@@ -21,6 +22,13 @@ internal sealed partial class OptionsScreen
 
     public bool Developer => _developer && IsOpened();
 
+    // Raw buttons reach the game's hotkeys before the mapped mouse events reach the dialog.
+    public override bool CaptureRawMouse() => Developer;
+
+    public override bool DisableMouseGrab => Developer;
+
+    public override bool ShouldReceiveKeyboardEvents() => Developer || base.ShouldReceiveKeyboardEvents();
+
     // Per frame, so a loop, not a capturing Find
     private IDevTool? Tool
     {
@@ -39,12 +47,22 @@ internal sealed partial class OptionsScreen
 
     public bool OpenDeveloper(string? tool = null)
     {
+        var entering = !Developer;
         if (IsOpened() && _embedded is not null) Leave();
 
         _developer = true;
         Restyle();
         Rebuild(tool is null ? _page : "dev-" + tool);
-        return IsOpened() || TryOpen();
+        if (!IsOpened() && !TryOpen()) return false;
+
+        if (entering && capi.World is ClientMain game)
+        {
+            // The game polls these states. Release any controls held before the dialog took over.
+            Array.Clear(game.KeyboardState);
+            game.InWorldMouseState.Clear();
+        }
+
+        return true;
     }
 
     private OptionPage[] DevPages()

@@ -13,26 +13,45 @@ internal sealed partial class StudioPanel(ShaderIde host, bool docked = false) :
     private const int Output = 1, Search = 2;
     private const int MaxFiles = 256, MaxHits = 30, MaxSearchFiles = 1024;
     private const double HeadHeight = 34, RowHeight = 24;
-
-    private readonly List<(string Path, Diagnostic[] Issues)> _problems = [];
     private readonly Dictionary<string, int> _errors = new(StringComparer.Ordinal);
     private readonly List<Line> _lines = [];
-    private readonly IdeRows _rows = new();
+
+    private readonly List<(string Path, Diagnostic[] Issues)> _problems = [];
     private readonly TextField _query = new(), _replace = new();
-    private bool _replacing;
-    private int _tab = docked ? 2 : 0, _first, _queryVersion = -1, _seenVersion = -1, _hitCount;
+    private readonly IdeRows _rows = new();
+    private Action? _close, _focusSearch, _focusReplace, _replaceAll;
     private string _hitText = "", _countText = "";
+    private bool _replacing;
     private ShaderDocument? _seen;
     private DragRegion? _split;
-    private Action? _close, _focusSearch, _focusReplace, _replaceAll;
+    private int _tab = docked ? 2 : 0, _first, _queryVersion = -1, _seenVersion = -1, _hitCount;
     private (int Tab, string Key, Action Click)[]? _tabClicks;
-
-    // A drawn row: a file heading or a jumpable line (file, line, column)
-    private readonly record struct Line(string Path, int Row, int Column, string Text, Diagnostic? Issue, int Count,
-        bool Heading, int At);
 
     public bool Shown => host.Prefs.PanelShown;
     public int Errors { get; private set; }
+
+    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
+    {
+        var index = _rows.At(x, y);
+        if (index < 0 || index >= _lines.Count || button != EnumMouseButton.Left) return false;
+
+        var line = _lines[index];
+        host.OpenExact(line.Path, line.Row);
+        if (host.Current is { } document && line.Column > 0)
+        {
+            document.Move(document.LineOffset(line.Row) + line.Column - 1, false);
+        }
+
+        host.Focus = StudioFocus.Editor;
+        return false;
+    }
+
+    public bool Wheel(double x, int lines)
+    {
+        _passFirst = Math.Max(0, _passFirst + (_tab == Passes ? lines : 0));
+        _first = Math.Max(0, _first + lines);
+        return true;
+    }
 
     public void Toggle() => host.Prefs.PanelShown = !host.Prefs.PanelShown;
 
@@ -62,7 +81,8 @@ internal sealed partial class StudioPanel(ShaderIde host, bool docked = false) :
         {
             _query.Set(text);
         }
-        else if (host.Active is { HasSelection: true } document && !document.Selected.Contains('\n', StringComparison.Ordinal))
+        else if (host.Active is { HasSelection: true } document &&
+                 !document.Selected.Contains('\n', StringComparison.Ordinal))
         {
             _query.Set(document.Selected);
         }
@@ -113,7 +133,11 @@ internal sealed partial class StudioPanel(ShaderIde host, bool docked = false) :
         try
         {
             return Directory.Exists(folder)
-                ? [.. Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true)).Where(f => !StudioLink.Hidden(f)).Take(MaxFiles).Order(StringComparer.Ordinal)]
+                ?
+                [
+                    .. Directory.EnumerateFiles(folder, "*", ShaderPaths.Recursive(true))
+                        .Where(f => !StudioLink.Hidden(f)).Take(MaxFiles).Order(StringComparer.Ordinal)
+                ]
                 : [];
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -135,7 +159,8 @@ internal sealed partial class StudioPanel(ShaderIde host, bool docked = false) :
             return;
         }
 
-        var issues = host.Diagnostics.Classified(path, text).Where(i => !i.Inherited).ToArray(); // inherited: grey in the editor only
+        var issues = host.Diagnostics.Classified(path, text).Where(i => !i.Inherited)
+            .ToArray(); // inherited: grey in the editor only
         var errors = ShaderDiagnostics.Errors(issues);
         _errors[path] = errors;
         Errors += errors;
@@ -208,40 +233,31 @@ internal sealed partial class StudioPanel(ShaderIde host, bool docked = false) :
         return true;
     }
 
-    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
-    {
-        var index = _rows.At(x, y);
-        if (index < 0 || index >= _lines.Count || button != EnumMouseButton.Left) return false;
-
-        var line = _lines[index];
-        host.OpenExact(line.Path, line.Row);
-        if (host.Current is { } document && line.Column > 0)
-        {
-            document.Move(document.LineOffset(line.Row) + line.Column - 1, false);
-        }
-
-        host.Focus = StudioFocus.Editor;
-        return false;
-    }
-
-    public bool Wheel(double x, int lines)
-    {
-        _passFirst = Math.Max(0, _passFirst + (_tab == Passes ? lines : 0));
-        _first = Math.Max(0, _first + lines);
-        return true;
-    }
-
     private void Actions(HudUi ui)
     {
         _close ??= () => host.Prefs.PanelShown = false;
         _focusSearch ??= () => (_replacing, host.Focus) = (false, StudioFocus.Search);
         _focusReplace ??= () => (_replacing, host.Focus) = (true, StudioFocus.Search);
         _replaceAll ??= ReplaceAll;
-        _tabClicks ??= [(Problems, "problems", () => Show(Problems)), (Output, "output", () => Show(Output)),
-            (Inspector, "inspector-tab", ShowInspector)];
+        _tabClicks ??=
+        [
+            (Problems, "problems", () => Show(Problems)), (Output, "output", () => Show(Output)),
+            (Inspector, "inspector-tab", ShowInspector)
+        ];
         _split ??= new DragRegion((_, y) => host.Prefs.Panel = Math.Clamp((host.Height - y) / Math.Max(0.1, ui.Px(1)),
             90, 2000));
     }
 
     private static string CountText(int count) => count == 0 ? "" : count.ToString(CultureInfo.InvariantCulture);
+
+    // A drawn row: a file heading or a jumpable line (file, line, column)
+    private readonly record struct Line(
+        string Path,
+        int Row,
+        int Column,
+        string Text,
+        Diagnostic? Issue,
+        int Count,
+        bool Heading,
+        int At);
 }

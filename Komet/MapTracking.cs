@@ -5,12 +5,13 @@ using Vintagestory.GameContent;
 namespace Komet;
 
 /// <summary>
-/// SystemRemotePlayerTracking (1.22.7) sends the players positions for the map only when the world configuration says
-/// allowMap, and reads it as GetBool("allowMap") whose default is false, while every other map check in the game takes
-/// true. A world saved without the key (some are) gets a map but never a player arrow on it. Here, after every StartPre,
-/// such a world gets the server side the system skipped: its join and leave handlers and its 100 ms tick. Nothing is
-/// written to the world; a world that says allowMap false stays without.
-/// A ModSystem lives in this project: the game accepts one assembly with mod systems per mod (ModulesTests guards it).
+///     SystemRemotePlayerTracking (1.22.7) sends the players positions for the map only when the world configuration says
+///     allowMap, and reads it as GetBool("allowMap") whose default is false, while every other map check in the game takes
+///     true. A world saved without the key (some are) gets a map but never a player arrow on it. Here, after every
+///     StartPre,
+///     such a world gets the server side the system skipped: its join and leave handlers and its 100 ms tick. Nothing is
+///     written to the world; a world that says allowMap false stays without.
+///     A ModSystem lives in this project: the game accepts one assembly with mod systems per mod (ModulesTests guards it).
 /// </summary>
 // ReSharper disable once ClassNeverInstantiated.Global - a ModSystem: the game's mod loader finds and makes it
 public sealed class MapTracking : ModSystem
@@ -44,7 +45,7 @@ public sealed class MapTracking : ModSystem
     }
 
     /// <summary>
-    /// A private handler of the tracking system as a delegate on it; null when the engine has none of that name
+    ///     A private handler of the tracking system as a delegate on it; null when the engine has none of that name
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="tracking"></param>

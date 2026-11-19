@@ -1,6 +1,6 @@
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.Client.NoObf;
 using static Komet.Api.KapiFeatureState;
 using static Komet.Core.FeatureKit;

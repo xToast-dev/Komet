@@ -36,14 +36,14 @@ internal static class WorldGenScratch
     public static int Foreign { get; private set; } // the same bits: another mod patched that one first
 
     private static (MethodBase? Sun, MethodBase? Rock, MethodBase? Patches, MethodBase? Requests) Targets() =>
-        (
-            AccessTools.DeclaredMethod(typeof(ChunkIlluminator), "SpreadSunLightInColumn"),
-            AccessTools.TypeByName(Rock) is { } rock ? AccessTools.DeclaredMethod(rock, "genBlockColumn") : null,
-            AccessTools.TypeByName(Vegetation) is { } veg ? AccessTools.DeclaredMethod(veg, "genPatches") : null,
-            AccessTools.TypeByName(Supply) is { } supply
-                ? AccessTools.DeclaredMethod(supply, "moveRequestsToGeneratingQueue", [])
-                : null
-        );
+    (
+        AccessTools.DeclaredMethod(typeof(ChunkIlluminator), "SpreadSunLightInColumn"),
+        AccessTools.TypeByName(Rock) is { } rock ? AccessTools.DeclaredMethod(rock, "genBlockColumn") : null,
+        AccessTools.TypeByName(Vegetation) is { } veg ? AccessTools.DeclaredMethod(veg, "genPatches") : null,
+        AccessTools.TypeByName(Supply) is { } supply
+            ? AccessTools.DeclaredMethod(supply, "moveRequestsToGeneratingQueue", [])
+            : null
+    );
 
     public static void Install(Harmony harmony)
     {

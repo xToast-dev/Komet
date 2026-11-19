@@ -1,6 +1,6 @@
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.Datastructures;
 using Vintagestory.Client.NoObf;
 using Vintagestory.Common;

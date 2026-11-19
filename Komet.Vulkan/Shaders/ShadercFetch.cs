@@ -139,6 +139,7 @@ internal static class ShadercFetch
             {
                 throw new PlatformNotSupportedException(RuntimeInformation.RuntimeIdentifier);
             }
+
             // HttpClient.Timeout ends with the headers (ResponseHeadersRead): a stalled body would leave Fetching for good
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
             using var response = await Http

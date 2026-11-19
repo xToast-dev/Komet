@@ -109,7 +109,8 @@ internal static class StudioIcons
         for (var i = 0; i < 4; i++)
         {
             var k = i / 3.0;
-            ui.Stroke(cx - s / 2 * k, cy - d * s / 3 + d * s * 0.6 * k, cx + s / 2 * k, cy - d * s / 3 + d * s * 0.6 * k,
+            ui.Stroke(cx - s / 2 * k, cy - d * s / 3 + d * s * 0.6 * k, cx + s / 2 * k,
+                cy - d * s / 3 + d * s * 0.6 * k,
                 color, w);
         }
     }

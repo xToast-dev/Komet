@@ -11,13 +11,19 @@ namespace Komet.Sdk;
 internal sealed partial class ModelView
 {
     private const int AttrColormap = 10, AtlasW = 32, AtlasH = 16;
-    private int _colormap;
-    private bool _climateDirty = true;
-    private float _temperature = 0.65f, _rainfall = 0.6f, _season = 0.3f;
     private readonly float[] _rects = [0.5f, 0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f];
+    private bool _climateDirty = true;
+    private int _colormap;
+    private float _temperature = 0.65f, _rainfall = 0.6f, _season = 0.3f;
+
+    private float[]? _vertices;
 
     // 0 cold .. 1 hot, as the game's tempRel
-    public float Temperature { get => _temperature; set => (_temperature, _climateDirty) = (Math.Clamp(value, 0f, 1f), true); }
+    public float Temperature
+    {
+        get => _temperature;
+        set => (_temperature, _climateDirty) = (Math.Clamp(value, 0f, 1f), true);
+    }
 
     // 0 dry .. 1 wet, as the game's rainfallRel
     public float Rainfall { get => _rainfall; set => (_rainfall, _climateDirty) = (Math.Clamp(value, 0f, 1f), true); }
@@ -66,8 +72,11 @@ internal sealed partial class ModelView
             return (Byte(r), Byte(g), Byte(b));
         }
 
-        ReadOnlySpan<(float R, float G, float B)> year = [(0.5f, 0.78f, 0.3f), (0.35f, 0.7f, 0.25f), (0.85f, 0.55f, 0.15f),
-            (0.55f, 0.42f, 0.3f), (0.5f, 0.78f, 0.3f)];
+        ReadOnlySpan<(float R, float G, float B)> year =
+        [
+            (0.5f, 0.78f, 0.3f), (0.35f, 0.7f, 0.25f), (0.85f, 0.55f, 0.15f),
+            (0.55f, 0.42f, 0.3f), (0.5f, 0.78f, 0.3f)
+        ];
         var at = across * 4f;
         var k = Math.Min((int)at, 3);
         var f = at - k;
@@ -97,8 +106,6 @@ internal sealed partial class ModelView
         _climateDirty = false;
     }
 
-    private float[]? _vertices;
-
     // Before a draw: the per-vertex climate again when the developer moved temperature or rainfall
     private void RefreshClimate()
     {
@@ -110,11 +117,21 @@ internal sealed partial class ModelView
     {
         switch (name)
         {
-            case "colorMapRects[0]": GL.Uniform4(location, 2, _rects); return true;
-            case "seasonRel": GL.Uniform1(location, _season); return true;
-            case "seaLevel": GL.Uniform1(location, 1000f); return true; // the scene under it: no height warming
-            case "atlasHeight": GL.Uniform1(location, (float)AtlasH); return true;
-            case "seasonTemperature": GL.Uniform1(location, 0f); return true;
+            case "colorMapRects[0]":
+                GL.Uniform4(location, 2, _rects);
+                return true;
+            case "seasonRel":
+                GL.Uniform1(location, _season);
+                return true;
+            case "seaLevel":
+                GL.Uniform1(location, 1000f);
+                return true; // the scene under it: no height warming
+            case "atlasHeight":
+                GL.Uniform1(location, (float)AtlasH);
+                return true;
+            case "seasonTemperature":
+                GL.Uniform1(location, 0f);
+                return true;
             default: return false;
         }
     }

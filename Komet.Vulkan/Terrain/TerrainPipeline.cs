@@ -188,7 +188,8 @@ internal sealed unsafe partial class TerrainPipeline
         ReadOnlySpan<uint> halves = [76, 83, 90, 97], ints = [98, 101, 104, 107];
         return (uint)a.Type switch
         {
-            GlEnum.Int2101010Rev when a is { Size: 4, Normalized: true, Integer: false } => 65, // A2B10G10R10_SNORM_PACK32
+            GlEnum.Int2101010Rev when a is
+                { Size: 4, Normalized: true, Integer: false } => 65, // A2B10G10R10_SNORM_PACK32
             GlEnum.UnsignedInt2101010Rev when a is { Size: 4, Normalized: true, Integer: false } =>
                 64, // A2B10G10R10_UNORM_PACK32
             GlEnum.Byte or GlEnum.UnsignedByte => bytes[index] + variant,

@@ -203,6 +203,7 @@ internal static class LightScratch
         {
             return code;
         }
+
         // Insert before Key: the probe must never reach the engine's set_Item
         var rewritten = Assert(Il.Substitute(code, made, queue));
         foreach (var at in lookups.Bounded(2))
@@ -337,11 +338,11 @@ internal static class LightScratch
 
     private static bool Unpacked(List<CodeInstruction> code, int at) =>
         Index(at + 1, code.Count) && Il.Local(code[at], Il.Uses.Address) >= 0 &&
-               (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
+        (EntryCall(code[at + 1], Entry, "get_Key") || EntryCall(code[at + 1], Entry, "get_Value"));
 
     private static bool EntryCall(CodeInstruction code, Type type, string name) =>
         (code.opcode == OpCodes.Call || code.opcode == OpCodes.Callvirt) &&
-               code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
+        code.operand is MethodInfo { Name: var n, DeclaringType: var t } && n == name && t == type;
 
     // RecalcBlockLightAtPos only reads both: field loads, hsv indexed, neither written nor addressed
     internal static bool OnlyRead(List<CodeInstruction> code)

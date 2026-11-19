@@ -179,6 +179,14 @@ internal sealed class StepEntry(string modId, KapiRenderStep step) : IDisposable
     // The game's stage by name: its numbers have the shadow passes' Done stages between them
     public int Stage => (int)StageOf(Step.Stage);
 
+    public void Dispose()
+    {
+        if (_gone) return;
+
+        _gone = true;
+        RenderSteps.Removed(this);
+    }
+
     internal static EnumRenderStage StageOf(KapiRenderStage stage) => stage switch
     {
         KapiRenderStage.Before => EnumRenderStage.Before,
@@ -216,14 +224,6 @@ internal sealed class StepEntry(string modId, KapiRenderStep step) : IDisposable
             ModEvents.Logger?.Error("Komet: render step {0}:{1} threw and is off for this world: {2}", ModId, Step.Id,
                 e);
         }
-    }
-
-    public void Dispose()
-    {
-        if (_gone) return;
-
-        _gone = true;
-        RenderSteps.Removed(this);
     }
 }
 

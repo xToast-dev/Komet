@@ -65,7 +65,11 @@ internal sealed class DebugFrames
     private readonly DebugSpike[] _spikes = new DebugSpike[MaxSpikes];
     private readonly long _started = Environment.TickCount64;
     private long _all = GC.GetTotalAllocatedBytes(), _main = GC.GetAllocatedBytesForCurrentThread();
-    private int _gen0 = GC.CollectionCount(0), _gen1 = GC.CollectionCount(1), _gen2 = GC.CollectionCount(2), _spikeCount;
+
+    private int _gen0 = GC.CollectionCount(0),
+        _gen1 = GC.CollectionCount(1),
+        _gen2 = GC.CollectionCount(2),
+        _spikeCount;
 
     public long Count { get; private set; }
     public float Now => (Environment.TickCount64 - _started) / 1000f;

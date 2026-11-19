@@ -13,6 +13,7 @@
     <Project Path="Komet.Sdk/Komet.Sdk.csproj"/>
     <Folder Name="/tests/">
         <Project Path="tests/Komet.Portable/Komet.Portable.csproj"/>
+        <Project Path="tests/Komet.Synth/Komet.Synth.csproj"/>
         <Project Path="tests/Komet.Test/Komet.Test.csproj"/>
         <Project Path="tests/Komet.Testing/Komet.Testing.csproj"/>
     </Folder>

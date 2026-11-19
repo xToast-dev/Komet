@@ -99,7 +99,8 @@ internal static partial class FarLod
 
                     (above[column], light[at]) = (lit, lit);
                     var wall = (x == 0 && open.MinusX) || (x == cells + 1 && open.PlusX) || (z == 0 && open.MinusZ) ||
-                               (z == cells + 1 && open.PlusZ) || (y == 0 && open.MinusY) || (y == cells + 1 && open.PlusY);
+                               (z == cells + 1 && open.PlusZ) || (y == 0 && open.MinusY) ||
+                               (y == cells + 1 && open.PlusY);
                     if (wall) continue;
 
                     blocks[at] = Cell(sb, x, y, z, cells, last) ?? air;
@@ -213,7 +214,8 @@ internal static partial class FarLod
                     if (block is null || !Solidish(block)) continue;
 
                     count++;
-                    (layers[dy], layers[2 + dz], layers[4 + dx]) = (layers[dy] + 1, layers[2 + dz] + 1, layers[4 + dx] + 1);
+                    (layers[dy], layers[2 + dz], layers[4 + dx]) =
+                        (layers[dy] + 1, layers[2 + dz] + 1, layers[4 + dx] + 1);
                     if (KindOf(block) == Sparse) sparse++;
 
                     top = block; // y runs upward last-written wins: the top-most

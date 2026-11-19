@@ -1,5 +1,5 @@
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Rendering;
@@ -14,26 +14,26 @@ internal sealed partial class ModPasses : IRenderer
     private const int MaxSource = 64 << 10, MaxSize = 16384, DrawBuffer0 = 0x8825, MaxDrawBuffers = 4;
 
     internal const string Vertex = """
-                                  #version 330 core
-                                  out vec2 uv;
-                                  void main()
-                                  {
-                                      vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-                                      uv = corner;
-                                      gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
-                                  }
-                                  """;
+                                   #version 330 core
+                                   out vec2 uv;
+                                   void main()
+                                   {
+                                       vec2 corner = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
+                                       uv = corner;
+                                       gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+                                   }
+                                   """;
 
     // After the version line and the defines (KOMET, KOMET_VULKAN under Vulkan, the mod's own)
     private const string Prelude = """
-                                    in vec2 uv;
-                                    out vec4 color;
-                                    uniform sampler2D scene;
-                                    uniform sampler2D depth;
-                                    uniform vec2 resolution;
-                                    uniform float time;
-                                    #line 1
-                                    """;
+                                   in vec2 uv;
+                                   out vec4 color;
+                                   uniform sampler2D scene;
+                                   uniform sampler2D depth;
+                                   uniform vec2 resolution;
+                                   uniform float time;
+                                   #line 1
+                                   """;
 
     private static readonly List<Entry> Passes = [];
     private static ModPasses? _renderer;
@@ -114,11 +114,11 @@ internal sealed partial class ModPasses : IRenderer
         [.. Passes.Take(ShaderHub.MaxPasses).Select(e => (e.ModId, e.Pass.Id, e.Why))];
 
     internal static Diagnostic[] Diagnostics() =>
-        [
-            .. Passes.Take(ShaderHub.MaxPasses).Select(e =>
-                new Diagnostic(e.ModId, e.Pass.Id, e.Pass.Stage, e.Pass.Order, e.Program, e.Failed, e.Why,
-                    e.LastEnabled, [.. e.Pass.Uniforms.Keys.Take(ShaderHub.MaxUniforms)], e.Pass.Fragment))
-        ];
+    [
+        .. Passes.Take(ShaderHub.MaxPasses).Select(e =>
+            new Diagnostic(e.ModId, e.Pass.Id, e.Pass.Stage, e.Pass.Order, e.Program, e.Failed, e.Why,
+                e.LastEnabled, [.. e.Pass.Uniforms.Keys.Take(ShaderHub.MaxUniforms)], e.Pass.Fragment))
+    ];
 
     public static IDisposable Add(string modId, KapiPass pass)
     {
@@ -128,6 +128,7 @@ internal sealed partial class ModPasses : IRenderer
         {
             return Registration.None;
         }
+
         // a mod's pass again: the new one, and the old one's program goes (its registration no longer finds it to drop it)
         var old = Passes.FindIndex(e => e.ModId == modId && e.Pass.Id == pass.Id);
         if (old >= 0)

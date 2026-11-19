@@ -28,6 +28,9 @@ internal static class DrawCounter
     // The Studio shows the frame: the tap counts draws too, ShaderModules attributes programs to renderers
     public static bool Listening { get; set; }
 
+    // Uses counted since the install, any program: 0 means the Use postfix never reached the counter
+    private static long UsesSeen { get; set; }
+
     internal static void Install(ICoreClientAPI api)
     {
         Clear();
@@ -92,18 +95,18 @@ internal static class DrawCounter
         var program = Program(name);
         var pass = Pass(name);
         var since = FramesSince(name);
-        var registry = _api is { } api && ShaderMods.ProgramByName(api, name) is { } current && ReferenceEquals(current, program);
+        var registry = _api is { } api && ShaderMods.ProgramByName(api, name) is { } current &&
+                       ReferenceEquals(current, program);
         return "pass " + pass + ", program " + (program?.ProgramId ?? 0) + (registry ? "" : " (not the registry's)") +
                ", last use " + (since == long.MaxValue ? "never" : since + " frames ago") + ", frame " + Frame +
                ", hook " + (StudioHooks.Used is null ? "missing" : "set") + ", uses seen " + UsesSeen;
     }
 
-    // Uses counted since the install, any program: 0 means the Use postfix never reached the counter
-    private static long UsesSeen { get; set; }
-
     // The PassId the program has now (a reload may give it another)
     private static int Pass(string name) =>
         Program(name) is { } program && (uint)program.PassId < MaxPasses ? program.PassId : -1;
+
+    internal static bool IsMarker(IRenderer? renderer) => renderer is Marker;
 
     // First of the Before stage: the frame turns over
     private sealed class Marker : IRenderer
@@ -113,16 +116,14 @@ internal static class DrawCounter
 
         public void OnRenderFrame(float deltaTime, EnumRenderStage stage) => NextFrame();
 
+        public void Dispose()
+        {
+        }
+
         private static void NextFrame()
         {
             Frame++;
             ShaderModules.NextFrame();
         }
-
-        public void Dispose()
-        {
-        }
     }
-
-    internal static bool IsMarker(IRenderer? renderer) => renderer is Marker;
 }

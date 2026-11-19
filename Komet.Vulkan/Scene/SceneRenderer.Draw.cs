@@ -375,7 +375,7 @@ internal sealed partial class SceneRenderer
     {
         public bool Equals(QuickKey other) =>
             ReferenceEquals(Used, other.Used) && ReferenceEquals(Inputs, other.Inputs) &&
-                   Mode == other.Mode && ReferenceEquals(Into, other.Into) && Held.Equals(other.Held);
+            Mode == other.Mode && ReferenceEquals(Into, other.Into) && Held.Equals(other.Held);
 
         public override int GetHashCode() =>
             HashCode.Combine(RuntimeHelpers.GetHashCode(Used), RuntimeHelpers.GetHashCode(Inputs), Mode,

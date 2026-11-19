@@ -120,7 +120,8 @@ internal static class ColumnNoiseScratch
         {
             foreach (var method in AccessTools.GetDeclaredMethods(nested).Bounded(MaxMethods))
             {
-                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) || !CallsForColumn(method, forColumn)) continue;
+                if (!method.Name.StartsWith(Body, StringComparison.Ordinal) ||
+                    !CallsForColumn(method, forColumn)) continue;
 
                 if (found != null)
                 {
@@ -155,11 +156,11 @@ internal static class ColumnNoiseScratch
         Volatile.Write(ref _foreign, true); // read by the generation threads
         _logger?.Notification("Komet ColumnNoiseScratch stands down: another mod patched {0} after install; " +
                               "terrain columns allocate as shipped", bit switch
-                              {
-                                  WatchBit => "NewNormalizedSimplexFractalNoise.ForColumn",
-                                  CtorBit => "the ColumnNoise constructor",
-                                  _ => "GenTerra's column body"
-                              });
+        {
+            WatchBit => "NewNormalizedSimplexFractalNoise.ForColumn",
+            CtorBit => "the ColumnNoise constructor",
+            _ => "GenTerra's column body"
+        });
     }
 
     // Patched only to hear of other patches; the IL goes back unchanged
@@ -371,8 +372,8 @@ internal static class ColumnNoiseScratch
     // The column's address only ever as `this` of ColumnNoise's own double-returning members
     private static bool Member(CodeInstruction code, int operand) =>
         operand == 0 && code.opcode == OpCodes.Call &&
-               code.operand is MethodInfo { IsStatic: false } member && member.DeclaringType == typeof(ColumnNoise) &&
-               member.ReturnType == typeof(double);
+        code.operand is MethodInfo { IsStatic: false } member && member.DeclaringType == typeof(ColumnNoise) &&
+        member.ReturnType == typeof(double);
 
     // Replaces terrainNoise.ForColumn(...) with the thread armed for its one constructor; finally disarms on any throw
     internal static ColumnNoise Column(NewNormalizedSimplexFractalNoise noise, double relativeYFrequency,

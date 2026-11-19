@@ -77,6 +77,8 @@ internal sealed class TerrainTargets(VulkanDevice device) : IDisposable
 
     public SharedImage? Find(int texture) => _images.GetValueOrDefault(texture);
 
+    public bool Owns(int texture) => _images.ContainsKey(texture) || Owned?.Invoke(texture) == true;
+
     // Layout the image rests in between segments
     public int RestingOf(int texture) =>
         Assert(texture >= 0) && Assert(_resting.Count <= MaxImages)

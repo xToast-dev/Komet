@@ -165,7 +165,7 @@ resharper_class_never_instantiated_global_highlighting = none
 [tests/**.cs]
 dotnet_diagnostic.CA5394.severity = none # seeded Random: reproducible, not secret
 
-[tests/Komet.Test/**.cs]
+[tests/{Komet.Test,Komet.Synth}/**.cs]
 dotnet_diagnostic.CA1515.severity = none # NUnit finds fixtures by reflection
 dotnet_diagnostic.CA1062.severity = none # NUnit passes the case arguments
 dotnet_diagnostic.S6640.severity = none # the GPU tests record Vulkan commands through its C API

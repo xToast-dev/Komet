@@ -11,7 +11,7 @@ namespace Komet.Test.Rules;
 
 public sealed class RulesTests
 {
-    private const string Prefix = "using System; using System.Linq; using static Komet.Contracts;\nnamespace Komet;\n";
+    private const string Prefix = "using System; using static Komet.Contracts;\nnamespace Komet;\n";
 
     private const string Contracts = """
                                      using System;

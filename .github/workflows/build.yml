@@ -51,7 +51,7 @@ jobs:
       - name: Report checksums
         run: |
           cd Releases
-          sha256sum komet_*.zip > komet.sha256
+          sha256sum --check komet.sha256
           {
             echo '### sha256'
             echo

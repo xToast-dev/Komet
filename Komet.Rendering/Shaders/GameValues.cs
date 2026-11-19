@@ -13,39 +13,32 @@ internal static class GameValues
 {
     public const string Mod = "komet-game";
 
-    // One value: GLSL name, type, what it holds, and how it is read into a reused array (no allocation per frame)
-    internal sealed record Value(string Name, string Type, string Doc, Action<ICoreClientAPI, float[]> Reader, bool Color)
-    {
-        public float[] Last { get; } = new float[Size(Type)];
-
-        private static int Size(string type) =>
-            type switch
-            {
-                "vec2" => 2,
-                "vec3" => 3,
-                "vec4" => 4,
-                _ => 1
-            };
-    }
-
     public static readonly Value[] All =
     [
         new("kometSunPosition", "vec3", "Direction to the sun (normalised), as the game's sky uses it.", Sun, false),
         new("kometMoonPosition", "vec3", "Direction to the moon from the camera.", Moon, false),
         new("kometDayLight", "float", "Daylight at the player, 0 at night to 1 at noon.", DayLight, false),
         new("kometTimeOfDay", "float", "Time of day, 0 at midnight to 1 at the next midnight.", TimeOfDay, false),
-        new("kometMoonPhase", "float", "Moon phase, 0 to 8 (0 new moon, 4 full moon).", (a, v) => v[0] = (float)a.World.Calendar.MoonPhaseExact, false),
-        new("kometSeason", "float", "Season of the year, 0 to 1 (0 is early spring).", (a, v) => v[0] = a.Render.ShaderUniforms.SeasonRel, false),
+        new("kometMoonPhase", "float", "Moon phase, 0 to 8 (0 new moon, 4 full moon).",
+            (a, v) => v[0] = (float)a.World.Calendar.MoonPhaseExact, false),
+        new("kometSeason", "float", "Season of the year, 0 to 1 (0 is early spring).",
+            (a, v) => v[0] = a.Render.ShaderUniforms.SeasonRel, false),
         new("kometFogColor", "vec4", "The scene's blended fog colour.", FogColor, true),
-        new("kometFogDensity", "float", "The scene's blended fog density.", (a, v) => v[0] = a.Ambient.BlendedFogDensity, false),
+        new("kometFogDensity", "float", "The scene's blended fog density.",
+            (a, v) => v[0] = a.Ambient.BlendedFogDensity, false),
         new("kometFogMin", "float", "The minimum fog everywhere.", (a, v) => v[0] = a.Ambient.BlendedFogMin, false),
         new("kometAmbientColor", "vec3", "The scene's blended ambient light colour.", Ambient, true),
-        new("kometSceneBrightness", "float", "The scene's blended brightness.", (a, v) => v[0] = a.Ambient.BlendedSceneBrightness, false),
-        new("kometCameraPosition", "vec3", "The camera's world position, relative to the player's reference position.", Camera, false),
-        new("kometWindSpeed", "float", "Wind speed at the player.", (a, v) => v[0] = a.Render.ShaderUniforms.WindSpeed, false),
-        new("kometWindWave", "float", "The wind's wave counter (grows with time and wind).", (a, v) => v[0] = a.Render.ShaderUniforms.WindWaveCounter, false),
+        new("kometSceneBrightness", "float", "The scene's blended brightness.",
+            (a, v) => v[0] = a.Ambient.BlendedSceneBrightness, false),
+        new("kometCameraPosition", "vec3", "The camera's world position, relative to the player's reference position.",
+            Camera, false),
+        new("kometWindSpeed", "float", "Wind speed at the player.", (a, v) => v[0] = a.Render.ShaderUniforms.WindSpeed,
+            false),
+        new("kometWindWave", "float", "The wind's wave counter (grows with time and wind).",
+            (a, v) => v[0] = a.Render.ShaderUniforms.WindWaveCounter, false),
         new("kometRain", "float", "Rainfall at the player, 0 to 1.", Rain, false),
-        new("kometTime", "float", "Seconds counter that the game's shaders animate with.", (a, v) => v[0] = a.Render.ShaderUniforms.TimeCounter, false)
+        new("kometTime", "float", "Seconds counter that the game's shaders animate with.",
+            (a, v) => v[0] = a.Render.ShaderUniforms.TimeCounter, false)
     ];
 
     private static readonly List<IDisposable> Registered = [];
@@ -148,5 +141,25 @@ internal static class GameValues
         }
 
         v[0] = _rain;
+    }
+
+    // One value: GLSL name, type, what it holds, and how it is read into a reused array (no allocation per frame)
+    internal sealed record Value(
+        string Name,
+        string Type,
+        string Doc,
+        Action<ICoreClientAPI, float[]> Reader,
+        bool Color)
+    {
+        public float[] Last { get; } = new float[Size(Type)];
+
+        private static int Size(string type) =>
+            type switch
+            {
+                "vec2" => 2,
+                "vec3" => 3,
+                "vec4" => 4,
+                _ => 1
+            };
     }
 }

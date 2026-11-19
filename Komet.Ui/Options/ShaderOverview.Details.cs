@@ -1,5 +1,5 @@
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Komet.Rendering;
 
 namespace Komet.Options;
@@ -178,7 +178,7 @@ internal static partial class ShaderOverview
     // The mods that depend on a mod with a switch, by name; null for none
     private static string? NeededBy(ShaderMods.Found mod) =>
         (mod.Replaces || mod.Declared) && _api is not null &&
-               ShaderMods.Dependents(_api, mod.Id) is { Length: > 0 } by
+        ShaderMods.Dependents(_api, mod.Id) is { Length: > 0 } by
             ? string.Join(", ", by)
             : null;
 

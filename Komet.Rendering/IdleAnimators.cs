@@ -2,8 +2,8 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Rendering;
@@ -105,12 +105,12 @@ internal static partial class IdleAnimators
     }
 
     internal static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
-                [typeof(float), typeof(EnumRenderStage)]),
-            AccessTools.DeclaredMethod(typeof(AnimationUtil), nameof(AnimationUtil.OnRenderFrame),
-                [typeof(float), typeof(EnumRenderStage)])
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(AnimatableRenderer), nameof(AnimatableRenderer.OnRenderFrame),
+            [typeof(float), typeof(EnumRenderStage)]),
+        AccessTools.DeclaredMethod(typeof(AnimationUtil), nameof(AnimationUtil.OnRenderFrame),
+            [typeof(float), typeof(EnumRenderStage)])
+    ];
 
     // Both render loops (extendedDebugInfo and plain) call through Frame, else engine IL. The debug loop's CheckGlError
     // and Mark between the calls go through Check/Mark if found exactly there. Both open with Skip if both are

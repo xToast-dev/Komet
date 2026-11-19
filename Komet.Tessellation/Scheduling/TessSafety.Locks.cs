@@ -1,8 +1,8 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Vintagestory.API.MathTools;
 
 namespace Komet.Tessellation;
@@ -85,9 +85,9 @@ internal static partial class TessSafety
     // All arrays but flags, and the counts, still the shared mesh's; else it was rebuilt in place: copy anew
     private static bool Alike(MeshData mine, MeshData shared) =>
         ReferenceEquals(mine.xyz, shared.xyz) && ReferenceEquals(mine.Uv, shared.Uv) &&
-               ReferenceEquals(mine.Rgba, shared.Rgba) && ReferenceEquals(mine.Indices, shared.Indices) &&
-               mine.VerticesCount == shared.VerticesCount && mine.IndicesCount == shared.IndicesCount &&
-               mine.FlagsCount == shared.FlagsCount && mine.Flags.Length == shared.Flags.Length;
+        ReferenceEquals(mine.Rgba, shared.Rgba) && ReferenceEquals(mine.Indices, shared.Indices) &&
+        mine.VerticesCount == shared.VerticesCount && mine.IndicesCount == shared.IndicesCount &&
+        mine.FlagsCount == shared.FlagsCount && mine.Flags.Length == shared.Flags.Length;
 
     // Block's meshing lock: none for Block's own OnJsonTesselation (unless patched), the fence family's, or the block
     private static object? GateOf(Block block)

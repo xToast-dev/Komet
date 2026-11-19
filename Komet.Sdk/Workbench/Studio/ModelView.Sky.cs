@@ -1,11 +1,20 @@
+using System.Numerics;
 using OpenTK.Graphics.OpenGL;
 
 namespace Komet.Sdk;
 
 internal sealed partial class ModelView
 {
-    private int _sunDisk;
+    // Godrays radiate from the glow parts (the sun the game drew into its glow target): the view has none, so a soft
+    // disk stands where the sun uniforms below say it is
+    private const float SunU = 0.72f, SunV = 0.78f;
     private (int First, int Count) _celestial;
+
+    private (int First, int Count) _effect;
+    private bool _godrays;
+    private Vector3? _object; // while the movable object draws: its pivot
+    private int _sunDisk;
+    private int _sunParts;
 
     private void MakeCelestial(List<float> vertices)
     {
@@ -19,9 +28,6 @@ internal sealed partial class ModelView
         _celestial = (first, vertices.Count / 8 - first);
     }
 
-    private (int First, int Count) _effect;
-    private System.Numerics.Vector3? _object; // while the movable object draws: its pivot
-
     // The portal an effect shader (rift, galaxy) draws on: one upright quad on the hill, facing the camera's start
     private void MakeEffect(List<float> vertices)
     {
@@ -29,17 +35,12 @@ internal sealed partial class ModelView
         foreach (var (s, t) in Corners.Bounded(6))
         {
             var across = (s - 0.5f) * 1.6f;
-            Vertex(vertices, across * 0.7f, Block + t * 2.4f, -across * 0.7f, -0.7f, 0, -0.7f, s, t); // faces the start view
+            Vertex(vertices, across * 0.7f, Block + t * 2.4f, -across * 0.7f, -0.7f, 0, -0.7f, s,
+                t); // faces the start view
         }
 
         _effect = (first, vertices.Count / 8 - first);
     }
-
-    // Godrays radiate from the glow parts (the sun the game drew into its glow target): the view has none, so a soft
-    // disk stands where the sun uniforms below say it is
-    private const float SunU = 0.72f, SunV = 0.78f;
-    private int _sunParts;
-    private bool _godrays;
 
     private static int SunParts()
     {
@@ -64,9 +65,15 @@ internal sealed partial class ModelView
     {
         switch (name)
         {
-            case "sunPosScreenIn": GL.Uniform3(location, SunU * 2 - 1, SunV * 2 - 1, 0f); return true;
-            case "sunPos3dIn" or "playerViewVector": GL.Uniform3(location, 0.42f, 0.38f, 0.82f); return true;
-            case "dusk": GL.Uniform1(location, 0); return true;
+            case "sunPosScreenIn":
+                GL.Uniform3(location, SunU * 2 - 1, SunV * 2 - 1, 0f);
+                return true;
+            case "sunPos3dIn" or "playerViewVector":
+                GL.Uniform3(location, 0.42f, 0.38f, 0.82f);
+                return true;
+            case "dusk":
+                GL.Uniform1(location, 0);
+                return true;
             default: return false;
         }
     }
@@ -76,10 +83,16 @@ internal sealed partial class ModelView
     {
         switch (name)
         {
-            case "gammaLevel" or "brightnessLevel" or "maxlight" or "maxsat": GL.Uniform1(location, 1f); return true;
-            case "sepiaLevel" or "damageVignetting" or "minlight" or "minsat": GL.Uniform1(location, 0f); return true;
+            case "gammaLevel" or "brightnessLevel" or "maxlight" or "maxsat":
+                GL.Uniform1(location, 1f);
+                return true;
+            case "sepiaLevel" or "damageVignetting" or "minlight" or "minsat":
+                GL.Uniform1(location, 0f);
+                return true;
             // the game's fog is set for its view distance: over the few units of the test scene it whitens everything
-            case "fogDensityIn" or "fogMinIn" or "flatFogDensity": GL.Uniform1(location, 0f); return true;
+            case "fogDensityIn" or "fogMinIn" or "flatFogDensity":
+                GL.Uniform1(location, 0f);
+                return true;
             default: return false;
         }
     }
@@ -157,11 +170,16 @@ internal sealed partial class ModelView
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels);
         }
 
-        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
-        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
-        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
-        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
-        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapR, (int)TextureWrapMode.ClampToEdge);
+        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter,
+            (int)TextureMinFilter.Linear);
+        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMagFilter,
+            (int)TextureMagFilter.Linear);
+        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapS,
+            (int)TextureWrapMode.ClampToEdge);
+        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapT,
+            (int)TextureWrapMode.ClampToEdge);
+        GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapR,
+            (int)TextureWrapMode.ClampToEdge);
         return texture;
     }
 }

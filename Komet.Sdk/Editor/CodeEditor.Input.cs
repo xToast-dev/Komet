@@ -6,12 +6,85 @@ namespace Komet.Sdk;
 // mouse selection, fold toggles, Ctrl+click to a definition or include, and its context menu entries
 internal sealed partial class CodeEditor
 {
+    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
+    {
+        _selecting = false;
+        if (Document is not { } document || button != EnumMouseButton.Left) return false;
+
+        if (Completion.Click(document, x, y)) return true;
+
+        var inside = _ui is { } ui && x >= ui.X && x < ui.X + ui.W && y >= _sourceTop && y < _sourceBottom;
+        if (!inside || !RowAt(y, true, out var row)) return false;
+
+        if (x < row.TextX && document.Folds.ContainsKey(row.Line))
+        {
+            document.ToggleFold(row.Line);
+            return true;
+        }
+
+        if (keys.Ctrl && GoToDefinition(document, row, ColumnAt(row, x - row.TextX))) return true;
+
+        Completion.Close();
+        _selecting = true;
+        document.Move(row.Offset + ColumnAt(row, x - row.TextX), keys.Shift);
+        Completion.Track(document);
+        return true;
+    }
+
+    public void Drag(double x, double y)
+    {
+        if (_selecting && Document is { } document && RowAt(y, true, out var row))
+        {
+            document.Move(row.Offset + ColumnAt(row, x - row.TextX), true);
+        }
+    }
+
+    public void Up() => _selecting = false;
+
+    public void Hover(double x, double y)
+    {
+        (_hoverX, _hoverY) = (x, y);
+        _hoverLine = RowAt(y, false, out var row) && x >= row.TextX ? row.Line : -1;
+        _hoverWord = _hoverLine >= 0 ? WordAt(row.Text, ColumnAt(row, x - row.TextX)) : "";
+    }
+
+    public bool Wheel(double x, int lines)
+    {
+        if (Document is { } document) document.FirstLine = Scrolled(document, lines);
+
+        Completion.Close();
+        return true;
+    }
+
+    public bool Context(double x, double y, ContextMenu menu)
+    {
+        if (Document is not { } document || !RowAt(y, false, out var row)) return false;
+
+        if (!document.HasSelection) document.Move(row.Offset + ColumnAt(row, x - row.TextX), false);
+
+        menu.Add(L("copy") + "    Strg C", () => Copy(document));
+        if (!document.ReadOnly)
+        {
+            menu.Add(L("cut") + "    Strg X", () => Cut(document));
+            menu.Add(L("paste") + "    Strg V", () => Insert(host.Api.Input.ClipboardText ?? ""));
+            menu.Add(L("undo") + "    Strg Z", () => _ = document.Undo());
+            menu.Add(L("completion") + "    Strg Leertaste", () => Completion.Suggest(document, true));
+        }
+
+        menu.Add(L("definition") + "    F12", GoToDefinition);
+        if (!document.ReadOnly) menu.Add(L("rename-symbol") + "    F2", () => host.Run("rename-symbol"));
+        menu.Add(L("find-references") + "    Strg Umschalt F", () => host.Run("search-word"));
+        menu.Add(L("select-all") + "    Strg A", () => document.Select(0, document.Text.Length));
+        return true;
+    }
+
     // A key for the editor; true: taken
     public bool Key(KeyEvent args, GlKeys key)
     {
         if (Document is not { } document) return false;
 
-        if (Completion.Open && args is { CtrlPressed: false, ShiftPressed: false } && Completion.Key(document, key)) return true;
+        if (Completion.Open && args is { CtrlPressed: false, ShiftPressed: false } &&
+            Completion.Key(document, key)) return true;
 
         if (key == GlKeys.F2)
         {
@@ -77,12 +150,16 @@ internal sealed partial class CodeEditor
         var page = Math.Max(1, _rows.Count - 1);
         switch (key)
         {
-            case GlKeys.Left: document.Move(!shift && caret != anchor ? Math.Min(anchor, caret) : caret - 1, shift); break;
-            case GlKeys.Right: document.Move(!shift && caret != anchor ? Math.Max(anchor, caret) : caret + 1, shift); break;
+            case GlKeys.Left:
+                document.Move(!shift && caret != anchor ? Math.Min(anchor, caret) : caret - 1, shift); break;
+            case GlKeys.Right:
+                document.Move(!shift && caret != anchor ? Math.Max(anchor, caret) : caret + 1, shift); break;
             case GlKeys.Home: document.Move(start, shift); break;
             case GlKeys.End: document.Move(end, shift); break;
-            case GlKeys.Up when start > 0: document.Move(Math.Min(start - 1, document.LineStart(start - 1) + caret - start), shift); break;
-            case GlKeys.Down when end < document.Text.Length: document.Move(Math.Min(document.LineEnd(end + 1), end + 1 + caret - start), shift); break;
+            case GlKeys.Up when start > 0:
+                document.Move(Math.Min(start - 1, document.LineStart(start - 1) + caret - start), shift); break;
+            case GlKeys.Down when end < document.Text.Length:
+                document.Move(Math.Min(document.LineEnd(end + 1), end + 1 + caret - start), shift); break;
             case GlKeys.PageUp: MoveLines(document, -page, shift); break;
             case GlKeys.PageDown: MoveLines(document, page, shift); break;
             case GlKeys.BackSpace: Delete(document, -1); break;
@@ -194,60 +271,10 @@ internal sealed partial class CodeEditor
         return uncomment || string.IsNullOrWhiteSpace(line) ? line : line.Insert(indent, "// ");
     }
 
-    public bool Down(double x, double y, EnumMouseButton button, IdeKeys keys)
-    {
-        _selecting = false;
-        if (Document is not { } document || button != EnumMouseButton.Left) return false;
-
-        if (Completion.Click(document, x, y)) return true;
-
-        var inside = _ui is { } ui && x >= ui.X && x < ui.X + ui.W && y >= _sourceTop && y < _sourceBottom;
-        if (!inside || !RowAt(y, true, out var row)) return false;
-
-        if (x < row.TextX && document.Folds.ContainsKey(row.Line))
-        {
-            document.ToggleFold(row.Line);
-            return true;
-        }
-
-        if (keys.Ctrl && GoToDefinition(document, row, ColumnAt(row, x - row.TextX))) return true;
-
-        Completion.Close();
-        _selecting = true;
-        document.Move(row.Offset + ColumnAt(row, x - row.TextX), keys.Shift);
-        Completion.Track(document);
-        return true;
-    }
-
-    public void Drag(double x, double y)
-    {
-        if (_selecting && Document is { } document && RowAt(y, true, out var row))
-        {
-            document.Move(row.Offset + ColumnAt(row, x - row.TextX), true);
-        }
-    }
-
-    public void Up() => _selecting = false;
-
-    public void Hover(double x, double y)
-    {
-        (_hoverX, _hoverY) = (x, y);
-        _hoverLine = RowAt(y, false, out var row) && x >= row.TextX ? row.Line : -1;
-        _hoverWord = _hoverLine >= 0 ? WordAt(row.Text, ColumnAt(row, x - row.TextX)) : "";
-    }
-
     public void Leave()
     {
         _hoverLine = -1;
         _selecting = false;
-    }
-
-    public bool Wheel(double x, int lines)
-    {
-        if (Document is { } document) document.FirstLine = Scrolled(document, lines);
-
-        Completion.Close();
-        return true;
     }
 
     // The first line after a scroll of shown lines: a folded block counts as nothing (it used to eat the turns)
@@ -264,28 +291,6 @@ internal sealed partial class CodeEditor
         }
 
         return at;
-    }
-
-    public bool Context(double x, double y, ContextMenu menu)
-    {
-        if (Document is not { } document || !RowAt(y, false, out var row)) return false;
-
-        if (!document.HasSelection) document.Move(row.Offset + ColumnAt(row, x - row.TextX), false);
-
-        menu.Add(L("copy") + "    Strg C", () => Copy(document));
-        if (!document.ReadOnly)
-        {
-            menu.Add(L("cut") + "    Strg X", () => Cut(document));
-            menu.Add(L("paste") + "    Strg V", () => Insert(host.Api.Input.ClipboardText ?? ""));
-            menu.Add(L("undo") + "    Strg Z", () => _ = document.Undo());
-            menu.Add(L("completion") + "    Strg Leertaste", () => Completion.Suggest(document, true));
-        }
-
-        menu.Add(L("definition") + "    F12", GoToDefinition);
-        if (!document.ReadOnly) menu.Add(L("rename-symbol") + "    F2", () => host.Run("rename-symbol"));
-        menu.Add(L("find-references") + "    Strg Umschalt F", () => host.Run("search-word"));
-        menu.Add(L("select-all") + "    Strg A", () => document.Select(0, document.Text.Length));
-        return true;
     }
 
     // F12: the definition of the symbol at the caret, or the file an #include line names

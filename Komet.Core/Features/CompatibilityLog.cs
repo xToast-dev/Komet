@@ -107,7 +107,8 @@ internal static class CompatibilityLog
             foreach (var (list, kind) in new[]
                      {
                          (patches.Prefixes, KapiPatchKinds.Prefix), (patches.Postfixes, KapiPatchKinds.Postfix),
-                         (patches.Transpilers, KapiPatchKinds.Transpiler), (patches.Finalizers, KapiPatchKinds.Finalizer),
+                         (patches.Transpilers, KapiPatchKinds.Transpiler),
+                         (patches.Finalizers, KapiPatchKinds.Finalizer),
                          (patches.InnerPrefixes, KapiPatchKinds.InnerPrefix),
                          (patches.InnerPostfixes, KapiPatchKinds.InnerPostfix)
                      }.Bounded(6))
@@ -117,7 +118,7 @@ internal static class CompatibilityLog
                     if ((kinds & kind) != 0 && !EngineShape.Own(patch, owner, own) && lines.Count < MaxLinks)
                     {
                         lines.Add(
-                        $"{target}\n  {kind}: Harmony ID {patch.owner}\n  Patch: {EngineShape.Describe(patch.PatchMethod)}");
+                            $"{target}\n  {kind}: Harmony ID {patch.owner}\n  Patch: {EngineShape.Describe(patch.PatchMethod)}");
                     }
                 }
             }

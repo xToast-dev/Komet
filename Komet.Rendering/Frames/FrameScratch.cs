@@ -27,11 +27,11 @@ internal static class FrameScratch
         GuiDialog.DlgComposers composers);
 
     internal static MethodBase?[] Seams() =>
-        [
-            AccessTools.DeclaredMethod(typeof(ClientMain), nameof(ClientMain.GlTranslate),
-                [typeof(double), typeof(double), typeof(double)]),
-            AccessTools.DeclaredMethod(typeof(GuiDialog), nameof(GuiDialog.OnFinalizeFrame), [typeof(float)])
-        ];
+    [
+        AccessTools.DeclaredMethod(typeof(ClientMain), nameof(ClientMain.GlTranslate),
+            [typeof(double), typeof(double), typeof(double)]),
+        AccessTools.DeclaredMethod(typeof(GuiDialog), nameof(GuiDialog.OnFinalizeFrame), [typeof(float)])
+    ];
 
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {

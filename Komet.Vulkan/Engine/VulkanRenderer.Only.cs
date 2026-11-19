@@ -77,6 +77,17 @@ internal static partial class VulkanRenderer
     // In the world GL runs no Komet GPU work: timer queries (RenderCost, GpuStats), options blur stay off
     public static bool GlIdle => State == Phase.Running && Only && _renderer is not null;
 
+    // Why Vulkan-only stays off: this start's safety mode, else a failure the GPU's record keeps
+    internal static string Locked
+    {
+        get
+        {
+            if (SafetyReason.Length > 0) return SafetyReason;
+
+            return VulkanRecord.Current() == VulkanRecord.Run.Failed ? "Vulkan failed previously on this GPU" : "";
+        }
+    }
+
     internal static string StartupSafety(VulkanRecord.Run previous, ulong available, ulong total)
     {
         if (previous == VulkanRecord.Run.Failed) return "Vulkan failed previously on this GPU";
@@ -101,17 +112,6 @@ internal static partial class VulkanRenderer
 
         Status = SafetyReason;
         _logger?.Warning("Komet: OpenGL safety mode for this world: {0}", SafetyReason);
-    }
-
-    // Why Vulkan-only stays off: this start's safety mode, else a failure the GPU's record keeps
-    internal static string Locked
-    {
-        get
-        {
-            if (SafetyReason.Length > 0) return SafetyReason;
-
-            return VulkanRecord.Current() == VulkanRecord.Run.Failed ? "Vulkan failed previously on this GPU" : "";
-        }
     }
 
     // The player forces another try: the record forgets the failure, safety mode goes; Vulkan starts at once if it was

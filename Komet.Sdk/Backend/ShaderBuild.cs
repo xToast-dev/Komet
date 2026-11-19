@@ -2,9 +2,10 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using HarmonyLib;
-using Komet.Core;
 using Komet.Api;
+using Komet.Core;
 using Komet.Rendering;
+using OpenTK.Graphics.OpenGL;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Sdk;
@@ -37,10 +38,30 @@ internal static partial class ShaderBuild
             : null;
 
     private static readonly Regex LogLine =
-        new(@"^\s*(?:(?<sev>ERROR|WARNING):\s*)?\d+[:(](?<line>\d+)\)?(?:\(\d+\))?\s*:\s*(?:(?<sev2>error|warning)\b[^:]*:)?\s*(?<msg>.*)$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        new(
+            @"^\s*(?:(?<sev>ERROR|WARNING):\s*)?\d+[:(](?<line>\d+)\)?(?:\(\d+\))?\s*:\s*(?:(?<sev2>error|warning)\b[^:]*:)?\s*(?<msg>.*)$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+            TimeSpan.FromMilliseconds(100));
 
     public static BuildResult Build(ICoreClientAPI api, string project, string[] files)
+    {
+        if (!GL.IsEnabled(EnableCap.DebugOutput)) return BuildDraft(api, project, files);
+
+        // The game's debug callback throws on compiler errors. Keep them in the shader log during a trial.
+        GL.PushDebugGroup(DebugSourceExternal.DebugSourceApplication, 0, -1, "Komet shader trial");
+        try
+        {
+            GL.DebugMessageControl(DebugSourceControl.DebugSourceShaderCompiler, DebugTypeControl.DebugTypeError,
+                DebugSeverityControl.DontCare, 0, Array.Empty<int>(), false);
+            return BuildDraft(api, project, files);
+        }
+        finally
+        {
+            GL.PopDebugGroup();
+        }
+    }
+
+    private static BuildResult BuildDraft(ICoreClientAPI api, string project, string[] files)
     {
         if (ShaderRegistry.SupressShaderAndBufferReloads)
         {
@@ -252,7 +273,7 @@ internal static partial class ShaderBuild
 
     private static bool Warning(Match match) =>
         match.Groups["sev"].Value.Equals("WARNING", StringComparison.OrdinalIgnoreCase) ||
-               match.Groups["sev2"].Value.Equals("warning", StringComparison.OrdinalIgnoreCase);
+        match.Groups["sev2"].Value.Equals("warning", StringComparison.OrdinalIgnoreCase);
 }
 
 internal enum BuildState

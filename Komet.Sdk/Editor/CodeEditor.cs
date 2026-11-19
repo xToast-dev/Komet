@@ -1,3 +1,4 @@
+using System.Globalization;
 using Komet.Hud;
 
 namespace Komet.Sdk;
@@ -9,12 +10,12 @@ internal sealed partial class CodeEditor(IIdeHost host) : IIdeRegion
 {
     private const int MaxRows = 128;
     private readonly List<Row> _rows = [];
-    private HudUi? _ui;
-    private double _sourceTop, _sourceBottom;
     private int _hoverLine = -1;
     private string _hoverWord = "";
     private double _hoverX, _hoverY, _caretX, _caretY;
     private bool _selecting;
+    private double _sourceTop, _sourceBottom;
+    private HudUi? _ui;
 
     public CodeCompletion Completion { get; } = new();
 
@@ -91,8 +92,10 @@ internal sealed partial class CodeEditor(IIdeHost host) : IIdeRegion
         CodeText.Line(ui, text, CodeText.Gutter(index));
         if (host.Inactive(document, index))
         {
-            ui.Fill(ui.X + gutter, y, ui.W - gutter, ui.F.BodyRow, host.InactiveTint); // a branch the preprocessor drops
+            ui.Fill(ui.X + gutter, y, ui.W - gutter, ui.F.BodyRow,
+                host.InactiveTint); // a branch the preprocessor drops
         }
+
         if (marked) Message(ui, y, gutter + CodeText.Width(ui, text), issue, Own(host.Diagnostics.On(index)));
 
         if (index != active) return;
@@ -179,9 +182,10 @@ internal sealed partial class CodeEditor(IIdeHost host) : IIdeRegion
         if (room < ui.Px(60)) return;
 
         var color = issue.Error ? HudUi.Err : HudUi.Warn;
-        var more = own > 1 ? "  (+" + (own - 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + ")" : "";
+        var more = own > 1 ? "  (+" + (own - 1).ToString(CultureInfo.InvariantCulture) + ")" : "";
         var text = ui.Fit(ui.F.Small, issue.Message + more, room - ui.Px(12));
-        ui.Fill(x, y + ui.Px(2), ui.TextW(ui.F.Small, text) + ui.Px(12), ui.F.BodyRow - ui.Px(4), color with { A = 0.1 });
+        ui.Fill(x, y + ui.Px(2), ui.TextW(ui.F.Small, text) + ui.Px(12), ui.F.BodyRow - ui.Px(4),
+            color with { A = 0.1 });
         ui.Text(x + ui.Px(6), y, ui.F.BodyRow, ui.F.Small, text, color);
     }
 

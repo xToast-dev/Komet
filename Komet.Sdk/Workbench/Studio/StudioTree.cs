@@ -11,19 +11,17 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
 {
     private const int MaxRows = 4096, MaxScan = 6000;
     private const double RowHeight = 22, Indent = 16, HeadHeight = 40, ToolHeight = 30;
+    private readonly TextField _filter = new(), _rename = new();
+    private readonly HashSet<string> _filtered = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, StudioEntry[]> _listed = new(StringComparer.Ordinal);
 
     private readonly HashSet<string> _open = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, StudioEntry[]> _listed = new(StringComparer.Ordinal);
     private readonly List<Node> _rows = [];
-    private readonly HashSet<string> _filtered = new(StringComparer.Ordinal);
-    private readonly TextField _filter = new(), _rename = new();
+    private int _first, _filterVersion = -1;
+    private Action? _newFile, _newFolder, _revealActive, _collapse, _focusFilter, _exportVanilla;
     private string? _selected, _renaming, _dragFrom, _dropOn;
     private bool _stale = true, _loaded;
-    private int _first, _filterVersion = -1;
     private double _x, _w, _rowsTop, _row, _pressX, _pressY;
-    private Action? _newFile, _newFolder, _revealActive, _collapse, _focusFilter, _exportVanilla;
-
-    private readonly record struct Node(string Path, string Name, int Depth, bool Folder, bool ReadOnly, bool Root);
 
     // Lists the open folders again (the files may have changed on disk)
     public void Refresh()
@@ -50,7 +48,10 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
         if (_open.Count == 0)
         {
             foreach (var path in (ReadOnlySpan<string>)
-                     [StudioLink.DataRoot, Path.GetDirectoryName(StudioLink.KometFolder)!, StudioLink.KometFolder, StudioLink.ProjectsFolder])
+                     [
+                         StudioLink.DataRoot, Path.GetDirectoryName(StudioLink.KometFolder)!, StudioLink.KometFolder,
+                         StudioLink.ProjectsFolder
+                     ])
             {
                 _ = _open.Add(path);
             }
@@ -95,8 +96,11 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
             entries = StudioLink.List(folder);
             if (StudioLink.PathEquals(folder, StudioLink.DataRoot))
             {
-                entries = [new StudioEntry(StudioLink.AssetsRoot, "assets", true, false),
-                    .. entries.Where(e => !StudioLink.PathEquals(e.Path, StudioLink.AssetsRoot))];
+                entries =
+                [
+                    new StudioEntry(StudioLink.AssetsRoot, "assets", true, false),
+                    .. entries.Where(e => !StudioLink.PathEquals(e.Path, StudioLink.AssetsRoot))
+                ];
             }
 
             _listed[folder] = entries;
@@ -210,7 +214,8 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
         ui.Fill(x + w - 1, top, 1, h, HudUi.Divider);
         Head(ui, x, top, w);
         var fy = top + ui.Px(HeadHeight + ToolHeight) + ui.Px(8);
-        _ = _filter.Draw(ui, x + ui.Px(10), fy, w - ui.Px(20), "      " + L("filter"), host.Focus == StudioFocus.Filter);
+        _ = _filter.Draw(ui, x + ui.Px(10), fy, w - ui.Px(20), "      " + L("filter"),
+            host.Focus == StudioFocus.Filter);
         StudioIcons.Magnifier(ui, x + ui.Px(17), fy + (ui.F.BodyRow + ui.Px(8)) / 2, ui.Px(12), HudUi.Faint);
         host.Hits.Add(x + ui.Px(10), fy, w - ui.Px(20), ui.F.BodyRow + ui.Px(8), _focusFilter!);
         _rowsTop = Legend(ui, x, fy + ui.F.BodyRow + ui.Px(8) + ui.Px(4), w);
@@ -236,7 +241,8 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
         ui.Text(at + ui.Px(9), y, h, ui.F.Small, on, HudUi.Faint);
         at += ui.Px(9) + ui.TextW(ui.F.Small, on) + ui.Px(16);
         StudioIcons.Override(ui, at, y + h / 2, r, HudUi.Faint, false);
-        ui.Text(at + ui.Px(9), y, h, ui.F.Small, ui.Fit(ui.F.Small, L("legend-override-off"), x + w - at - ui.Px(20)), HudUi.Faint);
+        ui.Text(at + ui.Px(9), y, h, ui.F.Small, ui.Fit(ui.F.Small, L("legend-override-off"), x + w - at - ui.Px(20)),
+            HudUi.Faint);
         host.Tip(x, y, w, h, L("tip-legend-override"));
         return y + h + ui.Px(4);
     }
@@ -268,7 +274,8 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
         h = ui.Px(ToolHeight);
         ui.Fill(x, top + h - 1, w, 1, HudUi.Divider);
         _exportVanilla ??= host.ExportVanilla;
-        ReadOnlySpan<string> tips = ["tip-new-file", "tip-new-folder", "tip-reveal", "tip-collapse", "tip-export-vanilla"];
+        ReadOnlySpan<string> tips =
+            ["tip-new-file", "tip-new-folder", "tip-reveal", "tip-collapse", "tip-export-vanilla"];
         foreach (var (kind, click) in (ReadOnlySpan<(int, Action)>)
                  [(0, _newFile), (1, _newFolder), (2, _revealActive), (3, _collapse), (4, _exportVanilla)])
         {
@@ -338,7 +345,8 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
         var indent = ui.Px(Indent);
         for (var d = 0; d < Math.Min(node.Depth, 32); d++)
         {
-            ui.Fill(_x + ui.Px(8) + d * indent + ui.Px(7), y, Math.Max(1, ui.Px(1)), _row, HudUi.Divider with { A = 0.09 });
+            ui.Fill(_x + ui.Px(8) + d * indent + ui.Px(7), y, Math.Max(1, ui.Px(1)), _row,
+                HudUi.Divider with { A = 0.09 });
         }
 
         var at = _x + ui.Px(8) + node.Depth * indent;
@@ -356,4 +364,6 @@ internal sealed partial class StudioTree(ShaderIde host) : IIdeRegion
 
         return _filter.Text.Length > 0 || _open.Contains(node.Path);
     }
+
+    private readonly record struct Node(string Path, string Name, int Depth, bool Folder, bool ReadOnly, bool Root);
 }

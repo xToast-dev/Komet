@@ -69,7 +69,7 @@ internal sealed class RenderPassStats
 
     public double DetailMs(int place, int rank) =>
         Index(place, Count) && Index(rank, DetailCount) && _frames > 0 &&
-               _topMarks[_order[place]][rank].Name is { } m
+        _topMarks[_order[place]][rank].Name is { } m
             ? _marks[_order[place]].GetValueOrDefault(m) / _frames
             : double.NaN;
 

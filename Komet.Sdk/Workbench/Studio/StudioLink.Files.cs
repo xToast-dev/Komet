@@ -1,4 +1,3 @@
-
 namespace Komet.Sdk;
 
 // The files through StudioFiles: listing and reading anything under the Vintagestory folder and the game's assets,
@@ -6,6 +5,9 @@ namespace Komet.Sdk;
 // hands back a token that restores it.
 internal sealed partial class StudioLink
 {
+    // A file's text with \n line ends; false with the reason when it is unreadable or too large for the editor
+    // Any text file opens (shaders, .json, .txt, configs, logs …) up to a megabyte; binary files are refused
+    public const int MaxText = 1 << 20;
     private readonly Dictionary<string, TrashToken> _trash = new(StringComparer.Ordinal);
 
     public static bool CanWrite(string path) => !InstalledShaders.Packed(path) && StudioFiles.CanWrite(path);
@@ -16,11 +18,7 @@ internal sealed partial class StudioLink
     // explorer, the problems, the search or the palette; the original shows as the Vanilla view of its copy
     public static bool Hidden(string path) =>
         Within(path, ProjectsFolder) &&
-               path.Replace('\\', '/').Contains("/" + ShaderProjects.MetaFolder, StringComparison.Ordinal);
-
-    // A file's text with \n line ends; false with the reason when it is unreadable or too large for the editor
-    // Any text file opens (shaders, .json, .txt, configs, logs …) up to a megabyte; binary files are refused
-    public const int MaxText = 1 << 20;
+        path.Replace('\\', '/').Contains("/" + ShaderProjects.MetaFolder, StringComparison.Ordinal);
 
     public static bool Read(string path, out string text, out string error)
     {

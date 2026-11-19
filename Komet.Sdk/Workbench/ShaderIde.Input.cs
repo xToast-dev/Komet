@@ -9,22 +9,22 @@ namespace Komet.Sdk;
 internal sealed partial class ShaderIde
 {
     private IIdeRegion? _capture, _wheelOn;
-    private WheelSteps _wheel;
-    private double _mouseX, _mouseY;
     private Action _openPalette = null!, _buildNow = null!, _toggleAuto = null!;
 
+    private bool _swallowChar;
+    private WheelSteps _wheel;
+
     private IdeKeys Modifiers => new(
-        _capi.Input.KeyboardKeyState[(int)GlKeys.LControl] || _capi.Input.KeyboardKeyState[(int)GlKeys.RControl],
-        _capi.Input.KeyboardKeyState[(int)GlKeys.LShift] || _capi.Input.KeyboardKeyState[(int)GlKeys.RShift]);
+        Api.Input.KeyboardKeyState[(int)GlKeys.LControl] || Api.Input.KeyboardKeyState[(int)GlKeys.RControl],
+        Api.Input.KeyboardKeyState[(int)GlKeys.LShift] || Api.Input.KeyboardKeyState[(int)GlKeys.RShift]);
 
-    public double MouseX => _mouseX;
-    public double MouseY => _mouseY;
+    public double MouseX { get; private set; }
 
-    private void InitInput() => (_openPalette, _buildNow, _toggleAuto) = (Palette.Show, BuildNow, ToggleAuto);
+    public double MouseY { get; private set; }
 
     public bool MouseDown(double x, double y, EnumMouseButton button)
     {
-        (_mouseX, _mouseY, _capture) = (x, y, null);
+        (MouseX, MouseY, _capture) = (x, y, null);
         if (Model3D.Transforming != TransformMode.None)
         {
             if (button == EnumMouseButton.Right) Model3D.Cancel();
@@ -66,7 +66,7 @@ internal sealed partial class ShaderIde
 
     public bool MouseMove(double x, double y)
     {
-        (_mouseX, _mouseY) = (x, y);
+        (MouseX, MouseY) = (x, y);
         if (Model3D.Transforming != TransformMode.None)
         {
             Model3D.Move(x, y);
@@ -105,7 +105,7 @@ internal sealed partial class ShaderIde
             return true;
         }
 
-        var region = Hits.WheelAt(x, _mouseY);
+        var region = Hits.WheelAt(x, MouseY);
         if (!ReferenceEquals(region, _wheelOn))
         {
             (_wheelOn, _wheel) = (region, default); // another scroller: the last one's rest is not its
@@ -148,6 +148,49 @@ internal sealed partial class ShaderIde
         return Focused(args, key, ctrl, shift);
     }
 
+    public bool Char(char c)
+    {
+        if (Modifiers.Ctrl || char.IsControl(c)) return false;
+
+        if (_swallowChar)
+        {
+            _swallowChar = false;
+            return true;
+        }
+
+        Redraw();
+        if (Buffers.Large)
+        {
+            return true; // nothing types into the editor under the enlarged preview
+        }
+
+        if (Modal.Open)
+        {
+            Modal.Type(c);
+            return true;
+        }
+
+        if (Palette.Open)
+        {
+            Palette.Type(c);
+            return true;
+        }
+
+        switch (Focus)
+        {
+            case StudioFocus.Filter or StudioFocus.Rename: Tree.Type(c); break;
+            case StudioFocus.Find or StudioFocus.Replace: Find.Type(c); break;
+            case StudioFocus.RenameSymbol: Rename.Type(c); break;
+            case StudioFocus.Search: Left.Type(c); break;
+            case StudioFocus.Values: Side.Type(c); break;
+            case StudioFocus.Editor when !Diff.Open: Editor.Insert(c.ToString()); break;
+        }
+
+        return true;
+    }
+
+    private void InitInput() => (_openPalette, _buildNow, _toggleAuto) = (Palette.Show, BuildNow, ToggleAuto);
+
     private bool Focused(KeyEvent args, GlKeys key, bool ctrl, bool shift)
     {
         switch (Focus)
@@ -169,8 +212,6 @@ internal sealed partial class ShaderIde
         return true;
     }
 
-    private bool _swallowChar;
-
     // Blender's keys for the 3D view's object while the view is enlarged or under the mouse: grab, rotate and scale,
     // then an axis; Enter keeps the change, Escape puts it back, Home resets the object
     private bool ModelKey(GlKeys key)
@@ -178,22 +219,40 @@ internal sealed partial class ShaderIde
         if (!Model3D.On || LiveModel) return false;
 
         var moving = Model3D.Transforming != TransformMode.None;
-        if (!moving && !Buffers.Large && !(Hits.At(_mouseX, _mouseY, out _, out var region) && region is PreviewRegion))
+        if (!moving && !Buffers.Large && !(Hits.At(MouseX, MouseY, out _, out var region) && region is PreviewRegion))
         {
             return false;
         }
 
         switch (key)
         {
-            case GlKeys.G: Model3D.Begin(TransformMode.Grab, _mouseX, _mouseY); return true;
-            case GlKeys.R: Model3D.Begin(TransformMode.Rotate, _mouseX, _mouseY); return true;
-            case GlKeys.S: Model3D.Begin(TransformMode.Scale, _mouseX, _mouseY); return true;
-            case GlKeys.X when moving: Model3D.HoldAxis(0, _mouseX, _mouseY); return true;
-            case GlKeys.Y when moving: Model3D.HoldAxis(1, _mouseX, _mouseY); return true;
-            case GlKeys.Z when moving: Model3D.HoldAxis(2, _mouseX, _mouseY); return true;
-            case GlKeys.Enter or GlKeys.KeypadEnter when moving: Model3D.Confirm(); return true;
-            case GlKeys.Escape when moving: Model3D.Cancel(); return true;
-            case GlKeys.Home: Model3D.ResetObject(); return true;
+            case GlKeys.G:
+                Model3D.Begin(TransformMode.Grab, MouseX, MouseY);
+                return true;
+            case GlKeys.R:
+                Model3D.Begin(TransformMode.Rotate, MouseX, MouseY);
+                return true;
+            case GlKeys.S:
+                Model3D.Begin(TransformMode.Scale, MouseX, MouseY);
+                return true;
+            case GlKeys.X when moving:
+                Model3D.HoldAxis(0, MouseX, MouseY);
+                return true;
+            case GlKeys.Y when moving:
+                Model3D.HoldAxis(1, MouseX, MouseY);
+                return true;
+            case GlKeys.Z when moving:
+                Model3D.HoldAxis(2, MouseX, MouseY);
+                return true;
+            case GlKeys.Enter or GlKeys.KeypadEnter when moving:
+                Model3D.Confirm();
+                return true;
+            case GlKeys.Escape when moving:
+                Model3D.Cancel();
+                return true;
+            case GlKeys.Home:
+                Model3D.ResetObject();
+                return true;
             default: return moving; // while transforming no other key acts
         }
     }
@@ -202,15 +261,33 @@ internal sealed partial class ShaderIde
     {
         switch (key)
         {
-            case GlKeys.P: Palette.Show(); return true;
-            case GlKeys.S or GlKeys.R: BuildNow(); return true;
-            case GlKeys.J: RunCommand("panel"); return true;
-            case GlKeys.W when _current is { } current: CloseTab(current); return true;
-            case GlKeys.F when shift: RunCommand("search"); return true;
-            case GlKeys.E when shift: ShowLeft(LeftView.Files); return true;
-            case GlKeys.B: Prefs.LeftShown = !Prefs.LeftShown; return true;
-            case GlKeys.F or GlKeys.H: Find.Begin(key == GlKeys.H); return true;
-            case GlKeys.Z when !shift && Focus is StudioFocus.Tree && _undo is not null: _ = UndoDelete(); return true;
+            case GlKeys.P:
+                Palette.Show();
+                return true;
+            case GlKeys.S or GlKeys.R:
+                BuildNow();
+                return true;
+            case GlKeys.J:
+                RunCommand("panel");
+                return true;
+            case GlKeys.W when Current is { } current:
+                CloseTab(current);
+                return true;
+            case GlKeys.F when shift:
+                RunCommand("search");
+                return true;
+            case GlKeys.E when shift:
+                ShowLeft(LeftView.Files);
+                return true;
+            case GlKeys.B:
+                Prefs.LeftShown = !Prefs.LeftShown;
+                return true;
+            case GlKeys.F or GlKeys.H:
+                Find.Begin(key == GlKeys.H);
+                return true;
+            case GlKeys.Z when !shift && Focus is StudioFocus.Tree && _undo is not null:
+                _ = UndoDelete();
+                return true;
             default: return false;
         }
     }
@@ -266,47 +343,6 @@ internal sealed partial class ShaderIde
         return false;
     }
 
-    public bool Char(char c)
-    {
-        if (Modifiers.Ctrl || char.IsControl(c)) return false;
-
-        if (_swallowChar)
-        {
-            _swallowChar = false;
-            return true;
-        }
-
-        Redraw();
-        if (Buffers.Large)
-        {
-            return true; // nothing types into the editor under the enlarged preview
-        }
-
-        if (Modal.Open)
-        {
-            Modal.Type(c);
-            return true;
-        }
-
-        if (Palette.Open)
-        {
-            Palette.Type(c);
-            return true;
-        }
-
-        switch (Focus)
-        {
-            case StudioFocus.Filter or StudioFocus.Rename: Tree.Type(c); break;
-            case StudioFocus.Find or StudioFocus.Replace: Find.Type(c); break;
-            case StudioFocus.RenameSymbol: Rename.Type(c); break;
-            case StudioFocus.Search: Left.Type(c); break;
-            case StudioFocus.Values: Side.Type(c); break;
-            case StudioFocus.Editor when !Diff.Open: Editor.Insert(c.ToString()); break;
-        }
-
-        return true;
-    }
-
     // The palette's and the menus' commands
     private void RunCommand(string command)
     {
@@ -319,9 +355,12 @@ internal sealed partial class ShaderIde
             case "rename-symbol": Rename.Begin(); break;
             case "search-word": Search(Editor.SymbolAtCaret()); break;
             case "panel": Panel.Toggle(); break;
-            case "suggest" when Active is { } document: Focus = StudioFocus.Editor; Editor.Completion.Suggest(document, true); break;
+            case "suggest" when Active is { } document:
+                Focus = StudioFocus.Editor;
+                Editor.Completion.Suggest(document, true);
+                break;
             case "undo-delete" when !UndoDelete(): Toast(L("nothing-to-undo")); break;
-            case "close-tab" when _current is { } current: CloseTab(current); break;
+            case "close-tab" when Current is { } current: CloseTab(current); break;
             case "auto": ToggleAuto(); break;
             case "restore-good": RestoreGood(); break;
             case "history": OpenHistory(); break;

@@ -7,6 +7,13 @@ namespace Komet.Sdk;
 // A row's icon, name (the filter's match marked), lock and tag
 internal sealed partial class StudioTree
 {
+    private static string? _homeShort;
+    private readonly Dictionary<string, int> _marks = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, (string, Rgba)> _tags = new(StringComparer.Ordinal);
+
+    private double _renameX, _renameY, _renameW;
+
     private void Icon(HudUi ui, Node node, double x, double cy)
     {
         var s = ui.Px(15);
@@ -50,7 +57,9 @@ internal sealed partial class StudioTree
         }
 
         var font = node.Root ? ui.F.Strong : ui.F.Body;
-        var name = node.Root ? ui.Fit(font, node.Name, Math.Max(ui.Px(20), room)) : MiddleFit(ui, font, node.Name, Math.Max(ui.Px(20), room));
+        var name = node.Root
+            ? ui.Fit(font, node.Name, Math.Max(ui.Px(20), room))
+            : MiddleFit(ui, font, node.Name, Math.Max(ui.Px(20), room));
         Mark(ui, name, x, y);
         ui.Text(x, y, _row, font, name, Ink(node, selected, locked));
         var end = x + ui.TextW(font, name);
@@ -59,7 +68,8 @@ internal sealed partial class StudioTree
         if (locked)
         {
             StudioIcons.Lock(ui, end + ui.Px(6), y + _row / 2, ui.Px(9), HudUi.Faint with { A = 0.35 });
-            host.Tip(end, y, ui.Px(18), _row, L(StudioLink.IsGameShader(node.Path) ? "tip-lock-vanilla" : "tip-lock-readonly"));
+            host.Tip(end, y, ui.Px(18), _row,
+                L(StudioLink.IsGameShader(node.Path) ? "tip-lock-vanilla" : "tip-lock-readonly"));
         }
 
         if (tag.Length > 0)
@@ -97,8 +107,6 @@ internal sealed partial class StudioTree
 
         return "…" + ext;
     }
-
-    private double _renameX, _renameY, _renameW;
 
     // What a badge means and what to do about it
     private static string? TagTip(string tag)
@@ -140,9 +148,6 @@ internal sealed partial class StudioTree
             StudioColors.Gold with { A = 0.3 });
     }
 
-    private readonly Dictionary<string, (string, Rgba)> _tags = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _marks = new(StringComparer.Ordinal);
-
     // -1 no override, 0 its override is off, 1 it overrides vanilla; kept until the next refresh as the tags are
     private int CachedMark(Node node)
     {
@@ -183,7 +188,8 @@ internal sealed partial class StudioTree
                 return (errors.ToString(CultureInfo.InvariantCulture) + " " + Caps(L("errors-word")), HudUi.Err);
             }
 
-            return host.ProjectInfo(name) is { Active: true } ? (Caps(L("tag-active")), HudUi.Ok)
+            return host.ProjectInfo(name) is { Active: true }
+                ? (Caps(L("tag-active")), HudUi.Ok)
                 : (Caps(L("tag-off")), HudUi.Faint);
         }
 
@@ -214,8 +220,6 @@ internal sealed partial class StudioTree
             ? (Caps(L("tag-copy")), HudUi.Link)
             : ("", HudUi.Faint);
     }
-
-    private static string? _homeShort;
 
     private static string HomeShort(string path)
     {

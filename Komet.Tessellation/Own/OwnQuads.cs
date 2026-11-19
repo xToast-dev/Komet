@@ -188,8 +188,8 @@ internal static class OwnQuads
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool Fits(MeshData mesh, int n) =>
         n >= 0 && n + Corners <= mesh.VerticesMax && mesh.xyz?.Length >= (n + Corners) * 3 &&
-               mesh.Uv?.Length >= (n + Corners) * 2 && mesh.Rgba?.Length >= (n + Corners) * 4 &&
-               mesh.Flags?.Length >= n + Corners;
+        mesh.Uv?.Length >= (n + Corners) * 2 && mesh.Rgba?.Length >= (n + Corners) * 4 &&
+        mesh.Flags?.Length >= n + Corners;
 
     // The quad's positions and texture coordinates at vertex n, where Fits holds
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

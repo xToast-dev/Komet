@@ -62,7 +62,8 @@ internal static class HangWatch
         {
             var report = Tool() is { } tool ? Stacks(tool) : "dotnet-stack is not installed: no managed stacks";
             File.WriteAllText(path,
-                report + "\nEvery thread as the kernel sees it (id, name, state, waits in):\n" + Links.Threads.Threads());
+                report + "\nEvery thread as the kernel sees it (id, name, state, waits in):\n" +
+                Links.Threads.Threads());
             logger.Warning("Komet: the stacks of every thread are in {0}", path);
             return path;
         }

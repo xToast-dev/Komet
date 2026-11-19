@@ -9,17 +9,17 @@ internal static partial class DebugProtocol
     private const double ShortSeconds = 9.5, TrianglesRatio = 1.3, LoadingBacklog = 100;
 
     internal static (string Key, double Value)[] Numbers(DebugSummary s) =>
-        [
-            ("fps", s.Fps), ("low1", s.Low1Fps), ("low01", s.Low01Fps), ("avg", s.AvgMs), ("p99", s.P99Ms),
-            ("worst", s.WorstMs), ("over50", Share(s.Over50, s.Steady)), ("gc", Share(s.GcMs, s.Seconds * 1000)),
-            ("alloc", s.AllocMbPerSec), ("jit", s.JitMs), ("runqueue", s.RunQueueMs), ("jump99", s.Jump99Ms),
-            ("hitches", PerMinute(s.Hitches, s.Seconds))
-        ];
+    [
+        ("fps", s.Fps), ("low1", s.Low1Fps), ("low01", s.Low01Fps), ("avg", s.AvgMs), ("p99", s.P99Ms),
+        ("worst", s.WorstMs), ("over50", Share(s.Over50, s.Steady)), ("gc", Share(s.GcMs, s.Seconds * 1000)),
+        ("alloc", s.AllocMbPerSec), ("jit", s.JitMs), ("runqueue", s.RunQueueMs), ("jump99", s.Jump99Ms),
+        ("hitches", PerMinute(s.Hitches, s.Seconds))
+    ];
 
     internal static (string Key, double Value)[] Scene(DebugInput input, DebugSummary s) =>
-        [
-            ("s-mode", ModeCode(input.Mode)), ("s-seconds", s.Seconds), ("s-backlog", input.TessBacklog), .. input.Scene
-        ];
+    [
+        ("s-mode", ModeCode(input.Mode)), ("s-seconds", s.Seconds), ("s-backlog", input.TessBacklog), .. input.Scene
+    ];
 
     private static double ModeCode(string mode)
     {

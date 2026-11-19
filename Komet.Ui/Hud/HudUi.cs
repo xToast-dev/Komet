@@ -161,7 +161,6 @@ internal sealed class HudUi(
 
         var top = At(y);
         canvas.Outline(x, top, w, h, Divider);
-
     }
 
     public double Px(double px) => scaled(px * fonts.Scale);

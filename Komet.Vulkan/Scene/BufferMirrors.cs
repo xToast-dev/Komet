@@ -130,7 +130,7 @@ internal sealed unsafe class BufferMirrors(VulkanDevice device, VulkanFrame fram
     // draws
     public bool CopyAhead((ulong Buffer, ulong Offset) from, (ulong Buffer, ulong Offset) to, ulong size) =>
         Assert(size > 0) && Assert(from.Buffer != 0 && to.Buffer != 0) &&
-               Enqueue(new Copy(from.Buffer, from.Offset, to.Buffer, to.Offset, size));
+        Enqueue(new Copy(from.Buffer, from.Offset, to.Buffer, to.Offset, size));
 
     // Mirror as it stands (stale or not), for a copy back to OpenGL outside any frame
     public (ulong Buffer, ulong Offset, long Size)? Held(uint buffer) =>

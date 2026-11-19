@@ -27,8 +27,8 @@ internal sealed partial class DebugCapture : IDisposable
     private double _debugSpikeMs;
     private DateTimeOffset _debugStarted;
     private Task? _debugWriting;
-    private RuntimeEvents? _events; // allocation samples and lock waits, on while a capture runs
     private bool _disposed;
+    private RuntimeEvents? _events; // allocation samples and lock waits, on while a capture runs
     private bool _joinPending = true; // the world's first frame not yet seen: DebugOnJoin starts a recording there
     private System.Func<string, DebugReport>? _rebuild; // the last protocol again in another language
 

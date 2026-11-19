@@ -58,8 +58,10 @@ internal static partial class Vk
         public int SType;
         public void* Next;
         public fixed byte DeviceUuid[16];
+
         // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceIDProperties' layout: the driver fills it
         public fixed byte DriverUuid[16];
+
         // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceIDProperties' layout: the driver fills it
         public fixed byte DeviceLuid[8];
         public uint DeviceNodeMask, DeviceLuidValid;
@@ -75,6 +77,7 @@ internal static partial class Vk
         public uint TypeCount;
         public fixed uint Types[64]; // 32 of { propertyFlags, heapIndex }
         public uint HeapCount;
+
         // ReSharper disable once UnusedMember.Global - VkPhysicalDeviceMemoryProperties' layout: the driver fills it
         public fixed ulong Heaps[32]; // 16 of { size, flags }
     }
@@ -214,6 +217,7 @@ internal static partial class Vk
     public const int LayoutColorAttachment = 2, LayoutDepthAttachment = 3, LayoutShaderRead = 5;
     public const uint CombinedSampler = 1;
     public const int IndependentBlend = 3, MultiDrawIndirect = 9, SamplerAnisotropy = 19;
+
     // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
     public const int FeatureCount = 55;
 
@@ -225,9 +229,11 @@ internal static partial class Vk
 
     public const int DrawIndirectFirstInstance = 10, PipelineCacheCreateInfo = 17;
     public const int DynamicRendering = 12, ExtensionNameBytes = 256;
+
     // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
     public const int Vulkan13Count = 15;
     public const int DrawIndirectCount = 1;
+
     // ReSharper disable once MemberCanBePrivate.Global - a fixed-buffer size: Roslyn sees no use of a private one
     public const int Vulkan12Count = 47;
 
@@ -348,6 +354,7 @@ internal static partial class Vk
         public void* Next;
         public uint Flags, LogicOpEnable, LogicOp, AttachmentCount;
         public BlendAttachment* Attachments;
+
         // ReSharper disable once UnusedMember.Global - VkPipelineColorBlendStateCreateInfo's layout
         public fixed float Constants[4];
     }
@@ -411,6 +418,7 @@ internal static partial class Vk
         public ulong ResolveView;
         public int ResolveLayout;
         public uint Load, Store;
+
         // ReSharper disable once UnusedMember.Global - VkRenderingAttachmentInfo's layout
         public fixed float Clear[4];
     }

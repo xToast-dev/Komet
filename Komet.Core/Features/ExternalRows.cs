@@ -1,4 +1,3 @@
-
 namespace Komet.Core;
 
 // Other mods' feature knobs as option rows: on Komet's own pages and on the mods' pages (OptionPages)

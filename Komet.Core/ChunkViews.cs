@@ -15,9 +15,6 @@ namespace Komet.Core;
 // only chunks in the current packed format are viewed (client and the built-in server's: a pool of the same kind).
 internal static class ChunkViews
 {
-    // Every thread's caches go with the world they read
-    static ChunkViews() => WorldEnd.On(nameof(ChunkViews), Release);
-
     private const int Format = 2,
         Size = 32,
         MaxViews = 64,
@@ -33,6 +30,9 @@ internal static class ChunkViews
     // reads no chunk after a world left would hold the old game, its last 64 chunks and their planes until its next read.
     // A reader keeps the cache it took for the read it is in; its next read makes a new one
     private static readonly List<(Thread Thread, Cache?[] Caches)> Threads = [];
+
+    // Every thread's caches go with the world they read
+    static ChunkViews() => WorldEnd.On(nameof(ChunkViews), Release);
 
     // Counted per thread only: views serve every block accessor read of a packed chunk on every thread, where a shared
     // interlocked count would bounce one cache line between them
@@ -180,7 +180,7 @@ internal static class ChunkViews
         // Four reference compares: the record's == goes through EqualityComparer<byte[]>.Default per field, on every read
         public bool Same(in Packing other) =>
             ReferenceEquals(Blocks, other.Blocks) && ReferenceEquals(Light, other.Light) &&
-                   ReferenceEquals(LightSat, other.LightSat) && ReferenceEquals(Fluids, other.Fluids);
+            ReferenceEquals(LightSat, other.LightSat) && ReferenceEquals(Fluids, other.Fluids);
     }
 
     private sealed class Cache(object owner, ChunkDataPool pool)

@@ -25,7 +25,8 @@ internal static class ShaderInfo
 
     // No time limit, as before: both run over a whole expanded source and have nothing to backtrack into
     private static readonly Regex Declaration =
-        new(@"^[ \t]*(?:layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*)?(?:flat\s+|smooth\s+|noperspective\s+)?(uniform|in|out|attribute|varying)\s+(?:(?:highp|mediump|lowp)\s+)?(\w+)\s+(\w+)(\s*\[[^\]]*\])?",
+        new(
+            @"^[ \t]*(?:layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*)?(?:flat\s+|smooth\s+|noperspective\s+)?(uniform|in|out|attribute|varying)\s+(?:(?:highp|mediump|lowp)\s+)?(\w+)\s+(\w+)(\s*\[[^\]]*\])?",
             RegexOptions.Multiline | RegexOptions.Compiled, Regex.InfiniteMatchTimeout);
 
     private static readonly Regex DefineLine =
@@ -65,7 +66,8 @@ internal static class ShaderInfo
 
         var vertex = path.EndsWith(".vsh", StringComparison.OrdinalIgnoreCase);
         var shader = vertex ? program.VertexShader : program.FragmentShader;
-        foreach (var g in DefineLine.Matches(shader?.PrefixCode ?? "").Take(MaxItems).Select(m => m.Groups).Bounded(MaxItems))
+        foreach (var g in DefineLine.Matches(shader?.PrefixCode ?? "").Take(MaxItems).Select(m => m.Groups)
+                     .Bounded(MaxItems))
         {
             list.Add((g[1].Value, g[2].Value.Trim()));
         }
@@ -89,7 +91,8 @@ internal static class ShaderInfo
             _ => 1
         };
         var values = new float[16];
-        if (type is "int" or "ivec2" or "ivec3" or "ivec4" or "bool" || type.StartsWith("sampler", StringComparison.Ordinal))
+        if (type is "int" or "ivec2" or "ivec3" or "ivec4" or "bool" ||
+            type.StartsWith("sampler", StringComparison.Ordinal))
         {
             var ints = new int[16];
             GL.GetUniform(program.ProgramId, at, ints);

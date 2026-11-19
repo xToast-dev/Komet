@@ -16,19 +16,16 @@ internal sealed partial class StudioPanel
     private const int Passes = 3;
     private const int MaxPassRows = 512;
     private const double TinyMs = 0.01;
+    private readonly Dictionary<string, DragRegion> _drags = new(StringComparer.Ordinal);
 
     private readonly TextField _passQuery = new();
-    private readonly HashSet<string> _unfolded = new(StringComparer.Ordinal);
     private readonly List<PassRow> _passRows = [];
-    private readonly Dictionary<string, DragRegion> _drags = new(StringComparer.Ordinal);
-    private string? _marked, _dragId;
+    private readonly HashSet<string> _unfolded = new(StringComparer.Ordinal);
     private double _dragFrom, _dragTo, _passTop, _passRowH;
+    private Action? _focusPasses, _disableAll, _resetAll;
+    private string? _marked, _dragId;
     private int _passFirst;
     private bool _scrollToMark;
-    private Action? _focusPasses, _disableAll, _resetAll;
-
-    // A drawn row: a stage head, a pass, or the "N vanilla passes unchanged" fold
-    private readonly record struct PassRow(string Stage, PassEntry? Pass, int Vanilla, bool Head);
 
     public static string Ms(double? ms) =>
         ms is { } v and >= TinyMs ? v.ToString("0.00", CultureInfo.InvariantCulture) + " ms" : "–";
@@ -65,7 +62,8 @@ internal sealed partial class StudioPanel
         {
             var q = _passQuery.Text.Trim();
             var empty = q.Length > 0 ? L("no-passes-match", q) : L("no-modules");
-            ui.Text(x + ui.Px(16), top + ui.Px(6), ui.F.BodyRow, ui.F.Body, ui.Fit(ui.F.Body, empty, w - ui.Px(32)), HudUi.Faint);
+            ui.Text(x + ui.Px(16), top + ui.Px(6), ui.F.BodyRow, ui.F.Body, ui.Fit(ui.F.Body, empty, w - ui.Px(32)),
+                HudUi.Faint);
             return;
         }
 
@@ -82,13 +80,15 @@ internal sealed partial class StudioPanel
         if (docked) return PassesHeadNarrow(ui, x, y, w, model);
 
         var fw = Math.Min(ui.Px(300), w * 0.3);
-        var h = _passQuery.Draw(ui, x + ui.Px(16), y + ui.Px(4), fw, L("search-passes"), host.Focus == StudioFocus.Search);
+        var h = _passQuery.Draw(ui, x + ui.Px(16), y + ui.Px(4), fw, L("search-passes"),
+            host.Focus == StudioFocus.Search);
         host.Hits.Add(x + ui.Px(16), y + ui.Px(4), fw, h, _focusPasses!);
         var at = x + ui.Px(30) + fw;
         var count = L("overrides-active", model.OverridesActive);
         ui.Text(at, y + ui.Px(4), h, ui.F.Small, count, model.OverridesActive > 0 ? HudUi.Link : HudUi.Faint);
         at += ui.TextW(ui.F.Small, count) + ui.Px(24);
-        ui.Text(at, y + ui.Px(4), h, ui.F.Small, ui.Fit(ui.F.Small, L("order-hint"), Math.Max(0, w * 0.3)), HudUi.Faint);
+        ui.Text(at, y + ui.Px(4), h, ui.F.Small, ui.Fit(ui.F.Small, L("order-hint"), Math.Max(0, w * 0.3)),
+            HudUi.Faint);
         var right = x + w - ui.Px(16);
         right = HeadButton(ui, right, y + ui.Px(4), h, L("reset-defaults"), host.Project is not null, _resetAll!);
         _ = HeadButton(ui, right - ui.Px(16), y + ui.Px(4), h, L("disable-overrides"), model.OverridesActive > 0,
@@ -100,7 +100,8 @@ internal sealed partial class StudioPanel
     private double PassesHeadNarrow(HudUi ui, double x, double y, double w, PassModel model)
     {
         var fw = w - ui.Px(32);
-        var h = _passQuery.Draw(ui, x + ui.Px(16), y + ui.Px(4), fw, L("search-passes"), host.Focus == StudioFocus.Search);
+        var h = _passQuery.Draw(ui, x + ui.Px(16), y + ui.Px(4), fw, L("search-passes"),
+            host.Focus == StudioFocus.Search);
         host.Hits.Add(x + ui.Px(16), y + ui.Px(4), fw, h, _focusPasses!);
         y += h + ui.Px(8);
         var count = L("overrides-active", model.OverridesActive);
@@ -195,7 +196,8 @@ internal sealed partial class StudioPanel
 
     private void DisableAll()
     {
-        var ids = host.Side.Model.Passes.Where(p => p is { HasOverride: true, OverrideOn: true }).Select(p => p.Id).ToArray();
+        var ids = host.Side.Model.Passes.Where(p => p is { HasOverride: true, OverrideOn: true }).Select(p => p.Id)
+            .ToArray();
         host.Modal.Confirm(L("disable-overrides"), L("disable-overrides-text", ids.Length), L("disable"), () =>
         {
             _ = host.Link.SetOverrides(ids, false);
@@ -215,4 +217,7 @@ internal sealed partial class StudioPanel
             host.Side.Refresh();
         });
     }
+
+    // A drawn row: a stage head, a pass, or the "N vanilla passes unchanged" fold
+    private readonly record struct PassRow(string Stage, PassEntry? Pass, int Vanilla, bool Head);
 }

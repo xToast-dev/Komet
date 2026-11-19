@@ -104,10 +104,16 @@ internal struct WheelSteps
 // (no folder yet, no inotify handle left) Working is false and the studio reads on its timer as before.
 internal sealed class StudioWatch : IDisposable
 {
-    private FileSystemWatcher? _watcher;
     private int _changed = 1;
+    private FileSystemWatcher? _watcher;
 
     public bool Working => _watcher is not null;
+
+    public void Dispose()
+    {
+        _watcher?.Dispose();
+        _watcher = null;
+    }
 
     public void Start(string folder)
     {
@@ -143,22 +149,15 @@ internal sealed class StudioWatch : IDisposable
 
     private void Raised(object sender, FileSystemEventArgs e) => _ = Interlocked.Exchange(ref _changed, 1);
 
-    private void Failed(object sender, ErrorEventArgs e)
-    {
+    private void Failed(object sender, ErrorEventArgs e) =>
         _ = Interlocked.Exchange(ref _changed, 1); // events were lost: read again
-    }
-
-    public void Dispose()
-    {
-        _watcher?.Dispose();
-        _watcher = null;
-    }
 }
 
 // What the studio keeps between sessions (ModConfig/komet/studio.json): Auto, the open folders, the right column's
 // sections and width, the bottom panel's height and whether it shows, the active project, the open tabs
 internal sealed class StudioPrefs
 {
+    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
     public bool Auto { get; set; } = true;
     public List<string> Open { get; set; } = [];
     public List<string> Sections { get; init; } = ["view", "set", "shader", "frame"];
@@ -171,8 +170,6 @@ internal sealed class StudioPrefs
     public List<string> Tabs { get; set; } = [];
     public List<string> Off { get; set; } = [];
     public bool AllFiles { get; set; } // the explorer's "All files" view; false: "Shaders"
-
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
     private static string File => Path.Join(StudioLink.KometFolder, "studio.json");
 

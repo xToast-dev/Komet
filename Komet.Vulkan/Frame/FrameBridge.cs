@@ -358,7 +358,7 @@ internal sealed unsafe class FrameBridge : IDisposable
 
     private static bool Fits(SharedImage made, SharedImage like) =>
         made.Width == like.Width && made.Height == like.Height &&
-               made.Format == like.Format;
+        made.Format == like.Format;
 
     // A depth copy for wanted, or none for none
     private static bool DepthFits(SharedImage? made, SharedImage? wanted) =>

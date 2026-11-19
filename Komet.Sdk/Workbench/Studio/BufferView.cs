@@ -1,4 +1,5 @@
 using System.Globalization;
+using Komet.Vulkan;
 using Vintagestory.Client.NoObf;
 
 namespace Komet.Sdk;
@@ -16,7 +17,12 @@ internal enum BufferKind
 
 // One render target the preview can show: the engine's framebuffer, the attachment (-1 the depth texture), how it reads,
 // and the setting it needs to exist (a ClientSettings name, "" always there)
-internal sealed record BufferTarget(string Group, string Name, EnumFrameBuffer Fb, int Attachment, BufferKind Kind,
+internal sealed record BufferTarget(
+    string Group,
+    string Name,
+    EnumFrameBuffer Fb,
+    int Attachment,
+    BufferKind Kind,
     string Needs);
 
 // The preview's render target view. Only while the preview is on screen (the screen calls Picture only then) and only the
@@ -55,9 +61,9 @@ internal sealed partial class BufferView : IDisposable
     public static readonly float[] Contrasts = [1, 4, 16, 64, 256];
 
     private readonly int[] _viewport = new int[4];
+    private bool _failed;
     private int _program, _vao, _sampler, _target, _fb, _snap, _snapFb, _height;
     private int _uSource, _uOther, _uMode, _uChannel, _uContrast, _uSplit, _uFlip, _uRange, _uMark;
-    private bool _failed;
 
     public int Selected { get; set; }
     public int Channel { get; set; } = -1; // -1 all, 0..3 R G B A
@@ -66,7 +72,10 @@ internal sealed partial class BufferView : IDisposable
     public bool Large { get; set; }
     public string Snapshot { get; private set; } = ""; // the target the vanilla picture shows, "" none
     public double LastMs { get; private set; }
-    public double DisplayWidth { get; set; } = Width; // the picture's width on screen: the inspected pixel's ring keeps its size
+
+    public double DisplayWidth { get; set; } =
+        Width; // the picture's width on screen: the inspected pixel's ring keeps its size
+
     public bool Marking { get; set; } // the ring shows while the Inspector tab does (and never in a vanilla snapshot)
 
     public BufferTarget Shown => Targets[Math.Clamp(Selected, 0, Targets.Length - 1)];
@@ -74,7 +83,7 @@ internal sealed partial class BufferView : IDisposable
     // Why a target has no texture now ("" it has one): the setting that allocates it
     public static string Missing(BufferTarget target)
     {
-        if (Vulkan.VulkanRenderer.GlIdle && target.Kind != BufferKind.Final)
+        if (VulkanRenderer.GlIdle && target.Kind != BufferKind.Final)
         {
             return "Vulkan-only renderer: OpenGL targets are not drawn";
         }

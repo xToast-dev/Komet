@@ -12,11 +12,19 @@ internal sealed partial class ShaderIde
     private const double TabsHeight = 34, BarHeight = 36, StripHeight = 28, FootHeight = 34;
 
     private readonly List<(double X, double W)> _tabXs = [];
-    private TabStrip? _tabStrip;
+    private (string Old, string New)? _change;
     private bool _historyOpen;
     private double _historyX, _historyY;
+
+    private Action? _modeMine, _modeOriginal, _modeDiff, _modeEngine;
+    private long _noticeAt;
+
+    // A notice per state: the game changed the original, another project's copy draws, the module is not drawn
+    private string? _noticeOf;
     private string _position = "1:1";
     private int _positionAt = -1;
+    private TabStrip? _tabStrip;
+    private string? _winner;
 
     // The bottom panel's height this frame (0 hidden): the enlarged preview leaves it free, the Inspector shows there
     private double PanelHeight { get; set; }
@@ -28,7 +36,7 @@ internal sealed partial class ShaderIde
         var bottom = y + h - panelH;
         TabStripDraw(ui, x, y, w);
         y += ui.Px(TabsHeight);
-        if (_current is not { } document)
+        if (Current is not { } document)
         {
             Start(ui, x, y, w, bottom);
         }
@@ -55,8 +63,9 @@ internal sealed partial class ShaderIde
         for (var i = 0; i < Math.Min(_tabs.Count, MaxTabs + 1); i++)
         {
             var tab = _tabs[i];
-            var on = tab == _current;
-            var name = ui.Fit(ui.F.Body, tab.Name, ui.Px(200)); // long names end in "…"; marks and the dot keep their room
+            var on = tab == Current;
+            var name = ui.Fit(ui.F.Body, tab.Name,
+                ui.Px(200)); // long names end in "…"; marks and the dot keep their room
             var mark = tab.ReadOnly || OverrideState(tab.Path).Override;
             var nameW = ui.TextW(ui.F.Body, name);
             var tw = ui.Px(12) + nameW + ui.Px(8) + (mark ? ui.Px(16) : 0) + ui.Px(12) + ui.Px(26);
@@ -214,8 +223,6 @@ internal sealed partial class ShaderIde
         return right - widths;
     }
 
-    private Action? _modeMine, _modeOriginal, _modeDiff, _modeEngine;
-
     // The open override's state (the TEST chip's word) and, while drawn, its pass's time
     private double ModuleInfo(HudUi ui, double right, double y, double h, ShaderDocument document)
     {
@@ -224,7 +231,9 @@ internal sealed partial class ShaderIde
         _modeEngine ??= () => SetMode(Mode == EditorMode.Engine ? EditorMode.Mine : EditorMode.Engine);
         if (StatusOf(document) is not { } status) return right;
 
-        var ms = status.State == OverrideRun.Active && ModuleOf(document) is { CpuMs: { } cpu } ? "  " + Ms(cpu) + " ms" : "";
+        var ms = status.State == OverrideRun.Active && ModuleOf(document) is { CpuMs: { } cpu }
+            ? "  " + Ms(cpu) + " ms"
+            : "";
         var text = StateWord(status.State) + ms;
         var tw = ui.TextW(ui.F.Small, text);
         ui.Text(right - tw, y, h, ui.F.Small, text, StateInk(status.State));
@@ -259,12 +268,6 @@ internal sealed partial class ShaderIde
         ui.Text(x, y, h, ui.F.Small, text, HudUi.Faint);
     }
 
-    // A notice per state: the game changed the original, another project's copy draws, the module is not drawn
-    private string? _noticeOf;
-    private long _noticeAt;
-    private (string Old, string New)? _change;
-    private string? _winner;
-
     // The game update and the overlay read files: asked again for another file, after a build or every few seconds
     private void NoticesStale() => _noticeOf = null;
 
@@ -275,7 +278,8 @@ internal sealed partial class ShaderIde
 
         (_noticeOf, _noticeAt) = (document.Path, now);
         var copy = StudioLink.GameFileOf(document.Path) is not null;
-        (_change, _winner) = copy ? (StudioLink.OriginalChanged(document.Path), StudioLink.OverlaidBy(document.Path))
+        (_change, _winner) = copy
+            ? (StudioLink.OriginalChanged(document.Path), StudioLink.OverlaidBy(document.Path))
             : (null, null);
     }
 
@@ -298,7 +302,8 @@ internal sealed partial class ShaderIde
 
         if (StatusOf(document) is { State: not OverrideRun.Active } status)
         {
-            y = Strip(ui, x, y, w, StateWord(status.State) + ": " + status.Reason, StateInk(status.State), default, default);
+            y = Strip(ui, x, y, w, StateWord(status.State) + ": " + status.Reason, StateInk(status.State), default,
+                default);
         }
 
         if (Mode == EditorMode.Original && StudioLink.GameFileOf(document.Path) is not null)

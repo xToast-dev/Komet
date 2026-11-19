@@ -280,8 +280,9 @@ public sealed class KapiFeatures
         ChunksPage = FeatureHub.ChunksPage,
         MiscPage = FeatureHub.MiscPage;
 
-    private readonly KapiMod _mod;
     private readonly HashSet<EventHandler<KapiStateChangedEventArgs>> _handlers = [];
+
+    private readonly KapiMod _mod;
 
     internal KapiFeatures(KapiMod mod) => _mod = mod;
 

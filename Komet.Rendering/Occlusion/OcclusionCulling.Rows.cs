@@ -177,7 +177,8 @@ internal static partial class OcclusionCulling
         Gpu.Upload<uint>(_poolBuffer, [], 2 * MaxDraws * 8);
         Gpu.Upload<uint>(_keys, [], MaxRanges * 4); // the camera's first pass's commands only
         Gpu.Upload<uint>(_sorted, [], MaxRanges * CommandBytes);
-        (_rowData, _rowLocations, _marks) = (new uint[size * RowUints], new ModelDataPoolLocation?[size], new int[size]);
+        (_rowData, _rowLocations, _marks) =
+            (new uint[size * RowUints], new ModelDataPoolLocation?[size], new int[size]);
         (_chunkBools, _chunkRefs, _chunkBits) = (new Bools?[MaxChunks], new int[MaxChunks], new uint[MaxChunks]);
         _rowsReady = _rowsProgram != 0 && Assert(_keys != 0);
         _ = Assert(_rowBuffer != 0) && Assert(_chunkBuffer != 0);

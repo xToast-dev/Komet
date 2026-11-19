@@ -37,30 +37,30 @@ internal static unsafe partial class GlTap
     private const uint MapWrite = 2, PersistentStorage = 0x40;
 
     private static Entry[] Uploads() =>
-        [
-            new("glBufferData", (IntPtr)(BufferDataFn)(&BufferData)),
-            new("glBufferSubData", (IntPtr)(BufferSubDataFn)(&BufferSubData)),
-            new("glNamedBufferData", (IntPtr)(NamedBufferDataFn)(&NamedBufferData)),
-            new("glNamedBufferSubData", (IntPtr)(NamedBufferSubDataFn)(&NamedBufferSubData)),
-            new("glMapBufferRange", (IntPtr)(MapBufferRangeFn)(&MapBufferRange)),
-            new("glMapNamedBufferRange", (IntPtr)(MapNamedBufferRangeFn)(&MapNamedBufferRange)),
-            new("glMapBuffer", (IntPtr)(MapBufferFn)(&MapBuffer)),
-            new("glCopyBufferSubData", (IntPtr)(CopyBufferSubDataFn)(&CopyBufferSubData)),
-            new("glCopyNamedBufferSubData", (IntPtr)(CopyNamedBufferSubDataFn)(&CopyNamedBufferSubData)),
-            new("glTexSubImage2D", (IntPtr)(TexSubImage2DFn)(&TexSubImage2D)),
-            new("glTexImage2D", (IntPtr)(TexImage2DFn)(&TexImage2D)),
-            new("glTextureSubImage2D", (IntPtr)(TextureSubImage2DFn)(&TextureSubImage2D)),
-            new("glGenerateMipmap", (IntPtr)(GenerateMipmapFn)(&GenerateMipmap)),
-            new("glGenerateTextureMipmap", (IntPtr)(GenerateTextureMipmapFn)(&GenerateTextureMipmap)),
-            new("glClearNamedBufferSubData", (IntPtr)(ClearNamedBufferSubDataFn)(&ClearNamedBufferSubData)),
-            new("glTexImage3D", (IntPtr)(TexImage3DFn)(&TexImage3D)),
-            new("glTexSubImage3D", (IntPtr)(TexSubImage3DFn)(&TexSubImage3D)),
-            new("glTexStorage2D", (IntPtr)(TexStorage2DFn)(&TexStorage2D)),
-            new("glTexStorage3D", (IntPtr)(TexStorage3DFn)(&TexStorage3D)),
-            new("glBufferStorage", (IntPtr)(BufferDataFn)(&BufferStorage)),
-            new("glGetTextureImage", (IntPtr)(GetTextureImageFn)(&GetTextureImage)),
-            new("glGetTextureSubImage", (IntPtr)(GetTextureSubImageFn)(&GetTextureSubImage))
-        ];
+    [
+        new("glBufferData", (IntPtr)(BufferDataFn)(&BufferData)),
+        new("glBufferSubData", (IntPtr)(BufferSubDataFn)(&BufferSubData)),
+        new("glNamedBufferData", (IntPtr)(NamedBufferDataFn)(&NamedBufferData)),
+        new("glNamedBufferSubData", (IntPtr)(NamedBufferSubDataFn)(&NamedBufferSubData)),
+        new("glMapBufferRange", (IntPtr)(MapBufferRangeFn)(&MapBufferRange)),
+        new("glMapNamedBufferRange", (IntPtr)(MapNamedBufferRangeFn)(&MapNamedBufferRange)),
+        new("glMapBuffer", (IntPtr)(MapBufferFn)(&MapBuffer)),
+        new("glCopyBufferSubData", (IntPtr)(CopyBufferSubDataFn)(&CopyBufferSubData)),
+        new("glCopyNamedBufferSubData", (IntPtr)(CopyNamedBufferSubDataFn)(&CopyNamedBufferSubData)),
+        new("glTexSubImage2D", (IntPtr)(TexSubImage2DFn)(&TexSubImage2D)),
+        new("glTexImage2D", (IntPtr)(TexImage2DFn)(&TexImage2D)),
+        new("glTextureSubImage2D", (IntPtr)(TextureSubImage2DFn)(&TextureSubImage2D)),
+        new("glGenerateMipmap", (IntPtr)(GenerateMipmapFn)(&GenerateMipmap)),
+        new("glGenerateTextureMipmap", (IntPtr)(GenerateTextureMipmapFn)(&GenerateTextureMipmap)),
+        new("glClearNamedBufferSubData", (IntPtr)(ClearNamedBufferSubDataFn)(&ClearNamedBufferSubData)),
+        new("glTexImage3D", (IntPtr)(TexImage3DFn)(&TexImage3D)),
+        new("glTexSubImage3D", (IntPtr)(TexSubImage3DFn)(&TexSubImage3D)),
+        new("glTexStorage2D", (IntPtr)(TexStorage2DFn)(&TexStorage2D)),
+        new("glTexStorage3D", (IntPtr)(TexStorage3DFn)(&TexStorage3D)),
+        new("glBufferStorage", (IntPtr)(BufferDataFn)(&BufferStorage)),
+        new("glGetTextureImage", (IntPtr)(GetTextureImageFn)(&GetTextureImage)),
+        new("glGetTextureSubImage", (IntPtr)(GetTextureSubImageFn)(&GetTextureSubImage))
+    ];
 
     // A buffer write the listener replays; Komet's own (Quietly) is only heard of as unseen
     private static void DataWritten(uint buffer, nint size, nint data, bool persistent)

@@ -247,13 +247,11 @@ internal static partial class IdleAnimators
             Array.Clear(Renderers, 0, Math.Min(RendererCount, Renderers.Length));
             Array.Clear(Bits);
             (UtilCount, RendererCount, Handlers) = (0, 0, null);
-            if (Bits.Length < count)
-            {
-                var size = Math.Min(MaxParked, count + count / 2); // headroom: block entities keep loading
-                (Bits, Utils, Renderers, UtilAt, RendererAt) =
-                    (new byte[size], new AnimationUtil[size], new AnimatableRenderer[size], new int[size],
-                        new int[size]);
-            }
+            if (Bits.Length >= count) return;
+            var size = Math.Min(MaxParked, count + count / 2); // headroom: block entities keep loading
+            (Bits, Utils, Renderers, UtilAt, RendererAt) =
+                (new byte[size], new AnimationUtil[size], new AnimatableRenderer[size], new int[size],
+                    new int[size]);
         }
 
         public void Add(AnimatableRenderer renderer, int at)

@@ -42,17 +42,17 @@ internal static unsafe partial class GlTap
     public static bool IsRenderbuffer(int texture) => texture >= RenderbufferBase;
 
     private static Entry[] StencilEntries() =>
-        [
-            new("glStencilFunc", (nint)(StencilFuncFn)(&StencilFunc), true),
-            new("glStencilFuncSeparate", (nint)(StencilFuncSeparateFn)(&StencilFuncSeparate), true),
-            new("glStencilOp", (nint)(StencilOpFn)(&StencilOp), true),
-            new("glStencilOpSeparate", (nint)(StencilOpSeparateFn)(&StencilOpSeparate), true),
-            new("glStencilMask", (nint)(StencilMaskFn)(&StencilMask), true),
-            new("glStencilMaskSeparate", (nint)(StencilMaskSeparateFn)(&StencilMaskSeparate), true),
-            new("glClearStencil", (nint)(ClearStencilFn)(&ClearStencil), true),
-            new("glDeleteRenderbuffers", (nint)(DeleteNamesFn)(&DeleteRenderbuffers), true),
-            new("glClearTexSubImage", (nint)(ClearTexSubImageFn)(&ClearTexSubImage), true)
-        ];
+    [
+        new("glStencilFunc", (nint)(StencilFuncFn)(&StencilFunc), true),
+        new("glStencilFuncSeparate", (nint)(StencilFuncSeparateFn)(&StencilFuncSeparate), true),
+        new("glStencilOp", (nint)(StencilOpFn)(&StencilOp), true),
+        new("glStencilOpSeparate", (nint)(StencilOpSeparateFn)(&StencilOpSeparate), true),
+        new("glStencilMask", (nint)(StencilMaskFn)(&StencilMask), true),
+        new("glStencilMaskSeparate", (nint)(StencilMaskSeparateFn)(&StencilMaskSeparate), true),
+        new("glClearStencil", (nint)(ClearStencilFn)(&ClearStencil), true),
+        new("glDeleteRenderbuffers", (nint)(DeleteNamesFn)(&DeleteRenderbuffers), true),
+        new("glClearTexSubImage", (nint)(ClearTexSubImageFn)(&ClearTexSubImage), true)
+    ];
 
     // The faces a GL_FRONT, GL_BACK or GL_FRONT_AND_BACK names: bit 0 the front, bit 1 the back
     private static int Faces(uint face) => face switch { GlFrontFace => 1, GlBackFace => 2, _ => 3 };

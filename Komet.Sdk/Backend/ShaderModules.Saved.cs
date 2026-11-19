@@ -26,16 +26,23 @@ internal static partial class ShaderModules
     internal static string[] StageFiles(string program)
     {
         var domain = _api is { } api ? ShaderMods.ProgramByName(api, program)?.AssetDomain : null;
-        return [.. StageExts.Select(ext => domain is null
-            ? ShaderAssets.ProgramKey(program, ext)
-            : ShaderAssets.Key(domain, "shaders/" + program + ext))];
+        return
+        [
+            .. StageExts.Select(ext => domain is null
+                ? ShaderAssets.ProgramKey(program, ext)
+                : ShaderAssets.Key(domain, "shaders/" + program + ext))
+        ];
     }
 
     // The active projects that copy one of the programs' stage files
     internal static string[] Copiers(IEnumerable<string> programs)
     {
         string[] files = [.. programs.Take(MaxModules).SelectMany(StageFiles)];
-        return [.. ShaderProjects.Active().Where(p => files.Any(f => ShaderProjects.CopyPath(p, f) is { } c && File.Exists(c)))];
+        return
+        [
+            .. ShaderProjects.Active()
+                .Where(p => files.Any(f => ShaderProjects.CopyPath(p, f) is { } c && File.Exists(c)))
+        ];
     }
 
     internal static ShaderState.StudioDelta? Delta(string project) =>
@@ -68,7 +75,7 @@ internal static partial class ShaderModules
         {
             if (vanilla)
             {
-                string[] owners = Copiers([program]) is { Length: > 0 } copiers ? copiers : [.. Owner(project)];
+                var owners = Copiers([program]) is { Length: > 0 } copiers ? copiers : [.. Owner(project)];
                 foreach (var owner in owners.Bounded(MaxModules))
                 {
                     AddVanilla(studio, owner, program);
@@ -128,7 +135,8 @@ internal static partial class ShaderModules
         if (!Move(api, id, step)) return false;
 
         var stage = id.Split(':', 2)[0];
-        if ((project ?? ShaderProjects.Editing) is { } owner && Stages(api).FirstOrDefault(s => s.Id == stage) is { } now)
+        if ((project ?? ShaderProjects.Editing) is { } owner &&
+            Stages(api).FirstOrDefault(s => s.Id == stage) is { } now)
         {
             var studio = ShaderState.Of(api).Studio;
             if (!studio.TryGetValue(owner, out var delta)) studio[owner] = delta = new ShaderState.StudioDelta();

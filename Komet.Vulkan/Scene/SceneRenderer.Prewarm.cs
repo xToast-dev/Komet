@@ -1,4 +1,3 @@
-
 namespace Komet.Vulkan;
 
 // Draws wait for their ports and pipelines, so they start early: ports as the engine links (Prewarm, world load), then
@@ -69,6 +68,7 @@ internal sealed partial class SceneRenderer
             {
                 continue; // the terrain's: its own
             }
+
             // skip old recipes missing a port input (instanced matrix columns): LayoutOf would refuse and log the
             // pipeline
             if (!Covers(ported, attributes)) continue;

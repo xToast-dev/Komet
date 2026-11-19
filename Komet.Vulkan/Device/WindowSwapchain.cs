@@ -235,7 +235,9 @@ internal sealed unsafe class WindowSwapchain : IDisposable
         (_held, _unpresented) = (index, index >= 0);
         if (index >= 0) return index;
 
-        why = $"vkAcquireNextImageKHR returned {result}";
+        why = result is Vk.Success or Vk.Suboptimal
+            ? "the acquired image's fence did not signal within 1 s (the GPU is stalled)"
+            : $"vkAcquireNextImageKHR returned {result}";
         return -1;
     }
 

@@ -115,12 +115,18 @@ internal sealed unsafe partial class VulkanDevice
         }
     }
 
+    // The last vkQueueSubmit's result: a failed submission names it (lost device, out of memory) instead of guessing
+    public int LastSubmit { get; private set; }
+
     private bool Queued(Vk.Submit* submit, uint count, ulong fence)
     {
         CatchUp?.Invoke();
         lock (_queueLock)
         {
-            return Assert(_queue != IntPtr.Zero) && VkApi.QueueSubmit(_queue, count, submit, fence) == Vk.Success;
+            if (!Assert(_queue != IntPtr.Zero)) return false;
+
+            LastSubmit = VkApi.QueueSubmit(_queue, count, submit, fence);
+            return LastSubmit == Vk.Success;
         }
     }
 

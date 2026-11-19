@@ -1,4 +1,5 @@
 {
+  "hud-vulkan-stranded": "Komet: Vulkan wurde beendet, die Welt kann nicht mehr gezeichnet werden (schwarzes Bild). Verlasse die Welt und tritt ihr erneut bei - der nächste Beitritt startet im OpenGL-Sicherheitsmodus.",
   "settings-workbench-title": "Komet Shader Studio",
   "settings-sdk-missing": "Das Shader Studio ist nicht gestartet.",
   "settings-sdk-missing-hint": "Warum, steht in client-main.log (Zeilen mit Komet). Tritt der Welt erneut bei und öffne diese Ansicht dann mit Strg+F8.",

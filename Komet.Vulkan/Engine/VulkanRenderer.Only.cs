@@ -158,7 +158,21 @@ internal static partial class VulkanRenderer
             "Komet: Vulkan-only {0}, and with VulkanOnlyLean OpenGL holds none of the world's large textures and " +
             "buffers ({1} MB), which the failed device cannot give back: OpenGL shows only the GUI. Leave the " +
             "world and join it again.", why, GlTap.LeanBytes >> 20);
+        Told(); // the GUI still draws: the player sees why the world is black, not only the log
         return Assert(GlTap.Stranded);
+    }
+
+    // Stranded: on the main thread, a chat line and an in-game error say the world is black until it is joined again
+    private static void Told()
+    {
+        if (_api is not { } api) return;
+
+        api.Event.EnqueueMainThreadTask(() =>
+        {
+            var text = Vintagestory.API.Config.Lang.Get("komet:hud-vulkan-stranded");
+            api.ShowChatMessage(text);
+            api.TriggerIngameError(api.World, "komet-vulkan-stranded", text);
+        }, "komet-vulkan-stranded");
     }
 
     // Every lean texture and buffer given its full size and Vulkan's contents back (TerrainRenderer.Restore)

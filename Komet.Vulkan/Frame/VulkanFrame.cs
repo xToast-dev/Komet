@@ -314,7 +314,12 @@ internal sealed unsafe partial class VulkanFrame : IDisposable
         _made = setupEnded && Fault.Length == 0 && device.Submit([buffers.Setup, buffers.Commands], signals, 0,
             1);
         SubmitTicks += Stopwatch.GetTimestamp() - start;
-        if (!_made && Fault.Length == 0) Fault = "a segment's submission failed (the device is lost?)";
+        if (!_made && Fault.Length == 0)
+        {
+            Fault = setupEnded
+                ? $"a segment's submission failed (vkQueueSubmit returned {device.LastSubmit})"
+                : "a segment's setup commands could not be ended";
+        }
     }
 
     private void After(Action after)

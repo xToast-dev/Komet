@@ -322,7 +322,15 @@ internal sealed unsafe class FrameBridge : IDisposable
         {
             try
             {
-                _ = _device.WaitIdle(); // the old copies may be read by a bridged frame on the GPU still
+                // the old copies may be read by a bridged frame on the GPU still; a GPU that does not go idle gets no
+                // new allocations on top (no bridging at this size)
+                if (!_device.WaitIdle())
+                {
+                    _unmade = (window.Width, window.Height, window.Format);
+                    Dropped(at);
+                    return -1;
+                }
+
                 var old = _slots[at];
                 _slots[at] = null; // a remake that throws leaves no disposed copies to be taken or read
                 old?.Dispose();

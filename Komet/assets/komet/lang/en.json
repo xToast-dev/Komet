@@ -1,4 +1,5 @@
 {
+  "hud-vulkan-stranded": "Komet: Vulkan stopped and the world can no longer be drawn (black screen). Leave the world and join it again - the next join starts in OpenGL safety mode.",
   "settings-workbench-title": "Komet Shader Studio",
   "settings-sdk-missing": "The Shader Studio did not start.",
   "settings-sdk-missing-hint": "client-main.log says why (lines with Komet). Join the world again, then open this screen with Ctrl+F8.",

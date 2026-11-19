@@ -27,7 +27,10 @@ internal static class WorkerPool
         FrameCounter = 0,
         BackgroundCounter = 1,
         MaxRetired = 64,
-        MaxWaits = 1 << 24;
+        WorkerSpins = 1 << 10;
+
+    // A worker that never finishes must not keep the main thread in a user-space spin for minutes
+    internal const int WorkerWaitMs = 1000;
 
     private const long MaxRounds = long.MaxValue; // runs until its world or generation ends
     private const long Low = 0xFFFFFFFFL;
@@ -255,14 +258,37 @@ internal static class WorkerPool
 
         var seen = Interlocked.Exchange(ref _cursor, 0);
         var claimed = (int)Math.Min(seen >>> 32, seen & Low); // an increment past the count claimed nothing
-        var spin = new SpinWait();
-        for (var i = 0; i < MaxWaits && Volatile.Read(ref _done) < claimed; i++)
+        if (!WaitFor(ref _done, claimed))
         {
-            spin.SpinOnce(-1);
+            _ = Interlocked.CompareExchange(ref _error,
+                new TimeoutException($"a worker batch did not finish ({Volatile.Read(ref _done)} of {claimed})"),
+                null);
         }
 
         _ = Assert(Volatile.Read(ref _done) == claimed); // every claimed item ended, no other ran
         return Ended();
+    }
+
+    // Short spin for the usual microsecond wait, then sleeping steps. A missing completion used to spin 16 M times
+    // with yields, which held the main thread for tens of seconds after a failed renderer left a batch unfinished.
+    internal static bool WaitFor(ref int done, int target, int waitMs = WorkerWaitMs)
+    {
+        if (target <= 0 || Volatile.Read(ref done) >= target) return true;
+
+        var spin = new SpinWait();
+        for (var i = 0; i < WorkerSpins && Volatile.Read(ref done) < target; i++)
+        {
+            spin.SpinOnce(-1);
+        }
+
+        var limit = Math.Max(0, waitMs);
+        for (var waited = 0; waited < WorkerWaitMs && Volatile.Read(ref done) < target; waited++)
+        {
+            if (waited >= limit) break;
+            Thread.Sleep(1);
+        }
+
+        return Volatile.Read(ref done) >= target;
     }
 
     private static FrameResult Ended()

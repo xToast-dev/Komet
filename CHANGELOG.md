@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.1 (2026-11-20)
+
+### Fixed
+
+- A failed Vulkan-only handback could leave a worker batch unfinished; the main thread then spun in a 16 million
+  iteration wait for tens of seconds instead of getting on with the frame. Frustum culling now falls back to the main
+  thread after a short, bounded wait, and the worker pool reports a timeout instead of spinning.
+
 ## 3.1.0 (2026-11-20)
 
 ### Added

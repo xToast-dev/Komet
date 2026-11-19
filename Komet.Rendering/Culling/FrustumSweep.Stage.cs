@@ -12,7 +12,7 @@ namespace Komet.Rendering;
 // step with frames anyway. The engine's loop must never cull a pool beside a worker.
 internal static partial class FrustumSweep
 {
-    private const int MaxStage = 64, Modes = 5, MaxOrdinals = 8, MaxWaits = 1 << 24, MaxJobs = MaxPools * MaxStage;
+    private const int MaxStage = 64, Modes = 5, MaxOrdinals = 8, MaxJobs = MaxPools * MaxStage;
 
     private static readonly Action<int> StageJob = CullStaged;
 
@@ -170,10 +170,12 @@ internal static partial class FrustumSweep
 
         var (from, to) = (BatchStart[k], BatchStart[k + 1]);
         _ = WorkerPool.ClaimBelow(to);
-        var spin = new SpinWait();
-        for (var i = 0; i < MaxWaits && Volatile.Read(ref BatchDone[k]) < to - from; i++)
+        if (!WorkerPool.WaitFor(ref BatchDone[k], to - from))
         {
-            spin.SpinOnce(-1);
+            _logger?.Warning(
+                "Komet: frustum culling waited for workers that did not finish ({0} of {1}); these pools cull on the main thread",
+                Volatile.Read(ref BatchDone[k]), to - from);
+            return false;
         }
 
         if (!Assert(Volatile.Read(ref BatchDone[k]) == to - from)) return false;

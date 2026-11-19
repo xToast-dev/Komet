@@ -306,6 +306,19 @@ public sealed class WorkerPoolTests
         });
     }
 
+    // A missing completion must not hold the main thread in a minutes-long user-space spin
+    [Test]
+    public void WaitForStopsAfterItsDeadline()
+    {
+        var done = 0;
+        var started = Environment.TickCount64;
+        Assert.That(WorkerPool.WaitFor(ref done, 1, 20), Is.False);
+        Assert.That(Environment.TickCount64 - started, Is.LessThan(500));
+
+        done = 1;
+        Assert.That(WorkerPool.WaitFor(ref done, 1, 20), Is.True);
+    }
+
     // An item that throws fails its batch after every other item ran; a second failure turns frame batches off until Stop
     [Test]
     public void FailedBatchesTurnFrameJobsOff()

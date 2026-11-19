@@ -17,7 +17,7 @@ namespace Komet.Shapes;
 // nothing writes into a set. Hits compare the whole descriptor.
 internal static partial class AnimationFrames
 {
-    internal const int MaxEntries = 512;
+    private const int MaxEntries = 512;
     private const int MaxKeyElements = 4096, MaxKeyFrames = 4096, MaxDescriptor = 1 << 22, MaxBucket = 64;
     private const int MaxWords = MaxDescriptor / sizeof(ulong);
     private const ulong Golden = 0x9E3779B97F4A7C15UL; // 2^64 / φ, odd
@@ -79,6 +79,12 @@ internal static partial class AnimationFrames
         ResetPeaks();
         _installed = false;
         var seams = Guard.Reset(Seams(), logger);
+        // On the rewritten engine the reproduced bodies no longer exist; stay off it entirely (the engine compiles).
+        if (!LegacyEngine)
+        {
+            logger?.Notification("Komet AnimationFrames: the engine compiles frames itself now, the cache stays off");
+            return;
+        }
         var clone = AccessTools.Method(typeof(Animation), nameof(Animation.Clone), []);
         if (!NotNull(clone)) return;
         // JointsDone throws otherwise

@@ -39,7 +39,7 @@ internal static class OptionsFeatures
             ],
             Stop = _ => GraphicsMenu.Clear(),
             Probe = () => Found(GraphicsMenu.Installed, GraphicsMenu.StoodDown),
-            Shapes = [new EngineBodies(GraphicsMenu.Shaped, GraphicsMenu.Fingerprint)]
+            Shapes = [new EngineBodies(GraphicsMenu.Shaped, GraphicsMenu.Fingerprint, GraphicsMenu.Fingerprint123)]
         },
         new("MenuBlur")
         {

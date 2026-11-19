@@ -94,7 +94,7 @@ internal static partial class OcclusionCulling
             if (RowOf.TryGetValue(location, out var row) && row >= region.Base && row < region.Base + region.Count)
             {
                 _marks[row] = _mark;
-                Hide(row, location.Hide);
+                Hide(row, Hidden(location));
             }
             else
             {
@@ -284,10 +284,10 @@ internal static partial class OcclusionCulling
     {
         if (!Index(row, _rowLocations.Length)) return false;
 
-        var chunk = ChunkSlot(location.CullVisible);
+        var chunk = ChunkSlot(CullVisible(location));
         if (chunk < 0) return false;
 
-        var (at, sphere, lod) = (row * RowUints, location.FrustumCullSphere, location.LodLevel);
+        var (at, sphere, lod) = (row * RowUints, location.FrustumCullSphere, Lod(location));
         var data = _rowData.AsSpan(at, RowUints);
         (data[0], data[1], data[2]) = (SingleToUInt32Bits(sphere.x), SingleToUInt32Bits(sphere.y),
             SingleToUInt32Bits(sphere.z));
@@ -299,7 +299,7 @@ internal static partial class OcclusionCulling
         {
             > 3 => AboveLod, < 0 => BelowLod, _ => lod
         }; // the far shadow pass draws any level >= 1
-        data[8] = (location.Hide ? 1u : 0u) | ((uint)code << 1);
+        data[8] = (Hidden(location) ? 1u : 0u) | ((uint)code << 1);
         (data[9], data[10], data[11]) = ((uint)chunk, 0, 0);
         data[8] |= Directed(data, location, region) ? SortedBit : 0;
         _rowLocations[row] = location;

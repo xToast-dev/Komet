@@ -57,7 +57,7 @@ internal static class ChunkFeatures
                     }
             ],
             Probe = () => ChunkBudget.Capped ? Active : EngineChanged,
-            Shapes = [new EngineBodies(ChunkBudget.Seams, ChunkBudget.Fingerprint)]
+            Shapes = [new EngineBodies(ChunkBudget.Seams, ChunkBudget.Fingerprint, ChunkBudget.Fingerprint123)]
         },
         new("ChunkLoadBudget")
         {
@@ -72,7 +72,10 @@ internal static class ChunkFeatures
                     { Unit = "ms", Weighed = true, Presets = new PresetValues(5, 3, 2) }
             ],
             Probe = () => ChunkLoadBudget.Rewritten ? Active : EngineChanged,
-            Shapes = [new EngineBodies(ChunkLoadBudget.Seams, ChunkLoadBudget.Fingerprint)]
+            Shapes =
+            [
+                new EngineBodies(ChunkLoadBudget.Seams, ChunkLoadBudget.Fingerprint, ChunkLoadBudget.Fingerprint123)
+            ]
         },
         // the integrated server's chunk flood paced to what the client takes in (GC pause share, tessellation backlog)
         new("JoinPacer")

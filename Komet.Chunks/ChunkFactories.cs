@@ -31,7 +31,7 @@ internal static class ChunkFactories
             ? Factories.GetValue(pool, static source => NewData!.CreateDelegate<Func<int[]>>(source))
             : NewData!.CreateDelegate<Func<int[]>>(pool);
 
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         if (!Il.Take(instructions, Il.MaxInstructions, out var code)) return code;
 

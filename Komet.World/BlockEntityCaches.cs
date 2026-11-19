@@ -25,6 +25,11 @@ internal static class BlockEntityCaches
         MeshFingerprint = 0x8820BC0184089CB8UL,
         PotFingerprint = 0xF8D80DAFDEC67646UL;
 
+    // EngineShape of each part's Seams() in Vintage Story 1.23.0-pre.1
+    internal const ulong IgnitableFingerprint123 = 0x25827ACA778C26C9UL,
+        MeshFingerprint123 = 0x97EE5C17B81E3F1FUL,
+        PotFingerprint123 = 0x363E6B249729941BUL;
+
     internal const int Ignitable = 0, Meshes = 1, Pots = 2;
     private const int Parts = 3;
     private const int MaxInstructions = 512, MaxMeshes = 4096, MaxShapes = 256, PotTries = 2;
@@ -69,13 +74,23 @@ internal static class BlockEntityCaches
 
         if (!Survival) return;
 
-        Shaped[Ignitable] =
-            EngineShape.Matches(Bodies[Ignitable], IgnitableFingerprint, nameof(BlockEntityCaches), logger);
-        Shaped[Meshes] = EngineShape.Matches(Bodies[Meshes], MeshFingerprint, nameof(BlockEntityCaches), logger);
-        Shaped[Pots] = EngineShape.Matches(Bodies[Pots], PotFingerprint, nameof(BlockEntityCaches), logger);
+        Shaped[Ignitable] = Verified(Bodies[Ignitable], IgnitableFingerprint, IgnitableFingerprint123);
+        Shaped[Meshes] = Verified(Bodies[Meshes], MeshFingerprint, MeshFingerprint123);
+        Shaped[Pots] = Verified(Bodies[Pots], PotFingerprint, PotFingerprint123);
         if (Shaped[Ignitable])
         {
-            _ = harmony.Patch(Bodies[Ignitable][0], transpiler: new HarmonyMethod(Method(nameof(RewriteIgnitable))));
+            if (ParsesJson(Bodies[Ignitable]))
+            {
+                _ = harmony.Patch(Bodies[Ignitable][0],
+                    transpiler: new HarmonyMethod(Method(nameof(RewriteIgnitable))));
+            }
+            else
+            {
+                // The engine already keeps GroundStorageProperties from Initialize: no JSON left to parse here.
+                // The body stays engine's: caching the virtual lookup would guess at other mods' overrides.
+                _logger?.Notification(
+                    "Komet BlockEntityCaches: Ignitable's properties are already kept by the engine, body left alone");
+            }
         }
 
         if (Shaped[Meshes] && Bodies[Meshes] is [{ } mesh] && Method(nameof(Mesh)) is { } prefix &&
@@ -97,6 +112,24 @@ internal static class BlockEntityCaches
         }
 
         Recheck();
+    }
+
+    // The fingerprint belongs to the body, not to a version string: check which of the known bodies it is before the
+    // usual shape guard, leaving the released fingerprint as the expectation for anything else.
+    private static bool Verified(MethodBase?[] bodies, ulong released, ulong newer)
+    {
+        var found = EngineShape.Of(bodies);
+        return EngineShape.Matches(bodies, found == newer ? newer : released, nameof(BlockEntityCaches), _logger);
+    }
+
+    // 1.22.7 parses propertiesAtString in UpdateIgnitable; 1.23 reads properties parsed once at Initialize instead.
+    private static bool ParsesJson(MethodBase?[] bodies)
+    {
+        var from = AccessTools.DeclaredMethod(typeof(JsonObject), nameof(JsonObject.FromJson), [typeof(string)]);
+        if (from is null || bodies is not [{ } body]) return false;
+
+        return Il.Take(PatchProcessor.GetOriginalInstructions(body), MaxInstructions, out var code) &&
+               Il.Count(code, c => c.Calls(from)) == 1;
     }
 
     // A foreign transpiler/infix on a rewritten body, or a patch on what a kept result skips, stands that part down

@@ -31,11 +31,17 @@ internal static class BushShapes
         // a new world may bring other assets
     }
 
-    // The closure ensureMeshExists hands ObjectCacheUtil.GetOrCreate
+    // 1.22 passes the shape parse to a closure in ensureMeshExists; 1.23 parses it in createMesh
     internal static MethodInfo? Builder()
     {
         var type = AccessTools.TypeByName(Behavior);
         if (type is null) return null;
+
+        if (AccessTools.DeclaredMethod(type, "createMesh") is { ReturnType: var direct } mesh &&
+            direct == typeof(MeshData))
+        {
+            return mesh;
+        }
 
         foreach (var nested in AccessTools.InnerTypes(type).Bounded(MaxNested))
         {

@@ -184,6 +184,12 @@ internal static partial class TessSafety
         ];
         Type[] allocate = [i, i, i.MakeByRefType(), position.MakeByRefType(), typeof(AssetLocationAndSource)];
         Type[] blend = [i, typeof(int[]), typeof(int[]), typeof(int[]), atlas, i];
+        // 1.23 added cornerOverlaySubIds before the atlas manager
+        Type[] blend7 = [i, typeof(int[]), typeof(int[]), typeof(int[]), typeof(int[]), atlas, i];
+        var blended = TessSeams.Method(typeof(BlendedTextureManager),
+                          nameof(BlendedTextureManager.GetOrCreateBlendedTexture), blend7) ??
+                      TessSeams.Method(typeof(BlendedTextureManager),
+                          nameof(BlendedTextureManager.GetOrCreateBlendedTexture), blend);
         return Around(harmony,
                    TessSeams.Method(typeof(JsonTesselator), nameof(JsonTesselator.doMesh), vars, typeof(MeshData), i),
                    nameof(EnterBlock)) &&
@@ -215,8 +221,7 @@ internal static partial class TessSafety
                Around(harmony,
                    TessSeams.Method(atlas, "runtimeUpdateTexture", typeof(IBitmap), position, typeof(float)),
                    nameof(EnterTexture)) &&
-               Around(harmony, TessSeams.Method(typeof(BlendedTextureManager),
-                   nameof(BlendedTextureManager.GetOrCreateBlendedTexture), blend), nameof(EnterTexture));
+               Around(harmony, blended, nameof(EnterTexture));
     }
 
     // Transpiles; records the sites rewritten (0 when another count leaves the IL alone)

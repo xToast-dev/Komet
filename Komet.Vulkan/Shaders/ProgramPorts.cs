@@ -78,18 +78,17 @@ internal static class ProgramPorts
         foreach (var shader in shaders.Bounded(MaxShaders))
         {
             GL.GetShader(shader, ShaderParameter.ShaderType, out var type);
-            if (type == VertexShader)
+            switch (type)
             {
-                vertex = Source(shader);
-            }
-            else if (type == FragmentShader)
-            {
-                fragment = Source(shader);
-            }
-            else
-            {
-                error = $"a stage Vulkan draws no port of (0x{type:X})";
-                return null;
+                case VertexShader:
+                    vertex = Source(shader);
+                    break;
+                case FragmentShader:
+                    fragment = Source(shader);
+                    break;
+                default:
+                    error = $"a stage Vulkan draws no port of (0x{type:X})";
+                    return null;
             }
         }
 

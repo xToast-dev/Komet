@@ -52,6 +52,12 @@ internal static class CloudTileScratch
     internal static ConstructorInfo? Constructor() =>
         AccessTools.Constructor(typeof(Vec3d), [typeof(double), typeof(double), typeof(double)]);
 
+    // 1.23 builds the tile vector once outside the loop and mutates it with Set; no scratch needed there
+    internal static ConstructorInfo? EmptyConstructor() => AccessTools.Constructor(typeof(Vec3d), []);
+
+    private static MethodInfo? Set() =>
+        AccessTools.Method(typeof(Vec3d), nameof(Vec3d.Set), [typeof(double), typeof(double), typeof(double)]);
+
     // The methods the vector goes to, with its argument position: each reads only X, Y and Z
     private static MethodInfo?[] Readers()
     {
@@ -71,16 +77,32 @@ internal static class CloudTileScratch
     {
         var bit = original?.DeclaringType?.FullName == Classic ? ClassicBit : FluffyBit;
         _rewritten &= ~bit; // Harmony reruns a transpiler whenever another mod patches the method
-        var (ctor, mine, readers) =
-            (Constructor(), AccessTools.Method(typeof(CloudTileScratch), nameof(At)), Readers());
-        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(ctor) ||
-            !NotNull(mine))
+        var (ctor, empty, set, mine, readers) =
+            (Constructor(), EmptyConstructor(), Set(), AccessTools.Method(typeof(CloudTileScratch), nameof(At)),
+                Readers());
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(mine)) return code;
+
+        var at = Il.Single(code, c => c.opcode == OpCodes.Newobj && c.operand is ConstructorInfo info &&
+                                      info.DeclaringType == typeof(Vec3d));
+        if (!Assert(at >= 0) || !Index(at + 1, code.Count) || !Assert(code[at + 1].IsStloc())) return code;
+
+        if (Equals(code[at].operand, empty))
         {
+            // The engine's one vector is reused in place: accepting Set as a confined use proves no tile keeps it
+            if (!NotNull(set) ||
+                !Assert(Il.Confined(code, at + 1, (c, operand) => operand == 0
+                    ? (c.opcode == OpCodes.Ldfld && c.operand is FieldInfo field && field.DeclaringType == typeof(Vec3d)) ||
+                      (c.opcode == OpCodes.Callvirt && Equals(c.operand, set))
+                    : operand == 1 && c.operand is MethodInfo method && Array.IndexOf(readers, method) >= 0)))
+            {
+                return code;
+            }
+
+            _rewritten |= bit;
             return code;
         }
 
-        var at = Il.Single(code, c => c.opcode == OpCodes.Newobj && Equals(c.operand, ctor));
-        if (!Assert(at >= 0) || !Index(at + 1, code.Count) || !Assert(code[at + 1].IsStloc())) return code;
+        if (!NotNull(ctor) || !Equals(code[at].operand, ctor)) return code;
 
         if (!Assert(Il.Confined(code, at + 1, (c, operand) => operand == 0
                 ? c.opcode == OpCodes.Ldfld && c.operand is FieldInfo field && field.DeclaringType == typeof(Vec3d)

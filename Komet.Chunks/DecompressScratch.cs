@@ -42,28 +42,41 @@ internal static class DecompressScratch
         Rewritten = false;
         var decompress = AccessTools.Method(typeof(ICompression), nameof(ICompression.Decompress),
             [typeof(byte[]), typeof(int), typeof(int)]);
+        var sized = AccessTools.Method(typeof(ICompression), nameof(ICompression.DecompressAndSize),
+            [typeof(byte[]), typeof(int), typeof(int), typeof(byte[]).MakeByRefType()]);
         var consume = AccessTools.Method(typeof(ArrayConvert), nameof(ArrayConvert.ByteToIntArrays));
-        var (mine, length) = (AccessTools.Method(typeof(DecompressScratch), nameof(Decompress)),
-            AccessTools.Method(typeof(DecompressScratch), nameof(Length)));
-        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(decompress) ||
-            !NotNull(consume) || !NotNull(mine) || !NotNull(length))
+        var (mine, length, mineSized) = (AccessTools.Method(typeof(DecompressScratch), nameof(Decompress)),
+            AccessTools.Method(typeof(DecompressScratch), nameof(Length)),
+            AccessTools.Method(typeof(DecompressScratch), nameof(Sized)));
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(consume) ||
+            !NotNull(mine) || !NotNull(length) || !NotNull(mineSized))
         {
             return code;
         }
 
-        var at = Il.Single(code, c => c.Calls(decompress));
-        if (!Assert(at >= 0) || !Index(at + 3, code.Count) || !Assert(code[at].opcode == OpCodes.Callvirt) ||
-            code[at + 1].opcode != OpCodes.Dup || code[at + 2].opcode != OpCodes.Ldlen ||
-            code[at + 3].opcode != OpCodes.Conv_I4)
+        if (NotNull(decompress) && code.Exists(c => c.Calls(decompress)))
         {
+            var at = Il.Single(code, c => c.Calls(decompress));
+            if (!Assert(at >= 0) || !Index(at + 3, code.Count) || !Assert(code[at].opcode == OpCodes.Callvirt) ||
+                code[at + 1].opcode != OpCodes.Dup || code[at + 2].opcode != OpCodes.Ldlen ||
+                code[at + 3].opcode != OpCodes.Conv_I4)
+            {
+                return code;
+            }
+
+            var stop = Stop(code, at + 4, consume);
+            // Running off the body's end is logged, stopping is not
+            if (!Index(stop, code.Count) || !code[stop].Calls(consume)) return code;
+            // Length first (alone it answers any ldlen); conv.i4 after it is a no-op on an int
+            Rewritten = Assert(Il.Substitute(code, at + 2, length)) && Assert(Il.Substitute(code, at, mine));
             return code;
         }
 
-        var stop = Stop(code, at + 4, consume);
-        // Running off the body's end is logged, stopping is not
-        if (!Index(stop, code.Count) || !code[stop].Calls(consume)) return code;
-        // Length first (alone it answers any ldlen); conv.i4 after it is a no-op on an int
-        Rewritten = Assert(Il.Substitute(code, at + 2, length)) && Assert(Il.Substitute(code, at, mine));
+        // 1.23: the fallback path calls DecompressAndSize too; its out buffer reaches ByteToIntArrays (the zstd
+        // path's does not) and the returned int is already the size the check needs
+        var sizedAt = NotNull(sized) ? SizedAt(code, sized, consume) : -1;
+        if (Index(sizedAt, code.Count)) Rewritten = Assert(Il.Substitute(code, sizedAt, mineSized));
+
         return code;
     }
 
@@ -86,6 +99,32 @@ internal static class DecompressScratch
         return code.Count;
     }
 
+    // The DecompressAndSize call whose out buffer is passed to ByteToIntArrays; the zstd path's buffer goes elsewhere
+    private static int SizedAt(List<CodeInstruction> code, MethodInfo sized, MethodInfo consume)
+    {
+        var at = -1;
+        for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
+            if (!code[i].Calls(sized) || i == 0) continue;
+
+            var local = Il.Local(code[i - 1], Il.Uses.Address);
+            if (local < 0) continue;
+
+            var stop = Stop(code, i + 1, consume);
+            if (!Index(stop, code.Count) || !code[stop].Calls(consume)) continue;
+
+            var used = false;
+            for (var j = i + 1; j < Math.Min(stop, MaxInstructions); j++)
+                used |= Il.Local(code[j], Il.Uses.Load) == local;
+            if (!used) continue;
+
+            if (at >= 0) return -1;
+            at = i;
+        }
+
+        return at;
+    }
+
     // zstd only (DecompressAndSize plus a copy); other codecs and bad sizes take the engine's call
     internal static byte[] Decompress(ICompression compression, byte[] data, int offset, int length)
     {
@@ -105,6 +144,10 @@ internal static class DecompressScratch
 
         return buffer;
     }
+
+    // 1.23's fallback already returns the size: keep its call and buffer, no extra copy to hand out or count
+    internal static int Sized(ICompression compression, byte[] data, int offset, int length, out byte[] buffer) =>
+        compression.DecompressAndSize(data, offset, length, out buffer);
 
     // Replaces the length check's ldlen: decompressed size for the buffer handed out above, else the array's length
     internal static int Length(byte[] array)

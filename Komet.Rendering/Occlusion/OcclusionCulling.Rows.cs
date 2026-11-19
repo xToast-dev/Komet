@@ -290,7 +290,7 @@ internal static partial class OcclusionCulling
 
         foreach (var location in locations.Bounded(MaxChunkLocations))
         {
-            if (location is not null && RowOf.TryGetValue(location, out var row)) Hide(row, location.Hide);
+            if (location is not null && RowOf.TryGetValue(location, out var row)) Hide(row, Hidden(location));
         }
     }
 
@@ -311,7 +311,7 @@ internal static partial class OcclusionCulling
         _rescanHide = false;
         for (var row = 0; row < Math.Min(RowsUsed, MaxRows); row++)
         {
-            if (_rowLocations[row] is { } location) Hide(row, location.Hide);
+            if (_rowLocations[row] is { } location) Hide(row, Hidden(location));
         }
     }
 

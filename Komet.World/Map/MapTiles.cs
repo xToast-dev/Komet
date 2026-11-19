@@ -14,8 +14,9 @@ namespace Komet.World;
 // for rounding. Skipped draws leave the gui shader's uniforms as the last drawn tile did; later layers set their own.
 internal static class MapTileCulling
 {
-    // EngineShape of Seams() in 1.22.7
+    // EngineShape of Seams() in 1.22.7 and 1.23.0-pre.1
     internal const ulong Fingerprint = 0xF2927D95A8831334UL;
+    internal const ulong Fingerprint123 = 0x3F452443985BD433UL;
 
     private const string Component = "Vintagestory.GameContent.MultiChunkMapComponent",
         Map = "Vintagestory.GameContent.GuiElementMap";
@@ -27,6 +28,8 @@ internal static class MapTileCulling
 
     private static AccessTools.FieldRef<object, Cuboidd>? _view;
     private static AccessTools.FieldRef<object, float>? _zoom;
+    // 1.23 draws tiles at ZoomLevel * DPIHScale; the zoom field alone is no longer the on-screen scale
+    private static AccessTools.FieldRef<float>? _dpi;
 
     public static bool Enabled { get; set; } = true;
 
@@ -41,13 +44,17 @@ internal static class MapTileCulling
     {
         var seams = Guard.Reset(Seams(), logger);
         if (seams[0] is null ||
-            AccessTools.TypeByName(Map) is not { } map || !Guard.Match(seams, fingerprint))
+            AccessTools.TypeByName(Map) is not { } map || !Guard.Match(seams, fingerprint, Fingerprint123))
         {
             return;
         }
 
         (_view, _zoom) = (AccessTools.FieldRefAccess<Cuboidd>(map, "CurrentBlockViewBounds"),
             AccessTools.FieldRefAccess<float>(map, "ZoomLevel"));
+        var dpi = AccessTools.TypeByName("Vintagestory.API.Config.RuntimeEnv") is { } env
+            ? AccessTools.Field(env, "DPIHScale")
+            : null;
+        _dpi = dpi is not null ? AccessTools.StaticFieldRefAccess<float>(dpi) : null;
         _ = harmony.Patch(seams[0], new HarmonyMethod(Render));
         Recheck();
     }
@@ -68,7 +75,8 @@ internal static class MapTileCulling
             return true;
         }
 
-        var (width, height, zoom) = (view.X2 - view.X1, view.Z2 - view.Z1, _zoom(map));
+        var (width, height, zoom) = (view.X2 - view.X1, view.Z2 - view.Z1,
+            _zoom(map) * (_dpi is { } dpi ? dpi() : 1f));
         if (!double.IsFinite(width + height + zoom + bounds.renderX + bounds.renderY) ||
             !(width > 0 && height > 0))
         {

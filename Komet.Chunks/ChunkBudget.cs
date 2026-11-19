@@ -22,6 +22,7 @@ internal static class ChunkBudget
 {
     // EngineShape of OnBeforeFrame in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0xC843DFD7A971F8EBUL;
+    internal const ulong Fingerprint123 = 0x9F3742D9EB5719E1UL; // 1.23.0-pre.1
     public const int Uncapped = 0, MaxCapMillis = 20, DefaultCapMillis = 3, CeilingMillis = 6;
 
     private const int BoostMillis = 8,
@@ -45,9 +46,9 @@ internal static class ChunkBudget
     public static int CapMillis { get; set; } = DefaultCapMillis;
     public static bool Capped { get; private set; }
     public static bool Ceiled { get; private set; } // the priority loop's gate is in
-    public static bool Boosted { get; private set; }
+    private static bool Boosted { get; set; }
     public static bool Yield { get; set; } = true;
-    public static bool Still { get; private set; }
+    private static bool Still { get; set; }
 
     // The camera now (position, yaw, pitch); null outside a world. Set by the feature's install.
     public static Func<(double X, double Y, double Z, float Yaw, float Pitch)?>? Camera { get; set; }
@@ -74,7 +75,7 @@ internal static class ChunkBudget
         (Still, _stillSince, _lastBegin, _interval) = (false, 0, 0, 0);
         var frame = Seams()[0];
         if (!NotNull(frame) ||
-            !EngineShape.Matches([frame], fingerprint, nameof(ChunkBudget), logger))
+            !EngineShape.Matches([frame], fingerprint, Fingerprint123, nameof(ChunkBudget), logger))
         {
             return;
         }
@@ -111,7 +112,7 @@ internal static class ChunkBudget
         }
     }
 
-    internal static bool Yielding(long now, long start)
+    private static bool Yielding(long now, long start)
     {
         if (!Yield || start <= 0 || now < start)
         {
@@ -129,7 +130,7 @@ internal static class ChunkBudget
     }
 
     // Harmony injects __instance by name
-    internal static void End(ChunkTesselatorManager __instance)
+    private static void End(ChunkTesselatorManager __instance)
     {
         if (_cut)
         {

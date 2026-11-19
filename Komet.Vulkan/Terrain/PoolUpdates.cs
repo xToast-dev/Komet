@@ -16,6 +16,7 @@ internal static class PoolUpdates
 {
     // EngineShape of Seams() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0x4C06C5B8592915BCUL;
+    internal const ulong Fingerprint123 = 0x7222F9032CC2002FUL; // 1.23.0-pre.1
 
     private const int ArrayBuffer = 34962, ElementArrayBuffer = 34963;
 
@@ -34,7 +35,7 @@ internal static class PoolUpdates
         _shaped = false;
         if (Seams() is not [{ } update]) return;
 
-        _shaped = EngineShape.Matches([update], fingerprint, nameof(PoolUpdates), logger);
+        _shaped = EngineShape.Matches([update], fingerprint, Fingerprint123, nameof(PoolUpdates), logger);
         if (_shaped) _ = harmony.Patch(update, new HarmonyMethod(typeof(PoolUpdates), nameof(Updating)));
     }
 

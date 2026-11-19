@@ -18,6 +18,7 @@ internal static class ChunkLoadBudget
 {
     // EngineShape of Seams() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0x222221D9946996AEUL;
+    internal const ulong Fingerprint123 = 0xA2F7959B29531791UL; // 1.23.0-pre.1
     public const int Engine = 0, MaxMillis = 20, DefaultMillis = 3;
     private const int BoostMillis = 8, BoostAbove = 256, NearChunks = 3, MaxScan = 1024, ChunkShift = 5;
     private const int DimensionHeight = 1024, UnloadPacket = 11; // dim 1 chunk Y; Packet_ServerIdEnum.UnloadServerChunk
@@ -47,7 +48,7 @@ internal static class ChunkLoadBudget
             (false, Seams(), null, null, 0, 0, 0, 0);
         if (!Assert(!Array.Exists(_seams, s => s is null))) return;
 
-        if (!EngineShape.Matches(_seams, fingerprint, nameof(ChunkLoadBudget), logger)) return;
+        if (!EngineShape.Matches(_seams, fingerprint, Fingerprint123, nameof(ChunkLoadBudget), logger)) return;
 
         _closure = _seams[2]!.DeclaringType;
         if (_closure is null || AccessTools.DeclaredField(_closure, "p")?.FieldType != typeof(Packet_ServerChunk) ||
@@ -134,7 +135,7 @@ internal static class ChunkLoadBudget
             _ => false
         };
 
-    internal static bool Far(Packet_ServerChunk? chunk, EntityPos pos) =>
+    private static bool Far(Packet_ServerChunk? chunk, EntityPos pos) =>
         chunk is { Y: >= 0 and < DimensionHeight } &&
         Math.Max(Math.Abs(chunk.X - ((int)pos.X >> ChunkShift)),
             Math.Abs(chunk.Z - ((int)pos.Z >> ChunkShift))) > NearChunks;

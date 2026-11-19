@@ -4,6 +4,7 @@ using Komet.Core;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
+using Vintagestory.API.MathTools;
 using Vintagestory.Client;
 using Vintagestory.Client.NoObf;
 
@@ -29,6 +30,12 @@ internal static class WindowSize
         (nameof(ClientPlatformWindows.BlitPrimaryToDefault), [])
     ];
 
+    // 1.23 keeps the framebuffer size in the platform and reads that cache in the frame methods
+    private static readonly AccessTools.FieldRef<ClientPlatformWindows, Size2i>? CachedFramebuffer =
+        AccessTools.Field(typeof(ClientPlatformWindows), "framebuffersize")?.FieldType == typeof(Size2i)
+            ? AccessTools.FieldRefAccess<ClientPlatformWindows, Size2i>("framebuffersize")
+            : null;
+
     // A bit per Frames entry, not a count: another mod's later patch on one of them runs Rewrite again
     private static int _rewritten;
 
@@ -49,17 +56,21 @@ internal static class WindowSize
         }
     }
 
-    // Every ClientSize read becomes Size; a method without one keeps the engine's IL
+    // Every size read becomes the engine's cached size; a method without one keeps the engine's IL
     private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions, MethodBase? original)
     {
-        var (getter, size) = (AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)),
-            AccessTools.Method(typeof(WindowSize), nameof(Size)));
-        if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(getter) || !NotNull(size)) return code;
+        var (client, framebuffer, size, frameSize) = (
+            AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.ClientSize)),
+            AccessTools.PropertyGetter(typeof(NativeWindow), nameof(NativeWindow.FramebufferSize)),
+            AccessTools.Method(typeof(WindowSize), nameof(Size)),
+            AccessTools.Method(typeof(WindowSize), nameof(FrameSize)));
+        if (!Il.Take(instructions, MaxInstructions, out var code) || !NotNull(size) || !NotNull(frameSize)) return code;
 
         var sites = 0;
         for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
         {
-            if (code[i].Calls(getter) && Il.Substitute(code, i, size)) sites++;
+            if (NotNull(client) && code[i].Calls(client) && Il.Substitute(code, i, size)) sites++;
+            else if (NotNull(framebuffer) && code[i].Calls(framebuffer) && Il.Substitute(code, i, frameSize)) sites++;
         }
 
         var frame = Array.FindIndex(Frames, f => f.Name == original?.Name);
@@ -81,5 +92,16 @@ internal static class WindowSize
         }
 
         return window.ClientSize; // a null window throws as the engine's callvirt did
+    }
+
+    internal static Vector2i FrameSize(NativeWindow window)
+    {
+        if (Enabled && CachedFramebuffer is not null && ScreenManager.Platform is ClientPlatformWindows platform &&
+            ReferenceEquals(platform.window, window) && CachedFramebuffer(platform) is { Width: > 0, Height: > 0 } kept)
+        {
+            return new Vector2i(kept.Width, kept.Height);
+        }
+
+        return window.FramebufferSize;
     }
 }

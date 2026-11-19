@@ -18,9 +18,10 @@ internal static class SoundsOnDemand
     public static bool Enabled { get; set; } = true;
     public static bool Rewritten { get; private set; }
 
+    // 1.23 renamed the slow join load; both read OptimizeRamMode once
     private static MethodInfo? Target() =>
-        AccessTools.DeclaredMethod(typeof(ScreenManager), nameof(ScreenManager.LoadSoundsSlow),
-            [typeof(ClientMain)]);
+        AccessTools.DeclaredMethod(typeof(ScreenManager), "LoadSoundsSlow", [typeof(ClientMain)]) ??
+        AccessTools.DeclaredMethod(typeof(ScreenManager), "LoadSoundsSlowAsync", [typeof(ClientMain)]);
 
     public static void Install(Harmony harmony)
     {

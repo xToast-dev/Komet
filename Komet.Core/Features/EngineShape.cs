@@ -50,45 +50,69 @@ internal static class EngineShape
         return (one, two);
     }
 
+    // One body, as before. Kept so every existing caller compiles unchanged
     public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, string feature, ILogger? logger,
-        string? pinnedBy = null)
-    {
-        if (!NotNull(feature) || !Assert(methods.Length > 0)) return false;
+        string? pinnedBy = null) => Matches(methods, [expected], feature, logger, pinnedBy);
 
-        var found = Of(methods);
-        if (found == expected)
+    // A feature written against two engine versions: both bodies are accepted
+    public static bool Matches(ReadOnlySpan<MethodBase?> methods, ulong expected, ulong alternative, string feature,
+        ILogger? logger, string? pinnedBy = null) =>
+        Matches(methods, [expected, alternative], feature, logger, pinnedBy);
+
+    public static bool Matches(ReadOnlySpan<MethodBase?> methods, ReadOnlySpan<ulong> expected, string feature,
+        ILogger? logger, string? pinnedBy = null)
+    {
+        if (!NotNull(feature) || !Assert(methods.Length > 0) || expected.Length == 0) return false;
+
+        var found = Of(methods); // 0 means the body could not be hashed, never a match
+        if (found != 0 && expected.Contains(found))
         {
             CompatibilityLog.Remove(feature, "engine");
             return true;
         }
 
-        CompatibilityLog.Fingerprint(feature, expected, found, methods);
+        var wanted = Names(expected);
+        CompatibilityLog.Fingerprint(feature, expected[0], found, methods);
         if (pinnedBy is null && ++_mismatches == EngineWide)
         {
             // the bodies come from the DLL's metadata, which no Harmony patch changes: another build of the engine
             var engine = methods[0]?.Module.Assembly;
             logger?.Warning(
-                "Komet: the engine's code differs from Vintage Story 1.22.7 as released: {0} {1}, MVID {2} " +
-                "(a modified or other build of the game; reinstalling the game restores it)",
+                "Komet: the engine's code differs from the supported Vintage Story builds (1.22.7 and " +
+                "1.23.0-pre.1): {0} {1}, MVID {2} (an unsupported or modified build of the game)",
                 engine?.Location, engine?.GetName().Version, methods[0]?.Module.ModuleVersionId);
         }
 
         if (pinnedBy is null)
         {
             logger?.Warning(
-                "Komet {0}: the engine methods it replaces are not the Vintage Story 1.22.7 bodies it was tested " +
-                "against (fingerprint {1:X16}, expected {2:X16}); the engine keeps running them", feature, found,
-                expected);
+                "Komet {0}: the engine methods it replaces are not a supported Vintage Story body " +
+                "(1.22.7 or 1.23; fingerprint {1:X16}, expected {2}); the engine keeps running them", feature, found,
+                wanted);
         }
         else
         {
             logger?.Warning(
                 "Komet: {0} is not installed, the engine methods it replaces are not the bodies {1} pinned " +
-                "(fingerprint {2:X16}, expected {3:X16}); the engine keeps running them", feature, pinnedBy, found,
-                expected);
+                "(Vintage Story 1.22.7 or 1.23; fingerprint {2:X16}, expected {3}); the engine keeps running them",
+                feature, pinnedBy, found, wanted);
         }
 
         return false;
+    }
+
+    private const int MaxExpected = 4;
+
+    private static string Names(ReadOnlySpan<ulong> expected)
+    {
+        var text = new StringBuilder();
+        for (var i = 0; i < Math.Min(expected.Length, MaxExpected); i++)
+        {
+            if (i > 0) _ = text.Append(" or ");
+            _ = text.Append(expected[i].ToString("X16", CultureInfo.InvariantCulture));
+        }
+
+        return text.ToString();
     }
 
     // Harmony keeps an empty record of a method unpatched since (a world left), which is not a patch
@@ -312,18 +336,18 @@ internal static class EngineShape
     {
         if (!NotNull(member)) return "";
 
-        if (member is MethodBase method)
+        switch (member)
         {
-            var parameters = method.GetParameters();
-            if (!Assert(parameters.Length <= MaxParameters)) return "";
-
-            return
-                $"{Name(method.DeclaringType)}::{method.Name}({string.Join(",", parameters.Select(p => Name(p.ParameterType)))})";
+            case MethodBase method:
+            {
+                var parameters = method.GetParameters();
+                return !Assert(parameters.Length <= MaxParameters) ? "" : $"{Name(method.DeclaringType)}::{method.Name}({string.Join(",", parameters.Select(p => Name(p.ParameterType)))})";
+            }
+            case FieldInfo field:
+                return $"{Name(field.DeclaringType)}::{field.Name}:{Name(field.FieldType)}";
+            default:
+                return member is Type type ? Name(type) : member.Name;
         }
-
-        if (member is FieldInfo field) return $"{Name(field.DeclaringType)}::{field.Name}:{Name(field.FieldType)}";
-
-        return member is Type type ? Name(type) : member.Name;
     }
 
     private static string Name(Type? type)
@@ -398,10 +422,14 @@ internal sealed class SeamGuard(
         return seams;
     }
 
-    // The bodies against the fingerprint of the version written against (a mismatch logged once)
-    public bool Match(ReadOnlySpan<MethodBase?> bodies, ulong fingerprint)
+    // The bodies against the fingerprints of the versions written against (a mismatch logged once)
+    public bool Match(ReadOnlySpan<MethodBase?> bodies, ulong fingerprint) => Match(bodies, fingerprint, null);
+
+    public bool Match(ReadOnlySpan<MethodBase?> bodies, ulong fingerprint, ulong? alternative)
     {
-        Matched = EngineShape.Matches(bodies, fingerprint, feature, _logger);
+        Matched = alternative is { } other
+            ? EngineShape.Matches(bodies, fingerprint, other, feature, _logger)
+            : EngineShape.Matches(bodies, fingerprint, feature, _logger);
         return Matched;
     }
 

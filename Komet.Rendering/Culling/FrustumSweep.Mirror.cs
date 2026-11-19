@@ -118,16 +118,16 @@ internal static partial class FrustumSweep
         {
             var loc = locations[i];
             // Emit reads Hide and CullVisible: null goes to the engine, which throws as it would
-            if (!NotNull(loc) || !NotNull(loc.CullVisible))
+            if (!NotNull(loc) || !NotNull(CullVisible(loc)))
             {
                 Array.Clear(m.Refs, 0, i);
                 return false;
             }
 
             // LodLevel and CullVisible are written once, right after InsertAt
-            m.Refs[i] = new LocRef(loc, loc.CullVisible);
+            m.Refs[i] = new LocRef(loc, CullVisible(loc)!);
             (m.Start[i], m.Count[i], m.Lod[i]) =
-                (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart, loc.LodLevel);
+                (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart, Lod(loc));
             allocated += m.Count[i] / 3;
             ordered &= i == 0 || m.Start[i - 1] <= m.Start[i];
             Place(m, loc.FrustumCullSphere, i);
@@ -153,7 +153,7 @@ internal static partial class FrustumSweep
             var p = j < old && ReferenceEquals(m.Refs[j].Loc, list[i]) ? j : Find(m, list[i], j, ref budget);
             if (p == Lost) return false;
             // LodLevel and CullVisible are set after TryAdd returns: a row read before that is read again
-            if (p >= 0 && (m.Lod[p] != list[i].LodLevel || !ReferenceEquals(m.Refs[p].Vis, list[i].CullVisible)))
+            if (p >= 0 && (m.Lod[p] != Lod(list[i]) || !ReferenceEquals(m.Refs[p].Vis, CullVisible(list[i]))))
             {
                 p = Unseen;
             }
@@ -282,11 +282,11 @@ internal static partial class FrustumSweep
     private static bool NewRow(Mirror m, ModelDataPoolLocation loc, int i, int slot, ref int allocated)
     {
         // Rebuild hands the pool to the engine
-        if (!NotNull(loc.CullVisible)) return false;
+        if (!NotNull(CullVisible(loc))) return false;
 
-        m.NRefs[i] = new LocRef(loc, loc.CullVisible);
+        m.NRefs[i] = new LocRef(loc, CullVisible(loc)!);
         (m.NStart[i], m.NCount[i]) = (loc.IndicesStart * 4, loc.IndicesEnd - loc.IndicesStart);
-        (m.NLod[i], m.NSlot[i]) = (loc.LodLevel, slot);
+        (m.NLod[i], m.NSlot[i]) = (Lod(loc), slot);
         Place(m, loc.FrustumCullSphere, slot);
         allocated += m.NCount[i] / 3;
         return true;

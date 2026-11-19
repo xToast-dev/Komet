@@ -204,7 +204,7 @@ internal static partial class FrustumSweep
         for (var q = 0; q < Math.Min(k, MaxLocations); q++)
         {
             ref readonly var row = ref refs[rows[q]];
-            ok[q] = !row.Loc.Hide;
+            ok[q] = !Hidden(row.Loc);
             ok[q] &= row.Vis[buffer]; // no short circuit: a branch would hold up the second load
         }
 

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using HarmonyLib;
 
@@ -16,6 +17,15 @@ internal static class KeyframeShare
     private const int MaxEntries = 1 << 20, MaxKeys = 4096, MaxElements = 4096, Fields = 12;
     private static readonly Lock Gate = new();
     private static readonly Dictionary<Values, AnimationKeyFrameElement> Table = [];
+    private static readonly string[] FloatNames =
+    [
+        "offsetX", "offsetY", "offsetZ", "stretchX", "stretchY", "stretchZ", "rotationX", "rotationY", "rotationZ",
+        "originX", "originY", "originZ"
+    ];
+
+    private static AccessTools.FieldRef<AnimationKeyFrameElement, float>[]? _floats;
+    private static AccessTools.FieldRef<AnimationKeyFrameElement, uint>? _flags;
+    private static FieldInfo? _tangents;
 
     public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
@@ -23,11 +33,39 @@ internal static class KeyframeShare
     public static void Install(Harmony harmony)
     {
         Stop();
+        // 1.23 stores keyframe values in float fields behind a flags mask, not the 1.22.7 double? fields
+        if (AccessTools.Field(typeof(AnimationKeyFrameElement), "OffsetX")?.FieldType != typeof(double?) && !SlotEngine())
+        {
+            return;
+        }
+
         var loaded = AccessTools.DeclaredMethod(typeof(Animation), "OnDeserializedMethod");
         if (!NotNull(loaded)) return;
 
         _ = harmony.Patch(loaded, postfix: new HarmonyMethod(Loaded));
         Installed = true;
+    }
+
+    // 1.23's compact element: share the plain ones, leave interpolation and tangents to the engine
+    private static bool SlotEngine()
+    {
+        var type = typeof(AnimationKeyFrameElement);
+        if (AccessTools.Field(type, "flags")?.FieldType != typeof(uint) ||
+            AccessTools.Field(type, "tangents") is not { } tangents)
+        {
+            return false;
+        }
+
+        var floats = new AccessTools.FieldRef<AnimationKeyFrameElement, float>[FloatNames.Length];
+        for (var i = 0; i < FloatNames.Length; i++)
+        {
+            if (AccessTools.Field(type, FloatNames[i])?.FieldType != typeof(float)) return false;
+            floats[i] = AccessTools.FieldRefAccess<AnimationKeyFrameElement, float>(FloatNames[i]);
+        }
+
+        (_floats, _flags, _tangents) = (floats, AccessTools.FieldRefAccess<AnimationKeyFrameElement, uint>("flags"),
+            tangents);
+        return true;
     }
 
     // Leaving the world: its elements are no one's any more
@@ -95,6 +133,26 @@ internal static class KeyframeShare
         values = default;
         if (element.GetType() != typeof(AnimationKeyFrameElement)) return false;
 
+        return _floats is null ? OfFields(element, frame, out values) : OfSlots(element, frame, out values);
+    }
+
+    private static bool OfSlots(AnimationKeyFrameElement element, int frame, out Values values)
+    {
+        values = default;
+        var flags = _flags!(element);
+        if ((flags & ~0x7fffu) != 0 || _tangents!.GetValue(element) is not null) return false;
+
+        Span<long> bits = stackalloc long[Fields];
+        for (var i = 0; i < Fields; i++) bits[i] = BitConverter.SingleToUInt32Bits(_floats![i](element));
+
+        values = new Values(frame, (int)flags, bits[0], bits[1], bits[2], bits[3], bits[4], bits[5], bits[6], bits[7],
+            bits[8], bits[9], bits[10], bits[11]);
+        return true;
+    }
+
+    private static bool OfFields(AnimationKeyFrameElement element, int frame, out Values values)
+    {
+        values = default;
         Span<long> bits = stackalloc long[Fields];
         var set = 0;
         ReadOnlySpan<double?> read =

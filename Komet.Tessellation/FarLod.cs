@@ -40,9 +40,13 @@ internal static partial class FarLod
 
     private static readonly ChunkBands Table = new();
 
+    // 1.23 keys this table by packed block index instead of BlockPos; the pass only swaps the whole table
+    private static readonly bool IntKeys = AccessTools.DeclaredField(typeof(TCTCache), "blockEntitiesOfChunk")
+                                               ?.FieldType == typeof(Dictionary<int, BlockEntity>);
+
     [ThreadStatic] private static bool _tracked;
     [ThreadStatic] private static int _chunkX, _chunkZ, _chunkY, _band, _targetBand;
-    [ThreadStatic] private static Dictionary<BlockPos, BlockEntity>? _entities;
+    [ThreadStatic] private static object? _entities;
     [ThreadStatic] private static Block[]? _blocks;
     [ThreadStatic] private static int[]? _light;
 
@@ -75,7 +79,18 @@ internal static partial class FarLod
     private static extern ref MeshData?[]?[]?[]? Edges(ChunkTesselator tesselator);
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "blockEntitiesOfChunk")]
-    private static extern ref Dictionary<BlockPos, BlockEntity>? Entities(TCTCache vars);
+    private static extern ref Dictionary<BlockPos, BlockEntity>? EntitiesLegacy(TCTCache vars);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "blockEntitiesOfChunk")]
+    private static extern ref Dictionary<int, BlockEntity>? EntitiesInt(TCTCache vars);
+
+    // Only one accessor is ever called; both dictionaries are references, so the slot is safely shared as object
+    private static ref object? Entities(TCTCache vars)
+    {
+        if (IntKeys) return ref Unsafe.As<Dictionary<int, BlockEntity>?, object?>(ref EntitiesInt(vars));
+
+        return ref Unsafe.As<Dictionary<BlockPos, BlockEntity>?, object?>(ref EntitiesLegacy(vars));
+    }
 
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "currentChunkDrawFluids")]
     private static extern ref byte[]? DrawFluids(ChunkTesselator tesselator);
@@ -99,7 +114,8 @@ internal static partial class FarLod
                 (tesselator, "vars", typeof(TCTCache)),
                 (tesselator, "centerModeldataByRenderPassByLodLevel", typeof(MeshData[][][])),
                 (tesselator, "edgeModeldataByRenderPassByLodLevel", typeof(MeshData[][][])),
-                (typeof(TCTCache), "blockEntitiesOfChunk", typeof(Dictionary<BlockPos, BlockEntity>)),
+                (typeof(TCTCache), "blockEntitiesOfChunk",
+                    IntKeys ? typeof(Dictionary<int, BlockEntity>) : typeof(Dictionary<BlockPos, BlockEntity>)),
                 (tesselator, "currentChunkDrawFluids", typeof(byte[]))
             ]) || !Accessible(nameof(FarLod), logger))
         {

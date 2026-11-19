@@ -301,7 +301,7 @@ internal static class RenderingFeatures
             Probe = () => PotSeam.Missing
                 ? NotApplicable
                 : Found(PotCulling.Matched, PotCulling.Blocked),
-            Shapes = [new EngineBodies(PotCulling.Seams, PotCulling.Fingerprint)]
+            Shapes = [new EngineBodies(PotCulling.Seams, PotCulling.Fingerprint, PotCulling.Fingerprint123)]
         },
         new("HearthCulling")
         {

@@ -5,8 +5,9 @@ using static Komet.Api.KapiFeatureState;
 
 namespace Komet.Core;
 
-// Engine bodies a feature reproduces, skips or replays, and their fingerprint in the version written against
-internal readonly record struct EngineBodies(Func<MethodBase?[]> Methods, ulong Expected);
+// Engine bodies a feature reproduces, skips or replays, and their fingerprint in the versions written against.
+// Expected stays the version the golden tests run against; Alternative is the second supported engine body.
+internal readonly record struct EngineBodies(Func<MethodBase?[]> Methods, ulong Expected, ulong? Alternative = null);
 
 // What a feature's install gets: Komet's Harmony, the client, its logger and whether the server runs in this process.
 // Services between modules are not here: they are typed (Services), features of one module share their own statics.

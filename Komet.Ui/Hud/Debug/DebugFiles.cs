@@ -63,6 +63,7 @@ internal static class DebugFiles
             var now = DebugProtocol.Numbers(summary);
             File.WriteAllLines(Path.Join(folder, Summary), now.Concat(DebugProtocol.Scene(input, summary))
                 .Select(static n => n.Key + "=" + n.Value.ToString("R", CultureInfo.InvariantCulture)));
+            KometLog.Write("debug", "protocol written to " + folder);
             var compare = previous is null
                 ? DebugCompare.None
                 : new DebugCompare(stamp, [

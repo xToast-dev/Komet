@@ -65,6 +65,14 @@ internal static partial class OcclusionCulling
     {
         Clear();
 
+        // 1.23 turned ModelDataPoolLocation's public cull fields into properties over PoolCullData slots
+        var loc = typeof(ModelDataPoolLocation);
+        if (AccessTools.Field(loc, "Hide")?.FieldType != typeof(bool) &&
+            AccessTools.Property(loc, "Hide")?.PropertyType != typeof(bool))
+        {
+            return;
+        }
+
         (_api, _logger) = (api, logger);
         var self = typeof(OcclusionCulling);
         var opaque = AccessTools.DeclaredMethod(typeof(ChunkRenderer), nameof(ChunkRenderer.RenderOpaque),

@@ -1,6 +1,7 @@
 using System.Reflection;
 using HarmonyLib;
 using Komet.Core;
+using Komet.Diagnostics;
 using Komet.Options;
 using Komet.Rendering;
 
@@ -52,6 +53,7 @@ internal sealed class ClientRuntime
     /// <param name="harmonyId"></param>
     public void Start(ICoreClientAPI api, ILogger logger, string harmonyId)
     {
+        KometLog.Start(); // first: the engine log is archived per run and this run's lines start here
         KometMod.LocalServer = api.IsSinglePlayer;
         (_context, _api) = (new FeatureContext(new Harmony(harmonyId), api, logger, KometMod.LocalServer), api);
         logger.Notification(KometMod.LocalServer
@@ -94,5 +96,6 @@ internal sealed class ClientRuntime
         Features.Cleanup(Owner, "release mod adapters", ModAdapters.Stop);
         Features.Cleanup(Owner, "release ConfigLib pages", ConfigLibPages.Stop);
         Features.Cleanup(Owner, "release services", Modules.Release);
+        KometLog.Stop(); // last: the watch's final lines are mirrored before the file is closed for this run
     }
 }

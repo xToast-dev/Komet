@@ -81,7 +81,7 @@ internal static class ChunkQueueWalk
     }
 
     // One walk over the queue; reused per thread, nested walks get their own (depth)
-    internal sealed class Walker<T> : IEnumerator<T> where T : class
+    private sealed class Walker<T> : IEnumerator<T> where T : class
     {
         private const int Depth = 8;
 

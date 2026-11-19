@@ -20,23 +20,33 @@ internal static class TreeKeys
         Known.GetAlternateLookup<ReadOnlySpan<char>>();
 
     private static int _known; // Known's entries: its Count takes every bucket lock
+    private static bool _rewritten, _spanRewritten;
     [ThreadStatic] private static (string? From, string To)[]? _interned;
 
     public static bool Enabled { get; set; } = true;
-    public static bool Rewritten { get; private set; }
+    public static bool Rewritten => _rewritten || _spanRewritten;
     public static bool Reads { get; private set; } // GetString's intern cached
 
     public static void Install(Harmony harmony)
     {
         var from = AccessTools.Method(typeof(TreeAttribute), nameof(TreeAttribute.FromBytes), [typeof(BinaryReader)]);
-        (Rewritten, Reads) =
-            (false, false); // both before any return: the probe reads either one, the last world's included
+        (_rewritten, _spanRewritten, Reads) =
+            (false, false, false); // before any return: the probe reads either one, the last world's included
         if (!NotNull(from)) return;
 
         _ = harmony.Patch(from, transpiler: new HarmonyMethod(Rewrite));
         var get = AccessTools.Method(typeof(TreeAttribute), nameof(TreeAttribute.GetString),
             [typeof(string), typeof(string)]);
         if (get is not null) _ = harmony.Patch(get, transpiler: new HarmonyMethod(RewriteReads));
+
+        // 1.23 moved the read to a span reader (the BinaryReader overload only forwards); its type is unknown here
+        if (AccessTools.TypeByName("Vintagestory.API.Datastructures.BinarySpanReader") is { } span &&
+            NotNull(AccessTools.Method(span, "ReadString", [typeof(int)])) &&
+            AccessTools.DeclaredMethod(typeof(TreeAttribute), nameof(TreeAttribute.FromBytes),
+                [span.MakeByRefType()]) is { } spanFrom)
+        {
+            _ = harmony.Patch(spanFrom, transpiler: new HarmonyMethod(RewriteSpan));
+        }
     }
 
     // The one string.Intern of GetString, else the engine's IL
@@ -52,6 +62,33 @@ internal static class TreeKeys
 
         Reads = Il.SubstituteSingle(code, c => c.Calls(intern), mine);
         return code;
+    }
+
+    // 1.23's span FromBytes: the one string.Intern after ReadString(int) is the key, cache it by value as Key does
+    private static List<CodeInstruction> RewriteSpan(IEnumerable<CodeInstruction> instructions)
+    {
+        var (intern, mine) = (AccessTools.Method(typeof(string), nameof(string.Intern), [typeof(string)]),
+            AccessTools.Method(typeof(TreeKeys), nameof(KnownKey)));
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !NotNull(intern) || !NotNull(mine))
+        {
+            return code;
+        }
+
+        _spanRewritten = Il.SubstituteSingle(code, c => c.Calls(intern), mine);
+        return code;
+    }
+
+    // string.Intern(text) with Key's seen-names table: the span reader hands over the decoded key itself
+    internal static string KnownKey(string text)
+    {
+        if (!Enabled) return string.Intern(text);
+
+        if (!NotNull(text)) return text;
+        if (Known.TryGetValue(text, out var known)) return known;
+
+        var key = string.Intern(text);
+        if (Volatile.Read(ref _known) < MaxKeys && Known.TryAdd(key, key)) _ = Interlocked.Increment(ref _known);
+        return key;
     }
 
     // string.Intern(text), the last answers for these very objects kept per thread
@@ -82,8 +119,14 @@ internal static class TreeKeys
         }
 
         var at = Il.Single(code, c => c.Calls(read));
-        Rewritten = Assert(at >= 0) && Index(at + 1, code.Count) && code[at + 1].Calls(intern) &&
-                    Il.Substitute(code, at, mine);
+        if (at < 0)
+        {
+            // 1.23's BinaryReader overload only forwards to the span reader, which RewriteSpan handles
+            _rewritten = false;
+            return code;
+        }
+
+        _rewritten = Index(at + 1, code.Count) && code[at + 1].Calls(intern) && Il.Substitute(code, at, mine);
         return code;
     }
 

@@ -119,7 +119,7 @@ internal static class PackedTicks
     }
 
     // Whether the chunk holds no block that can take a tick; false when unsure
-    internal static bool Quiet(WorldChunk chunk)
+    private static bool Quiet(WorldChunk chunk)
     {
         if (ChunkViews.Packed(chunk, out var blocks, out var fluids)) return !Ticks(blocks) && !Ticks(fluids);
 
@@ -132,7 +132,7 @@ internal static class PackedTicks
     }
 
     // The table for this block list, rebuilt when it grows; nothing while a mod patches the base method
-    internal static bool Ready(IList<Block> blocks)
+    private static bool Ready(IList<Block> blocks)
     {
         var now = Environment.TickCount;
         if (!_checked || now - _checkedAt > RecheckMs)
@@ -171,12 +171,10 @@ internal static class PackedTicks
         }
 
         var type = block.GetType();
-        if (!Overrides.TryGetValue(type, out var own))
-        {
-            var method = type.GetMethod(nameof(Block.ShouldReceiveServerGameTicks),
-                [typeof(IWorldAccessor), typeof(BlockPos), typeof(Random), typeof(object).MakeByRefType()]);
-            Overrides[type] = own = method is null || method.DeclaringType != typeof(Block);
-        }
+        if (Overrides.TryGetValue(type, out var own)) return own;
+        var method = type.GetMethod(nameof(Block.ShouldReceiveServerGameTicks),
+            [typeof(IWorldAccessor), typeof(BlockPos), typeof(Random), typeof(object).MakeByRefType()]);
+        Overrides[type] = own = method is null || method.DeclaringType != typeof(Block);
 
         return own;
     }

@@ -24,6 +24,15 @@ internal static class OwnTessellation
     // EngineShape of Shaped() and JsonShaped() in Vintage Story 1.22.7
     internal const ulong Shape = 0x3E893F7C264EACD3UL, JsonShape = 0xC31CF35953A07E07UL;
 
+    // 1.23.0-pre.1: exactly one body of Shaped() changed, BleedingTextureHelper.ComputeBleedForFace. Its new
+    // corner-bleed calls only run for blocks with CanReceiveBleed, which OwnCube leaves to the engine (OwnCube.Choose),
+    // so the cube, layer, topsoil and cross replacements stay faithful. Verified against both DLLs with EngineShape.Of.
+    internal const ulong Fingerprint123 = 0x391BD57F9F62844FUL;
+
+    // JsonShaped() does not resolve on 1.23 (JsonTesselator.FindDecorMaxPos was removed), and the rewritten
+    // AddJsonModelDataToMesh is not reproduced here: the JSON slot stays with the engine. 0 means unavailable.
+    internal const ulong JsonFingerprint123 = 0;
+
     private const int MaxSlots = 64, OursCounter = 0, EngineCounter = 1, JsonCounter = 2, Counters = 3;
 
     private static readonly Tally Counts = new(Counters);
@@ -67,14 +76,22 @@ internal static class OwnTessellation
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "blockHeight")]
     private static extern ref float BleedingHeight(BleedingCubeTesselator tesselator);
 
+    // Signature detection, never a version string: the engine keys the chunk's block entities by packed index and has
+    // no FindDecorMaxPos when its JSON tesselator was rewritten. Both changes belong to the JSON path, not reproduced.
+    private static bool JsonEngineChanged() =>
+        AccessTools.DeclaredField(typeof(TCTCache), "blockEntitiesOfChunk")?.FieldType !=
+        typeof(Dictionary<BlockPos, BlockEntity>) ||
+        AccessTools.DeclaredMethod(typeof(JsonTesselator), "FindDecorMaxPos") is null;
+
     // game: the world's, whose tesselator was made before the mods started (null in the tests, which swap their own)
     public static void Install(Harmony harmony, ILogger? logger = null, ClientMain? game = null, ulong shape = Shape,
         ulong jsonShape = JsonShape)
     {
         (Installed, StoodDown, JsonInstalled, JsonStoodDown) = (false, false, false, false);
         var start = Method(typeof(ChunkTesselator), nameof(ChunkTesselator.Start));
+        var changed = JsonEngineChanged();
         if (!NotNull(start) || !Accessible(nameof(OwnTessellation), logger) || !Fields(logger) ||
-            !EngineShape.Matches(Shaped(), shape, nameof(OwnTessellation), logger))
+            !EngineShape.Matches(Shaped(), shape, Fingerprint123, nameof(OwnTessellation), logger))
         {
             return;
         }
@@ -85,8 +102,17 @@ internal static class OwnTessellation
         _skipped = [.. shaped.Where(m => m != target && m?.DeclaringType != typeof(CrossTesselator))];
         _crossSkipped = [.. shaped.Where(static m => m?.DeclaringType == typeof(CrossTesselator))];
         CrossStoodDown = false;
-        JsonInstalled = JsonMesher.Fields(logger) && OwnJsonSnow.Fields(logger) && JsonMesh.Tables(logger) &&
-                        EngineShape.Matches(JsonShaped(), jsonShape, nameof(OwnTessellation) + " JSON", logger);
+        if (changed)
+        {
+            logger?.Notification(
+                "Komet OwnTessellation: the engine's JSON tesselator bodies differ, the JSON slot self-disables " +
+                "and the engine draws those blocks");
+        }
+        else
+        {
+            JsonInstalled = JsonMesher.Fields(logger) && OwnJsonSnow.Fields(logger) && JsonMesh.Tables(logger) &&
+                            EngineShape.Matches(JsonShaped(), jsonShape, nameof(OwnTessellation) + " JSON", logger);
+        }
         _jsonSkipped = JsonInstalled ? JsonShaped() : [];
         _ = harmony.Patch(start, postfix: new HarmonyMethod(Started));
         Installed = true;

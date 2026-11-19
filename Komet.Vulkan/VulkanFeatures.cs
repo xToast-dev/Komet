@@ -60,8 +60,9 @@ internal static class VulkanFeatures
             Install = c => VulkanRenderer.Install(c.Harmony, c.Api, c.Logger),
             Shapes =
             [
-                new EngineBodies(PoolUpdates.Seams, PoolUpdates.Fingerprint),
-                new EngineBodies(VulkanRenderer.BirthSeams, VulkanRenderer.BirthFingerprint)
+                new EngineBodies(PoolUpdates.Seams, PoolUpdates.Fingerprint, PoolUpdates.Fingerprint123),
+                new EngineBodies(VulkanRenderer.BirthSeams, VulkanRenderer.BirthFingerprint,
+                    VulkanRenderer.BirthFingerprint123)
             ],
             Knobs =
             [

@@ -15,7 +15,23 @@ internal static partial class AnimationFrames
 {
     // EngineShape of Shaped() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0xB8270BD36EBB9B8EUL;
+
+    // 1.23 structurally rewrote this compile: GenerateFrame gained sourceForLogging (the 7-arg seam is gone), the frame
+    // set comes from ComputeCachedFramePositions, and lerpKeyFrameElement gained Step/Bezier + Hermite tangents and
+    // writes IsStep* on ElementPose. Reproducing all of that faithfully is a different reimplementation, so Komet stays
+    // OFF on that engine instead of writing wrong poses. 0 is never a valid body fingerprint (EngineShape.Of returns 0
+    // when a method cannot be hashed), so this double-guards the self-disable through the registration precheck too.
+    internal const ulong Fingerprint123 = 0;
     private const int MaxKeys = 4096, MaxPairs = 4096, MaxFrames = 1 << 16, Flags = 3, WarmUps = 3, SeamCount = 10;
+
+    // Pure signature detection, no version string: the legacy 7-arg GenerateFrame resolves only on the engine this
+    // compile was written against. Install uses it to stand down on the rewritten engine even if a caller passes a
+    // non-zero fingerprint.
+    internal static bool LegacyEngine => AccessTools.Method(typeof(Animation), "GenerateFrame",
+    [
+        typeof(int), typeof(AnimationFrame[]), typeof(ShapeElement[]), typeof(Dictionary<int, AnimationJoint>),
+        typeof(float[]), typeof(List<ElementPose>), typeof(bool)
+    ]) is not null;
 
     // A keyframe's resolved table and the Frame Resolve stamps on an element; ShapeInitMemo reads them too
     [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "ElementsByShapeElement")]

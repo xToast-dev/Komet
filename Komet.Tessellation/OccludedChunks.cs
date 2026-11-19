@@ -24,6 +24,7 @@ internal static class OccludedChunks
 
     // EngineShape of Shaped() in Vintage Story 1.22.7
     internal const ulong Shape = 0x1F5A2B6552C0CD27UL;
+    internal const ulong Shape123 = 0xF37547BCA51691CBUL; // 1.23.0-pre.1
 
     // Face neighbours in TileSideEnum order (N -z, E +x, S +z, W -x, up, down); slab words: first, step, count, mask
     private static readonly (int Dx, int Dy, int Dz)[] Offsets =
@@ -54,7 +55,7 @@ internal static class OccludedChunks
         (Installed, StoodDown) = (false, false);
         var shaped = Shaped();
         if (!NotNull(shaped[0]) || !Accessible(nameof(OccludedChunks), logger) ||
-            !EngineShape.Matches(shaped, shape, nameof(OccludedChunks), logger))
+            !EngineShape.Matches(shaped, shape, Shape123, nameof(OccludedChunks), logger))
         {
             return;
         }

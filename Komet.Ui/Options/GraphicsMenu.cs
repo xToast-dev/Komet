@@ -12,6 +12,7 @@ namespace Komet.Options;
 internal static class GraphicsMenu
 {
     internal const ulong Fingerprint = 0x4DF9587AB32B1D45UL; // the six rebuilt tabs, Vintage Story 1.22.7
+    internal const ulong Fingerprint123 = 0x218720CF8CB78240UL; // 1.23.0-pre.1
     private const string DialogName = "gamesettings-graphics";
 
     // A game update changing one leaves the whole menu to the game
@@ -44,7 +45,7 @@ internal static class GraphicsMenu
         EngineOptions.NameUnbound(harmony);
         var shaped = Shaped();
         if (!NotNull(dialog) || shaped[0] is not MethodInfo target ||
-            !EngineShape.Matches(shaped, Fingerprint, nameof(GraphicsMenu), logger))
+            !EngineShape.Matches(shaped, Fingerprint, Fingerprint123, nameof(GraphicsMenu), logger))
         {
             return;
         }

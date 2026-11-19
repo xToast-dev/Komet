@@ -211,6 +211,7 @@ internal static class VulkanWatch
 
     private static void Write(string line)
     {
+        KometLog.Write("vulkan", line); // the same trace in the consolidated per-run log (OpenGL runs have no watch)
         if (_path.Length == 0) return;
 
         try

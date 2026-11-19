@@ -49,6 +49,65 @@ public sealed class LightRepairTests
         });
     }
 
+    // A column the sweep finds only in part is not dropped: the engine's sunlight walks a whole column, so the part waits
+    // for the rest instead of staying black (old worlds stream their columns in piece by piece).
+    [Test]
+    public void APartlyLoadedColumnWaitsForAFullRelight()
+    {
+        var world = Lit();
+        _ = world.Unloaded.Add((0, LightWorld.ChunksY - 1, 0));
+        var waiting = Waiting(null);
+        waiting.Clear();
+        var changed = 0;
+        try
+        {
+            var repaired = LightRepair.Repair(world.Illuminator, world, 0, 0, Rain(world, 0, 0),
+                (_, _, _) => changed++);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(repaired, Is.Zero);
+                Assert.That(waiting, Does.Contain((0, 0, 0)));
+                Assert.That(changed, Is.Zero);
+            });
+        }
+        finally
+        {
+            waiting.Clear();
+        }
+    }
+
+    // The column waits instead of staying black; when streaming catches up it is relit from the queue
+    [Test]
+    public void AQueuedColumnIsRelitWhenTheRestArrives()
+    {
+        var world = Lit();
+        var missing = (0, LightWorld.ChunksY - 1, 0);
+        _ = world.Unloaded.Add(missing);
+        var waiting = Waiting(null);
+        waiting.Clear();
+        try
+        {
+            _ = LightRepair.Repair(world.Illuminator, world, 0, 0, Rain(world, 0, 0), (_, _, _) => { });
+            Assert.That(waiting, Does.Contain((0, 0, 0)));
+
+            _ = world.Unloaded.Remove(missing);
+            var changed = 0;
+            var repaired = LightRepair.RelightWaiting(world.Illuminator, world, 1, (_, _, _) => changed++);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(repaired, Is.EqualTo(1));
+                Assert.That(waiting, Is.Empty);
+                Assert.That(changed, Is.GreaterThan(0));
+            });
+        }
+        finally
+        {
+            waiting.Clear();
+        }
+    }
+
     // Over a world loaded whole the relight is the engine's but for its sources: the same sunlight, every source where it is and
     // none added, and the light of the intact world after every source was placed again in the order the relight places them.
     // Why the reference is not FullRelight's: it places every light source again at its chunk's offset plus the position within

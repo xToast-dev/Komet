@@ -73,7 +73,7 @@ internal static class TessellationFeatures
             Probe = () => Found(OwnTessellation.Installed, OwnTessellation.StoodDown),
             Shapes =
             [
-                new EngineBodies(OwnTessellation.Shaped, OwnTessellation.Shape),
+                new EngineBodies(OwnTessellation.Shaped, OwnTessellation.Shape, OwnTessellation.Fingerprint123),
                 new EngineBodies(OwnTessellation.JsonShaped, OwnTessellation.JsonShape)
             ]
         },
@@ -135,7 +135,7 @@ internal static class TessellationFeatures
                 Switch("OccludedChunks", "chunks", "tessellation", () => OccludedChunks.Enabled,
                     on => OccludedChunks.Enabled = on)
             ],
-            Shapes = [new EngineBodies(OccludedChunks.Shaped, OccludedChunks.Shape)]
+            Shapes = [new EngineBodies(OccludedChunks.Shaped, OccludedChunks.Shape, OccludedChunks.Shape123)]
         },
         // chunks deep under the surface, far from the player, kept without geometry
         new("DeepCulling")

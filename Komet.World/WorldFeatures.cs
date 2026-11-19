@@ -40,7 +40,7 @@ internal static class WorldFeatures
             Probe = () => MapSeam.Missing
                 ? NotApplicable
                 : Found(MapTileCulling.Matched, MapTileCulling.Blocked),
-            Shapes = [new EngineBodies(MapTileCulling.Seams, MapTileCulling.Fingerprint)]
+            Shapes = [new EngineBodies(MapTileCulling.Seams, MapTileCulling.Fingerprint, MapTileCulling.Fingerprint123)]
         },
         new("MapTileUpload")
         {
@@ -109,7 +109,7 @@ internal static class WorldFeatures
                     on => CookingMatch.Enabled = on)
             ],
             Probe = () => CookingMatch.Matched && CookingMatch.Rewritten ? Active : EngineChanged,
-            Shapes = [new EngineBodies(CookingMatch.Seams, CookingMatch.Fingerprint)]
+            Shapes = [new EngineBodies(CookingMatch.Seams, CookingMatch.Fingerprint, CookingMatch.Fingerprint123)]
         },
         new("AlloyMatch")
         {
@@ -178,11 +178,11 @@ internal static class WorldFeatures
             Shapes =
             [
                 new EngineBodies(() => BlockEntityCaches.Seams(BlockEntityCaches.Ignitable),
-                    BlockEntityCaches.IgnitableFingerprint),
+                    BlockEntityCaches.IgnitableFingerprint, BlockEntityCaches.IgnitableFingerprint123),
                 new EngineBodies(() => BlockEntityCaches.Seams(BlockEntityCaches.Meshes),
-                    BlockEntityCaches.MeshFingerprint),
+                    BlockEntityCaches.MeshFingerprint, BlockEntityCaches.MeshFingerprint123),
                 new EngineBodies(() => BlockEntityCaches.Seams(BlockEntityCaches.Pots),
-                    BlockEntityCaches.PotFingerprint)
+                    BlockEntityCaches.PotFingerprint, BlockEntityCaches.PotFingerprint123)
             ]
         },
         new("CloudTileScratch")
@@ -291,7 +291,7 @@ internal static class WorldFeatures
             ],
             Recheck = LightRepair.Recheck,
             Probe = () => Found(LightRepair.Matched, LightRepair.Failed, Failed),
-            Shapes = [new EngineBodies(LightRepair.Seams, LightRepair.Fingerprint)]
+            Shapes = [new EngineBodies(LightRepair.Seams, LightRepair.Fingerprint, LightRepair.Fingerprint123)]
         },
         new("ParticleLight")
         {

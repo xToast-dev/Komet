@@ -17,6 +17,15 @@ internal static partial class ShapeInitMemo
 {
     // EngineShape of Shaped() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0xF2EEA794EC8A99FAUL;
+
+    // 1.23 changed the bodies in Shaped() (InitForAnimations early-returns on a populated JointsById and locks it,
+    // Resolve switches to Dictionary past 10 elements, InitManager assigns manager.Animator) but not the seam set, so
+    // Shaped() is unchanged. The memo itself needs no version branch: its prefix skips the whole init and Restore
+    // rewrites the shared state idempotently, so the early-return only makes the skip a no-op on an already-inited
+    // shape. Keys whose resolved table becomes a Dictionary (>10 elements) are simply declined by the FastSmallDictionary
+    // type checks in KeepKey/SameKey and run through the engine. This is the fingerprint of the unchanged Shaped() on
+    // 1.23.
+    internal const ulong Fingerprint123 = 0x771ECBC58B570E0BUL;
     private const int MaxAnimations = 4096, MaxKeys = 1 << 16, MaxEntries = 1 << 18, MaxPerKey = 4096, MaxJoints = 4096;
     private const int MaxPoints = 4096, MaxNames = 256, Repeats = 2, MaxSeen = 64;
     private static readonly ConditionalWeakTable<Shape, Memo> Memos = [];
@@ -48,7 +57,7 @@ internal static partial class ShapeInitMemo
         Memos.Clear();
         Array.Clear(Seen);
         // WarmUp before the patch: the engine's init, never remembered
-        if (!Guard.Match(Shaped(), fingerprint) || !WarmUp() || seams[0] is not { } init) return;
+        if (!Guard.Match(Shaped(), fingerprint, Fingerprint123) || !WarmUp() || seams[0] is not { } init) return;
 
         _ = harmony.Patch(init, new HarmonyMethod(Check), new HarmonyMethod(Done));
         Recheck();

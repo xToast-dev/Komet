@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.1.0 (2026-11-20)
+
+### Added
+
+- Native support for Vintage Story 1.23, alongside 1.22.7: engine fingerprints, runtime IL and signature checks recognize
+  the new engine instead of hardcoded version strings, with the old behaviour and all golden tests unchanged.
+- One consolidated log per run: `Logs/komet.log` gathers `client-main.log`, `client-debug.log`, the Vulkan watch traces
+  and the path of each debug protocol. The engine archives it with the session, so a bug report needs a single file.
+
+### Fixed
+
+- All engine warnings from 1.23 are gone; the port no longer relies on modified engine assemblies.
+- Crashes on 1.23 in `KeyframeShare`, occlusion culling, the OIT statics fallback, the mesh data pool and frustum
+  culling (the engine's new origin fields).
+- Features the 1.23 engine now provides itself disable cleanly with an explicit message: `AnimationFrames`, the JSON
+  tessellation slot and the `Ignitable` transpiler in `BlockEntityCaches`.
+- `LightRepair` now fully relights partially loaded columns from older worlds instead of skipping them silently.
+- `TreeKeys`, `BushShapes`, `SoundsOnDemand`, `WindowSize` and the remaining shape, chunk, rendering and Vulkan patches
+  install on both engine versions without changing 1.22 behaviour.
+
 ## 3.0.0 (2026-11-18)
 
 ### Changed

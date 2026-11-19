@@ -18,6 +18,7 @@ internal static partial class LightRepair
 {
     // EngineShape of Seams() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0x5C83B386ED98073EUL;
+    internal const ulong Fingerprint123 = 0xBC61F33D2E5ACB66UL; // 1.23.0-pre.1
 
     private const string Supply = "Vintagestory.Server.ServerSystemSupplyChunks", Load = "mainThreadLoadChunkColumn";
     private const string Unload = "Vintagestory.Server.ServerSystemUnloadChunks";
@@ -65,7 +66,7 @@ internal static partial class LightRepair
             return;
         }
 
-        Matched = EngineShape.Matches(seams, fingerprint, nameof(LightRepair), logger);
+        Matched = EngineShape.Matches(seams, fingerprint, Fingerprint123, nameof(LightRepair), logger);
         if (!Matched) return;
 
         _ = harmony.Patch(load, new HarmonyMethod(Before), new HarmonyMethod(After));
@@ -386,10 +387,9 @@ internal static partial class LightRepair
                 {
                     whole[(x, z)] = column;
                 }
-                else if (loaded.Keys.Any(key => key.X == x && key.Z == z) && Waiting.Count < MaxWaiting &&
-                         !Waiting.Contains((dimension, x, z)))
+                else if (loaded.Keys.Any(key => key.X == x && key.Z == z))
                 {
-                    Waiting.Enqueue((dimension, x, z));
+                    Wait(dimension, x, z);
                 }
             }
         }
@@ -514,12 +514,28 @@ internal static partial class LightRepair
         return done;
     }
 
+    // An old world's column can still be incomplete when the sweep reaches it. The engine's sunlight walks the whole
+    // column, so a part cannot be lit on its own: remember it for the full relight when the rest arrives.
+    private static void Wait(int dimension, int x, int z)
+    {
+        if (Waiting.Count < MaxWaiting && !Waiting.Contains((dimension, x, z)))
+        {
+            Waiting.Enqueue((dimension, x, z));
+        }
+    }
+
     // The column's broken chunks relit, read once into the scratch column
     internal static int Repair(ChunkIlluminator illuminator, IChunkProvider chunks, int x, int z, ushort[]? rain,
         Action<int, int, int> changed)
     {
         var column = Scratch(illuminator);
-        if (Column(chunks, x, z, 0, column) < column.Length) return 0;
+        var loaded = Column(chunks, x, z, 0, column);
+        if (loaded == 0) return 0;
+        if (loaded < column.Length)
+        {
+            Wait(0, x, z);
+            return 0;
+        }
 
         var broken = Broken(column, rain);
         if (broken.Length == 0) return 0;

@@ -300,6 +300,7 @@ internal static partial class VulkanRenderer
 {
     // EngineShape of BirthSeams() in Vintage Story 1.22.7
     internal const ulong BirthFingerprint = 0x545C1A54CE3C990BUL;
+    internal const ulong BirthFingerprint123 = 0x4A345661A6343152UL; // 1.23.0-pre.1
 
     private const int ChunkPasses = 9;
 
@@ -327,7 +328,7 @@ internal static partial class VulkanRenderer
         var add = AccessTools.DeclaredMethod(typeof(MeshDataPoolManager), nameof(MeshDataPoolManager.AddModel),
             [typeof(MeshData), typeof(Vec3i), typeof(int), typeof(Sphere)]);
         if (!NotNull(add) || !Assert(!Array.Exists(seams, s => s is null)) ||
-            !EngineShape.Matches(seams, BirthFingerprint, "Vulkan pool births", _logger))
+            !EngineShape.Matches(seams, BirthFingerprint, BirthFingerprint123, "Vulkan pool births", _logger))
         {
             return;
         }

@@ -93,9 +93,15 @@ internal static class CompatibilityLog
         ReadOnlySpan<Type> own)
     {
         var lines = new List<string>();
-        if (methods.Length == 0) lines.Add("No method details were provided by this guard. See client-main.log.");
-
-        if (methods.Length > EngineShape.MaxSeams) lines.Add("The watched-method limit was exceeded.");
+        switch (methods.Length)
+        {
+            case 0:
+                lines.Add("No method details were provided by this guard. See client-main.log.");
+                break;
+            case > EngineShape.MaxSeams:
+                lines.Add("The watched-method limit was exceeded.");
+                break;
+        }
 
         foreach (var method in methods.Bounded(EngineShape.MaxSeams))
         {

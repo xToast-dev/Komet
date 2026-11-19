@@ -350,9 +350,35 @@ internal static partial class VulkanRenderer
     [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "accumTextureId")]
     private static extern ref int Accumulation(SystemRenderOITLayers? layers);
 
-    // TerrainTargets.Owned: the OIT reveal texture and accumulation layers named in SystemRenderOITLayers' statics
-    private static bool OitOwned(int texture) =>
-        Assert(texture > 0) && (texture == Reveal(null) || texture == Accumulation(null));
+    private static readonly bool OitStatics =
+        AccessTools.Field(typeof(SystemRenderOITLayers), "revealTextureId") is not null;
+
+    // 1.23 keeps the OIT targets in framebuffer 1's colour attachments instead of the system's statics
+    private static (int Reveal, int Accumulation) Oit() => OitStatics ? OitStaticsNow() : OitFramebuffer();
+
+    // Kept apart so the accessor is never reached on an engine without the fields
+    private static (int Reveal, int Accumulation) OitStaticsNow() => (Reveal(null), Accumulation(null));
+
+    private static (int Reveal, int Accumulation) OitFramebuffer()
+    {
+        if (_api?.Render is not { } render || render.FrameBuffers.Count <= 1 ||
+            render.FrameBuffers[1] is not { Disposed: false } fb ||
+            fb.ColorTextureIds is not { Length: > 3 } ids)
+        {
+            return (0, 0);
+        }
+
+        return (ids[0], ids[3]);
+    }
+
+    // TerrainTargets.Owned: the OIT reveal texture and accumulation layers
+    private static bool OitOwned(int texture)
+    {
+        if (!Assert(texture > 0)) return false;
+
+        var (reveal, accumulation) = Oit();
+        return (reveal > 0 && texture == reveal) || (accumulation > 0 && texture == accumulation);
+    }
 
     // Right after the engine's BeforeOIT (order 0), which attaches reveal and accumulation to the transparent
     // framebuffer (anew after a resize): new ones are asked for again
@@ -360,7 +386,7 @@ internal static partial class VulkanRenderer
     {
         if (!_taking || _renderer is not { } renderer) return;
 
-        var now = (Reveal(null), Accumulation(null));
+        var now = Oit();
         if (now == _oit) return;
 
         _oit = now;

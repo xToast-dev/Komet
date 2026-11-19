@@ -28,7 +28,9 @@ internal static class ShapeFeatures
             ],
             Recheck = AnimationFrames.Recheck,
             Stop = _ => AnimationFrames.Clear(),
-            Probe = () => Found(AnimationFrames.Matched, AnimationFrames.Blocked),
+            Probe = () => AnimationFrames.LegacyEngine
+                ? Found(AnimationFrames.Matched, AnimationFrames.Blocked)
+                : NotApplicable,
             Shapes = [new EngineBodies(AnimationFrames.Shaped, AnimationFrames.Fingerprint)]
         },
         new("ShapeInitMemo")
@@ -42,7 +44,10 @@ internal static class ShapeFeatures
             ],
             Recheck = ShapeInitMemo.Recheck,
             Probe = () => Found(ShapeInitMemo.Matched, ShapeInitMemo.Blocked),
-            Shapes = [new EngineBodies(ShapeInitMemo.Shaped, ShapeInitMemo.Fingerprint)]
+            Shapes =
+            [
+                new EngineBodies(ShapeInitMemo.Shaped, ShapeInitMemo.Fingerprint, ShapeInitMemo.Fingerprint123)
+            ]
         },
         // equal keyframe elements of every shape loaded from now on are one object
         new("KeyframeShare")

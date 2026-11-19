@@ -72,7 +72,8 @@ internal static partial class FrustumSweep
         var prefix = new HarmonyMethod(FrustumCull);
         if (!NotNull(cull) || !Seams() ||
             !Assert(AccessTools.Field(typeof(FrustumCulling), "frustum") != null) ||
-            !Assert(AccessTools.Field(typeof(FrustumCulling), "playerPos") != null) ||
+            !Assert(AccessTools.Field(typeof(FrustumCulling), "playerPos") != null ||
+                    AccessTools.Field(typeof(FrustumCulling), "originX") != null) ||
             !Assert(Vector<double>.Count is 2 or 4 or 8) || !Assert(Il.Binds(cull, prefix.method)))
         {
             return;
@@ -104,9 +105,13 @@ internal static partial class FrustumSweep
     private static bool Seams()
     {
         var pool = typeof(MeshDataPool);
-        return Assert(AccessTools.Field(pool, "poolLocations") != null) &&
+        var loc = typeof(ModelDataPoolLocation);
+        return Assert(AccessTools.Field(loc, "CullVisible") != null ||
+                      AccessTools.Property(loc, "CullVisible") != null) &&
+               Assert(AccessTools.Field(pool, "poolLocations") != null) &&
                Assert(AccessTools.Field(pool, "poolId") != null) &&
-               Assert(AccessTools.Field(pool, "poolOrigin") != null) &&
+               Assert(AccessTools.Field(pool, "poolOrigin") != null ||
+                      AccessTools.Field(pool, "poolOriginInternal") != null) &&
                Assert(AccessTools.Field(typeof(List<ModelDataPoolLocation>), "_version") != null);
     }
 

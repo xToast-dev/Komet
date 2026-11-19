@@ -33,15 +33,13 @@ internal static class ChunkThreadClosure
     }
 
     // Shape first: closure in the first eight instructions; later local 0 reads load chunkRequest, but one (ldftn)
-    internal static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
+    private static List<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions)
     {
         Rewritten = false;
-        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !Assert(code.Count > Prologue))
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code)) || !Assert(code.Count > Prologue) || code[0].opcode != OpCodes.Newobj || code[0].operand is not ConstructorInfo ctor)
         {
             return code;
         }
-
-        if (code[0].opcode != OpCodes.Newobj || code[0].operand is not ConstructorInfo ctor) return code;
 
         var closure = ctor.DeclaringType;
         var self = AccessTools.Field(closure, "<>4__this");
@@ -87,12 +85,10 @@ internal static class ChunkThreadClosure
             var local = Il.Local(code[i]);
             if (Il.WritesArgument(code[i], 1) || (local == 0 && Il.Local(code[i], Il.Uses.Load) != 0)) return -1;
 
-            if (local == 0 && (i + 1 >= code.Count || !code[i + 1].LoadsField(request)))
-            {
-                if (i + 1 >= code.Count || code[i + 1].opcode != OpCodes.Ldftn || !Assert(at < 0)) return -1;
+            if (local != 0 || (i + 1 < code.Count && code[i + 1].LoadsField(request))) continue;
+            if (i + 1 >= code.Count || code[i + 1].opcode != OpCodes.Ldftn || !Assert(at < 0)) return -1;
 
-                at = i;
-            }
+            at = i;
         }
 
         return at;

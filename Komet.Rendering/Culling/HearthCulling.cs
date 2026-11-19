@@ -149,8 +149,9 @@ internal static class HearthCulling
 // and 1/60 turn (Lid), plus Warp. Skipped draws leave GL state as drawn: culling off, blending on, shader stopped.
 internal static class PotCulling
 {
-    // EngineShape of Seams() in 1.22.7
+    // EngineShape of Seams() in 1.22.7 and 1.23.0-pre.1
     internal const ulong Fingerprint = 0xE7ED08273DA67B79UL;
+    internal const ulong Fingerprint123 = 0x6B82241C88D8FF16UL;
 
     private const string Renderer = "Vintagestory.GameContent.PotInFirepitRenderer";
 
@@ -176,7 +177,7 @@ internal static class PotCulling
     public static void Install(Harmony harmony, ILogger? logger, ulong fingerprint = Fingerprint)
     {
         var seams = Guard.Reset(Seams(), logger);
-        if (seams[0] is null || !Guard.Match(seams, fingerprint)) return;
+        if (seams[0] is null || !Guard.Match(seams, fingerprint, Fingerprint123)) return;
 
         _ = harmony.Patch(seams[0], new HarmonyMethod(Frame));
         Recheck();

@@ -183,19 +183,21 @@ internal sealed unsafe partial class VulkanBackend
         var (count, groups) = (Math.Min(described.Count, MaxResources), described.Groups);
         var writes = stackalloc Vk.WriteInfo[MaxResources];
         fixed (Vk.BufferDescriptor* buffers = described.Buffers)
-        fixed (Vk.ImageDescriptor* images = described.Images)
         {
-            for (var i = 0; i < Math.Min(count, MaxResources); i++)
+            fixed (Vk.ImageDescriptor* images = described.Images)
             {
-                writes[i] = new Vk.WriteInfo
+                for (var i = 0; i < Math.Min(count, MaxResources); i++)
                 {
-                    SType = Vk.WriteDescriptorSet, Binding = (uint)p.Resources[i].Binding, Count = 1,
-                    Type = p.Resources[i].Type, Buffers = buffers + i, Images = images + i
-                };
-            }
+                    writes[i] = new Vk.WriteInfo
+                    {
+                        SType = Vk.WriteDescriptorSet, Binding = (uint)p.Resources[i].Binding, Count = 1,
+                        Type = p.Resources[i].Type, Buffers = buffers + i, Images = images + i
+                    };
+                }
 
-            VkApi.CmdBindPipeline(commands, Vk.BindCompute, p.Pipeline);
-            VkApi.CmdPushDescriptors(commands, Vk.BindCompute, p.Layout, 0, (uint)count, writes);
+                VkApi.CmdBindPipeline(commands, Vk.BindCompute, p.Pipeline);
+                VkApi.CmdPushDescriptors(commands, Vk.BindCompute, p.Layout, 0, (uint)count, writes);
+            }
         }
 
         VkApi.CmdDispatch(commands, (uint)groups.X, (uint)groups.Y, 1);
@@ -233,19 +235,24 @@ internal sealed unsafe partial class VulkanBackend
             ? (image.Levels[Math.Clamp(level, 0, image.Levels.Length - 1)], 0UL)
             : (image.All, _sampler);
         var layout = Vk.LayoutGeneral;
-        if (image.Shared is { } shared) // the frame moves it to be sampled, unless its open segment does not hold it
+        if (image.Shared is not { } shared) // the frame moves it to be sampled, unless its open segment does not hold it
         {
-            layout = shared.Format.Aspect == Vk.AspectDepth ? Vk.LayoutDepthReadOnly : Vk.LayoutShaderRead;
-            if (_frame is not { } frame || !frame.Sample(shared, layout))
-            {
-                Refused++;
-                return null;
-            }
+            return Assert(view != 0)
+                ? new Vk.ImageDescriptor { Sampler = sampler, View = view, Layout = layout }
+                : default;
         }
 
-        return Assert(view != 0)
-            ? new Vk.ImageDescriptor { Sampler = sampler, View = view, Layout = layout }
-            : default;
+        layout = shared.Format.Aspect == Vk.AspectDepth ? Vk.LayoutDepthReadOnly : Vk.LayoutShaderRead;
+        if (_frame?.Sample(shared, layout) == true)
+        {
+            return Assert(view != 0)
+                ? new Vk.ImageDescriptor { Sampler = sampler, View = view, Layout = layout }
+                : default;
+        }
+
+        Refused++;
+        return null;
+
     }
 
     internal static void Ordered(IntPtr commands)

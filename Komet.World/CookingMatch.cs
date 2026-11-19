@@ -19,6 +19,8 @@ internal static class CookingMatch
 {
     // EngineShape of Seams() in Vintage Story 1.22.7
     internal const ulong Fingerprint = 0x473338848C356079UL;
+    // EngineShape of Seams() in Vintage Story 1.23.0-pre.1: Matches indexes Ingredients and keeps a tuple per input
+    internal const ulong Fingerprint123 = 0x64AEC42E39A1479FUL;
 
     private const string RecipeType = "Vintagestory.GameContent.CookingRecipe";
     private const string IngredientType = "Vintagestory.GameContent.CookingRecipeIngredient";
@@ -29,6 +31,7 @@ internal static class CookingMatch
     [ThreadStatic] private static List<ItemStack>? _stacks;
     [ThreadStatic] private static object? _items; // the List<CookingRecipeIngredient> of this thread
     [ThreadStatic] private static int[]? _counts;
+    [ThreadStatic] private static (int, float)[]? _tuples;
     private static Shared? _ignored;
     private static Harmony? _harmony;
     private static ILogger? _logger;
@@ -51,10 +54,21 @@ internal static class CookingMatch
             return;
         }
 
-        Matched = EngineShape.Matches(seams, fingerprint, nameof(CookingMatch), logger);
+        // Two engine bodies are known: the released list-copying one and 1.23's indexed one with a tuple per input.
+        // The IL decides the path; an explicit 1.23 fingerprint narrows it, so a caller can pin that body.
+        var detected = Shape(matches);
+        var shape = detected == 0 ? 1 : detected;
+        if (fingerprint == Fingerprint123) shape = 2;
+        if (detected != 0 && detected != shape) return;
+
+        Matched = EngineShape.Matches(seams, shape == 2 ? Fingerprint123 : Fingerprint, nameof(CookingMatch), logger);
         if (!Matched) return;
 
-        _ = harmony.Patch(matches, new HarmonyMethod(Enter), transpiler: new HarmonyMethod(RewriteMatches),
+        var rewrite = AccessTools.Method(typeof(CookingMatch),
+            shape == 2 ? nameof(RewriteMatches123) : nameof(RewriteMatches));
+        if (!NotNull(rewrite)) return;
+
+        _ = harmony.Patch(matches, new HarmonyMethod(Enter), transpiler: new HarmonyMethod(rewrite),
             finalizer: new HarmonyMethod(Leave));
         _ = harmony.Patch(matching, transpiler: new HarmonyMethod(RewriteMatching));
         _harmony = harmony;
@@ -99,6 +113,30 @@ internal static class CookingMatch
         return seams;
     }
 
+    // 1.22.7 copies both lists (List<ItemStack> ctor); 1.23 has no copies but a newarr of (int,float) per input stack.
+    // 0 for any other body: no guess is made about how to rewrite it.
+    private static int Shape(MethodBase? matches)
+    {
+        if (matches is null || !Il.Take(PatchProcessor.GetOriginalInstructions(matches), MaxInstructions, out var code))
+            return 0;
+
+        var (copies, tuples) = (0, 0);
+        for (var i = 0; i < Math.Min(code.Count, MaxInstructions); i++)
+        {
+            var c = code[i];
+            if (c.opcode == OpCodes.Newobj && c.operand is ConstructorInfo ctor &&
+                ctor.DeclaringType == typeof(List<ItemStack>))
+            {
+                copies++;
+            }
+
+            if (c.opcode == OpCodes.Newarr && ReferenceEquals(c.operand, typeof((int, float)))) tuples++;
+        }
+
+        if (copies == 1 && tuples == 0) return 1;
+        return copies == 0 && tuples == 1 ? 2 : 0;
+    }
+
     private static void Enter() => _depth++;
 
     // The main thread outlives the world the stacks and ingredients belong to
@@ -139,6 +177,30 @@ internal static class CookingMatch
         return code;
     }
 
+    // 1.23 keeps Ingredients and inputStacks as arrays already: only the per-input tuple array and the counters are
+    // allocated there. GetMatchingStack is unchanged and rewritten as before.
+    private static List<CodeInstruction> RewriteMatches123(IEnumerable<CodeInstruction> instructions)
+    {
+        _rewritten &= ~MatchesBit;
+        if (!Assert(Il.Take(instructions, MaxInstructions, out var code))) return code;
+
+        var (tuples, count) = (AccessTools.Method(typeof(CookingMatch), nameof(Tuples)),
+            AccessTools.Method(typeof(CookingMatch), nameof(Counts)));
+        if (!NotNull(tuples) || !NotNull(count)) return code;
+
+        var tupleAt = Il.Single(code,
+            c => c.opcode == OpCodes.Newarr && ReferenceEquals(c.operand, typeof((int, float))));
+        var countAt = Il.Single(code, c => c.opcode == OpCodes.Newarr && ReferenceEquals(c.operand, typeof(int)));
+        if (tupleAt < 0 || countAt < 0 || !Il.Substitute(code, tupleAt, tuples) ||
+            !Il.Substitute(code, countAt, count))
+        {
+            return code;
+        }
+
+        _rewritten |= MatchesBit;
+        return code;
+    }
+
     internal static List<ItemStack> Stacks(IEnumerable<ItemStack> stacks)
     {
         if (!Enabled || _depth != 1) return [.. stacks];
@@ -169,6 +231,20 @@ internal static class CookingMatch
         if (_counts is not { } counts || counts.Length < count) _counts = counts = new int[Math.Max(count, 16)];
 
         return counts;
+    }
+
+    // Stands in for new (int,float)[count]: the engine writes every tuple it reads, but a reused array must not carry
+    // entries over from a longer run, so the part in use is cleared as the allocation would have been.
+    internal static (int, float)[] Tuples(int count)
+    {
+        // a negative count throws as newarr does
+        if (!Enabled || _depth != 1 || !Index(count, MaxCounts + 1)) return new (int, float)[count];
+
+        if (_tuples is not { } tuples || tuples.Length < count)
+            _tuples = tuples = new (int, float)[Math.Max(count, 16)];
+
+        tuples.AsSpan(0, count).Clear();
+        return tuples;
     }
 
     // Both IgnoredStackAttributes + "timeFrozen" copies removed, Equals reads Ignored(); any other shape keeps the IL

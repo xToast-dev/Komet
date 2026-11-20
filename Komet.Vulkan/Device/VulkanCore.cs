@@ -4,15 +4,15 @@ using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace Komet.Vulkan;
 
-// The Vulkan device, started on the first frame while Vulkan is on (VulkanRenderer.Only). Nothing is shared with
-// OpenGL: the device is OpenGL's GPU by GL_DEVICE_UUID_EXT where offered, else by GL's vendor and renderer names. Off:
-// nothing loaded.
+// The Vulkan device, started on the first frame while Vulkan is on: Vulkan-only presents, or Vulkan compute while
+// OpenGL presents. Nothing is shared with OpenGL: the device is OpenGL's GPU by GL_DEVICE_UUID_EXT where offered, else
+// by GL's vendor and renderer names. Off: nothing loaded.
 internal static class VulkanCore
 {
     private static ILogger? _logger;
     private static bool _tried;
 
-    public static bool Enabled => VulkanRenderer.Only;
+    public static bool Enabled => VulkanRenderer.Only || VulkanRenderer.Compute;
     public static string Status { get; private set; } = "";
     public static VulkanDevice? Device { get; private set; }
 
@@ -48,12 +48,14 @@ internal static class VulkanCore
         if (device is null)
         {
             Report(why);
-            VulkanRenderer.DeviceUnavailable(why);
-            return;
+            if (VulkanRenderer.Only) VulkanRenderer.DeviceUnavailable(why);
+            return; // compute mode: OpenGL keeps presenting, a device that did not start is just absent
         }
 
         Device = device;
-        Report($"{device.Name} (picked by {device.Picked}): Vulkan-only, nothing shared with OpenGL");
+        Report(VulkanRenderer.Only
+            ? $"{device.Name} (picked by {device.Picked}): Vulkan-only, nothing shared with OpenGL"
+            : $"{device.Name} (picked by {device.Picked}): Vulkan compute, OpenGL presents");
     }
 
     private static void Report(string status)

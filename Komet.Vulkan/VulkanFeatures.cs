@@ -7,7 +7,7 @@ using static Komet.Core.FeatureKit;
 
 namespace Komet.Vulkan;
 
-// The Vulkan device, its shader cache and timings, and the Vulkan-only renderer (VulkanOnly).
+// The Vulkan device, its shader cache and timings, and the renderer choice (VulkanOnly: OpenGL, Vulkan-only or Vulkan compute).
 // Each declares its place (Order, Requires, After); FeatureOrder sorts them among the other modules'.
 internal static class VulkanFeatures
 {
@@ -66,11 +66,13 @@ internal static class VulkanFeatures
             ],
             Knobs =
             [
-                Switch("VulkanOnly", null, null, () => VulkanRenderer.Requested,
-                        on => VulkanRenderer.Only = on) with
-                    {
-                        Suggest = VulkanRenderer.Suggested
-                    },
+                // 0 OpenGL, 1 Vulkan-only, 2 Vulkan compute (the device runs, OpenGL presents). A three-value knob keeps
+                // older true/false settings valid and stays one renderer choice in the options.
+                new Knob("VulkanOnly", null, null, 0, 2, 0, () => VulkanRenderer.Mode,
+                    value => VulkanRenderer.Mode = value)
+                {
+                    Suggest = VulkanRenderer.Suggested
+                },
                 Switch("VulkanPacing", "vulkan", "vulkan-advanced", () => VulkanRenderer.Pacing,
                         on => VulkanRenderer.Pacing = on) with
                     {

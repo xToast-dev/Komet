@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.5 (2026-11-20)
+
+### Added
+
+- A third renderer choice, **Vulkan compute**: the Vulkan device starts and GPU culling runs while OpenGL keeps the
+  window, draws the terrain and presents the frame. The cull's depth pyramid stays on OpenGL because only OpenGL can see
+  its depth buffer without a shared image. This is the native-Wayland/NVIDIA path where Vulkan-only cannot create a
+  swapchain, and it keeps the stable OpenGL presentation path.
+- The renderer choice now saves as `0` (OpenGL), `1` (Vulkan-only) or `2` (Vulkan compute). Older `VulkanOnly` true/false
+  settings still load as `1`/`0`.
+
 ## 3.1.4 (2026-11-20)
 
 ### Fixed

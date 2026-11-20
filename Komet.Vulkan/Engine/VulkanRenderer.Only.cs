@@ -75,27 +75,35 @@ internal static partial class VulkanRenderer
         }
     }
 
-    // Off: GL draws again from its next call (GlTap.Resting), the renderer goes at the next frame (Paused). Lean's
-    // holdings go back first; if that fails with the device alive, Vulkan-only stays on (held) until the world is left.
-    // The device starts with it too.
-    public static bool Only
+    // The renderer choice: 0 OpenGL, 1 Vulkan-only (Vulkan presents), 2 Vulkan compute (OpenGL presents). One knob, so a
+    // player's old true/false VulkanOnly setting still reads as 1/0. Compute never asks the window for a Vulkan swapchain.
+    public static int Mode
     {
-        get => Requested && SafetyReason.Length == 0;
+        get
+        {
+            if (Compute) return 2;
+            return Requested ? 1 : 0;
+        }
         set
         {
-            if (!value && Only && Strands("was switched off", true) && _held) return;
+            if (!Index(value, 3)) return;
+
+            var was = Mode;
+            if (was == value) return;
 
             var wasOnly = Only;
+            if (value != 1 && wasOnly && Strands("was switched off", true) && _held) return;
+
             // switched on in the world by the player: an earlier failure or safety mode no longer decides for them
-            if (value && !Requested && _api?.World?.Player is not null && PresentationLock is null)
+            if (value == 1 && !Requested && _api?.World?.Player is not null && PresentationLock is null)
             {
                 VulkanRecord.Retry();
                 SafetyReason = "";
             }
 
-            Requested = value;
-            if (value && _api is not null && !_ran) CheckSafety();
-            if (value && PresentationLock is { } locked && SafetyReason.Length == 0)
+            (Requested, Compute) = (value == 1, value == 2);
+            if (Requested && _api is not null && !_ran) CheckSafety();
+            if (Requested && PresentationLock is { } locked && SafetyReason.Length == 0)
             {
                 (SafetyReason, Status) = (locked, locked);
             }
@@ -106,10 +114,48 @@ internal static partial class VulkanRenderer
             if (changed) TerrainRebuild.Request();
 
             // programs the shader cache gave as driver binaries carry no source: linked again, the ports can read it
-            if (changed && value && _api?.World is not null) _ = _api.Shader.ReloadShaders();
+            if (changed && Only && _api?.World is not null) _ = _api.Shader.ReloadShaders();
 
-            if (!value) GlTap.Resting = false;
+            if (!Only) GlTap.Resting = false;
+            ComputeCulling(Compute);
         }
+    }
+
+    // Off: GL draws again from its next call (GlTap.Resting), the renderer goes at the next frame (Paused). Lean's
+    // holdings go back first; if that fails with the device alive, Vulkan-only stays on (held) until the world is left.
+    // The device starts with it too.
+    public static bool Only
+    {
+        get => Requested && SafetyReason.Length == 0;
+        set
+        {
+            if (value) Mode = 1;
+            else if (Mode == 1) Mode = 0;
+        }
+    }
+
+    // Vulkan compute: the device runs, OpenGL owns the window and draws the culled terrain. This is the native-Wayland
+    // path: no Vulkan swapchain, and nothing to hand back.
+    public static bool Compute { get; private set; }
+
+    // GPU culling in compute mode runs on OpenGL's backend: its pyramid reads the engine's depth texture, which Vulkan
+    // cannot see without a shared image or a Vulkan frame. The Vulkan device still starts for the other Vulkan work.
+    private static void ComputeCulling(bool on)
+    {
+        if (!on)
+        {
+            if (ReferenceEquals(OcclusionCulling.Drawer, OcclusionCulling.GlCounted))
+            {
+                OcclusionCulling.Drawer = null;
+            }
+
+            return;
+        }
+
+        GpuBackends.Current = GlBackend.Instance;
+        OcclusionCulling.Suspended = false;
+        OcclusionCulling.Drawer = OcclusionCulling.GlCounted;
+        OcclusionCulling.Takes = null;
     }
 
     // VulkanOnlyLean: GL gets no copy of the world's large textures and buffers (GlTap.Lean), saving that second copy and
@@ -127,6 +173,7 @@ internal static partial class VulkanRenderer
     {
         get
         {
+            if (Compute) return ""; // compute does not need the window: no presentation lock to retry
             if (SafetyReason.Length > 0) return SafetyReason;
 
             return VulkanRecord.Current() == VulkanRecord.Run.Failed ? "Vulkan failed previously on this GPU" : "";

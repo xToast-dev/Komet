@@ -2,8 +2,10 @@
 
 ## Renderer wählen
 
-Unter **Komet › Übersicht › Renderer** wählst du den [[Renderer]]: [[OpenGL]] wie im Spiel ohne Mods oder das
-schnellere, noch experimentelle [[Vulkan]].
+Unter **Komet › Übersicht › Renderer** wählst du den [[Renderer]]: [[OpenGL]] wie im Spiel ohne Mods, das schnellere,
+noch experimentelle [[Vulkan]], das auch das Fenster zeigt, oder **Vulkan Compute**. Letzteres startet das Vulkan-Gerät
+und lässt die GPU-Culling auf OpenGLs Tiefenpyramide laufen, während OpenGL zeichnet und das Bild zeigt. Nutze es auf
+nativem Wayland mit NVIDIA, wo Vulkan das Fenster nicht übernehmen kann.
 
 Manche Shader-Mods brauchen OpenGL. Komet sagt dir dann, welche.
 

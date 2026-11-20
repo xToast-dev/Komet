@@ -275,7 +275,7 @@ internal sealed partial class TerrainRenderer
         var native = platform switch
         {
             Platform.Wayland => new WindowSwapchain.Native(WindowSwapchain.WindowKind.Wayland, GLFW.GetWaylandDisplay(),
-                (nuint)GLFW.GetWaylandWindow(window.WindowPtr)),
+                (nuint)GLFW.GetWaylandWindow(window.WindowPtr), OwnWaylandSurface()),
             Platform.X11 => new WindowSwapchain.Native(WindowSwapchain.WindowKind.X11, GLFW.GetX11Display(),
                 GLFW.GetX11Window(window.WindowPtr)),
             Platform.Win32 => new WindowSwapchain.Native(WindowSwapchain.WindowKind.Win32, ProcessModule(),
@@ -289,6 +289,10 @@ internal sealed partial class TerrainRenderer
         {
             _logger?.Warning("Komet: Vulkan has no swapchain: {0} ({1}); it cannot run without one", why, platform);
         }
+        else if (_swapchain is { OnOwnSurface: true })
+        {
+            _logger?.Notification("Komet: Vulkan shows the frames itself ({0}, a wl_surface of its own)", platform);
+        }
         else
         {
             _logger?.Notification("Komet: Vulkan shows the frames itself ({0})", platform);
@@ -296,6 +300,26 @@ internal sealed partial class TerrainRenderer
 
         return _swapchain;
     }
+
+    // NVIDIA on Wayland: GLFW's wl_surface already has OpenGL's EGLSurface, and Vulkan's WSI cannot make a swapchain
+    // for it (surface lost). Vulkan presents to a subsurface of the window instead, leaving EGL's surface untouched.
+    private static bool OwnWaylandSurface()
+    {
+        if (GLFW.GetPlatform() != Platform.Wayland) return false;
+
+        try
+        {
+            return OwnWaylandSurface(true, $"{GL.GetString(StringName.Vendor)} {GL.GetString(StringName.Renderer)}");
+        }
+        catch (Exception e) when (e is InvalidOperationException or AccessViolationException
+                                      or EntryPointNotFoundException)
+        {
+            return false; // no current context: the window's own surface as before
+        }
+    }
+
+    internal static bool OwnWaylandSurface(bool wayland, string gpu) =>
+        wayland && gpu.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase);
 
     // Twice a second: the window's monitor and its rate again, as players move the window or change the mode; 0 (unknown)
     // keeps the last rate known
@@ -332,6 +356,9 @@ internal sealed partial class TerrainRenderer
 
     private static unsafe Monitor* Under(NativeWindow window)
     {
+        // Wayland has no window position (GLFW logs an error for every ask): the primary monitor's rate below
+        if (GLFW.GetPlatform() == Platform.Wayland) return null;
+
         GLFW.GetWindowPos(window.WindowPtr, out var x, out var y);
         GLFW.GetWindowSize(window.WindowPtr, out var width, out var height);
         var (cx, cy) = (x + width / 2, y + height / 2);

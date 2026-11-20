@@ -29,6 +29,9 @@ internal sealed unsafe class WindowSwapchain : IDisposable
 
     private readonly VulkanDevice _device;
 
+    // Wayland/NVIDIA: Vulkan presents to a subsurface of GLFW's window, not to the wl_surface OpenGL's EGLSurface owns
+    private readonly WaylandChildSurface? _child;
+
     private readonly uint?[]
         _modes = new uint?[3]; // per VSync mode, asked of the surface once: a query is a compositor round trip
 
@@ -55,8 +58,14 @@ internal sealed unsafe class WindowSwapchain : IDisposable
     private WindowSwapchain(VulkanDevice device, ulong surface, ulong fence) =>
         (_device, _surface, _fence) = (device, surface, fence);
 
+    private WindowSwapchain(VulkanDevice device, ulong surface, ulong fence, WaylandChildSurface child) :
+        this(device, surface, fence) => _child = child;
+
     public int Width { get; private set; }
     public int Height { get; private set; }
+
+    // Vulkan presents to a surface of its own (Wayland/NVIDIA), not to the window's EGL-owned one
+    public bool OnOwnSurface => _child is not null;
 
     // The engine's presents so far: a bridged frame is shown only while none came after the frame it bridges from
     public long Presents { get; private set; }
@@ -72,6 +81,7 @@ internal sealed unsafe class WindowSwapchain : IDisposable
         if (_swapchain != 0) VkApi.DestroySwapchain(_device.Handle, _swapchain, null);
 
         VkApi.DestroySurface(_device.InstanceHandle, _surface, null);
+        _child?.Dispose();
         _device.DestroyFence(_fence);
         foreach (var lost in _lost.Bounded(MaxLost))
         {
@@ -101,7 +111,21 @@ internal sealed unsafe class WindowSwapchain : IDisposable
             return Refused(out why, "the window has no native handle");
         }
 
-        if (Surface(device, window, out why) is not { } surface) return null;
+        // GLFW made an EGLSurface for the window's wl_surface; NVIDIA's Vulkan WSI refuses to share it. Vulkan gets a
+        // subsurface of its own instead, so neither API owns the other's surface.
+        WaylandChildSurface? child = null;
+        var presented = window;
+        if (window.Kind == WindowKind.Wayland && window.OwnSurface &&
+            (child = WaylandChildSurface.Create(window.Display, window.Window)) is not null)
+        {
+            presented = window with { Window = child.Surface };
+        }
+
+        if (Surface(device, presented, out why) is not { } surface)
+        {
+            child?.Dispose();
+            return null;
+        }
 
         uint supported;
         var asked = VkApi.GetSurfaceSupport(device.PhysicalHandle, device.Family, surface, &supported);
@@ -109,10 +133,16 @@ internal sealed unsafe class WindowSwapchain : IDisposable
         var fence = presents ? device.Fence(false) : 0;
         if (fence != 0)
         {
-            return new WindowSwapchain(device, surface, fence) { _renewOnce = window.Kind == WindowKind.Win32 };
+            return child is null
+                ? new WindowSwapchain(device, surface, fence)
+                {
+                    _renewOnce = window.Kind == WindowKind.Win32
+                }
+                : new WindowSwapchain(device, surface, fence, child);
         }
 
         VkApi.DestroySurface(device.InstanceHandle, surface, null);
+        child?.Dispose();
         return Refused(out why, presents ? "no fence" : "the queue cannot present to the window");
     }
 
@@ -501,6 +531,7 @@ internal sealed unsafe class WindowSwapchain : IDisposable
     }
 
     // The window: on Wayland its wl_display and wl_surface, on X11 its Display and Window (an XID), on Windows the
-    // process's HINSTANCE and the HWND
-    public readonly record struct Native(WindowKind Kind, IntPtr Display, nuint Window);
+    // process's HINSTANCE and the HWND. OwnSurface: Vulkan makes a wl_surface of its own (a subsurface) instead of
+    // presenting to the one OpenGL's EGLSurface owns.
+    public readonly record struct Native(WindowKind Kind, IntPtr Display, nuint Window, bool OwnSurface = false);
 }

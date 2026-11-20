@@ -1,60 +1,22 @@
 using Komet.Core;
-using Komet.Rendering;
 using Komet.Vulkan;
 
 namespace Komet.Test.Gpu;
 
-[NonParallelizable]
 public sealed class VulkanSafetyTests
 {
-    // The Wayland/NVIDIA surface stays with EGL: no retry can make Vulkan present, so the game must stay on OpenGL
+    // Only Wayland with NVIDIA needs Vulkan to leave EGL's wl_surface alone; other drivers keep presenting to the
+    // window as before
     [Test]
-    public void PresentationIsRefusedOnlyOnWaylandWithNvidia()
+    public void TheChildSurfaceIsUsedOnlyOnWaylandWithNvidia()
     {
         Assert.Multiple(() =>
         {
-            Assert.That(VulkanRenderer.CannotPresentOn(true, "NVIDIA Corporation NVIDIA GeForce RTX 4080"), Is.True);
-            Assert.That(VulkanRenderer.CannotPresentOn(true, "Mesa AMD Radeon RX 7900 XTX"), Is.False);
-            Assert.That(VulkanRenderer.CannotPresentOn(false, "NVIDIA Corporation NVIDIA GeForce RTX 4080"), Is.False);
+            Assert.That(TerrainRenderer.OwnWaylandSurface(true, "NVIDIA Corporation NVIDIA GeForce RTX 4080"), Is.True);
+            Assert.That(TerrainRenderer.OwnWaylandSurface(true, "Mesa AMD Radeon RX 7900 XTX"), Is.False);
+            Assert.That(TerrainRenderer.OwnWaylandSurface(false, "NVIDIA Corporation NVIDIA GeForce RTX 4080"),
+                Is.False);
         });
-    }
-
-    // Native Wayland: the device runs, OpenGL keeps the window and the GPU-culled draws stay on OpenGL's buffers
-    [Test]
-    public void ComputeModeStartsVulkanWithoutTakingTheWindow()
-    {
-        var (mode, backend, drawer, takes, suspended) =
-            (VulkanRenderer.Mode, GpuBackends.Current, OcclusionCulling.Drawer, OcclusionCulling.Takes,
-                OcclusionCulling.Suspended);
-        try
-        {
-            VulkanRenderer.Mode = 2;
-            Assert.Multiple(() =>
-            {
-                Assert.That(VulkanRenderer.Compute, Is.True);
-                Assert.That(VulkanRenderer.Requested, Is.False, "no Vulkan presentation is asked for");
-                Assert.That(VulkanRenderer.SafetyReason, Is.Empty);
-                Assert.That(VulkanRenderer.Locked, Is.Empty, "compute needs no presentation retry");
-                Assert.That(VulkanRenderer.Only, Is.False);
-                Assert.That(VulkanCore.Enabled, Is.True);
-                Assert.That(GpuBackends.Current, Is.SameAs(GlBackend.Instance));
-                Assert.That(OcclusionCulling.Drawer, Is.SameAs(OcclusionCulling.GlCounted));
-            });
-
-            VulkanRenderer.Mode = 0;
-            Assert.Multiple(() =>
-            {
-                Assert.That(VulkanRenderer.Compute, Is.False);
-                Assert.That(VulkanCore.Enabled, Is.False);
-                Assert.That(OcclusionCulling.Drawer, Is.Null);
-            });
-        }
-        finally
-        {
-            VulkanRenderer.Mode = mode;
-            (GpuBackends.Current, OcclusionCulling.Drawer, OcclusionCulling.Takes, OcclusionCulling.Suspended) =
-                (backend, drawer, takes, suspended);
-        }
     }
 
     [Test]

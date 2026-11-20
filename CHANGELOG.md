@@ -1,15 +1,20 @@
 # Changelog
 
-## 3.1.5 (2026-11-20)
+## 3.1.6 (2026-11-20)
 
-### Added
+### Changed
 
-- A third renderer choice, **Vulkan compute**: the Vulkan device starts and GPU culling runs while OpenGL keeps the
-  window, draws the terrain and presents the frame. The cull's depth pyramid stays on OpenGL because only OpenGL can see
-  its depth buffer without a shared image. This is the native-Wayland/NVIDIA path where Vulkan-only cannot create a
-  swapchain, and it keeps the stable OpenGL presentation path.
-- The renderer choice now saves as `0` (OpenGL), `1` (Vulkan-only) or `2` (Vulkan compute). Older `VulkanOnly` true/false
-  settings still load as `1`/`0`.
+- The third renderer choice from 3.1.5 is gone again: **OpenGL** or **Vulkan** are the only choices, and a saved
+  `VulkanOnly` value still reads as before.
+
+### Fixed
+
+- Vulkan-only now presents on native Wayland with NVIDIA. GLFW's window keeps its OpenGL `EGLSurface`, while Vulkan
+  creates a `wl_surface` of its own as a subsurface and presents to that instead; no driver surface is shared and
+  `vkCreateSwapchainKHR` no longer fails with surface lost.
+- Vulkan is no longer refused at startup just because the driver is NVIDIA on Wayland. Only a swapchain that was really
+  lost still stops retries in the same game run.
+- Wayland no longer asks GLFW for the window position (unsupported there), which had logged an error for every frame.
 
 ## 3.1.4 (2026-11-20)
 

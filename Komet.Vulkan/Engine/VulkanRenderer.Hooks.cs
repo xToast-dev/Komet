@@ -547,7 +547,6 @@ internal static partial class VulkanRenderer
             renderer.Frame.Close("Vulkan switched off");
             renderer.Unwindowed(); // the window is OpenGL's again before GlTap lets go
             Culling(renderer, false);
-            if (Compute) ComputeCulling(true); // a switch from Vulkan-only to compute keeps the GL culling draw
         }
 
         _taking = false;
@@ -569,8 +568,6 @@ internal static partial class VulkanRenderer
     private static void Unpushed()
     {
         (_windowing, OcclusionCulling.Suspended, IndirectDraw.Plain, GlTap.Resting) = (false, false, false, false);
-        if (!Compute && ReferenceEquals(OcclusionCulling.Drawer, OcclusionCulling.GlCounted))
-            OcclusionCulling.Drawer = null;
         if (_scene is { } scene) scene.Framing = false;
     }
 

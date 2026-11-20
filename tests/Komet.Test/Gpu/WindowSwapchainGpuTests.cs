@@ -55,7 +55,27 @@ public sealed class WindowSwapchainGpuTests
         }
     }
 
-    private static unsafe WindowSwapchain Chain(GpuRig rig)
+    // NVIDIA on Wayland cannot present to GLFW's EGL-owned wl_surface; Vulkan makes its own subsurface. A Mesa
+    // Wayland here exercises the same libwayland path, so a broken child surface shows up without NVIDIA.
+    [Test]
+    public void VulkanShowsFramesOnItsOwnWaylandSurface()
+    {
+        using var rig = GpuRig.Open(GpuRig.Vulkan);
+        if (GLFW.GetPlatform() != Platform.Wayland) Assert.Ignore("the own surface belongs to Wayland");
+        using var chain = Chain(rig, own: true);
+        Assert.That(chain.OnOwnSurface, Is.True, "Vulkan presents to a wl_surface of its own");
+        var (device, (width, height)) = (rig.Device!, rig.Window!.ClientSize);
+        for (var frame = 0; frame < Frames; frame++)
+        {
+            var index = chain.Acquire(width, height, 0, out var why);
+            Assert.That(index, Is.GreaterThanOrEqualTo(0), why);
+            var ((image, rendered), at) = (chain.Image(index), frame);
+            Assert.That(device.Run(commands => Cleared(commands, image, at), [rendered]), Is.True);
+            Assert.That(chain.Present(index), Is.True, $"frame {frame} presented");
+        }
+    }
+
+    private static unsafe WindowSwapchain Chain(GpuRig rig, bool own = false)
     {
         var (window, platform) = (rig.Window!, GLFW.GetPlatform());
         if (platform is not (Platform.X11 or Platform.Wayland)) Assert.Ignore($"the test window is on {platform}");
@@ -65,7 +85,7 @@ public sealed class WindowSwapchainGpuTests
         rig.Backend!.Flush(); // the device's own command buffer is the test's from here on
         var native = platform == Platform.Wayland
             ? new WindowSwapchain.Native(WindowSwapchain.WindowKind.Wayland, GLFW.GetWaylandDisplay(),
-                (nuint)GLFW.GetWaylandWindow(window.WindowPtr))
+                (nuint)GLFW.GetWaylandWindow(window.WindowPtr), own)
             : new WindowSwapchain.Native(WindowSwapchain.WindowKind.X11, GLFW.GetX11Display(),
                 GLFW.GetX11Window(window.WindowPtr));
         var chain = WindowSwapchain.Create(rig.Device, native, out var why);

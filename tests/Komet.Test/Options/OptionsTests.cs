@@ -65,10 +65,9 @@ public sealed class OptionsTests
         });
     }
 
-    // Three choices, OpenGL, Vulkan-only and Vulkan compute: the mode is VulkanOnly alone, every other knob is left as it is
+    // Two choices, OpenGL and Vulkan: the mode is VulkanOnly alone, every other knob is left as it is
     [TestCase(0)]
     [TestCase(1)]
-    [TestCase(2)]
     public void TheVulkanModeIsTheVulkanOnlySwitch(int mode)
     {
         var values = Enumerable.Repeat(7, Knobs.Count).ToArray();
@@ -79,7 +78,7 @@ public sealed class OptionsTests
             Assert.That(VulkanMode.Of(knob => values[knob]), Is.EqualTo(mode));
             Assert.That(values[only], Is.EqualTo(mode));
             Assert.That(values.Where((_, i) => i != only), Is.All.EqualTo(7), "no other knob written");
-            Assert.That(string.Join(" ", VulkanMode.Choices.Select(c => c.Name)), Is.EqualTo("opengl vulkan compute"));
+            Assert.That(string.Join(" ", VulkanMode.Choices.Select(c => c.Name)), Is.EqualTo("opengl vulkan"));
             Assert.That(VulkanMode.Choice(mode), Is.EqualTo(mode));
         });
     }

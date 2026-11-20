@@ -772,8 +772,6 @@
   "settings-shaderusecache-hint": "Sends only changed shader values to the GPU instead of all of them every time.",
   "settings-distantshadows": "Distant shadows",
   "settings-distantshadows-hint": "Terrain casts shadows up to your view distance instead of only about 200 blocks. Far shadows are redrawn bit by bit, only when the sun moves or you travel far, so they cost little. Near shadows stay as in the game.",
-  "settings-insideblock": "Hide what lies behind a block you are inside",
-  "settings-insideblock-hint": "When the camera is inside a solid block (flying through the ground, a camera pushed into a wall), the view is covered in the block's darkened colour instead of showing the caves behind it.",
   "settings-occlusionculling": "Skip hidden terrain",
   "settings-occlusionculling-hint": "The GPU leaves out terrain you can't see. 0: as in the game. 1: also terrain hidden behind other terrain. 2: the GPU does it all and takes load off the CPU. Vulkan only; if your GPU can't do 2, 1 applies.",
   "settings-vulkan-advanced": "Advanced: each part on its own",

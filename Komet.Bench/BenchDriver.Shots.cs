@@ -1,5 +1,4 @@
 using System.Globalization;
-using Vintagestory.API.MathTools;
 
 namespace Komet.Bench;
 
@@ -49,16 +48,6 @@ internal sealed partial class BenchDriver
             $"burst-{_run.Config.Arms[segment.Arm].Name}-lap{segment.Lap}-{_burst:D2}.png"));
         _burst++;
         _ = Assert(dt >= 0);
-    }
-
-    // The landing point, or with GroundDepth the eye that far below the terrain's surface there
-    private double Ground()
-    {
-        if (_run.Config.GroundDepth <= 0) return _landing.Y;
-
-        var surface =
-            _capi.World.BlockAccessor.GetTerrainMapheightAt(new BlockPos((int)_landing.X, 0, (int)_landing.Z));
-        return surface + 1 - _run.Config.GroundDepth - (_capi.World.Player?.Entity?.LocalEyePos.Y ?? 1.6);
     }
 
     private static int Quarter(BenchSegment segment, double t) => Math.Clamp((int)(4 * t / segment.Seconds), 0, 3);

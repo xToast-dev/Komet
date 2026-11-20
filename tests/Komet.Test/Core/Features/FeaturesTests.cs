@@ -15,7 +15,7 @@ public sealed class FeaturesTests
     [
         "ModTimes", "RenderCost", "Hud", "GraphicsMenu", "MenuBlur", "ShaderUseCache", "ProgramCache", "DistantShadows",
         "LeanVaryings", "SharpUpscale", "LeanGodRays", "LeanPost", "ModShaders", "FrustumSweep", "FarShadowReuse",
-        "NearShadowReuse", "EntityCasters", "IndirectDraw", "InsideBlock", "OcclusionCulling", "GlQueryCache",
+        "NearShadowReuse", "EntityCasters", "IndirectDraw", "OcclusionCulling", "GlQueryCache",
         "VulkanCore", "VulkanShaderCache", "VulkanGpuTimes", "TerrainRebuild", "PoolTrim",
         "VulkanTerrain", "AnimatableCulling", "PotCulling", "HearthCulling", "HelpCompose", "MapTileCulling",
         "MapTileUpload",

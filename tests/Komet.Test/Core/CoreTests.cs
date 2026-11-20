@@ -40,6 +40,9 @@ public sealed class EngineSeamTests
         yield return Case<MeshDataPool>("TrySqueezeInbetween", null);
         yield return Case<MeshData>("CloneExtraData", null);
         yield return Case<MeshData>("DisposeExtraData", null);
+        // FaceSorting's seam: by name alone this is ambiguous on some engine builds, so pin the exact overload
+        yield return Case<ChunkTesselator>("populateTesselatedChunkPart",
+            [typeof(MeshData[][][]), typeof(TesselatedChunkPart[]).MakeByRefType()]);
         yield return Case<ChunkTesselatorManager>("OnBeforeFrame", null);
         yield return Case<ChunkTesselatorManager>("OnSeperateThreadGameTick", [typeof(float)]);
         yield return Case<ChunkTesselatorManager>("TesselateChunk",

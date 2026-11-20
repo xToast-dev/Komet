@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.7 (2026-11-20)
+
+### Fixed
+
+- Mod startup no longer aborts on clients whose engine has more than one `populateTesselatedChunkPart` overload (for
+  example the Optimum client). `FaceSorting` now pins the exact signature; the other features, the renderer hotkeys and
+  the Shader Studio install as usual again.
+
+### Changed
+
+- Removed the cover that darkened the view when the camera was inside a solid block. Caves and the underground stay
+  visible when flying through the ground in spectator mode.
+
 ## 3.1.6 (2026-11-20)
 
 ### Changed

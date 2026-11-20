@@ -81,7 +81,7 @@ internal sealed partial class BenchDriver
         else if
             (segment.Kind == BenchKind.Ground) // a quarter turn each quarter of the time: GroundShots looks all around
         {
-            _pose = (_landing.X, Ground(), _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
+            _pose = (_landing.X, _landing.Y, _landing.Z, BenchScenario.Heading + Math.PI / 2 * Quarter(segment, _t));
         }
         else
         {

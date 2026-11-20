@@ -22,7 +22,7 @@ internal sealed class BenchConfig
     private static readonly string[] TopKeys =
     [
         "name", "output", "modDir", "revision", "env", "world", "settle", "route", "lap", "laps", "warmupLaps", "arms",
-        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds", "groundDepth",
+        "sandbox", "shots", "hudWindow", "gui", "joinSeconds", "captureSeconds", "landSeconds",
         "spawning", "rain", "hour", "menuPage",
         "lateStart", "anyWorld"
     ];
@@ -59,9 +59,6 @@ internal sealed class BenchConfig
 
     // After the laps: down to the ground where the world was joined and this long standing there (0: no landing)
     public double LandSeconds { get; private set; }
-
-    // The eye this many blocks below the terrain's surface at the landing point: the camera inside the ground (InsideBlock)
-    public double GroundDepth { get; private set; }
 
     // route.back false: each lap flies out only, so a landing (LandSeconds) comes down where the terrain just arrived
     public bool Back { get; private set; } = true;
@@ -175,7 +172,6 @@ internal sealed class BenchConfig
 
         CaptureSeconds = Number(root, "captureSeconds", "", CaptureSeconds, 0, 300);
         LandSeconds = Number(root, "landSeconds", "", LandSeconds, 0, 300);
-        GroundDepth = Number(root, "groundDepth", "", GroundDepth, 0, 16);
         Shots = Flag(root, "shots", "", Shots);
         AnyWorld = Flag(root, "anyWorld", "", AnyWorld);
     }

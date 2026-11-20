@@ -57,7 +57,9 @@ internal static class FaceSorting
     {
         _mainThread = Environment.CurrentManagedThreadId;
         Clear();
-        var populate = AccessTools.DeclaredMethod(typeof(ChunkTesselator), "populateTesselatedChunkPart");
+        // Name alone is ambiguous on some engine builds (Optimum): pick the seam Komet's postfix takes
+        var populate = AccessTools.DeclaredMethod(typeof(ChunkTesselator), "populateTesselatedChunkPart",
+            [typeof(MeshData[][][]), typeof(TesselatedChunkPart[]).MakeByRefType()]);
         var remove = AccessTools.DeclaredMethod(typeof(MeshDataPool), nameof(MeshDataPool.RemoveLocation));
         if (!NotNull(populate) || !NotNull(remove) ||
             !Assert(AccessTools.Field(typeof(TesselatedChunkPart), "modelDataLod0") != null) ||

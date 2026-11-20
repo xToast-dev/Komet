@@ -213,17 +213,6 @@ internal static class RenderingFeatures
             ],
             Probe = () => IndirectDraw.Detected && !IndirectDraw.Supported ? NotApplicable : Active
         },
-        // after IndirectDraw, whose RenderMesh prefix hands it the draws
-        new("InsideBlock")
-        {
-            Order = 180,
-            Install = c => InsideBlock.Install(c.Api),
-            Knobs =
-            [
-                Switch("InsideBlock", "render", "culling", () => InsideBlock.Enabled, on => InsideBlock.Enabled = on)
-            ],
-            Stop = c => InsideBlock.Uninstall(c?.Api)
-        },
         new("OcclusionCulling")
         {
             Order = 190,

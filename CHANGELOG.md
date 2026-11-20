@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.3 (2026-11-20)
+
+### Fixed
+
+- When a Vulkan swapchain is refused after Vulkan took over a Wayland window, the frame that hands the window back no
+  longer asks GLFW to present it. On NVIDIA/Wayland that swap spun on the main thread and froze the game with audio
+  still running; the next frame presents through OpenGL as usual.
+
+### Changed
+
+- Hang dumps now also mark the GLFW buffer swap and the end of the Vulkan handback, to name that step if a driver still
+  stalls there.
+
 ## 3.1.2 (2026-11-20)
 
 ### Fixed

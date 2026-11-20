@@ -55,7 +55,7 @@ internal static partial class VulkanRenderer
         PoolUpdates.Install(harmony, _logger);
         PatchBirths(harmony);
         var swap = AccessTools.Method(typeof(GameWindow), "SwapBuffers");
-        if (NotNull(swap)) _ = harmony.Patch(swap, Of(nameof(Swapping)));
+        if (NotNull(swap)) _ = harmony.Patch(swap, Of(nameof(Swapping)), postfix: Of(nameof(Swapped)));
     }
 
     private static void Register(IClientEventAPI events)
@@ -406,11 +406,14 @@ internal static partial class VulkanRenderer
     // False when Vulkan presented the frame: the engine's SwapBuffers must not
     private static bool Swapping(NativeWindow __instance)
     {
+        HangWatch.Mark("swap: prefix");
         if (!_windowing || _renderer is not { } renderer) return true;
 
         VulkanWatch.Mark("the buffers swap", renderer.Frame.Number);
         return !Finished(renderer, __instance);
     }
+
+    private static void Swapped() => HangWatch.Mark("swap: done");
 
     // True once shown in the window; without one, closes the last segment. Not Guarded: a closure a frame.
     private static bool Finished(TerrainRenderer renderer, NativeWindow? window)
@@ -437,7 +440,9 @@ internal static partial class VulkanRenderer
                 Fail(
                     $"Vulkan-only needs Vulkan to show its frames, but {unshowable}: OpenGL draws the world (join the " +
                     "world again to try once more)");
-                return false;
+                // The window's surface was Vulkan's and is only just back in OpenGL's hands. Swapping it in this
+                // frame makes GLFW/NVIDIA on Wayland spin; skip the presentation once, the next frame swaps normally.
+                return true;
             }
 
             if (State is Phase.Running or Phase.Waiting && !MemoryGuard()) Periodically(renderer);
@@ -583,6 +588,7 @@ internal static partial class VulkanRenderer
         if (!stranded)
         {
             GlTap.Untap();
+            HangWatch.Mark("vulkan: untapped");
             if (hadRenderer)
             {
                 TerrainRebuild.Recover();
@@ -592,6 +598,7 @@ internal static partial class VulkanRenderer
 
         _watched = false;
         _logger?.Warning("Komet: {0}", _failure);
+        HangWatch.Mark("vulkan: failed");
     }
 
     // The renderer goes with its memory; one that cannot let go cleanly is abandoned: OpenGL keeps every name it had

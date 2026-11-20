@@ -29,6 +29,7 @@ internal static class VulkanWatch
     {
         if (!NotNull(step) || !Assert(step.Length > 0)) return;
 
+        HangWatch.Mark(step);
         var now = Clock.ElapsedMilliseconds;
         if (!ReferenceEquals(step, _step)) // a draw after a draw: one entry
         {

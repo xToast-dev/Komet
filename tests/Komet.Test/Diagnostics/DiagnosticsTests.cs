@@ -35,6 +35,24 @@ public sealed class DiagnosticsTests
         return stages;
     }
 
+    // A hang dump must name the last step where work stopped, not sixteen copies of a per-frame mark
+    [Test]
+    public void TheHangStepsKeepTheLastDistinctStepsNewestFirst()
+    {
+        HangWatch.Mark("pacing: begin");
+        HangWatch.Mark("pacing: begin");
+        HangWatch.Mark("rebuild: begin");
+        HangWatch.Mark("rebuild: cleared");
+        var steps = HangWatch.Steps().Split('\n');
+        Assert.Multiple(() =>
+        {
+            Assert.That(steps[0], Does.EndWith("rebuild: cleared"));
+            Assert.That(steps[1], Does.EndWith("rebuild: begin"));
+            Assert.That(steps[2], Does.EndWith("pacing: begin"));
+            Assert.That(steps, Has.Length.LessThanOrEqualTo(16));
+        });
+    }
+
     private static void Cheap(float _)
     {
         // no work: the last of the three

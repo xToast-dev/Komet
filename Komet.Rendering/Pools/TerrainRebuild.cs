@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Komet.Diagnostics;
 using Vintagestory.Client.NoObf;
 using static Komet.Rendering.Fields;
 
@@ -73,18 +74,26 @@ internal static class TerrainRebuild
 
         _asked = false;
         var started = Environment.TickCount64;
+        HangWatch.Mark("rebuild: begin");
         Links.Vulkan.Rebuilding();
+        HangWatch.Mark("rebuild: idle");
         var chunks = Forgotten(game);
+        HangWatch.Mark("rebuild: forgotten");
         Unhook(_api, old);
+        HangWatch.Mark("rebuild: unhooked");
         old.Dispose();
+        HangWatch.Mark("rebuild: disposed");
         TerrainOf(game) =
             new ChunkRenderer([.. game.BlockAtlasManager.AtlasTextures.Select(static t => t.TextureId)], game);
+        HangWatch.Mark("rebuild: renderer");
         OcclusionCulling.Renewed();
         FrustumSweep.Renewed();
         FaceSorting.Clear();
         FarShadowReuse.Clear();
         NearShadowReuse.Clear();
+        HangWatch.Mark("rebuild: cleared");
         game.RedrawAllBlocks();
+        HangWatch.Mark("rebuild: redrawn");
         game.Logger.Notification(
             "Komet: the terrain is made anew: {0} chunks tessellated again into new pools ({1} ms)", chunks,
             Environment.TickCount64 - started);

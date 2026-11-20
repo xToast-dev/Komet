@@ -13,6 +13,7 @@ internal static class FramePacer
 {
     private const double SleepMarginMs = 0.5, StepMarginMs = 1.1; // timer slack and wake-up: the rest is yielded away
     private const int MaxYields = 1 << 20, MaxSteps = 16;
+    private const double MaxYieldSeconds = 0.05; // a frozen frame stopwatch must not burn seconds in yields
 
     private const int Window = 64, Percentile = Window / 2;
     private const double MaxPadMs = 2;
@@ -46,6 +47,7 @@ internal static class FramePacer
     private static void Pace(ClientPlatformWindows __instance)
     {
         var started = Stopwatch.GetTimestamp();
+        HangWatch.Mark("pacing: begin");
         Links.Vulkan.Paced();
         OutsideParts.GpuWaitMs = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         OutsideParts.SmoothingMs = 0;
@@ -110,6 +112,7 @@ internal static class FramePacer
         var leftMs = (target - watch.ElapsedTicks) * 1000.0 / Stopwatch.Frequency;
         if (leftMs > SleepMarginMs + 1) Thread.Sleep((int)(leftMs - SleepMarginMs));
         // Linux/macOS sleep 1 ms within a few dozen µs (fewer yields burn the core); Windows' timer may sleep 15 ms
+        HangWatch.Mark("pacing: sleep");
         for (var i = 0;
              i < MaxSteps && !OperatingSystem.IsWindows() &&
              (target - watch.ElapsedTicks) * 1000.0 / Stopwatch.Frequency > StepMarginMs;
@@ -118,9 +121,15 @@ internal static class FramePacer
             Thread.Sleep(1);
         }
 
-        for (var i = 0; i < MaxYields && watch.ElapsedTicks < target; i++)
+        HangWatch.Mark("pacing: yields");
+        var until = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * MaxYieldSeconds);
+        for (var i = 0;
+             i < MaxYields && watch.ElapsedTicks < target && Stopwatch.GetTimestamp() < until;
+             i++)
         {
             if (!Thread.Yield()) Thread.SpinWait(32);
         }
+
+        HangWatch.Mark("pacing: done");
     }
 }

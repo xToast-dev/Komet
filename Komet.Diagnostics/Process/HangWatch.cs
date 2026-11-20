@@ -8,11 +8,15 @@ namespace Komet.Diagnostics;
 // hanging.
 internal static class HangWatch
 {
-    private const int CheckMs = 1000, HangMs = 10_000, DumpMs = 60_000;
+    private const int CheckMs = 1000, HangMs = 10_000, DumpMs = 60_000, StepCount = 16;
+
+    private static readonly Lock Gate = new();
+    private static readonly (long At, string Step)[] Last = new (long, string)[StepCount];
 
     private static Timer? _timer;
     private static ILogger? _logger;
     private static long _seen = -1, _since;
+    private static int _next;
     private static bool _reported;
 
     public static void Start(ILogger logger)
@@ -27,6 +31,39 @@ internal static class HangWatch
     {
         _timer?.Dispose();
         (_timer, _logger) = (null, null);
+    }
+
+    // Last steps of a frame, from pacing through Vulkan and the terrain rebuild. A repeat only refreshes its time:
+    // a hang needs the step where work stopped, not a ring filled with one name called every frame.
+    public static void Mark(string step)
+    {
+        if (string.IsNullOrEmpty(step)) return;
+
+        lock (Gate)
+        {
+            var at = Environment.TickCount64;
+            var previous = (_next + StepCount - 1) % StepCount;
+            if (Last[previous].Step == step)
+            {
+                Last[previous] = (at, step);
+                return;
+            }
+
+            Last[_next % StepCount] = (at, step);
+            _next++;
+        }
+    }
+
+    internal static string Steps()
+    {
+        lock (Gate)
+        {
+            var now = Environment.TickCount64;
+            return string.Join(Environment.NewLine, Enumerable.Range(0, StepCount)
+                .Select(i => Last[(_next + StepCount - 1 - i) % StepCount])
+                .Where(last => last.Step is not null)
+                .Select(last => $"  {now - last.At} ms ago: {last.Step}"));
+        }
     }
 
     private static void Check()
@@ -62,7 +99,8 @@ internal static class HangWatch
         {
             var report = Tool() is { } tool ? Stacks(tool) : "dotnet-stack is not installed: no managed stacks";
             File.WriteAllText(path,
-                report + "\nEvery thread as the kernel sees it (id, name, state, waits in):\n" +
+                report + "\nLast Komet steps, newest first:\n" + Steps() +
+                "\nEvery thread as the kernel sees it (id, name, state, waits in):\n" +
                 Links.Threads.Threads());
             logger.Warning("Komet: the stacks of every thread are in {0}", path);
             return path;

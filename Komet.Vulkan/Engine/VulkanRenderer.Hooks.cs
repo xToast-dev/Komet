@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Komet.Core;
+using Komet.Diagnostics;
 using Komet.Rendering;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Windowing.Desktop;
@@ -568,6 +569,7 @@ internal static partial class VulkanRenderer
     // shortage of the system's memory says nothing about the GPU
     private static void Fail(string why, bool remembered = true)
     {
+        HangWatch.Mark("vulkan: fail");
         var hadRenderer = _renderer is not null;
         var stranded = Strands($"failed ({why})");
         (_failed, _failure, SafetyReason) = (true, why, why);
@@ -577,6 +579,7 @@ internal static partial class VulkanRenderer
         if (!stranded && _renderer is { } only) HandBack(only);
 
         LetGo();
+        HangWatch.Mark("vulkan: let go");
         if (!stranded)
         {
             GlTap.Untap();
@@ -594,6 +597,7 @@ internal static partial class VulkanRenderer
     // The renderer goes with its memory; one that cannot let go cleanly is abandoned: OpenGL keeps every name it had
     private static void LetGo()
     {
+        HangWatch.Mark("vulkan: release");
         try
         {
             Release();
@@ -602,6 +606,8 @@ internal static partial class VulkanRenderer
         {
             _logger?.Error("Komet: Vulkan could not let go cleanly: {0}", e);
         }
+
+        HangWatch.Mark("vulkan: released");
     }
 
     // Komet's distant shadow cascade redraws its map: Vulkan drew it (no change), else its image is read back on next

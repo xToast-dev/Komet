@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.2 (2026-11-20)
+
+### Fixed
+
+- The frame pacer's yield wait is now bounded in time as well as by iteration count. A frame stopwatch that no longer
+  advances can no longer hold the main thread in a user-space spin for tens of seconds.
+
+### Changed
+
+- Hang reports now include the last distinct Komet steps (pacing, Vulkan handback, terrain rebuild) ahead of the thread
+  states, so a hang without managed stacks still names the step where work stopped.
+
 ## 3.1.1 (2026-11-20)
 
 ### Fixed

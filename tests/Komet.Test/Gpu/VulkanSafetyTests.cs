@@ -5,6 +5,18 @@ namespace Komet.Test.Gpu;
 
 public sealed class VulkanSafetyTests
 {
+    // The Wayland/NVIDIA surface stays with EGL: no retry can make Vulkan present, so the game must stay on OpenGL
+    [Test]
+    public void PresentationIsRefusedOnlyOnWaylandWithNvidia()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(VulkanRenderer.CannotPresentOn(true, "NVIDIA Corporation NVIDIA GeForce RTX 4080"), Is.True);
+            Assert.That(VulkanRenderer.CannotPresentOn(true, "Mesa AMD Radeon RX 7900 XTX"), Is.False);
+            Assert.That(VulkanRenderer.CannotPresentOn(false, "NVIDIA Corporation NVIDIA GeForce RTX 4080"), Is.False);
+        });
+    }
+
     [Test]
     public void StartupRejectsPreviousFailuresAndMemoryPressure()
     {

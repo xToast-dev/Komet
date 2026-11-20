@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.1.4 (2026-11-20)
+
+### Fixed
+
+- Vulkan-only is no longer started or retried on Wayland with an NVIDIA driver: its WSI leaves the window's `wl_surface`
+  with EGL, so `vkCreateSwapchainKHR` always fails with surface lost and the handback can freeze the game. OpenGL draws
+  the world and Vulkan still does the compute work.
+- Once a Vulkan swapchain has actually been lost, further retries in the same game run are refused instead of repeating
+  the freeze.
+
 ## 3.1.3 (2026-11-20)
 
 ### Fixed

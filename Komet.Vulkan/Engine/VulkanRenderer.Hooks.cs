@@ -437,6 +437,7 @@ internal static partial class VulkanRenderer
 
             if (renderer.Unshowable is { Length: > 0 } unshowable)
             {
+                PresentationLost = true;
                 Fail(
                     $"Vulkan-only needs Vulkan to show its frames, but {unshowable}: OpenGL draws the world (join the " +
                     "world again to try once more)");

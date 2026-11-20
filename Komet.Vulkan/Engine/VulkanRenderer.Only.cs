@@ -34,6 +34,47 @@ internal static partial class VulkanRenderer
     internal static string SafetyReason { get; private set; } = "";
     public static bool Requested { get; private set; }
 
+    // NVIDIA's Wayland WSI keeps the wl_surface with EGL: Vulkan's swapchain is refused with surface lost, and handing
+    // the window back can spin the main thread. OpenGL draws, Vulkan still does the compute. Once seen, a lost surface
+    // stays lost for this game run: a retry only repeats the failure.
+    private const string WaylandLock =
+        "Vulkan cannot present to a Wayland window with this NVIDIA driver (OpenGL owns the surface)";
+
+    internal static bool PresentationLost { get; private set; }
+
+    internal static bool CannotPresentOn(bool wayland, string gpu) =>
+        wayland && gpu.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase);
+
+    private static bool CannotPresent
+    {
+        get
+        {
+            if (GLFW.GetPlatform() != Platform.Wayland) return false;
+
+            var gpu = VulkanRecord.Gpu;
+            if (gpu.Length > 0) return CannotPresentOn(true, gpu);
+
+            try
+            {
+                return CannotPresentOn(true, $"{GL.GetString(StringName.Vendor)} {GL.GetString(StringName.Renderer)}");
+            }
+            catch (Exception e) when (e is InvalidOperationException or AccessViolationException
+                                          or EntryPointNotFoundException)
+            {
+                return false; // no current context: the record's own failure still decides
+            }
+        }
+    }
+
+    private static string? PresentationLock
+    {
+        get
+        {
+            if (CannotPresent) return WaylandLock;
+            return PresentationLost ? "Vulkan lost the window's surface" : null;
+        }
+    }
+
     // Off: GL draws again from its next call (GlTap.Resting), the renderer goes at the next frame (Paused). Lean's
     // holdings go back first; if that fails with the device alive, Vulkan-only stays on (held) until the world is left.
     // The device starts with it too.
@@ -46,7 +87,7 @@ internal static partial class VulkanRenderer
 
             var wasOnly = Only;
             // switched on in the world by the player: an earlier failure or safety mode no longer decides for them
-            if (value && !Requested && _api?.World?.Player is not null)
+            if (value && !Requested && _api?.World?.Player is not null && PresentationLock is null)
             {
                 VulkanRecord.Retry();
                 SafetyReason = "";
@@ -54,6 +95,10 @@ internal static partial class VulkanRenderer
 
             Requested = value;
             if (value && _api is not null && !_ran) CheckSafety();
+            if (value && PresentationLock is { } locked && SafetyReason.Length == 0)
+            {
+                (SafetyReason, Status) = (locked, locked);
+            }
 
             var changed = Only != wasOnly;
             // in the world the pools are made anew in the format the new renderer draws: lean and packed for Vulkan-only,
@@ -107,7 +152,7 @@ internal static partial class VulkanRenderer
         if (SafetyReason.Length > 0) return;
 
         var (available, total) = ResourceStats.SystemMemory();
-        SafetyReason = StartupSafety(VulkanRecord.Current(), available, total);
+        SafetyReason = PresentationLock ?? StartupSafety(VulkanRecord.Current(), available, total);
         if (SafetyReason.Length == 0) return;
 
         Status = SafetyReason;
@@ -118,6 +163,12 @@ internal static partial class VulkanRenderer
     // chosen, unless it failed in this very world (the next join tries)
     internal static void Retry()
     {
+        if (PresentationLock is { } locked)
+        {
+            _logger?.Notification("Komet: {0}; Komet keeps drawing with OpenGL", locked);
+            return;
+        }
+
         VulkanRecord.Retry();
         var was = Only;
         (SafetyReason, Status) = ("", "");

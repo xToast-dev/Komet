@@ -261,6 +261,22 @@ internal static partial class VulkanRenderer
     // Cairo's textures (dialogs, text) are the GUI's, made outside the Ortho stage too
     private static void CairoMaking() => GlTap.Gui++;
 
+    // Optimum's Skia draws reach GL through GLFW's procedure addresses, outside the GL tap. The finished texture still
+    // comes back through Cairo's upload seam: tell Vulkan it changed, so the existing readback fills its image before
+    // the engine's gui shader samples it. Without this the HUD is empty under Vulkan-only.
+    private static void CairoLoaded(int __result)
+    {
+        if (__result > 0 && _renderer is { } renderer) renderer.Images.Changed(__result);
+    }
+
+    private static void CairoUpdated(ref LoadedTexture intoTexture)
+    {
+        if (NotNull(intoTexture) && intoTexture.TextureId > 0 && _renderer is { } renderer)
+        {
+            renderer.Images.Changed(intoTexture.TextureId);
+        }
+    }
+
     private static void CairoMade() => GlTap.Gui = Math.Max(GlTap.Gui - 1, 0);
 
     // Tapped at mod start, before the engine compiles shaders and fills pools: the record hears them made

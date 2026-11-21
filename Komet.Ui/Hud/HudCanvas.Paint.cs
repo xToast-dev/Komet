@@ -1,12 +1,12 @@
 using System.Runtime.InteropServices;
-using Cairo;
+using SkiaSharp;
 
 namespace Komet.Hud;
 
-// HudCanvas: painting a recorded page with Cairo off the main thread and uploading it.
+// HudCanvas: painting a recorded page with SkiaSharp off the main thread and uploading it.
 internal sealed partial class HudCanvas
 {
-    // A paint that threw leaves its context in an error state: it is dropped, the next page paints on a new one
+    // A paint that threw leaves its canvas in an error state: it is dropped, the next page paints on a new one
     private void Pump()
     {
         if (_job is { IsCompleted: true } done)
@@ -38,125 +38,138 @@ internal sealed partial class HudCanvas
 
     private void Upload(Page page)
     {
-        if (!NotNull(_surface) || !Assert(page is { W: > 0, H: > 0 }))
-        {
-            return; // only pages End() took are painted
-        }
+        if (_surface is not { } bitmap || !Assert(page is { W: > 0, H: > 0 })) return;
 
-        _capi.Gui.LoadOrUpdateCairoTexture(_surface, false, ref _texture);
+        var count = bitmap.Width * bitmap.Height;
+        if (_pixels.Length != count) _pixels = new int[count];
+        Marshal.Copy(bitmap.GetPixels(), _pixels, 0, count); // BGRA, premultiplied: the engine's upload seam
+
+        (_texture.Width, _texture.Height) = (bitmap.Width, bitmap.Height);
+        _capi.Render.LoadOrUpdateTextureFromBgra(_pixels, false, 0, ref _texture);
         (Width, Height, Shown, _dropped) = (page.W, page.H, page.Tag, false);
     }
 
     private void Paint(Page page)
     {
         int w = RoundUp(page.W), h = RoundUp(page.H);
-        if (_ctx is null || _surface is null || _surface.Width != w || _surface.Height != h ||
-            _ctx.Status != Status.Success)
+        if (_ctx is null || _surface is null || _surface.Width != w || _surface.Height != h)
         {
             Surface(w, h);
         }
 
-        if (!Assert(_surface.Status == Status.Success)) return;
+        if (_surface is null || _ctx is not { } ctx) return;
 
-        var ctx = _ctx;
         _font = null; // a new page may come with resized fonts
-        ctx.Operator = Operator.Source;
-        ctx.SetSourceRGBA(0, 0, 0, 0);
-        ctx.Paint();
-        ctx.Operator = Operator.Over;
+        ctx.Clear(); // a transparent page: Skia's equivalent of Cairo's Source + Paint
+        ctx.RestoreToCount(0);
+
+        using var paint = new SKPaint { IsAntialias = true };
+        using var font = new SKFont { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
         var cmds = CollectionsMarshal.AsSpan(page.Cmds);
         var points = CollectionsMarshal.AsSpan(page.Points);
         for (var i = 0; i < Math.Min(cmds.Length, MaxCmds); i++)
         {
-            Paint(ctx, cmds[i], points);
+            Paint(ctx, paint, font, cmds[i], points);
         }
 
-        ctx.ResetClip();
-        _surface.Flush();
+        ctx.RestoreToCount(0);
+        _surface.SetImmutable();
     }
 
-    private void Paint(Context ctx, in Cmd c, ReadOnlySpan<double> points)
+    private void Paint(SKCanvas ctx, SKPaint paint, SKFont font, in Cmd c, ReadOnlySpan<double> points)
     {
-        if (c.Op is not (Op.Text or Op.Clip or Op.Unclip)) Source(ctx, c.Color);
+        paint.Style = SKPaintStyle.Fill;
+        paint.Shader = null;
+        paint.PathEffect = null;
+        if (c.Op is not (Op.Text or Op.Clip or Op.Unclip)) Source(paint, c.Color);
+        Draw(ctx, paint, font, c, points);
+    }
 
+    // One recorded command; the clip's Save() pairs with the following Unclip()'s Restore()
+    private void Draw(SKCanvas ctx, SKPaint paint, SKFont font, in Cmd c, ReadOnlySpan<double> points)
+    {
         switch (c.Op)
         {
             case Op.Fill:
-                RoundRectangle(ctx, c.A, c.B, c.C, c.D, c.E);
-                ctx.Fill();
+                using (var fill = RoundRect(c.A, c.B, c.C, c.D, c.E))
+                {
+                    ctx.DrawPath(fill, paint);
+                }
                 break;
             case Op.Text:
-                Text(ctx, c);
+                Text(ctx, paint, font, c);
                 break;
             case Op.Line:
-                Line(ctx, c);
+                Line(ctx, paint, c);
                 break;
             case Op.Polyline:
-                Polyline(ctx, c, points.Slice(c.From, 2 * c.Count));
+                Polyline(ctx, paint, c, points.Slice(c.From, 2 * c.Count));
                 break;
             case Op.Area:
-                Area(ctx, c, points.Slice(c.From, 2 * c.Count));
+                Area(ctx, paint, c, points.Slice(c.From, 2 * c.Count));
                 break;
             case Op.Circle:
-                ctx.Arc(c.A, c.B, c.C, 0, 2 * Math.PI);
-                ctx.Fill();
+                ctx.DrawCircle((float)c.A, (float)c.B, (float)c.C, paint);
                 break;
             case Op.Arc:
-                Bow(ctx, c);
+                Bow(ctx, paint, c);
                 break;
             case Op.Caret:
-                ctx.MoveTo(c.A, c.B);
-                ctx.LineTo(c.A + c.C, c.Flag ? c.B : c.B + c.C / 2);
-                ctx.LineTo(c.Flag ? c.A + c.C / 2 : c.A, c.B + c.C);
-                ctx.ClosePath();
-                ctx.Fill();
+                Caret(ctx, paint, c);
                 break;
             case Op.Clip:
-                ctx.Rectangle(c.A, c.B, c.C, c.D);
-                ctx.Clip();
+                _ = ctx.Save();
+                ctx.ClipRect(Rect(c.A, c.B, c.C, c.D));
                 break;
             case Op.Unclip:
-                ctx.ResetClip();
+                ctx.Restore();
                 break;
             case Op.Outline:
-                Outline(ctx, c);
+                Outline(ctx, paint, c);
                 break;
             case Op.Image:
-                Picture(ctx, c);
+                Picture(ctx, paint, c);
                 break;
             case Op.Arrow:
-                Arrowhead(ctx, c);
+                using (var head = Arrowhead(c))
+                {
+                    ctx.DrawPath(head, paint);
+                }
                 break;
         }
     }
 
-    private static void Bow(Context ctx, in Cmd c)
+    private static void Caret(SKCanvas ctx, SKPaint paint, in Cmd c)
     {
-        ctx.LineWidth = c.F;
-        ctx.NewPath();
-        ctx.Arc(c.A, c.B, c.C, c.D, c.E);
-        ctx.Stroke();
+        using var path = new SKPath();
+        path.MoveTo((float)c.A, (float)c.B);
+        path.LineTo((float)(c.A + c.C), (float)(c.Flag ? c.B : c.B + c.C / 2));
+        path.LineTo((float)(c.Flag ? c.A + c.C / 2 : c.A), (float)(c.B + c.C));
+        path.Close();
+        ctx.DrawPath(path, paint);
     }
 
-    private static void Arrowhead(Context ctx, in Cmd c)
+    private static SKPath Arrowhead(in Cmd c)
     {
         var (d, s) = (c.Flag ? 1 : -1, c.C / 2);
-        ctx.MoveTo(c.A + d * s * 0.7, c.B);
-        ctx.LineTo(c.A - d * s * 0.7, c.B - s);
-        ctx.LineTo(c.A - d * s * 0.25, c.B);
-        ctx.LineTo(c.A - d * s * 0.7, c.B + s);
-        ctx.ClosePath();
-        ctx.Fill();
+        var path = new SKPath();
+        path.MoveTo((float)(c.A + d * s * 0.7), (float)c.B);
+        path.LineTo((float)(c.A - d * s * 0.7), (float)(c.B - s));
+        path.LineTo((float)(c.A - d * s * 0.25), (float)c.B);
+        path.LineTo((float)(c.A - d * s * 0.7), (float)(c.B + s));
+        path.Close();
+        return path;
     }
 
-    private static void Outline(Context ctx, in Cmd c)
+    private static void Outline(SKCanvas ctx, SKPaint paint, in Cmd c)
     {
-        RoundRectangle(ctx, c.A + 0.5, c.B + 0.5, c.C - 1, c.D - 1, 0);
-        ctx.LineWidth = 1;
-        ctx.Stroke();
+        using var path = RoundRect(c.A + 0.5, c.B + 0.5, c.C - 1, c.D - 1, 0);
+        paint.Style = SKPaintStyle.Stroke;
+        paint.StrokeWidth = 1;
+        ctx.DrawPath(path, paint);
     }
 
-    private static void Picture(Context ctx, in Cmd c)
+    private static void Picture(SKCanvas ctx, SKPaint paint, in Cmd c)
     {
         if (c.Image is not { } image || !Assert(c.C > 0)) return;
 
@@ -165,56 +178,49 @@ internal sealed partial class HudCanvas
             ? Math.Floor(scale)
             : 1 / Math.Ceiling(1 / scale); // whole steps both ways: pixel art stays even
         var (w, h) = (image.Width * scale, image.Height * scale);
-        ctx.Save();
-        ctx.Translate(Math.Round(c.A + (c.C - w) / 2), Math.Round(c.B + (c.C - h) / 2));
-        ctx.Scale(scale, scale);
-        using var pattern = new SurfacePattern(image);
-        pattern.Filter = scale >= 1 ? Filter.Nearest : Filter.Best;
-        ctx.SetSource(pattern);
-        ctx.Rectangle(0, 0, image.Width, image.Height);
-        ctx.Clip();
-        ctx.PaintWithAlpha(c.Color.A);
+        using var source = SKImage.FromBitmap(image);
+        var sampling = new SKSamplingOptions(scale >= 1 ? SKFilterMode.Nearest : SKFilterMode.Linear);
+        _ = ctx.Save();
+        ctx.Translate((float)Math.Round(c.A + (c.C - w) / 2), (float)Math.Round(c.B + (c.C - h) / 2));
+        ctx.Scale((float)scale, (float)scale);
+        ctx.DrawImage(source, 0, 0, sampling, paint);
         ctx.Restore();
     }
 
-    private static void Line(Context ctx, in Cmd c)
+    private static void Line(SKCanvas ctx, SKPaint paint, in Cmd c)
     {
-        ctx.LineWidth = c.E;
-        if (c.F > 0) ctx.SetDash([c.F, c.F], 0);
+        paint.Style = SKPaintStyle.Stroke;
+        paint.StrokeWidth = (float)c.E;
+        if (c.F > 0) paint.PathEffect = SKPathEffect.CreateDash([(float)c.F, (float)c.F], 0);
 
-        ctx.MoveTo(c.A, c.B);
-        ctx.LineTo(c.C, c.D);
-        ctx.Stroke();
-        if (c.F > 0) ctx.SetDash([], 0);
+        ctx.DrawLine((float)c.A, (float)c.B, (float)c.C, (float)c.D, paint);
     }
 
-    private void Text(Context ctx, in Cmd c)
+    private void Text(SKCanvas ctx, SKPaint paint, SKFont font, in Cmd c)
     {
-        if (c.Font is not { } font || !NotNull(c.Text) || !Assert(c.D > 0))
-        {
-            return; // Text() records both and the size
-        }
+        if (c.Font is not { } face || !NotNull(c.Text) || !Assert(c.D > 0)) return;
 
-        var setUp = !ReferenceEquals(font, _font) || Math.Abs(c.D - _fontSize) > 1e-9;
-        if (setUp) Setup(ctx, font, c.D);
+        var setUp = !ReferenceEquals(face, _font) || Math.Abs(c.D - _fontSize) > 1e-9;
+        if (setUp) Setup(font, face, c.D);
 
-        (_font, _fontSize) = (font, c.D);
+        (_font, _fontSize) = (face, c.D);
         if (c.Flag)
         {
-            Source(ctx, c.Color);
+            Source(paint, c.Color);
         }
-        else if (!setUp)
+        else
         {
-            FontColor(ctx, font.Color);
+            FontColor(paint, face.Color);
         }
 
-        var extents = ctx.FontExtents;
-        ctx.MoveTo(c.A, c.B + (c.C - extents.Height * font.LineHeightMultiplier) / 2 + extents.Ascent);
-        ctx.ShowText(Utf8(ref _text, c.Text));
+        var height = SkiaFonts.Height(font);
+        var y = c.B + (c.C - height * face.LineHeightMultiplier) / 2 + SkiaFonts.Ascent(font);
+        ctx.DrawText(c.Text, (float)c.A, (float)y, font, paint);
     }
 
-    private static void Polyline(Context ctx, in Cmd c, ReadOnlySpan<double> xy)
+    private static void Polyline(SKCanvas ctx, SKPaint paint, in Cmd c, ReadOnlySpan<double> xy)
     {
+        using var path = new SKPath();
         var open = false;
         for (var i = 0; i < Math.Min(xy.Length - 1, 2 * MaxSize); i += 2)
         {
@@ -224,33 +230,63 @@ internal sealed partial class HudCanvas
             }
             else if (open)
             {
-                ctx.LineTo(xy[i], xy[i + 1]);
+                path.LineTo((float)xy[i], (float)xy[i + 1]);
             }
             else if (double.IsFinite(xy[i]))
             {
-                ctx.MoveTo(xy[i], xy[i + 1]);
+                path.MoveTo((float)xy[i], (float)xy[i + 1]);
                 open = true;
             }
         }
 
-        ctx.LineWidth = c.E;
-        ctx.Stroke();
+        paint.Style = SKPaintStyle.Stroke;
+        paint.StrokeWidth = (float)c.E;
+        ctx.DrawPath(path, paint);
     }
 
-    private static void Area(Context ctx, in Cmd c, ReadOnlySpan<double> xy)
+    private static void Area(SKCanvas ctx, SKPaint paint, in Cmd c, ReadOnlySpan<double> xy)
     {
-        ctx.MoveTo(xy[0], c.B);
+        using var path = new SKPath();
+        path.MoveTo((float)xy[0], (float)c.B);
         for (var i = 0; i < Math.Min(xy.Length - 1, 2 * MaxSize); i += 2)
         {
-            ctx.LineTo(xy[i], double.IsFinite(xy[i + 1]) ? xy[i + 1] : c.B);
+            path.LineTo((float)xy[i], (float)(double.IsFinite(xy[i + 1]) ? xy[i + 1] : c.B));
         }
 
-        ctx.LineTo(xy[^2], c.B);
-        ctx.ClosePath();
-        using var gradient = new LinearGradient(0, c.A, 0, c.B);
-        _ = gradient.AddColorStop(0, new Color(c.Color.R, c.Color.G, c.Color.B, c.Color.A));
-        _ = gradient.AddColorStop(1, new Color(c.Color.R, c.Color.G, c.Color.B, 0));
-        ctx.SetSource(gradient);
-        ctx.Fill();
+        path.LineTo((float)xy[^2], (float)c.B);
+        path.Close();
+        using var gradient = SKShader.CreateLinearGradient(new SKPoint(0, (float)c.A), new SKPoint(0, (float)c.B),
+            [SkiaFonts.Color(c.Color), SkiaFonts.Color(c.Color with { A = 0 })], SKShaderTileMode.Clamp);
+        paint.Shader = gradient;
+        ctx.DrawPath(path, paint);
     }
+
+    private static void Bow(SKCanvas ctx, SKPaint paint, in Cmd c)
+    {
+        paint.Style = SKPaintStyle.Stroke;
+        paint.StrokeWidth = (float)c.F;
+        using var path = new SKPath();
+        path.AddArc(Rect(c.A - c.C, c.B - c.C, 2 * c.C, 2 * c.C),
+            (float)(c.D * 180 / Math.PI), (float)((c.E - c.D) * 180 / Math.PI));
+        ctx.DrawPath(path, paint);
+    }
+
+    private static SKPath RoundRect(double x, double y, double w, double h, double r)
+    {
+        var path = new SKPath();
+        var rect = Rect(x, y, w, h);
+        if (r > 0)
+        {
+            path.AddRoundRect(rect, (float)Math.Min(r, w / 2), (float)Math.Min(r, h / 2));
+        }
+        else
+        {
+            path.AddRect(rect);
+        }
+
+        return path;
+    }
+
+    private static SKRect Rect(double x, double y, double w, double h) =>
+        new((float)x, (float)y, (float)(x + w), (float)(y + h));
 }

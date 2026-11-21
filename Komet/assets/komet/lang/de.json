@@ -1032,7 +1032,7 @@
   "settings-directchunks": "Chunks direkt übergeben",
   "settings-directchunks-hint": "Im Einzelspieler gibt der eingebaute Server Chunks, Kartenspalten und einzelne Blockänderungen (Laub, Gras, Schnee) als fertige Daten an das Spiel weiter, statt sie zu verpacken, zu kopieren und wieder auszulesen. Beim Laden entsteht deutlich weniger Müll, und Chunks liegen nur einmal im Speicher.",
   "settings-chunkqueuewalk": "Ladewarteschlange ohne Müll",
-  "settings-chunkqueuewalk-hint": "Der eingebaute Server geht seine Chunk-Ladewarteschlange tausende Male pro Sekunde durch, auch bei fertig geladener Welt, und jeder Durchgang lässt ein kleines Objekt zurück. Hier ohne: weniger Garbage Collections im Einzelspieler. Standardmäßig aus: vergleich es in deiner Welt.",
+  "settings-chunkqueuewalk-hint": "Der eingebaute Server geht seine Chunk-Ladewarteschlange tausende Male pro Sekunde durch, auch bei fertig geladener Welt, und jeder Durchgang lässt ein kleines Objekt zurück. Hier ohne: weniger Garbage Collections im Einzelspieler. Standardmäßig an: vergleich es in deiner Welt.",
   "settings-packedticks": "Ruhige Chunks gepackt lassen",
   "settings-packedticks-hint": "Der Server tickt zufällige Blöcke in allen Chunks um einen Spieler und hält sie dafür alle entpackt. Chunks ohne Blöcke, die wachsen, schmelzen oder sich ausbreiten können (Gestein tief unten, Luft darüber), werden übersprungen und bleiben gepackt: weniger Speicher, gleiche Ticks. Auch auf einem dedizierten Server.",
   "settings-columnnoisescratch": "Gelände sparsamer erzeugen",

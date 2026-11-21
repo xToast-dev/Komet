@@ -150,7 +150,7 @@ internal static class ChunkFeatures
             ],
             Probe = () => DirectChunks.Installed && PackedReads.Installed ? Active : EngineChanged
         },
-        // the server's worldgen threads walk the load queue without a new iterator each time (off: compared in game)
+        // the server's worldgen threads walk the load queue without a new iterator each time (on by default)
         new("ChunkQueueWalk")
         {
             Order = 635,

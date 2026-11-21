@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
-using Cairo;
 using HarmonyLib;
 using Komet.Core;
 using Komet.Diagnostics;
 using Komet.Options;
 using Komet.Ui.Hud;
+using SkiaSharp;
 
 namespace Komet.Hud;
 
@@ -45,23 +45,20 @@ internal static class HudWarmup
         }
     }
 
-    // cairo's font caches are process-wide and locked: a private surface on a pool thread loads the faces. SetupContext
-    // (writes options) stays on the main thread.
+    // Skia's font caches are process-wide: a private canvas on a pool thread loads the faces and shapes the glyphs
+    // before the first HUD frame asks for them.
     private static void WarmFonts(HudUiFonts fonts)
     {
-        using var surface = new ImageSurface(Format.Argb32, 64, 64);
-        using var context = new Context(surface);
-        using var options = new FontOptions();
-        options.Antialias = Antialias.Subpixel; // what SetupContext sets, part of the scaled font's cache key
-        context.FontOptions = options;
-        foreach (var font in (ReadOnlySpan<CairoFont>)
+        using var bitmap = new SKBitmap(64, 64);
+        using var canvas = new SKCanvas(bitmap);
+        using var paint = new SKPaint();
+        using var font = new SKFont { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
+        foreach (var face in (ReadOnlySpan<CairoFont>)
                  [fonts.Small, fonts.Body, fonts.Strong, fonts.Stat, fonts.Big, fonts.Huge, fonts.Mono])
         {
-            context.SelectFontFace(font.Fontname, font.Slant, font.FontWeight);
-            context.SetFontSize(scaled(font.UnscaledFontsize));
-            _ = context.TextExtents(Glyphs);
-            context.MoveTo(0, 32);
-            context.ShowText(Glyphs);
+            SkiaFonts.Setup(font, face, scaled(face.UnscaledFontsize));
+            _ = font.MeasureText(Glyphs);
+            canvas.DrawText(Glyphs, 0, 32, font, paint);
         }
     }
 

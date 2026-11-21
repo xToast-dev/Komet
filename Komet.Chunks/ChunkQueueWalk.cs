@@ -11,8 +11,8 @@ namespace Komet.Chunks;
 // iterator) in a loop, also when the world is loaded and the queue is empty: every walk is a new iterator object, tens of
 // thousands a second, garbage that starts the client's collections too (the server shares the process). Here each
 // foreach over that queue in ServerSystemSupplyChunks takes a walker from a small per-thread pool instead, with the
-// iterator's exact steps (the same snapshot of the end, the same jump to the bleeding edge). Off by default: an October
-// measurement halved the GCs but showed a lower 1 % low, so the player compares it in game.
+// iterator's exact steps (the same snapshot of the end, the same jump to the bleeding edge). On by default: an October
+// measurement halved the GCs but showed a lower 1 % low, so the player can compare it in game.
 internal static class ChunkQueueWalk
 {
     private const int MaxPatched = 32;
@@ -20,7 +20,7 @@ internal static class ChunkQueueWalk
     private static MethodInfo? _rent;
     private static Type? _queueType;
 
-    public static bool Enabled { get; set; }
+    public static bool Enabled { get; set; } = true;
     public static bool Installed { get; private set; }
     public static int Sites { get; private set; }
 

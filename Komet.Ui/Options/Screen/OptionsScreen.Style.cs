@@ -1,4 +1,3 @@
-using Cairo;
 using Komet.Core;
 using Komet.Hud;
 using Vintagestory.API.MathTools;
@@ -277,15 +276,10 @@ internal sealed partial class OptionsScreen
 
         if (_white.TextureId == 0)
         {
-            using var surface = new ImageSurface(Format.Argb32, 4, 4);
-            using (var ctx = new Context(surface))
-            {
-                ctx.SetSourceRGBA(1, 1, 1, 1);
-                ctx.Paint();
-            }
-
-            surface.Flush();
-            capi.Gui.LoadOrUpdateCairoTexture(surface, false, ref _white);
+            (_white.Width, _white.Height) = (4, 4);
+            var white = new int[16];
+            Array.Fill(white, unchecked((int)0xFFFFFFFF));
+            capi.Render.LoadOrUpdateTextureFromRgba(white, false, 0, ref _white);
         }
 
         _ = _tint.Set((float)color.R, (float)color.G, (float)color.B, (float)Math.Min(1, color.A));

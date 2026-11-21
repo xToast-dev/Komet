@@ -5,7 +5,7 @@ using static Komet.Options.OptionsText;
 
 namespace Komet.Options;
 
-// Recomposed only on change, painted by Cairo on a worker (the main thread records and uploads); the hover highlight is
+// Recomposed only on change, painted by Skia on a worker (the main thread records and uploads); the hover highlight is
 // a translucent rectangle on top.
 internal sealed partial class OptionsScreen
 {

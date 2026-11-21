@@ -25,7 +25,7 @@ internal sealed partial class HudSampler(ICoreClientAPI capi, HudSettings settin
 {
     private const int WarmupMs = 5000, SettleMs = 30000;
 
-    // Not steady after the HUD appears or around a dialog: JIT, first Cairo passes and composition owned the 0.1 % low
+    // Not steady after the HUD appears or around a dialog: JIT, first Skia passes and composition owned the 0.1 % low
     // ~20 s.
     private const int QuietMs = 1000;
 

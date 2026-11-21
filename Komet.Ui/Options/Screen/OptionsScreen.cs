@@ -46,7 +46,7 @@ internal sealed partial class OptionsScreen : GuiDialog
 
     public OptionsScreen(ICoreClientAPI capi, HudSettings settings, KometActions actions) : base(capi)
     {
-        _canvas = new HudCanvas(capi, true); // Cairo paints on a worker, the main thread only records
+        _canvas = new HudCanvas(capi, true); // Skia paints on a worker, the main thread only records
         Controls = new MenuControls(_canvas, _fonts);
         _backdrop = new Backdrop(capi);
         _settings = settings;

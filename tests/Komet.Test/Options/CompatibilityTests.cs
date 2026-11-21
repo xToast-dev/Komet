@@ -47,6 +47,18 @@ public sealed class CompatibilityTests
     }
 
     [Test]
+    public void TheMenuFallbackNeedsThe123DpiScaleAndEveryTab()
+    {
+        var shaped = Komet.Options.GraphicsMenu.Shaped();
+        Assert.That(Komet.Options.GraphicsMenu.Structured(shaped), Is.True);
+        var broken = (MethodBase?[])shaped.Clone();
+        broken[2] = null;
+        Assert.That(Komet.Options.GraphicsMenu.Structured(broken), Is.False);
+        Assert.That(Komet.Options.GraphicsMenu.PointRelease123(shaped), Is.False,
+            "1.22.7 has no DPI scale and keeps its stand-down");
+    }
+
+    [Test]
     public void FingerprintMismatchNamesExpectedFoundAndMethods()
     {
         var target = AccessTools.Method(typeof(CompatibilityTests), nameof(Target));

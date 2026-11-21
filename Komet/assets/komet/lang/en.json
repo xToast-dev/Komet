@@ -1032,7 +1032,7 @@
   "settings-directchunks": "Hand chunks over directly",
   "settings-directchunks-hint": "In singleplayer the built-in server hands chunks, map columns and single block changes (leaves, grass, snow) to the game as they are instead of serializing, copying and reading them back. Loading makes far less garbage, and each chunk's packed data is held once.",
   "settings-chunkqueuewalk": "Load queue without garbage",
-  "settings-chunkqueuewalk-hint": "The built-in server walks its chunk load queue many thousand times a second, also when the world is loaded, and each walk leaves a small object behind. This walks it without them: fewer garbage collections in singleplayer. Off by default: compare it in your world.",
+  "settings-chunkqueuewalk-hint": "The built-in server walks its chunk load queue many thousand times a second, also when the world is loaded, and each walk leaves a small object behind. This walks it without them: fewer garbage collections in singleplayer. On by default: compare it in your world.",
   "settings-packedticks": "Leave quiet chunks packed",
   "settings-packedticks-hint": "The server ticks random blocks in every chunk around a player and keeps all of them unpacked for it. Chunks without blocks that can grow, melt or spread (rock deep down, air above) are skipped and stay packed: less memory, same ticks. Also on a dedicated server.",
   "settings-columnnoisescratch": "Leaner terrain generation",

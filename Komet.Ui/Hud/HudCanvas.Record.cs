@@ -1,4 +1,4 @@
-using Cairo;
+using SkiaSharp;
 
 namespace Komet.Hud;
 
@@ -7,7 +7,7 @@ internal sealed partial class HudCanvas
 {
     // An image fitted into the square at x, y, centred: whole-number steps upward with sharp pixels (pixel art), whole
     // fractions (1/2, 1/3) downward, averaged evenly. The surface must outlive the paint (a worker may still read it).
-    public void Image(ImageSurface image, double x, double y, double size)
+    public void Image(SKBitmap image, double x, double y, double size)
     {
         if (NotNull(image) && Finite(x + y) && Assert(size > 0) && image is { Width: > 0, Height: > 0 })
         {
@@ -16,7 +16,7 @@ internal sealed partial class HudCanvas
     }
 
     // The side an image is drawn at when fitted into a square of size (Image's whole steps)
-    public static double Fitted(ImageSurface image, double size)
+    public static double Fitted(SKBitmap image, double size)
     {
         if (!NotNull(image) || !Assert(size > 0) || image.Width <= 0 || image.Height <= 0) return 0;
 

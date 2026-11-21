@@ -38,6 +38,18 @@ internal static class GraphicsMenu
         Array.ConvertAll(Tabs,
             tab => (MethodBase?)AccessTools.Method(typeof(GuiCompositeSettings), tab, [typeof(bool)]));
 
+    // The patch only swaps a composer: a 1.23 point release rebuilding a tab body must not hand the whole menu back
+    // to the game. Recognize that engine by the DPI scale its interface tab uses, never by a version string, and
+    // insist on every seam and field we use before falling back.
+    internal static bool Structured(MethodBase?[] shaped) =>
+        shaped.Length == Tabs.Length && Array.TrueForAll(shaped, static tab => tab is not null) &&
+        AccessTools.Field(typeof(GuiCompositeSettings), "handler") is not null &&
+        AccessTools.Field(typeof(GuiCompositeSettings), "composer") is not null &&
+        AccessTools.Method(typeof(GuiCompositeSettings), "OpenSettingsMenu") is not null;
+
+    internal static bool PointRelease123(MethodBase?[] shaped) =>
+        AccessTools.Field(typeof(RuntimeEnv), "DPIHScale") is not null && Structured(shaped);
+
     public static void Install(Harmony harmony, ICoreClientAPI capi, OptionsScreen dialog, ILogger? logger)
     {
         (Installed, _dialog, _logger, StoodDown) = (false, dialog, logger, false);
@@ -45,7 +57,8 @@ internal static class GraphicsMenu
         EngineOptions.NameUnbound(harmony);
         var shaped = Shaped();
         if (!NotNull(dialog) || shaped[0] is not MethodInfo target ||
-            !EngineShape.Matches(shaped, Fingerprint, Fingerprint123, nameof(GraphicsMenu), logger))
+            (!EngineShape.Matches(shaped, Fingerprint, Fingerprint123, nameof(GraphicsMenu), logger) &&
+             !PointRelease123(shaped)))
         {
             return;
         }

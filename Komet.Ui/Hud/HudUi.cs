@@ -1,7 +1,7 @@
-using Cairo;
 using Komet.Core;
 using Komet.Options;
 using Komet.Ui.Hud;
+using SkiaSharp;
 
 namespace Komet.Hud;
 
@@ -29,7 +29,7 @@ internal sealed class HudUi(
 
     // The style's logo and header band (the window's head as the menu's). The logo belongs to the style library, which
     // keeps it until the world ends; released (Handle 0) it reads as none, until the next world's style comes.
-    private static ImageSurface? _logo;
+    private static SKBitmap? _logo;
 
     // Spaced's ASCII glyphs as strings: a recompose takes no string per letter (shared by worker threads, never written)
     private static readonly string[] Glyphs = AsciiGlyphs();
@@ -58,7 +58,7 @@ internal sealed class HudUi(
     // How round corners are: 1 before a style, 0 square (the menu's look); Frame draws the menu's hairline edge
     private static double Round { get; set; } = 1;
     public static bool Framed { get; private set; }
-    public static ImageSurface? Logo => _logo is { Handle: not 0 } logo ? logo : null;
+    public static SKBitmap? Logo => _logo is { Handle: not 0 } logo ? logo : null;
     public static Rgba Band { get; private set; } = Rgba.White(0.04);
 
     public HudUiFonts F => fonts;
@@ -215,7 +215,7 @@ internal sealed class HudUi(
         return Math.Max(0, at - x - tracking);
     }
 
-    public void Image(ImageSurface image, double x, double y, double size) => canvas.Image(image, x, At(y), size);
+    public void Image(SKBitmap image, double x, double y, double size) => canvas.Image(image, x, At(y), size);
 
     public double TextW(CairoFont font, string text) => text.Length == 0 ? 0 : canvas.TextWidth(font, text);
 

@@ -1,10 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
-using Cairo;
+using SkiaSharp;
 
 namespace Komet.Hud;
 
-// HudCanvas: drawing the uploaded texture, Cairo helpers and the recorded command types.
+// HudCanvas: drawing the uploaded texture, Skia helpers and the recorded command types.
 internal sealed partial class HudCanvas
 {
     // z: depth among the GUI's draws (the hotbar's item stacks sit above the default)
@@ -61,50 +60,21 @@ internal sealed partial class HudCanvas
         _capi.Render.Render2DTexturePremultipliedAlpha(_texture.TextureId, x, y, w, h, z, _tint);
     }
 
-    // SetupContext without a finalizable FontOptions per call and without writing the font (measured on main while a
-    // worker paints); each context keeps the last font and size
-    private static void Setup(Context ctx, CairoFont font, double size)
-    {
-        ctx.SetFontSize(size);
-        ctx.SelectFontFace(font.Fontname, font.Slant, font.FontWeight);
-        ctx.FontOptions = Subpixel;
-        FontColor(ctx, font.Color);
-    }
+    // The font keeps its typeface and size from text to text; the worker never touches the main thread's measure font
+    private static void Setup(SKFont font, CairoFont face, double size) => SkiaFonts.Setup(font, face, size);
 
     [MemberNotNull(nameof(_ctx), nameof(_surface))]
     private void Surface(int width, int height)
     {
         Release();
-        _surface = new ImageSurface(Format.Argb32, width, height);
-        _ctx = new Context(_surface);
+        _surface = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+        _ctx = new SKCanvas(_surface);
+        _pixels = new int[width * height];
     }
 
-    // ShowText/TextExtents(string) allocate per call; a 0-terminated array is taken as is. One buffer per thread.
-    private static byte[] Utf8(ref byte[] buffer, string text)
-    {
-        var need = Encoding.UTF8.GetMaxByteCount(text.Length) + 1;
-        if (buffer.Length < need) buffer = new byte[Math.Max(need, 2 * buffer.Length)];
+    private static void FontColor(SKPaint paint, double[]? color) => paint.Color = SkiaFonts.Color(color);
 
-        var n = Encoding.UTF8.GetBytes(text, buffer);
-        (buffer[n], buffer[^1]) = (0, 0);
-        return buffer;
-    }
-
-    private static void FontColor(Context ctx, double[]? color)
-    {
-        if (!Assert(color is null or { Length: 3 or 4 })) return;
-
-        if (color is [var r, var g, var b])
-        {
-            ctx.SetSourceRGB(r, g, b);
-        }
-        else if (color is [var r4, var g4, var b4, var a])
-        {
-            ctx.SetSourceRGBA(r4, g4, b4, a);
-        }
-    }
-
-    private static void Source(Context ctx, Rgba color) => ctx.SetSourceRGBA(color.R, color.G, color.B, color.A);
+    private static void Source(SKPaint paint, Rgba color) => paint.Color = SkiaFonts.Color(color);
 
     private static int RoundUp(double value) =>
         Assert(value is > 0 and <= MaxSize) ? (int)Math.Ceiling(value / SizeStep) * SizeStep : SizeStep;
@@ -140,7 +110,7 @@ internal sealed partial class HudCanvas
         int From = 0,
         int Count = 0,
         bool Flag = false,
-        ImageSurface? Image = null);
+        SKBitmap? Image = null);
 
     private sealed class Page
     {

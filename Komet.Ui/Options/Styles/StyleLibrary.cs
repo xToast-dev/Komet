@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text;
-using Cairo;
 using Komet.Core;
 using Komet.Hud;
 using Komet.Rendering;
 using Newtonsoft.Json;
+using SkiaSharp;
 using Newtonsoft.Json.Linq;
 using Path = System.IO.Path;
 
@@ -344,7 +344,7 @@ internal sealed class StyleLibrary(ICoreClientAPI capi) : IDisposable
     }
 
     // The style's logo, else the player's ModConfig/komet/logo.png, else Komet's icon
-    private ImageSurface? Logo(string? named)
+    private SKBitmap? Logo(string? named)
     {
         var bytes = (named is null ? null : Bytes(named, MaxImage)) ?? Bytes(UserLogo, MaxImage) ??
             Bytes("komet:" + AssetPath + "logo.png", MaxImage);
@@ -352,8 +352,8 @@ internal sealed class StyleLibrary(ICoreClientAPI capi) : IDisposable
 
         try
         {
-            using var bitmap = new BitmapExternal(bytes, bytes.Length, capi.Logger);
-            return bitmap is { Width: > 0, Height: > 0 } ? getImageSurfaceFromAsset(bitmap) : null;
+            var bitmap = SKBitmap.Decode(bytes);
+            return bitmap is { Width: > 0, Height: > 0 } ? bitmap : null;
         }
         catch (Exception e) when (e is not OutOfMemoryException)
         {

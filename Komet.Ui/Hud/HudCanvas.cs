@@ -1,4 +1,4 @@
-using Cairo;
+using SkiaSharp;
 using Vintagestory.API.MathTools;
 
 namespace Komet.Hud;
@@ -10,8 +10,8 @@ internal readonly record struct Rgba(double R, double G, double B, double A)
     public static Rgba Black(double alpha) => new(0, 0, 0, Assert(alpha is >= 0 and <= 1) ? alpha : 1);
 }
 
-// Draws recorded on the main thread, painted by Cairo at End() there or (background) on a worker; the main thread only
-// uploads. A page not yet painted when a newer one ends is dropped.
+// Draws recorded on the main thread, painted by SkiaSharp at End() there or (background) on a worker; the main thread
+// only uploads. A page not yet painted when a newer one ends is dropped.
 internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = false) : IDisposable
 {
     public const int GraphFrames = 240;
@@ -24,9 +24,6 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
 
     private static readonly Rgba GridLine = Rgba.White(0.07), GridMajor = Rgba.White(0.18);
 
-    private static readonly FontOptions
-        Subpixel = new() { Antialias = Antialias.Subpixel }; // what CairoFont.SetupContext sets
-
     // ReSharper disable once ReplaceWithPrimaryConstructorParameter - the other partial files use it, not the parameter
     private readonly bool _background = background;
 
@@ -36,24 +33,22 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
     private readonly Vec4f _tint = new();
     private Page? _abandoned; // the page painting when Drop() came: thrown away, not uploaded
 
-    private Context? _ctx; // the painter's: the worker's while a job runs
+    private SKCanvas? _ctx; // the painter's: the worker's while a job runs
     private bool _dropped; // the shown page is hidden until the next upload
     private bool _faulted; // a failed paint is logged once
     private CairoFont? _font;
     private double _fontSize; // the size _font was set up with: a text records the size it was drawn at
     private Task? _job;
 
-    private Context? _measure; // the main thread's
+    private SKFont? _measure; // the main thread's, kept so measuring in a loop allocates no font
     private CairoFont? _measureFont; // set up on _measure since Blank() or BeginMeasure()
     private double _measureSize;
-    private ImageSurface? _measureSurface;
+    private int[] _pixels = []; // the upload buffer, reused while the surface keeps its size
     private Page? _next, _busy, _spare; // waiting to be painted, being painted, free
 
     private Page _page = new();
-    private ImageSurface? _surface;
-    private byte[] _text = new byte[256];
+    private SKBitmap? _surface;
     private LoadedTexture _texture = new(capi);
-    private byte[] _utf8 = new byte[256];
 
     public double Width { get; private set; }
     public double Height { get; private set; }
@@ -86,8 +81,7 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
         _texture.Dispose();
         Release();
         _measure?.Dispose();
-        _measureSurface?.Dispose();
-        (_measure, _measureSurface, _measureFont) = (null, null, null);
+        (_measure, _measureFont) = (null, null);
     }
 
     private void Release()
@@ -99,16 +93,11 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
 
     public void BeginMeasure()
     {
-        if (_measure is null)
-        {
-            _measureSurface = new ImageSurface(Format.Argb32, SizeStep, SizeStep);
-            _measure = new Context(_measureSurface);
-        }
-
+        _measure ??= new SKFont { Edging = SKFontEdging.SubpixelAntialias, Subpixel = true };
         _measureFont = null;
     }
 
-    // GetTextExtents runs SetupContext per call, slow and allocating
+    // MeasureText allocates no glyph buffer of its own; the font is set up per font and size only
     public double TextWidth(CairoFont font, string text)
     {
         if (text.Length == 0 || !Assert(font.UnscaledFontsize > 0)) return 0;
@@ -116,10 +105,13 @@ internal sealed partial class HudCanvas(ICoreClientAPI capi, bool background = f
         if (_measure is null) BeginMeasure();
 
         var size = scaled(font.UnscaledFontsize);
-        if (!ReferenceEquals(font, _measureFont) || Math.Abs(size - _measureSize) > 1e-9) Setup(_measure!, font, size);
+        if (!ReferenceEquals(font, _measureFont) || Math.Abs(size - _measureSize) > 1e-9)
+        {
+            SkiaFonts.Setup(_measure!, font, size);
+        }
 
         (_measureFont, _measureSize) = (font, size);
-        return _measure!.TextExtents(Utf8(ref _utf8, text)).XAdvance;
+        return _measure!.MeasureText(text);
     }
 
     // The longest start of text that fits width with an ellipsis (whole if it fits). trimmed: at least one character, and

@@ -59,11 +59,11 @@ internal sealed class HudUiFonts
         Epoch++;
     }
 
-    private static double Row(CairoFont font) => font.GetFontExtents().Height * 1.12;
+    private static double Row(CairoFont font) => SkiaFonts.Height(font, scaled(font.UnscaledFontsize)) * 1.12;
 }
 
 // The options screen's fonts in a style's families, rebuilt on font or GUI scale change (GUIScale has no event). Main
-// thread: CairoFont measures on the engine's context.
+// thread: the descriptor is measured with Skia, no Cairo context.
 internal sealed class HudFonts
 {
     private const double BaseFontSize = 14, BaseTitleSize = 16, HeaderPad = 2, BadgePad = 3;
@@ -139,5 +139,6 @@ internal sealed class HudFonts
         Epoch++;
     }
 
-    private static double Height(CairoFont font) => font.GetFontExtents().Height * font.LineHeightMultiplier;
+    private static double Height(CairoFont font) =>
+        SkiaFonts.Height(font, scaled(font.UnscaledFontsize)) * font.LineHeightMultiplier;
 }

@@ -1,7 +1,7 @@
 using System.Globalization;
-using Cairo;
 using Komet.Core;
 using Komet.Hud;
+using SkiaSharp;
 
 namespace Komet.Options;
 
@@ -65,7 +65,7 @@ internal sealed class StyleSheet
 
     public string Id { get; }
     public string Name { get; }
-    public ImageSurface? Logo { get; private set; }
+    public SKBitmap? Logo { get; private set; }
 
     public string?
         Shader { get; private init; } // the background's fragment source; null: Blur says what is under the screen
@@ -98,7 +98,7 @@ internal sealed class StyleSheet
             new Dictionary<string, double>(SizeDefaults), []);
 
     // merged: the style with its Base chain already applied; shader and logo as resolved by the library
-    public static StyleSheet From(StyleData merged, string? shader, ImageSurface? logo, ILogger? logger)
+    public static StyleSheet From(StyleData merged, string? shader, SKBitmap? logo, ILogger? logger)
     {
         if (!NotNull(merged) || !Assert(merged.Id.Length > 0)) return Fallback();
 
@@ -168,7 +168,7 @@ internal sealed class StyleSheet
         return new Rgba((v >> 24) / 255.0, ((v >> 16) & 0xFF) / 255.0, ((v >> 8) & 0xFF) / 255.0, (v & 0xFF) / 255.0);
     }
 
-    // The logo's surface freed; the library calls it when no paint can still read it
+    // The logo's bitmap freed; the library calls it when no paint can still read it
     public void Release()
     {
         if (Logo is not { } logo) return;

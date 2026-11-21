@@ -1,78 +1,6 @@
 # Changelog
 
-## 3.1.7 (2026-11-20)
-
-### Fixed
-
-- Mod startup no longer aborts on clients whose engine has more than one `populateTesselatedChunkPart` overload (for
-  example the Optimum client). `FaceSorting` now pins the exact signature; the other features, the renderer hotkeys and
-  the Shader Studio install as usual again.
-
-### Changed
-
-- Removed the cover that darkened the view when the camera was inside a solid block. Caves and the underground stay
-  visible when flying through the ground in spectator mode.
-
-## 3.1.6 (2026-11-20)
-
-### Changed
-
-- The third renderer choice from 3.1.5 is gone again: **OpenGL** or **Vulkan** are the only choices, and a saved
-  `VulkanOnly` value still reads as before.
-
-### Fixed
-
-- Vulkan-only now presents on native Wayland with NVIDIA. GLFW's window keeps its OpenGL `EGLSurface`, while Vulkan
-  creates a `wl_surface` of its own as a subsurface and presents to that instead; no driver surface is shared and
-  `vkCreateSwapchainKHR` no longer fails with surface lost.
-- Vulkan is no longer refused at startup just because the driver is NVIDIA on Wayland. Only a swapchain that was really
-  lost still stops retries in the same game run.
-- Wayland no longer asks GLFW for the window position (unsupported there), which had logged an error for every frame.
-
-## 3.1.4 (2026-11-20)
-
-### Fixed
-
-- Vulkan-only is no longer started or retried on Wayland with an NVIDIA driver: its WSI leaves the window's `wl_surface`
-  with EGL, so `vkCreateSwapchainKHR` always fails with surface lost and the handback can freeze the game. OpenGL draws
-  the world and Vulkan still does the compute work.
-- Once a Vulkan swapchain has actually been lost, further retries in the same game run are refused instead of repeating
-  the freeze.
-
-## 3.1.3 (2026-11-20)
-
-### Fixed
-
-- When a Vulkan swapchain is refused after Vulkan took over a Wayland window, the frame that hands the window back no
-  longer asks GLFW to present it. On NVIDIA/Wayland that swap spun on the main thread and froze the game with audio
-  still running; the next frame presents through OpenGL as usual.
-
-### Changed
-
-- Hang dumps now also mark the GLFW buffer swap and the end of the Vulkan handback, to name that step if a driver still
-  stalls there.
-
-## 3.1.2 (2026-11-20)
-
-### Fixed
-
-- The frame pacer's yield wait is now bounded in time as well as by iteration count. A frame stopwatch that no longer
-  advances can no longer hold the main thread in a user-space spin for tens of seconds.
-
-### Changed
-
-- Hang reports now include the last distinct Komet steps (pacing, Vulkan handback, terrain rebuild) ahead of the thread
-  states, so a hang without managed stacks still names the step where work stopped.
-
-## 3.1.1 (2026-11-20)
-
-### Fixed
-
-- A failed Vulkan-only handback could leave a worker batch unfinished; the main thread then spun in a 16 million
-  iteration wait for tens of seconds instead of getting on with the frame. Frustum culling now falls back to the main
-  thread after a short, bounded wait, and the worker pool reports a timeout instead of spinning.
-
-## 3.1.0 (2026-11-20)
+## 3.2.0 (2026-11-21)
 
 ### Added
 
@@ -81,11 +9,48 @@
 - One consolidated log per run: `Logs/komet.log` gathers `client-main.log`, `client-debug.log`, the Vulkan watch traces
   and the path of each debug protocol. The engine archives it with the session, so a bug report needs a single file.
 
+### Changed
+
+- Komet's own GUI (HUD, options, fonts and logo) is painted with SkiaSharp instead of CairoSharp. Its pages go through
+  the engine's normal texture upload, which Vulkan mirrors directly, so the HUD and menus no longer depend on the
+  expensive GUI texture readback. `CairoFont` stays only as the engine's font descriptor.
+- Vulkan-only presents on native Wayland with NVIDIA. GLFW's window keeps its OpenGL `EGLSurface`, while Vulkan creates
+  a `wl_surface` of its own as a subsurface and presents to that instead; no driver surface is shared and
+  `vkCreateSwapchainKHR` no longer fails with surface lost. The renderer choices are OpenGL and Vulkan again (a saved
+  `VulkanOnly` value still reads as before).
+- Removed Komet's camera-inside-block cover completely: the renderer, its setting, language keys and the bench
+  camera-under-ground helper are gone. What the engine shows with the head inside a block is what Komet shows on both
+  OpenGL and Vulkan; there is no Komet fill, clear-colour or fog special case for it.
+- Load queue without garbage (*ChunkQueueWalk*) is on by default. A value already saved in `komet.json` still wins.
+- Hang reports now include the last distinct Komet steps (pacing, Vulkan handback, terrain rebuild) ahead of the thread
+  states, and hang dumps also mark the GLFW buffer swap and the end of the Vulkan handback, so a hang without managed
+  stacks still names the step where work stopped.
+
 ### Fixed
 
+- The HUD returns under Vulkan-only with Optimum's Skia GUI backend. Skia renders through GLFW procedure addresses
+  outside Komet's GL tap, so Komet takes the finished GUI texture from Cairo's upload seam and reads it back into
+  Vulkan instead of showing an empty image.
+- Vulkan pool births accept the engine bodies changed by Optimum 0.4.1 on Vintage Story 1.22.7, so terrain keeps its
+  pools instead of falling back to OpenGL buffers that cannot be read back.
+- Mod startup no longer aborts on clients whose engine has more than one `populateTesselatedChunkPart` overload (for
+  example the Optimum client). `FaceSorting` now pins the exact signature; the other features, the renderer hotkeys and
+  the Shader Studio install as usual again.
+- On Vintage Story 1.23, Escape → Settings opens Komet's options again when a point release rebuilds the engine's
+  graphics tab bodies. The menu patch falls back to a structural check of the six tabs and its fields, recognized by the
+  DPI scale 1.23 added; an unknown engine still keeps its own settings menu.
+- Wayland no longer asks GLFW for the window position (unsupported there), which had logged an error for every frame.
+- Vulkan is no longer refused at startup just because the driver is NVIDIA on Wayland; only a swapchain that was really
+  lost still stops retries in the same game run. When a swapchain is refused after Vulkan took over a Wayland window, the
+  frame that hands the window back no longer asks GLFW to present it, which had spun on the main thread and frozen the
+  game on NVIDIA/Wayland.
+- A failed Vulkan-only handback could leave a worker batch unfinished; frustum culling now falls back to the main thread
+  after a short, bounded wait instead of spinning in a 16 million iteration wait, and the worker pool reports a timeout.
+  The frame pacer's yield wait is bounded in time as well as by iteration count, so a frame stopwatch that no longer
+  advances can no longer hold the main thread in a user-space spin for tens of seconds.
 - All engine warnings from 1.23 are gone; the port no longer relies on modified engine assemblies.
-- Crashes on 1.23 in `KeyframeShare`, occlusion culling, the OIT statics fallback, the mesh data pool and frustum
-  culling (the engine's new origin fields).
+- Crashes on 1.23 in `KeyframeShare`, occlusion culling, the OIT statics fallback, the mesh data pool and frustum culling
+  (the engine's new origin fields).
 - Features the 1.23 engine now provides itself disable cleanly with an explicit message: `AnimationFrames`, the JSON
   tessellation slot and the `Ignitable` transpiler in `BlockEntityCaches`.
 - `LightRepair` now fully relights partially loaded columns from older worlds instead of skipping them silently.

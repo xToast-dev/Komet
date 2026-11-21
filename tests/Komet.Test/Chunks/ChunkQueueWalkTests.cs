@@ -37,6 +37,7 @@ public sealed class ChunkQueueWalkTests
         Assert.That((bool)walker.GetMethod("Bind")!.Invoke(null, [queueType])!, Is.True);
 
         var engine = Indices(((IEnumerable)queue).GetEnumerator());
+        var enabled = ChunkQueueWalk.Enabled;
         ChunkQueueWalk.Enabled = true;
         try
         {
@@ -56,7 +57,7 @@ public sealed class ChunkQueueWalkTests
         }
         finally
         {
-            ChunkQueueWalk.Enabled = false;
+            ChunkQueueWalk.Enabled = enabled;
         }
     }
 

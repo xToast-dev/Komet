@@ -45,10 +45,14 @@ internal static partial class VulkanRenderer
                      nameof(ClientPlatformWindows.LoadOrUpdateCairoTexture)
                  ])
         {
-            if (AccessTools.DeclaredMethod(platform, cairo) is { } made) // the GUI's: never lean
-            {
-                _ = harmony.Patch(made, Of(nameof(CairoMaking)), finalizer: Of(nameof(CairoMade)));
-            }
+            if (AccessTools.DeclaredMethod(platform, cairo) is not { } made) continue; // the GUI's: never lean
+
+            // Skia's GL calls go through GLFW's procedure addresses, past the GL tap. Its finished texture is told
+            // here, so Vulkan can read it back instead of showing an empty GUI image.
+            var port = cairo == nameof(ClientPlatformWindows.LoadCairoTexture)
+                ? Of(nameof(CairoLoaded))
+                : Of(nameof(CairoUpdated));
+            _ = harmony.Patch(made, Of(nameof(CairoMaking)), postfix: port, finalizer: Of(nameof(CairoMade)));
         }
 
         IndirectDraw.Takeover = Takeover;

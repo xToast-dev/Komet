@@ -1,6 +1,6 @@
 namespace Komet.Hud;
 
-// Fade, shadow, hover, click flash and tab underline as tinted quads of one white canvas each frame: no Cairo, no
+// Fade, shadow, hover, click flash and tab underline as tinted quads of one white canvas each frame: no own texture, no
 // recompose.
 internal sealed class HudMotion(ICoreClientAPI capi) : IDisposable
 {
